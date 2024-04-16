@@ -1,0 +1,237 @@
+use std::alloc::{dealloc, Layout};
+use std::{mem, ptr};
+use std::fmt::{Debug, Formatter};
+
+
+#[derive(Clone)]
+pub(crate) struct ByteTrieNode<V> {
+    pub(crate) mask: [u64; 4],
+    pub(crate) values: Vec<V>
+}
+
+impl <V : Debug> Debug for ByteTrieNode<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+               "Node(mask: {:b} {:b} {:b} {:b}, values: {:?})",
+               self.mask[0], self.mask[1], self.mask[2], self.mask[3],
+               self.values)
+    }
+}
+
+pub(crate) struct ShortTrieMap<V> {
+    pub(crate) root: ByteTrieNode<*mut ByteTrieNode<V>>
+}
+
+impl <V : Clone> FromIterator<(u16, V)> for ShortTrieMap<V> {
+    fn from_iter<I: IntoIterator<Item=(u16, V)>>(iter: I) -> Self {
+        let mut tm = ShortTrieMap::new();
+        for (k, v) in iter { tm.insert(k, v); }
+        tm
+    }
+}
+
+impl <V : Clone> ShortTrieMap<V> {
+    pub fn new() -> Self {
+        Self {
+            root: ByteTrieNode::new()
+        }
+    }
+
+    pub fn items<'a>(&'a self) -> impl Iterator<Item=(u16, V)> + 'a {
+        self.root.items().flat_map(move |(k1, l1)| unsafe {
+            (*l1).items().map(move |(k2, v)| ((k1 as u16) | ((k2 as u16) << 8), v))
+        })
+    }
+
+    pub fn contains(&self, k: u16) -> bool {
+        let k1 = k as u8;
+        let k2 = (k >> 8) as u8;
+        if self.root.contains(k1) {
+            let l1 = self.root.get_unchecked(k1);
+            let rl1 = unsafe { &**l1 };
+            rl1.contains(k2)
+        } else {
+            false
+        }
+    }
+
+    pub fn insert(&mut self, k: u16, v: V) -> bool {
+        let k1 = k as u8;
+        let k2 = (k >> 8) as u8;
+        if self.root.contains(k1) {
+            let l1 = self.root.get_unchecked(k1);
+            let rl1 = unsafe { &mut **l1 };
+            rl1.insert(k2, v)
+        } else {
+            let mut l1 = ByteTrieNode::new();
+            l1.insert(k2, v);
+            let mut rl1 = Box::new(l1);
+            self.root.insert(k1, rl1.as_mut());
+            mem::forget(rl1);
+            false
+        }
+    }
+
+    pub fn remove(&mut self, k: u16) -> Option<V> {
+        let k1 = k as u8;
+        let k2 = (k >> 8) as u8;
+        match self.root.get(k1) {
+            Some(btn) => {
+                let btnr = unsafe { &mut **btn };
+                let r = btnr.remove(k2);
+                if btnr.len() == 0 {
+                    self.root.remove(k1);
+                    unsafe { dealloc(ptr::from_mut(btnr).cast(), Layout::new::<ByteTrieNode<V>>()); }
+                }
+                r
+            }
+            None => None
+        }
+    }
+
+    pub fn deepcopy(&self) -> Self {
+        return self.items().collect();
+    }
+
+    pub fn get(&self, k: u16) -> Option<&V> {
+        let k1 = k as u8;
+        let k2 = (k >> 8) as u8;
+        self.root.get(k1).and_then(|l1| {
+            let rl1 = unsafe { &**l1 };
+            rl1.get(k2)
+        })
+    }
+}
+
+pub struct ByteTrieNodeIter<'a, V> {
+    i: u8,
+    w: u64,
+    btn: &'a ByteTrieNode<V>
+}
+
+impl <'a, V> ByteTrieNodeIter<'a, V> {
+    fn new(btn: &'a ByteTrieNode<V>) -> Self {
+        Self {
+            i: 0,
+            w: btn.mask[0],
+            btn: btn
+        }
+    }
+}
+
+impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
+    type Item = (u8, V);
+
+    fn next(&mut self) -> Option<(u8, V)> {
+        loop {
+            if self.w != 0 {
+                let wi = self.w.trailing_zeros() as u8;
+                self.w ^= 1u64 << wi;
+                let index = self.i*64 + wi;
+                return Some((index, unsafe { self.btn.values.get_unchecked(index as usize).clone() }))
+            } else if self.i < 3 {
+                self.i += 1;
+                self.w = unsafe { *self.btn.mask.get_unchecked(self.i as usize) };
+            } else {
+                return None
+            }
+        }
+    }
+}
+
+impl <V : Clone> ByteTrieNode<V> {
+    pub fn new() -> Self {
+        Self {
+            mask: [0u64; 4],
+            values: Vec::new()
+        }
+    }
+
+    pub fn items<'a>(&'a self) -> ByteTrieNodeIter<'a, V> {
+        ByteTrieNodeIter::new(self)
+    }
+
+    #[inline]
+    pub fn left(&self, pos: u8) -> u8 {
+        if pos == 0 { return 0 }
+        let mut c = 0u8;
+        let m = !0u64 >> (63 - ((pos - 1) & 0b00111111));
+        if pos > 0b01000000 { c += self.mask[0].count_ones() as u8; }
+        else { return c + (self.mask[0] & m).count_ones() as u8 }
+        if pos > 0b10000000 { c += self.mask[1].count_ones() as u8; }
+        else { return c + (self.mask[1] & m).count_ones() as u8 }
+        if pos > 0b11000000 { c += self.mask[2].count_ones() as u8; }
+        else { return c + (self.mask[2] & m).count_ones() as u8 }
+        // println!("{} {:b} {} {}", pos, self.mask[3], m.count_ones(), c);
+        return c + (self.mask[3] & m).count_ones() as u8;
+    }
+
+    #[inline]
+    pub fn contains(&self, k: u8) -> bool {
+        0 != (self.mask[((k & 0b11000000) >> 6) as usize] & (1u64 << (k & 0b00111111)))
+    }
+
+    #[inline]
+    fn set(&mut self, k: u8) -> () {
+        // println!("setting k {} : {} {:b}", k, ((k & 0b11000000) >> 6) as usize, 1u64 << (k & 0b00111111));
+        self.mask[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
+    }
+
+    #[inline]
+    fn clear(&mut self, k: u8) -> () {
+        // println!("setting k {} : {} {:b}", k, ((k & 0b11000000) >> 6) as usize, 1u64 << (k & 0b00111111));
+        self.mask[((k & 0b11000000) >> 6) as usize] &= !(1u64 << (k & 0b00111111));
+    }
+
+    pub fn insert(&mut self, k: u8, v: V) -> bool {
+        let ix = self.left(k) as usize;
+        if self.contains(k) {
+            unsafe {
+                let ptr = self.values.get_unchecked_mut(ix);
+                *ptr = v;
+            }
+            true
+        } else {
+            self.set(k);
+            self.values.insert(ix, v);
+            false
+        }
+    }
+
+    pub fn remove(&mut self, k: u8) -> Option<V> {
+        if self.contains(k) {
+            let v = self.values.remove(k as usize);
+            self.clear(k);
+            return Some(v);
+        }
+        None
+    }
+
+    pub fn get(&self, k: u8) -> Option<&V> {
+        if self.contains(k) {
+            let ix = self.left(k) as usize;
+            // println!("pos ix {} {} {:b}", pos, ix, self.mask);
+            return unsafe { Some(self.values.get_unchecked(ix)) };
+        };
+        return None;
+    }
+
+    #[inline]
+    pub fn get_unchecked(&self, k: u8) -> &V {
+        let ix = self.left(k) as usize;
+        // println!("pos ix {} {} {:b}", pos, ix, self.mask);
+        return unsafe { self.values.get_unchecked(ix) };
+    }
+
+    #[inline]
+    pub fn get_unchecked_mut(&mut self, k: u8) -> &mut V {
+        let ix = self.left(k) as usize;
+        // println!("pos ix {} {} {:b}", pos, ix, self.mask);
+        return unsafe { self.values.get_unchecked_mut(ix) };
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        return (self.mask[0].count_ones() + self.mask[1].count_ones() + self.mask[2].count_ones() + self.mask[3].count_ones()) as usize;
+    }
+}
+
