@@ -5,7 +5,7 @@ use std::iter::empty;
 
 
 #[derive(Clone)]
-pub(crate) struct ByteTrieNode<V> {
+pub struct ByteTrieNode<V> {
     pub(crate) mask: [u64; 4],
     pub(crate) values: Vec<V>
 }
@@ -21,12 +21,12 @@ impl <V : Debug> Debug for ByteTrieNode<V> {
 
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CoFree<V> {
+pub struct CoFree<V> {
     pub(crate) rec: *mut ByteTrieNode<CoFree<V>>,
     pub(crate) value: Option<V>
 }
 
-pub(crate) struct BytesTrieMap<V> {
+pub struct BytesTrieMap<V> {
     pub(crate) root: ByteTrieNode<CoFree<V>>
 }
 
@@ -156,7 +156,7 @@ impl <V : Clone> BytesTrieMap<V> {
 }
 
 
-pub(crate) struct ShortTrieMap<V> {
+pub struct ShortTrieMap<V> {
     pub(crate) root: ByteTrieNode<*mut ByteTrieNode<V>>
 }
 
