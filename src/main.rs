@@ -1,15 +1,17 @@
 mod bytetrie;
 mod bittrie;
 mod bittrie_alloc;
+// mod bytetrie_alloc;
+// mod bytetrie_alloc_simd;
 
 use std::alloc::{alloc, dealloc, Layout};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::mem;
+use std::{mem, ptr};
 use std::ops::BitOr;
 use std::time::Instant;
 // use bbtrie_sets::BBTrieSet;
-use crate::bytetrie::ByteTrieNode;
+use crate::bytetrie::{ByteTrieNode, BytesTrieMap, CoFree};
 use crate::bytetrie::ShortTrieMap;
 // use crate::bitmap::BitTrieMap;
 use crate::bittrie_alloc::{BitTrieMap, MEM, Value};
@@ -187,6 +189,18 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
     }
 }
 
+impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for Option<V> {
+    fn subtract(&self, other: &Self) -> Self {
+        match self {
+            None => { None }
+            Some(s) => { match other {
+                None => { Some(s.clone()) }
+                Some(o) => { s.psubtract(o) }
+            } }
+        }
+    }
+}
+
 impl <V : Clone> MapRing<V> for Option<V> {
     fn join_with(&self, other: &Self, op: fn(&V, &V) -> V) -> Self {
         match self {
@@ -235,6 +249,13 @@ impl Lattice for u64 {
 impl Lattice for &u64 {
     fn join(&self, other: &Self) -> Self { self }
     fn meet(&self, other: &Self) -> Self { self }
+}
+
+impl PartialDistributiveLattice for u64 {
+    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
+        if self == other { None }
+        else { Some(*self) }
+    }
 }
 
 impl Lattice for u32 {
@@ -332,6 +353,7 @@ impl<V : Copy + Lattice> Lattice for ByteTrieNode<V> {
         for i in 0..4 {
             let mut lm = jm[i];
             while lm != 0 {
+                // this body runs at most 256 times, in the case there is 100% overlap between full nodes
                 let index = lm.trailing_zeros();
                 // println!("{}", index);
                 if ((1u64 << index) & mm[i]) != 0 {
@@ -446,31 +468,67 @@ impl <V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for Byte
 
 impl <V : Copy + Lattice> Lattice for *mut ByteTrieNode<V> {
     fn join(&self, other: &Self) -> Self {
-        let v = unsafe { self.as_ref().unwrap().join(other.as_ref().unwrap()) };
-        let mut vb = Box::new(v);
-        let p = vb.as_mut() as Self;
-        mem::forget(vb);
-        p
+        unsafe {
+        match self.as_ref() {
+            None => { *other }
+            Some(sptr) => {
+                match other.as_ref() {
+                    None => { ptr::null_mut() }
+                    Some(optr) => {
+                        let v = unsafe { sptr.join(optr) };
+                        let mut vb = Box::new(v);
+                        let p = vb.as_mut() as Self;
+                        mem::forget(vb);
+                        p
+                    }
+                }
+            }
+        }
+        }
     }
 
     fn meet(&self, other: &Self) -> Self {
-        let v = unsafe { self.as_ref().unwrap().meet(other.as_ref().unwrap()) };
-        let mut vb = Box::new(v);
-        let p = vb.as_mut() as Self;
-        mem::forget(vb);
-        p
+        unsafe {
+            match self.as_ref() {
+                None => { ptr::null_mut() }
+                Some(sptr) => {
+                    match other.as_ref() {
+                        None => { ptr::null_mut() }
+                        Some(optr) => {
+                            let v = unsafe { sptr.meet(optr) };
+                            let mut vb = Box::new(v);
+                            let p = vb.as_mut() as Self;
+                            mem::forget(vb);
+                            p
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 impl<V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for *mut ByteTrieNode<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
-        let v = unsafe { self.as_ref().unwrap().subtract(other.as_ref().unwrap()) };
-        if v.len() == 0 { None }
-        else {
-            let mut vb = Box::new(v);
-            let p = vb.as_mut() as Self;
-            mem::forget(vb);
-            Some(p)
+        unsafe {
+        match self.as_ref() {
+            None => { None }
+            Some(sr) => {
+                match other.as_ref() {
+                    None => { Some(*self) }
+                    Some(or) => {
+                        let v = sr.subtract(or);
+                        if v.len() == 0 { None }
+                        else {
+                            let mut vb = Box::new(v);
+                            let p = vb.as_mut() as Self;
+                            mem::forget(vb);
+                            Some(p)
+                        }
+                    }
+                }
+            }
+        }
         }
     }
 }
@@ -497,9 +555,109 @@ impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for ShortTrieMap
     }
 }
 
+impl<V : Copy + Lattice> Lattice for CoFree<V> {
+    fn join(&self, other: &Self) -> Self {
+        CoFree {
+            rec: self.rec.join(&other.rec),
+            value: self.value.join(&other.value)
+        }
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        CoFree {
+            rec: self.rec.meet(&other.rec),
+            value: self.value.meet(&other.value)
+        }
+    }
+}
+
+impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
+    fn subtract(&self, other: &Self) -> Self {
+        CoFree {
+            rec: self.rec.psubtract(&other.rec).unwrap_or(ptr::null_mut()),
+            value: self.value.subtract(&other.value)
+        }
+    }
+}
+
+impl<V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
+    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
+        // .unwrap_or(ptr::null_mut())
+        let r = self.rec.psubtract(&other.rec);
+        let v = self.value.subtract(&other.value);
+        match r {
+            None => { if v.is_none() { None } else { Some(CoFree{ rec: ptr::null_mut(), value: v }) } }
+            Some(sr) => { Some(CoFree{ rec: sr, value: v }) }
+        }
+    }
+}
+
+impl<V : Copy + Lattice> Lattice for BytesTrieMap<V> {
+    fn join(&self, other: &Self) -> Self {
+        Self {
+            root: self.root.join(&other.root),
+        }
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        Self {
+            root: self.root.meet(&other.root),
+        }
+    }
+}
+
+impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
+    fn subtract(&self, other: &Self) -> Self {
+        Self {
+            root: self.root.subtract(&other.root),
+        }
+    }
+}
+
+impl<V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
+    fn psubtract(&self, other: &Self) -> Option<Self> {
+        let s = self.root.subtract(&other.root);
+        if s.len() == 0 { None }
+        else { Some(Self { root: s }) }
+    }
+}
+
+
 impl Value for u64 {}
 
+fn prefix_key(k: u64) -> Vec<u8> {
+    // TODO
+    let bs = (8 - k.leading_zeros()/8) as u8;
+    match bs {
+        0 => { vec![0] }
+        1 => { vec![k as u8] }
+        2 => { vec![(k >> 8) as u8, k as u8] }
+        3 => { vec![(k >> 16) as u8, (k >> 8) as u8, k as u8] }
+        5 => { vec![(k >> 24) as u8, (k >> 16) as u8, (k >> 8) as u8, k as u8] }
+        _ => { unreachable!() }
+    }
+}
+
+fn from_prefix_key(k: Vec<u8>) -> u64 {
+    match k.len() {
+        0 => { 0 }
+        1 => { k[0] as u64 }
+        2 => { ((k[0] as u64) << 8) | k[1] as u64 }
+        3 => { ((k[0] as u64) << 16) | ((k[1] as u64) << 8) | k[2] as u64 }
+        5 => { ((k[0] as u64) << 24) | ((k[1] as u64) << 16) | ((k[2] as u64) << 8) | k[3] as u64 }
+        _ => { unreachable!() }
+    }
+}
+
 fn main() {
+    // println!("{:?}", prefix_key(30));
+    // println!("{:?}", prefix_key(300));
+    // println!("{:?}", prefix_key(30000));
+    // println!("{:?}", prefix_key(3000000));
+    // println!("{:?}", prefix_key(u32::MAX as u64 + 1));
+    // println!("{:?}", prefix_key(1u64 << 48 | 1u64 << 22));
+    // println!("{:?}", prefix_key(u64::MAX - 1));
+
     // unsafe {
     //     core::ptr::write(
     //         &mut MEM,
@@ -566,39 +724,78 @@ fn main() {
     //     println!("{}", t4.elapsed().as_nanos() as f64/N as f64);
     // }
 
-    const N: u16 = 16000;
+    // const N: u16 = 16000;
+    // let overlap = 0.5;
+    // let O = ((1. - overlap) * N as f64) as u16;
+    // {
+    //     let mut vnl = ShortTrieMap::new();
+    //     let mut vnr = ShortTrieMap::new();
+    //     for i in 0..N { vnl.insert(i, i); }
+    //     let mut c: Vec<u16> = Vec::with_capacity(N as usize);
+    //     vnl.items().for_each(|(k, v)| {
+    //         assert!(0 <= v && v < N);
+    //         assert_eq!(k, v);
+    //         c.push(k);
+    //     });
+    //     c.sort();
+    //     assert_eq!(c, (0..N).collect::<Vec<u16>>());
+    //     for i in O..(N+O) { vnr.insert(i, i); }
+    //
+    //     let t0 = Instant::now();
+    //     let j = vnl.join(&vnr);
+    //     // 32, 21, 14, 8, 6
+    //     println!("{}", t0.elapsed().as_nanos() as f64/N as f64);
+    //     let m = vnl.meet(&vnr);
+    //     let mut l_no_r = vnl.subtract(&vnr);
+    //     for i in 0..N { assert_eq!(l_no_r.get(i), vnl.get(i)); }
+    //     for i in N..(2*N) { assert!(!l_no_r.contains(i)); }
+    //
+    //     for i in O..N { assert!(vnl.contains(i) && vnr.contains(i)); }
+    //     for i in 0..O { assert!(vnl.contains(i) && !vnr.contains(i)); }
+    //     for i in N..(N+O) { assert!(!vnl.contains(i) && vnr.contains(i)); }
+    //     for i in 0..(2*N) { assert_eq!(j.contains(i), (vnl.contains(i) || vnr.contains(i))); }
+    //     for i in 0..(2*N) { assert_eq!(m.contains(i), (vnl.contains(i) && vnr.contains(i))); }
+    //     for i in 0..(N+O) { assert_eq!(j.get(i), vnl.get(i).join(&vnr.get(i))); }
+    //     for i in O..N { assert_eq!(m.get(i), vnl.get(i).meet(&vnr.get(i))); }
+    //     // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
+    // }
+
+    const N: u64 = 1000;
     let overlap = 0.5;
-    let O = ((1. - overlap) * N as f64) as u16;
+    let O = ((1. - overlap) * N as f64) as u64;
     {
-        let mut vnl = ShortTrieMap::new();
-        let mut vnr = ShortTrieMap::new();
-        for i in 0..N { vnl.insert(i, i); }
-        let mut c: Vec<u16> = Vec::with_capacity(N as usize);
+        let mut vnl = BytesTrieMap::new();
+        let mut vnr = BytesTrieMap::new();
+        for i in 0..N { vnl.insert(prefix_key(i), i); }
+        // println!("{:?}", vnl.root);
+        for i in 0..N { assert_eq!(vnl.get(prefix_key(i)), Some(i).as_ref()); }
+        for i in N..2*N { assert_eq!(vnl.get(prefix_key(i)), None); }
+        let mut c: Vec<u64> = Vec::with_capacity(N as usize);
         vnl.items().for_each(|(k, v)| {
             assert!(0 <= v && v < N);
-            assert_eq!(k, v);
-            c.push(k);
+            assert_eq!(k, prefix_key(v));
+            c.push(from_prefix_key(k));
         });
         c.sort();
-        assert_eq!(c, (0..N).collect::<Vec<u16>>());
-        for i in O..(N+O) { vnr.insert(i, i); }
+        assert_eq!(c, (0..N).collect::<Vec<u64>>());
+        for i in O..(N+O) { vnr.insert(prefix_key(i), i); }
 
         let t0 = Instant::now();
         let j = vnl.join(&vnr);
-        // 32, 21, 14, 8, 6
+        // 8, 7, 5, 5, 4
         println!("{}", t0.elapsed().as_nanos() as f64/N as f64);
         let m = vnl.meet(&vnr);
         let mut l_no_r = vnl.subtract(&vnr);
-        for i in 0..N { assert_eq!(l_no_r.get(i), vnl.get(i)); }
-        for i in N..(2*N) { assert!(!l_no_r.contains(i)); }
+        for i in 0..N { assert_eq!(l_no_r.get(prefix_key(i)), vnl.get(prefix_key(i))); }
+        for i in N..(2*N) { assert!(!l_no_r.contains(prefix_key(i))); }
 
-        for i in O..N { assert!(vnl.contains(i) && vnr.contains(i)); }
-        for i in 0..O { assert!(vnl.contains(i) && !vnr.contains(i)); }
-        for i in N..(N+O) { assert!(!vnl.contains(i) && vnr.contains(i)); }
-        for i in 0..(2*N) { assert_eq!(j.contains(i), (vnl.contains(i) || vnr.contains(i))); }
-        for i in 0..(2*N) { assert_eq!(m.contains(i), (vnl.contains(i) && vnr.contains(i))); }
-        for i in 0..(N+O) { assert_eq!(j.get(i), vnl.get(i).join(&vnr.get(i))); }
-        for i in O..N { assert_eq!(m.get(i), vnl.get(i).meet(&vnr.get(i))); }
+        for i in O..N { assert!(vnl.contains(prefix_key(i)) && vnr.contains(prefix_key(i))); }
+        for i in 0..O { assert!(vnl.contains(prefix_key(i)) && !vnr.contains(prefix_key(i))); }
+        for i in N..(N+O) { assert!(!vnl.contains(prefix_key(i)) && vnr.contains(prefix_key(i))); }
+        for i in 0..(2*N) { assert_eq!(j.contains(prefix_key(i)), (vnl.contains(prefix_key(i)) || vnr.contains(prefix_key(i)))); }
+        for i in 0..(2*N) { assert_eq!(m.contains(prefix_key(i)), (vnl.contains(prefix_key(i)) && vnr.contains(prefix_key(i)))); }
+        for i in 0..(N+O) { assert_eq!(j.get(prefix_key(i)), vnl.get(prefix_key(i)).join(&vnr.get(prefix_key(i)))); }
+        for i in O..N { assert_eq!(m.get(prefix_key(i)), vnl.get(prefix_key(i)).meet(&vnr.get(prefix_key(i)))); }
         // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
     }
     // {

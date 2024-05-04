@@ -1,6 +1,7 @@
 use std::alloc::{dealloc, Layout};
 use std::{mem, ptr};
 use std::fmt::{Debug, Formatter};
+use std::iter::empty;
 
 
 #[derive(Clone)]
@@ -17,6 +18,143 @@ impl <V : Debug> Debug for ByteTrieNode<V> {
                self.values)
     }
 }
+
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CoFree<V> {
+    pub(crate) rec: *mut ByteTrieNode<CoFree<V>>,
+    pub(crate) value: Option<V>
+}
+
+pub(crate) struct BytesTrieMap<V> {
+    pub(crate) root: ByteTrieNode<CoFree<V>>
+}
+
+impl <V : Clone> BytesTrieMap<V> {
+    pub fn new() -> Self {
+        Self {
+            root: ByteTrieNode::new()
+        }
+    }
+
+    pub fn items<'a>(&'a self) -> Box<dyn Iterator<Item=(Vec<u8>, V)> + 'a> {
+        Box::new(self.root.items().flat_map(move |(k1, cf1)| unsafe {
+            let v= cf1.value.map(|v| (vec![k1], v)).into_iter();
+            let w = match cf1.rec.as_ref() {
+                None => { Box::new(empty()) }
+                Some(btn) => { BytesTrieMap::items(mem::transmute(btn)) }
+            };
+            let rw = w.map(move |(k2, v)|
+                ({ let mut r = k2.clone(); r.insert(0, k1); r }, v));
+            v.chain(rw)
+        }))
+    }
+
+    pub fn contains(&self, k: Vec<u8>) -> bool {
+        self.get(k).is_some()
+    }
+
+    pub fn insert(&mut self, k: Vec<u8>, v: V) -> bool {
+        assert!(k.len() >= 0);
+        let mut node = &mut self.root;
+
+        if k.len() > 1 {
+        for i in 0..k.len() - 1 {
+            unsafe {
+            if node.contains(k[i]) {
+                let cf = node.get_unchecked_mut(k[i]);
+                if cf.rec.as_ref().is_some() {
+                    node = &mut *cf.rec
+                } else {
+                    let l = ByteTrieNode::new();
+                    let mut rl = Box::new(l);
+                    let ptr: *mut ByteTrieNode<CoFree<V>> = rl.as_mut();
+                    mem::forget(rl);
+                    cf.rec = ptr;
+                    node = &mut *ptr;
+                }
+            } else {
+                let l = ByteTrieNode::new();
+                let mut rl = Box::new(l);
+                let ptr: *mut ByteTrieNode<CoFree<V>> = rl.as_mut();
+                mem::forget(rl);
+                node.insert(k[i], CoFree{rec: ptr, value: None});
+                node = &mut *ptr;
+            }
+            }
+        }
+        }
+
+        let lk = k[k.len() - 1];
+        if node.contains(lk) {
+            let cf = node.get_unchecked_mut(lk);
+            match cf.value {
+                None => {
+                    cf.value = Some(v);
+                    false
+                }
+                Some(_) => {
+                    true
+                }
+            }
+        } else {
+            node.insert(k[k.len() - 1], CoFree{ rec: ptr::null_mut() , value: Some(v) })
+        }
+    }
+
+    // pub fn remove(&mut self, k: u16) -> Option<V> {
+    //     let k1 = k as u8;
+    //     let k2 = (k >> 8) as u8;
+    //     match self.root.get(k1) {
+    //         Some(btn) => {
+    //             let btnr = unsafe { &mut **btn };
+    //             let r = btnr.remove(k2);
+    //             if btnr.len() == 0 {
+    //                 self.root.remove(k1);
+    //                 unsafe { dealloc(ptr::from_mut(btnr).cast(), Layout::new::<ByteTrieNode<V>>()); }
+    //             }
+    //             r
+    //         }
+    //         None => None
+    //     }
+    // }
+
+    // pub fn deepcopy(&self) -> Self {
+    //     return self.items().collect();
+    // }
+
+    pub fn get(&self, k: Vec<u8>) -> Option<&V> {
+        let mut node = &self.root;
+
+        if k.len() > 1 {
+        for i in 0..k.len() - 1 {
+            match node.get(k[i]) {
+                Some(cf) => {
+                    if unsafe { cf.rec.as_ref().is_some() } {
+                        unsafe { node = &mut *cf.rec }
+                    } else {
+                        return None
+                    }
+                }
+                None => {
+                    return None
+                }
+            }
+        }
+        }
+
+        match node.get(k[k.len() - 1]) {
+            None => { None }
+            Some(CoFree{ rec: _, value }) => {
+                match value {
+                    None => { None }
+                    Some(v) => { Some(v) }
+                }
+            }
+        }
+    }
+}
+
 
 pub(crate) struct ShortTrieMap<V> {
     pub(crate) root: ByteTrieNode<*mut ByteTrieNode<V>>
