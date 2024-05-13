@@ -12,19 +12,19 @@ fn main() {
     {
         let mut vnl = BytesTrieMap::new();
         let mut vnr = BytesTrieMap::new();
-        for i in 0..N { vnl.insert(prefix_key(i), i); }
+        for i in 0..N { vnl.insert(prefix_key(&i), i); }
         // println!("{:?}", vnl.root);
-        for i in 0..N { assert_eq!(vnl.get(prefix_key(i)), Some(i).as_ref()); }
-        for i in N..2*N { assert_eq!(vnl.get(prefix_key(i)), None); }
+        for i in 0..N { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
+        for i in N..2*N { assert_eq!(vnl.get(prefix_key(&i)), None); }
         let mut c: Vec<u64> = Vec::with_capacity(N as usize);
         vnl.items().for_each(|(k, v)| {
             assert!(0 <= v && v < N);
-            assert_eq!(k, prefix_key(v));
-            c.push(from_prefix_key(k));
+            assert_eq!(k, prefix_key(&v));
+            c.push(from_prefix_key(k.clone()));
         });
         c.sort();
         assert_eq!(c, (0..N).collect::<Vec<u64>>());
-        for i in O..(N+O) { vnr.insert(prefix_key(i), i); }
+        for i in O..(N+O) { vnr.insert(prefix_key(&i), i); }
 
         let t0 = Instant::now();
         let j = vnl.join(&vnr);
@@ -32,16 +32,16 @@ fn main() {
         println!("{}", t0.elapsed().as_nanos() as f64/N as f64);
         let m = vnl.meet(&vnr);
         let mut l_no_r = vnl.subtract(&vnr);
-        for i in 0..N { assert_eq!(l_no_r.get(prefix_key(i)), vnl.get(prefix_key(i))); }
-        for i in N..(2*N) { assert!(!l_no_r.contains(prefix_key(i))); }
+        for i in 0..N { assert_eq!(l_no_r.get(prefix_key(&i)), vnl.get(prefix_key(&i))); }
+        for i in N..(2*N) { assert!(!l_no_r.contains(prefix_key(&i))); }
 
-        for i in O..N { assert!(vnl.contains(prefix_key(i)) && vnr.contains(prefix_key(i))); }
-        for i in 0..O { assert!(vnl.contains(prefix_key(i)) && !vnr.contains(prefix_key(i))); }
-        for i in N..(N+O) { assert!(!vnl.contains(prefix_key(i)) && vnr.contains(prefix_key(i))); }
-        for i in 0..(2*N) { assert_eq!(j.contains(prefix_key(i)), (vnl.contains(prefix_key(i)) || vnr.contains(prefix_key(i)))); }
-        for i in 0..(2*N) { assert_eq!(m.contains(prefix_key(i)), (vnl.contains(prefix_key(i)) && vnr.contains(prefix_key(i)))); }
-        for i in 0..(N+O) { assert_eq!(j.get(prefix_key(i)), vnl.get(prefix_key(i)).join(&vnr.get(prefix_key(i)))); }
-        for i in O..N { assert_eq!(m.get(prefix_key(i)), vnl.get(prefix_key(i)).meet(&vnr.get(prefix_key(i)))); }
+        for i in O..N { assert!(vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i))); }
+        for i in 0..O { assert!(vnl.contains(prefix_key(&i)) && !vnr.contains(prefix_key(&i))); }
+        for i in N..(N+O) { assert!(!vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i))); }
+        for i in 0..(2*N) { assert_eq!(j.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) || vnr.contains(prefix_key(&i)))); }
+        for i in 0..(2*N) { assert_eq!(m.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i)))); }
+        for i in 0..(N+O) { assert_eq!(j.get(prefix_key(&i)), vnl.get(prefix_key(&i)).join(&vnr.get(prefix_key(&i)))); }
+        for i in O..N { assert_eq!(m.get(prefix_key(&i)), vnl.get(prefix_key(&i)).meet(&vnr.get(prefix_key(&i)))); }
         // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
     }
 }
