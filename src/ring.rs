@@ -3,9 +3,13 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::{mem, ptr};
 
-pub trait Lattice {
+pub trait Lattice: Sized {
     fn join(&self, other: &Self) -> Self;
     fn meet(&self, other: &Self) -> Self;
+    fn bottom() -> Self;
+    fn join_all(xs: Vec<&Self>) -> Self {
+        xs.iter().rfold(Self::bottom(), |x, y| x.join(y))
+    }
 }
 
 pub trait MapRing<V> {
@@ -47,6 +51,10 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
                 }
             }
         }
+    }
+
+    fn bottom() -> Self {
+        None
     }
 }
 
@@ -105,11 +113,13 @@ impl <V : Clone> MapRing<V> for Option<V> {
 impl Lattice for u64 {
     fn join(&self, other: &u64) -> u64 { *self }
     fn meet(&self, other: &u64) -> u64 { *self }
+    fn bottom() -> Self { 0 }
 }
 
 impl Lattice for &u64 {
     fn join(&self, other: &Self) -> Self { self }
     fn meet(&self, other: &Self) -> Self { self }
+    fn bottom() -> Self { &0 }
 }
 
 impl PartialDistributiveLattice for u64 {
@@ -122,21 +132,25 @@ impl PartialDistributiveLattice for u64 {
 impl Lattice for u32 {
     fn join(&self, other: &u32) -> u32 { *self }
     fn meet(&self, other: &u32) -> u32 { *self }
+    fn bottom() -> Self { 0 }
 }
 
 impl Lattice for &u32 {
     fn join(&self, other: &Self) -> Self { self }
     fn meet(&self, other: &Self) -> Self { self }
+    fn bottom() -> Self { &0 }
 }
 
 impl Lattice for u16 {
     fn join(&self, other: &u16) -> u16 { *self }
     fn meet(&self, other: &u16) -> u16 { *other }
+    fn bottom() -> Self { 0 }
 }
 
 impl Lattice for &u16 {
     fn join(&self, other: &Self) -> Self { self }
     fn meet(&self, other: &Self) -> Self { other }
+    fn bottom() -> Self { &0 }
 }
 
 impl PartialDistributiveLattice for u16 {
@@ -149,11 +163,13 @@ impl PartialDistributiveLattice for u16 {
 impl Lattice for u8 {
     fn join(&self, other: &u8) -> u8 { *self }
     fn meet(&self, other: &u8) -> u8 { *self }
+    fn bottom() -> Self { 0 }
 }
 
 impl Lattice for &u8 {
     fn join(&self, other: &Self) -> Self { self }
     fn meet(&self, other: &Self) -> Self { self }
+    fn bottom() -> Self { &0 }
 }
 
 impl <K : Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
@@ -185,6 +201,10 @@ impl <K : Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
             }
         }
         return res;
+    }
+
+    fn bottom() -> Self {
+        HashMap::new()
     }
 }
 
@@ -291,6 +311,44 @@ impl<V : Copy + Lattice> Lattice for ByteTrieNode<V> {
 
         return ByteTrieNode::<V>{ mask: mm, values: v };
     }
+
+    fn bottom() -> Self {
+        ByteTrieNode::new()
+    }
+
+    fn join_all(xs: Vec<&Self>) -> Self {
+        let mut jm: [u64; 4] = [0, 0, 0, 0];
+        for x in xs.iter() {
+            jm[0] |= x.mask[0];
+            jm[1] |= x.mask[1];
+            jm[2] |= x.mask[2];
+            jm[3] |= x.mask[3];
+        }
+
+        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+
+        let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
+        let mut v = Vec::with_capacity(l);
+        unsafe { v.set_len(l) }
+
+        let mut c = 0;
+
+        for i in 0..4 {
+            let mut lm = jm[i];
+            while lm != 0 {
+                // this body runs at most 256 times, in the case there is 100% overlap between full nodes
+                let index = lm.trailing_zeros();
+
+                let to_join: Vec<&V> = xs.iter().enumerate().filter_map(|(i, x)| x.get(i as u8)).collect();
+                unsafe { *v.get_unchecked_mut(c) = Lattice::join_all(to_join); }
+
+                lm ^= 1u64 << index;
+                c += 1;
+            }
+        }
+
+        return ByteTrieNode::<V>{ mask: jm, values: v };
+    }
 }
 
 impl <V : Copy + PartialDistributiveLattice> DistributiveLattice for ByteTrieNode<V> {
@@ -367,6 +425,10 @@ impl <V : Copy + Lattice> Lattice for *mut ByteTrieNode<V> {
             }
         }
     }
+
+    fn bottom() -> Self {
+        ptr::null_mut()
+    }
 }
 
 impl<V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for *mut ByteTrieNode<V> {
@@ -406,6 +468,10 @@ impl<V : Copy + Lattice> Lattice for ShortTrieMap<V> {
             root: self.root.meet(&other.root),
         }
     }
+
+    fn bottom() -> Self {
+        ShortTrieMap::new()
+    }
 }
 
 impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for ShortTrieMap<V> {
@@ -428,6 +494,13 @@ impl<V : Copy + Lattice> Lattice for CoFree<V> {
         CoFree {
             rec: self.rec.meet(&other.rec),
             value: self.value.meet(&other.value)
+        }
+    }
+
+    fn bottom() -> Self {
+        CoFree {
+            rec: ptr::null_mut(),
+            value: None
         }
     }
 }
@@ -464,6 +537,10 @@ impl<V : Copy + Lattice> Lattice for BytesTrieMap<V> {
         Self {
             root: self.root.meet(&other.root),
         }
+    }
+
+    fn bottom() -> Self {
+        BytesTrieMap::new()
     }
 }
 
