@@ -88,6 +88,32 @@ impl <V : Clone> BytesTrieMap<V> {
         }
     }
 
+    pub fn at(&self, k: &[u8]) -> Option<&mut BytesTrieMap<V>> {
+        let mut node = &self.root;
+
+        if k.len() > 1 {
+        for i in 0..k.len() - 1 {
+            match node.get(k[i]) {
+                Some(cf) => {
+                    match unsafe { cf.rec.as_ref() } {
+                        Some(r) => { node = r }
+                        None => { return None }
+                    }
+                }
+                None => { return None }
+            }
+        }
+        }
+
+        match node.get(k[k.len() - 1]) {
+            None => { None }
+            Some(CoFree{ rec: r, value: _ }) => {
+                if r.is_null() { None }
+                else { unsafe { Some((*r as *mut BytesTrieMap<V>).as_mut().unwrap_unchecked()) } }
+            }
+        }
+    }
+
     pub fn items<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, V)> + 'a {
         BytesTrieMapIter::new(self)
     }
