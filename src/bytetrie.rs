@@ -72,11 +72,15 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CoFree<V> {
+pub(crate) struct CoFree<V> {
     pub(crate) rec: *mut ByteTrieNode<CoFree<V>>,
     pub(crate) value: Option<V>
 }
 
+/// A map type that uses byte slices `&[u8]` as keys
+///
+/// This type is implemented using some of the approaches explained in the
+/// ["Bitwise trie with bitmap" Wikipedia article](https://en.wikipedia.org/wiki/Bitwise_trie_with_bitmap).
 pub struct BytesTrieMap<V> {
     pub(crate) root: ByteTrieNode<CoFree<V>>
 }
