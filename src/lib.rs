@@ -1,3 +1,4 @@
+#![allow(warnings)]
 pub mod ring;
 pub mod bytize;
 pub mod bytetrie;
@@ -41,11 +42,14 @@ mod tests {
         let mut rz = crate::zipper::ReadZipper::new(&btm);
         rz.child('r' as u8); rz.child('o' as u8); rz.child('m' as u8);
         assert!(rz.child('\'' as u8));
-        assert!(rz.next_sibling());
+        assert!(rz.sibling(true));
         assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]);
-        assert!(rz.next_sibling());
+        assert!(rz.sibling(true));
         assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['l' as u8]);
-        assert!(!rz.next_sibling())
+        assert!(!rz.sibling(true));
+        assert!(rz.sibling(false));
+        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]);
+
         // ' < a < u
         // 39 105 117
     }

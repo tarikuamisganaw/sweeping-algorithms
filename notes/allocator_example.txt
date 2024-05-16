@@ -1,0 +1,31 @@
+page
+bitmasks (64 revisions) (2048 bytes)
+rev1 0b0001 0011
+rev2 0b0001 0001
+rev3 0b0001 0011
+
+children (256) (2048)
+[a b c d]
+
+custom alloc pointer
+size:3, evict:0, rev:0, page: 9384020420u32
+
+custom alloc pointer with child removed
+size:2, evict:0, rev:1, page: 9384020420u32
+
+custom alloc pointer with child replaced
+size:3, evict:0, rev:2, page: 9384020420u32
+
+... 62 modifications
+custom alloc pointer
+evict:1, rev:63, page: 9384020420u32
+
+custom alloc pointer
+size:, evict:0, rev:0, page: 23948034280u32
+
+Option<Box<T>>
+
+
+size:0, evict:0, rev:2, page: 9384020420u32
+ ->
+None
