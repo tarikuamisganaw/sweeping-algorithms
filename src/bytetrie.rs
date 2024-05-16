@@ -71,7 +71,7 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct CoFree<V> {
     pub(crate) rec: *mut ByteTrieNode<CoFree<V>>,
     pub(crate) value: Option<V>

@@ -209,7 +209,7 @@ impl <K : Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
 }
 
 
-impl<V : Copy + Lattice> Lattice for ByteTrieNode<V> {
+impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
     // #[inline(never)]
     fn join(&self, other: &Self) -> Self {
         let jm: [u64; 4] = [self.mask[0] | other.mask[0],
@@ -351,7 +351,7 @@ impl<V : Copy + Lattice> Lattice for ByteTrieNode<V> {
     }
 }
 
-impl <V : Copy + PartialDistributiveLattice> DistributiveLattice for ByteTrieNode<V> {
+impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for ByteTrieNode<V> {
     fn subtract(&self, other: &Self) -> Self {
         let mut btn = self.clone();
 
@@ -385,7 +385,7 @@ impl <V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for Byte
     }
 }
 
-impl <V : Copy + Lattice> Lattice for *mut ByteTrieNode<V> {
+impl<V: Lattice + Clone> Lattice for *mut ByteTrieNode<V> {
     fn join(&self, other: &Self) -> Self {
         unsafe {
             match self.as_ref() {
@@ -394,7 +394,7 @@ impl <V : Copy + Lattice> Lattice for *mut ByteTrieNode<V> {
                     match other.as_ref() {
                         None => { ptr::null_mut() }
                         Some(optr) => {
-                            let v = unsafe { sptr.join(optr) };
+                            let v = sptr.join(optr);
                             let mut vb = Box::new(v);
                             let p = vb.as_mut() as Self;
                             mem::forget(vb);
@@ -414,7 +414,7 @@ impl <V : Copy + Lattice> Lattice for *mut ByteTrieNode<V> {
                     match other.as_ref() {
                         None => { ptr::null_mut() }
                         Some(optr) => {
-                            let v = unsafe { sptr.meet(optr) };
+                            let v = sptr.meet(optr);
                             let mut vb = Box::new(v);
                             let p = vb.as_mut() as Self;
                             mem::forget(vb);
@@ -431,7 +431,7 @@ impl <V : Copy + Lattice> Lattice for *mut ByteTrieNode<V> {
     }
 }
 
-impl<V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for *mut ByteTrieNode<V> {
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for *mut ByteTrieNode<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         unsafe {
             match self.as_ref() {
