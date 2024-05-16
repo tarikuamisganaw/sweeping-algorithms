@@ -39,7 +39,7 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
         loop {
             match self.btnis.last_mut() {
                 None => { return None }
-                Some(mut last) => {
+                Some(last) => {
                     match last.next() {
                         None => {
                             self.prefix.pop();
@@ -81,6 +81,17 @@ pub(crate) struct CoFree<V> {
 ///
 /// This type is implemented using some of the approaches explained in the
 /// ["Bitwise trie with bitmap" Wikipedia article](https://en.wikipedia.org/wiki/Bitwise_trie_with_bitmap).
+///
+/// ```
+/// # use ringmap::bytetrie::BytesTrieMap;
+/// let mut map = BytesTrieMap::<String>::new();
+/// map.insert("one", "1".to_string());
+/// map.insert("two", "2".to_string());
+///
+/// assert!(map.contains("one"));
+/// assert_eq!(map.get("two"), Some(&"2".to_string()));
+/// assert!(!map.contains("three"));
+/// ```
 pub struct BytesTrieMap<V> {
     pub(crate) root: ByteTrieNode<CoFree<V>>
 }
@@ -92,7 +103,8 @@ impl <V : Clone> BytesTrieMap<V> {
         }
     }
 
-    pub fn at(&self, k: &[u8]) -> Option<&mut BytesTrieMap<V>> {
+    pub fn at<K: AsRef<[u8]>>(&self, k: K) -> Option<&mut BytesTrieMap<V>> {
+        let k = k.as_ref();
         let mut node = &self.root;
 
         if k.len() > 1 {
@@ -122,12 +134,12 @@ impl <V : Clone> BytesTrieMap<V> {
         BytesTrieMapIter::new(self)
     }
 
-    pub fn contains(&self, k: &[u8]) -> bool {
+    pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
         self.get(k).is_some()
     }
 
-    pub fn insert(&mut self, k: &[u8], v: V) -> bool {
-        assert!(k.len() >= 0);
+    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
+        let k = k.as_ref();
         let mut node = &mut self.root;
 
         if k.len() > 1 {
@@ -189,8 +201,8 @@ impl <V : Clone> BytesTrieMap<V> {
     //     return self.items().collect();
     // }
 
-    pub fn update<F : FnOnce() -> V>(&mut self, k: &[u8], default: F) -> &mut V {
-        assert!(k.len() >= 0);
+    pub fn update<K: AsRef<[u8]>, F : FnOnce() -> V>(&mut self, k: K, default: F) -> &mut V {
+        let k = k.as_ref();
         let mut node = &mut self.root;
 
         if k.len() > 1 {
@@ -218,7 +230,8 @@ impl <V : Clone> BytesTrieMap<V> {
         cf.value.get_or_insert_with(default)
     }
 
-    pub fn get(&self, k: &[u8]) -> Option<&V> {
+    pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
+        let k = k.as_ref();
         let mut node = &self.root;
 
         if k.len() > 1 {
