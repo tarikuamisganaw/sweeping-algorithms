@@ -1,12 +1,15 @@
 
-use divan::{Bencher, black_box};
+use divan::{Divan, Bencher, black_box};
 use ringmap::ring::*;
 use ringmap::bytize::*;
 use ringmap::bytetrie::BytesTrieMap;
 
 fn main() {
     // Run registered benchmarks.
-    divan::main();
+    let divan = Divan::from_args()
+        .sample_count(5000);
+
+    divan.main();
 }
 
 #[divan::bench()] //Note: args can be provided like: #[divan::bench(args = [1, 2, 4, 8, 16, 32])]
