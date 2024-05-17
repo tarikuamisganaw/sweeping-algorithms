@@ -209,7 +209,7 @@ impl <K : Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
 }
 
 
-impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
+impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
     // #[inline(never)]
     fn join(&self, other: &Self) -> Self {
         let jm: [u64; 4] = [self.mask[0] | other.mask[0],
@@ -224,8 +224,8 @@ impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
         let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
 
         let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
-        let mut v = Vec::with_capacity(l);
-        unsafe { v.set_len(l) }
+        let mut v: Vec<V> = Vec::with_capacity(l);
+        v.resize(l, V::default());
 
         let mut l = 0;
         let mut r = 0;
@@ -242,18 +242,21 @@ impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.join(rv);
                     // println!("pushing lv rv j {:?} {:?} {:?}", lv, rv, jv);
-                    unsafe { *v.get_unchecked_mut(c) = jv; }
+                    let dst = unsafe { v.get_unchecked_mut(c) };
+                    *dst = jv;
                     l += 1;
                     r += 1;
                 } else if ((1u64 << index) & self.mask[i]) != 0 {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     // println!("pushing lv {:?}", lv);
-                    unsafe { *v.get_unchecked_mut(c) = lv.clone(); }
+                    let dst = unsafe { v.get_unchecked_mut(c) };
+                    *dst = lv.clone();
                     l += 1;
                 } else {
                     let rv = unsafe { other.values.get_unchecked(r) };
                     // println!("pushing rv {:?}", rv);
-                    unsafe { *v.get_unchecked_mut(c) = rv.clone() };
+                    let dst = unsafe { v.get_unchecked_mut(c) };
+                    *dst = rv.clone();
                     r += 1;
                 }
                 lm ^= 1u64 << index;
@@ -281,7 +284,7 @@ impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
 
         let l = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
         let mut v = Vec::with_capacity(l);
-        unsafe { v.set_len(l) }
+        v.resize(l, V::default());
 
         let mut l = 0;
         let mut r = 0;
@@ -296,7 +299,8 @@ impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.meet(rv);
-                    unsafe { *v.get_unchecked_mut(c) = jv; }
+                    let dst = unsafe { v.get_unchecked_mut(c) };
+                    *dst = jv;
                     l += 1;
                     r += 1;
                     c += 1;
@@ -329,7 +333,7 @@ impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
 
         let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v = Vec::with_capacity(l);
-        unsafe { v.set_len(l) }
+        v.resize(l, V::default());
 
         let mut c = 0;
 
@@ -340,7 +344,8 @@ impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
                 let index = lm.trailing_zeros();
 
                 let to_join: Vec<&V> = xs.iter().enumerate().filter_map(|(i, x)| x.get(i as u8)).collect();
-                unsafe { *v.get_unchecked_mut(c) = Lattice::join_all(to_join); }
+                let dst = unsafe { v.get_unchecked_mut(c) };
+                *dst = Lattice::join_all(to_join);
 
                 lm ^= 1u64 << index;
                 c += 1;
@@ -351,7 +356,7 @@ impl<V : Lattice + Clone> Lattice for ByteTrieNode<V> {
     }
 }
 
-impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for ByteTrieNode<V> {
+impl <V : PartialDistributiveLattice + Clone + Default> DistributiveLattice for ByteTrieNode<V> {
     fn subtract(&self, other: &Self) -> Self {
         let mut btn = self.clone();
 
@@ -365,7 +370,10 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for ByteTrieNo
                     let rv = unsafe { other.get_unchecked(64*(i as u8) + (index as u8)) };
                     match lv.psubtract(rv) {
                         None => { btn.remove(64*(i as u8)); }
-                        Some(jv) => unsafe { *btn.get_unchecked_mut(64*(i as u8)) = jv; }
+                        Some(jv) => {
+                            let dst = unsafe { btn.get_unchecked_mut(64*(i as u8)) };
+                            *dst = jv;
+                        }
                     }
                 }
 
@@ -377,7 +385,7 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for ByteTrieNo
     }
 }
 
-impl <V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for ByteTrieNode<V> {
+impl <V : PartialDistributiveLattice + Clone + Default> PartialDistributiveLattice for ByteTrieNode<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         let r = self.subtract(other);
         if r.len() == 0 { return None }
@@ -385,21 +393,34 @@ impl <V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for Byte
     }
 }
 
-impl<V: Lattice + Clone> Lattice for *mut ByteTrieNode<V> {
+// impl<V: Lattice + Clone> Lattice for Box<ByteTrieNode<V>> {
+//     fn join(&self, other: &Self) -> Self {
+//         Box::new((&**self).join(&**other))
+//     }
+//     fn meet(&self, other: &Self) -> Self {
+//         Box::new((&**self).meet(&**other))
+//     }
+//     fn bottom() -> Self {
+//         unreachable!()
+//     }
+// }
+
+// impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Box<ByteTrieNode<V>> {
+//     fn psubtract(&self, other: &Self) -> Option<Self> {
+//         (&**self).psubtract(&**other).map(|btn| Box::new(btn))
+//     }
+// }
+
+impl<V: Lattice + Clone + Default> Lattice for Option<Box<ByteTrieNode<V>>> {
     fn join(&self, other: &Self) -> Self {
-        unsafe {
-            match self.as_ref() {
-                None => { *other }
-                Some(sptr) => {
-                    match other.as_ref() {
-                        None => { ptr::null_mut() }
-                        Some(optr) => {
-                            let v = sptr.join(optr);
-                            let mut vb = Box::new(v);
-                            let p = vb.as_mut() as Self;
-                            mem::forget(vb);
-                            p
-                        }
+        match self {
+            None => { other.clone() }
+            Some(sptr) => {
+                match other {
+                    None => { None }
+                    Some(optr) => {
+                        let v = sptr.join(optr);
+                        Some(Box::new(v))
                     }
                 }
             }
@@ -407,19 +428,14 @@ impl<V: Lattice + Clone> Lattice for *mut ByteTrieNode<V> {
     }
 
     fn meet(&self, other: &Self) -> Self {
-        unsafe {
-            match self.as_ref() {
-                None => { ptr::null_mut() }
-                Some(sptr) => {
-                    match other.as_ref() {
-                        None => { ptr::null_mut() }
-                        Some(optr) => {
-                            let v = sptr.meet(optr);
-                            let mut vb = Box::new(v);
-                            let p = vb.as_mut() as Self;
-                            mem::forget(vb);
-                            p
-                        }
+        match self {
+            None => { None }
+            Some(sptr) => {
+                match other {
+                    None => { None }
+                    Some(optr) => {
+                        let v = sptr.meet(optr);
+                        Some(Box::new(v))
                     }
                 }
             }
@@ -427,27 +443,23 @@ impl<V: Lattice + Clone> Lattice for *mut ByteTrieNode<V> {
     }
 
     fn bottom() -> Self {
-        ptr::null_mut()
+        None
     }
 }
 
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for *mut ByteTrieNode<V> {
+impl<V: PartialDistributiveLattice + Clone + Default> PartialDistributiveLattice for Option<Box<ByteTrieNode<V>>> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
-        unsafe {
-            match self.as_ref() {
-                None => { None }
-                Some(sr) => {
-                    match other.as_ref() {
-                        None => { Some(*self) }
-                        Some(or) => {
-                            let v = sr.subtract(or);
-                            if v.len() == 0 { None }
-                            else {
-                                let mut vb = Box::new(v);
-                                let p = vb.as_mut() as Self;
-                                mem::forget(vb);
-                                Some(p)
-                            }
+        match self {
+            None => { None }
+            Some(sr) => {
+                match other {
+                    None => { Some(self.clone()) }
+                    Some(or) => {
+                        let v = sr.subtract(or);
+                        if v.len() == 0 { None }
+                        else {
+                            let vb = Box::new(v);
+                            Some(Some(vb))
                         }
                     }
                 }
@@ -456,7 +468,7 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for *mut 
     }
 }
 
-impl<V : Copy + Lattice> Lattice for ShortTrieMap<V> {
+impl<V : Clone + Lattice + Default> Lattice for ShortTrieMap<V> {
     fn join(&self, other: &Self) -> Self {
         Self {
             root: self.root.join(&other.root),
@@ -474,7 +486,7 @@ impl<V : Copy + Lattice> Lattice for ShortTrieMap<V> {
     }
 }
 
-impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for ShortTrieMap<V> {
+impl<V : Clone + Default + PartialDistributiveLattice> DistributiveLattice for ShortTrieMap<V> {
     fn subtract(&self, other: &Self) -> Self {
         Self {
             root: self.root.subtract(&other.root),
@@ -482,7 +494,7 @@ impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for ShortTrieMap
     }
 }
 
-impl<V : Copy + Lattice> Lattice for CoFree<V> {
+impl<V : Clone + Default + Lattice> Lattice for CoFree<V> {
     fn join(&self, other: &Self) -> Self {
         CoFree {
             rec: self.rec.join(&other.rec),
@@ -499,34 +511,34 @@ impl<V : Copy + Lattice> Lattice for CoFree<V> {
 
     fn bottom() -> Self {
         CoFree {
-            rec: ptr::null_mut(),
+            rec: None,
             value: None
         }
     }
 }
 
-impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
+impl<V : Clone + Default + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
     fn subtract(&self, other: &Self) -> Self {
         CoFree {
-            rec: self.rec.psubtract(&other.rec).unwrap_or(ptr::null_mut()),
+            rec: self.rec.psubtract(&other.rec).unwrap_or(None),
             value: self.value.subtract(&other.value)
         }
     }
 }
 
-impl<V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
+impl<V : Clone + Default + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         // .unwrap_or(ptr::null_mut())
         let r = self.rec.psubtract(&other.rec);
         let v = self.value.subtract(&other.value);
         match r {
-            None => { if v.is_none() { None } else { Some(CoFree{ rec: ptr::null_mut(), value: v }) } }
+            None => { if v.is_none() { None } else { Some(CoFree{ rec: None, value: v }) } }
             Some(sr) => { Some(CoFree{ rec: sr, value: v }) }
         }
     }
 }
 
-impl<V : Copy + Lattice> Lattice for BytesTrieMap<V> {
+impl<V : Copy + Default + Lattice> Lattice for BytesTrieMap<V> {
     fn join(&self, other: &Self) -> Self {
         Self {
             root: self.root.join(&other.root),
@@ -544,7 +556,7 @@ impl<V : Copy + Lattice> Lattice for BytesTrieMap<V> {
     }
 }
 
-impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
+impl<V : Copy + Default + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
     fn subtract(&self, other: &Self) -> Self {
         Self {
             root: self.root.subtract(&other.root),
@@ -552,7 +564,7 @@ impl<V : Copy + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap
     }
 }
 
-impl<V : Copy + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
+impl<V : Copy + Default + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         let s = self.root.subtract(&other.root);
         if s.len() == 0 { None }

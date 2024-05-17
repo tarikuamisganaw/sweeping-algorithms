@@ -26,7 +26,7 @@ fn join(bencher: Bencher) {
         for i in N..2*N { assert_eq!(vnl.get(prefix_key(&i)), None); }
         let mut c: Vec<u64> = Vec::with_capacity(N as usize);
         vnl.items().for_each(|(k, v)| {
-            assert!(v < N);
+            assert!(*v < N);
             assert_eq!(k, prefix_key(&v));
             c.push(from_prefix_key(k.clone()));
         });
