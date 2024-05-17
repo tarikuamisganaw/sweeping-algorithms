@@ -90,6 +90,6 @@ fn iter(bencher: Bencher, n: u64) {
     //Benchmark the iterator
     let mut sink = 0;
     bencher.bench_local(|| {
-        map.items().for_each(|(_key, val)| *black_box(&mut sink) = val);
+        map.items().for_each(|(_key, val)| *black_box(&mut sink) = *val);
     });
 }
