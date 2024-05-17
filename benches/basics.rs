@@ -55,3 +55,41 @@ fn join(bencher: Bencher, n: u64) {
         // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
     }
 }
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn insert(bencher: Bencher, n: u64) {
+
+    //Benchmark the insert operation
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        for i in 0..n { black_box(&mut map).insert(prefix_key(&i), i); }
+        *black_box(&mut map) = BytesTrieMap::new();
+    });
+}
+
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn get(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the get operation
+    bencher.bench_local(|| {
+        for i in 0..n {
+            assert_eq!(map.get(prefix_key(&i)), Some(&i));
+        }
+    });
+}
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn iter(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the iterator
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        map.items().for_each(|(_key, val)| *black_box(&mut sink) = val);
+    });
+}
