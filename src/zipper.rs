@@ -81,31 +81,60 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
     }
 
     pub fn nth_child(&mut self, n: u8, forward: bool) -> bool {
+        // println!("n {n}");
         // #iterations can be reduced by popcount(mask[i] & prefix)
-        let mut i = 0;
-        let mut m = self.focus.mask[i];
-        let mut c = 0;
-        let mut c_ahead = m.count_ones() as usize;
-        loop {
-            if (n as usize) < c_ahead { break; }
-            i += 1;
-            if i > 3 { return false }
-            m = self.focus.mask[i];
-            c = c_ahead;
-            c_ahead += m.count_ones() as usize;
-        }
+        let mut child = -1;
+        // this is not DRY but I lost the fight to the Rust compiler
+        let pair = if forward { self.focus.values.iter().enumerate().find(|(_, v)| {
+            let has_child = !v.rec.is_null();
+            if has_child { child += 1; child == (n as i32) } else { false }
+        }) } else { self.focus.values.iter().rev().enumerate().find(|(_, v)| {
+            let has_child = !v.rec.is_null();
+            if has_child { child += 1; child == (n as i32) } else { false }
+        }) };
+        match pair {
+            None => { return false }
+            Some((item, cf)) => {
+                let mut i = if forward { 0 } else { 3 };
+                let mut m = self.focus.mask[i];
+                let mut c = 0;
+                let mut c_ahead = m.count_ones() as usize;
+                loop {
+                    if item < c_ahead { break; }
+                    if forward { i += 1} else { i -= 1 };
+                    if i > 3 || i < 0 { return false }
+                    m = self.focus.mask[i];
+                    c = c_ahead;
+                    c_ahead += m.count_ones() as usize;
+                }
 
-        let loc = m.leading_zeros();
-        while c < (n as usize) {
-            m ^= 1u64 << loc;
-            c += 1;
-        }
+                let mut loc= 0;
+                if forward {
+                    loc = 63 - m.leading_zeros();
+                    while c < item {
+                        m ^= 1u64 << loc;
+                        loc = 63 - m.leading_zeros();
+                        c += 1;
+                    }
+                } else {
+                    loc = m.trailing_zeros();
+                    while c < item {
+                        m ^= 1u64 << loc;
+                        loc = m.trailing_zeros();
+                        c += 1;
+                    }
+                }
 
-        let prefix = (i << 6 | (loc as usize)) as u8;
-        debug_assert!(self.focus.contains(prefix));
-        self.path.push(prefix);
-        self.focus = unsafe { self.focus.values.get_unchecked(c) };
-        true
+                let prefix = (i << 6 | (loc as usize)) as u8;
+                // println!("{:#066b}", self.focus.mask[i]);
+                // println!("{i} {loc} {prefix}");
+                debug_assert!(self.focus.contains(prefix));
+                self.ancestors.push(self.focus);
+                self.path.push(prefix);
+                self.focus = unsafe { &*cf.rec };
+                true
+            }
+        }
     }
 
     // stays on the same level

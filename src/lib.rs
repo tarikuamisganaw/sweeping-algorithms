@@ -40,16 +40,31 @@ mod tests {
                    Some(HashSet::from([("ane".as_bytes().to_vec(), 0), ("anus".as_bytes().to_vec(), 1), ("ulus".as_bytes().to_vec(), 2), ("'i".as_bytes().to_vec(), 7)])));
 
         let mut rz = crate::zipper::ReadZipper::new(&btm);
-        rz.child('r' as u8); rz.child('o' as u8); rz.child('m' as u8);
-        assert!(rz.child('\'' as u8));
-        assert!(rz.sibling(true));
+        rz.child('r' as u8); rz.child('o' as u8); rz.child('m' as u8); // focus = rom
+        assert!(rz.child('\'' as u8)); // focus = rom'  (' is the lowest byte)
+        assert!(rz.sibling(true)); // focus = roma  (a is the second byte)
+        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]); // both follow-ups romane and romanus have n following a
+        assert!(rz.sibling(true)); // focus = romu  (u is the third byte)
+        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['l' as u8]); // and romu is followed by lus
+        assert!(!rz.sibling(true)); // fails (u is the highest byte)
+        assert!(rz.sibling(false)); // focus = roma (we can step back)
+        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]); // again
+        assert!(rz.parent()); // focus = rom
+        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['\'' as u8, 'a' as u8, 'u' as u8]); // all three options we visited
+        assert!(rz.nth_child(0, true)); // focus = rom'
+        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['i' as u8]);
+        assert!(rz.parent()); // focus = rom
+        assert!(rz.nth_child(1, true)); // focus = roma
         assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]);
-        assert!(rz.sibling(true));
+        assert!(rz.parent());
+        assert!(rz.nth_child(2, true)); // focus = romu
         assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['l' as u8]);
-        assert!(!rz.sibling(true));
-        assert!(rz.sibling(false));
+        assert!(rz.parent());
+        assert!(rz.nth_child(1, false)); // focus = roma
         assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]);
-
+        assert!(rz.parent());
+        assert!(rz.nth_child(2, false)); // focus = rom'
+        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['i' as u8]);
         // ' < a < u
         // 39 105 117
     }
