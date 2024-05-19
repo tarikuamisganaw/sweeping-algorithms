@@ -7,12 +7,12 @@ use ringmap::bytetrie::BytesTrieMap;
 fn main() {
     // Run registered benchmarks.
     let divan = Divan::from_args()
-        .sample_count(2000);
+        .sample_count(4000);
 
     divan.main();
 }
 
-#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+#[divan::bench(sample_size = 1, args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_insert(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
@@ -31,7 +31,7 @@ fn sparse_insert(bencher: Bencher, n: u64) {
     divan::black_box_drop(out)
 }
 
-#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+#[divan::bench(sample_size = 1, args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_drop_bench(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
@@ -50,7 +50,7 @@ fn sparse_drop_bench(bencher: Bencher, n: u64) {
     });
 }
 
-#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+#[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
 fn sparse_get(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
