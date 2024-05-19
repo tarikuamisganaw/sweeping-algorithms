@@ -60,10 +60,25 @@ fn join(bencher: Bencher, n: u64) {
 fn insert(bencher: Bencher, n: u64) {
 
     //Benchmark the insert operation
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
-    bencher.bench_local(|| {
+    let out = bencher.with_inputs(|| {
+        BytesTrieMap::new()
+    }).bench_local_values(|mut map| {
         for i in 0..n { black_box(&mut map).insert(prefix_key(&i), i); }
-        *black_box(&mut map) = BytesTrieMap::new();
+        map //Return the map so we don't drop it inside the timing loop
+    });
+    divan::black_box_drop(out)
+}
+
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+fn drop_bench(bencher: Bencher, n: u64) {
+
+    //Benchmark the time taken to drop the map
+    bencher.with_inputs(|| {
+        let mut map = BytesTrieMap::new();
+        for i in 0..n { map.insert(prefix_key(&i), i); }
+        map
+    }).bench_local_values(|map| {
+        drop(map);
     });
 }
 
