@@ -225,7 +225,6 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
 
         let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v: Vec<V> = Vec::with_capacity(len);
-        unsafe{ v.set_len(len); }
 
         let mut l = 0;
         let mut r = 0;
@@ -261,6 +260,7 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
             }
         }
 
+        unsafe{ v.set_len(c); }
         return ByteTrieNode::<V>{ mask: jm, values: v };
     }
 
@@ -281,7 +281,6 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
 
         let len = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
         let mut v = Vec::with_capacity(len);
-        unsafe{ v.set_len(len); }
 
         let mut l = 0;
         let mut r = 0;
@@ -309,6 +308,7 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
             }
         }
 
+        unsafe{ v.set_len(c); }
         return ByteTrieNode::<V>{ mask: mm, values: v };
     }
 
@@ -329,7 +329,6 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
 
         let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v = Vec::with_capacity(len);
-        unsafe{ v.set_len(len); }
 
         let mut c = 0;
 
@@ -348,6 +347,7 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
             }
         }
 
+        unsafe{ v.set_len(c); }
         return ByteTrieNode::<V>{ mask: jm, values: v };
     }
 }
