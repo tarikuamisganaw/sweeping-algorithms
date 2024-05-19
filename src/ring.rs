@@ -5,6 +5,9 @@ use std::{mem, ptr};
 
 pub trait Lattice: Sized {
     fn join(&self, other: &Self) -> Self;
+    fn join_into(&mut self, other: Self) {
+        *self = self.join(&other);
+    }
     fn meet(&self, other: &Self) -> Self;
     fn bottom() -> Self;
     fn join_all(xs: Vec<&Self>) -> Self {
@@ -37,6 +40,18 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
             Some(l) => match other {
                 None => { Some(l.clone()) }
                 Some(r) => { Some(l.join(r)) }
+            }
+        }
+    }
+    fn join_into(&mut self, other: Self) {
+        match self {
+            None => { match other {
+                None => { }
+                Some(r) => { *self = Some(r) }
+            } }
+            Some(l) => match other {
+                None => { }
+                Some(r) => { l.join_into(r) }
             }
         }
     }
@@ -264,6 +279,59 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
         return ByteTrieNode::<V>{ mask: jm, values: v };
     }
 
+    fn join_into(&mut self, mut other: Self) {
+        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
+            self.mask[1] | other.mask[1],
+            self.mask[2] | other.mask[2],
+            self.mask[3] | other.mask[3]];
+        let mm: [u64; 4] = [self.mask[0] & other.mask[0],
+            self.mask[1] & other.mask[1],
+            self.mask[2] & other.mask[2],
+            self.mask[3] & other.mask[3]];
+
+        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+
+        let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
+        let mut v = Vec::with_capacity(l);
+
+        let mut l = 0;
+        let mut r = 0;
+        let mut c = 0;
+
+        for i in 0..4 {
+            let mut lm = jm[i];
+            while lm != 0 {
+                // this body runs at most 256 times, in the case there is 100% overlap between full nodes
+                let index = lm.trailing_zeros();
+                // println!("{}", index);
+                if ((1u64 << index) & mm[i]) != 0 {
+                    let mut lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
+                    let rv = unsafe { std::ptr::read(other.values.get_unchecked_mut(r)) };
+                    lv.join_into(rv);
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv) };
+                    l += 1;
+                    r += 1;
+                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                    let lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv) };
+                    l += 1;
+                } else {
+                    let rv = unsafe { std::ptr::read(other.values.get_unchecked_mut(r)) };
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), rv) };
+                    r += 1;
+                }
+                lm ^= 1u64 << index;
+                c += 1;
+            }
+        }
+
+        unsafe { self.values.set_len(0) }
+        unsafe { other.values.set_len(0) }
+        unsafe { v.set_len(c) }
+        self.mask = jm;
+        self.values = v;
+    }
+
     fn meet(&self, other: &Self) -> Self {
         // TODO this technically doesn't need to calculate and iterate over jm
         // iterating over mm and calculating m such that the following suffices
@@ -423,6 +491,20 @@ impl<V: Lattice + Clone + Default> Lattice for Option<Box<ByteTrieNode<V>>> {
         }
     }
 
+    fn join_into(&mut self, other: Self) {
+        match self {
+            None => { *self = other }
+            Some(sptr) => {
+                match other {
+                    None => { }
+                    Some(optr) => {
+                        sptr.join_into(*optr);
+                    }
+                }
+            }
+        }
+    }
+
     fn meet(&self, other: &Self) -> Self {
         match self {
             None => { None }
@@ -471,6 +553,10 @@ impl<V : Clone + Lattice + Default> Lattice for ShortTrieMap<V> {
         }
     }
 
+    fn join_into(&mut self, other: Self) {
+        self.root.join_into(other.root)
+    }
+
     fn meet(&self, other: &Self) -> Self {
         Self {
             root: self.root.meet(&other.root),
@@ -496,6 +582,11 @@ impl<V : Clone + Default + Lattice> Lattice for CoFree<V> {
             rec: self.rec.join(&other.rec),
             value: self.value.join(&other.value)
         }
+    }
+
+    fn join_into(&mut self, other: Self) {
+        self.rec.join_into(other.rec);
+        self.value.join_into(other.value);
     }
 
     fn meet(&self, other: &Self) -> Self {
@@ -539,6 +630,10 @@ impl<V : Copy + Default + Lattice> Lattice for BytesTrieMap<V> {
         Self {
             root: self.root.join(&other.root),
         }
+    }
+
+    fn join_into(&mut self, other: Self) {
+        self.root.join_into(other.root)
     }
 
     fn meet(&self, other: &Self) -> Self {
