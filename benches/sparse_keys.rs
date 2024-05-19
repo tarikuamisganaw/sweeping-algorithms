@@ -2,6 +2,7 @@
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use divan::{Divan, Bencher, black_box};
 
+use ringmap::ring::*;
 use ringmap::bytetrie::BytesTrieMap;
 
 fn main() {
@@ -68,4 +69,29 @@ fn sparse_get(bencher: Bencher, n: u64) {
             assert_eq!(map.get(&keys[i as usize]), Some(&i));
         }
     });
+}
+
+#[divan::bench(sample_size = 1, args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn join(bencher: Bencher, n: u64) {
+
+    let overlap = 0.5;
+    let o = ((1. - overlap) * n as f64) as u64;
+    {
+        let mut r = StdRng::seed_from_u64(1);
+        let keys: Vec<Vec<u8>> = (0..(n+o)).into_iter().map(|_| {
+            let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+            (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        }).collect();
+
+        let mut vnl = BytesTrieMap::new();
+        let mut vnr = BytesTrieMap::new();
+        for i in 0..n { vnl.insert(&keys[i as usize], i); }
+        for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
+
+        //Benchmark the join operation
+        let mut j: BytesTrieMap<u64> = BytesTrieMap::new();
+        bencher.bench_local(|| {
+            *black_box(&mut j) = vnl.join(black_box(&vnr));
+        });
+    }
 }
