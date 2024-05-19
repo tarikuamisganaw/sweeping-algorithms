@@ -223,9 +223,9 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
 
         let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
 
-        let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
-        let mut v: Vec<V> = Vec::with_capacity(l);
-        v.resize(l, V::default());
+        let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
+        let mut v: Vec<V> = Vec::with_capacity(len);
+        unsafe{ v.set_len(len); }
 
         let mut l = 0;
         let mut r = 0;
@@ -242,21 +242,18 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.join(rv);
                     // println!("pushing lv rv j {:?} {:?} {:?}", lv, rv, jv);
-                    let dst = unsafe { v.get_unchecked_mut(c) };
-                    *dst = jv;
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), jv) };
                     l += 1;
                     r += 1;
                 } else if ((1u64 << index) & self.mask[i]) != 0 {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     // println!("pushing lv {:?}", lv);
-                    let dst = unsafe { v.get_unchecked_mut(c) };
-                    *dst = lv.clone();
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv.clone()) };
                     l += 1;
                 } else {
                     let rv = unsafe { other.values.get_unchecked(r) };
                     // println!("pushing rv {:?}", rv);
-                    let dst = unsafe { v.get_unchecked_mut(c) };
-                    *dst = rv.clone();
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), rv.clone()) };
                     r += 1;
                 }
                 lm ^= 1u64 << index;
@@ -282,9 +279,9 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
 
         let mmc = [mm[0].count_ones(), mm[1].count_ones(), mm[2].count_ones(), mm[3].count_ones()];
 
-        let l = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
-        let mut v = Vec::with_capacity(l);
-        v.resize(l, V::default());
+        let len = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
+        let mut v = Vec::with_capacity(len);
+        unsafe{ v.set_len(len); }
 
         let mut l = 0;
         let mut r = 0;
@@ -299,8 +296,7 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.meet(rv);
-                    let dst = unsafe { v.get_unchecked_mut(c) };
-                    *dst = jv;
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), jv) };
                     l += 1;
                     r += 1;
                     c += 1;
@@ -331,9 +327,9 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
 
         let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
 
-        let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
-        let mut v = Vec::with_capacity(l);
-        v.resize(l, V::default());
+        let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
+        let mut v = Vec::with_capacity(len);
+        unsafe{ v.set_len(len); }
 
         let mut c = 0;
 
@@ -344,8 +340,8 @@ impl<V : Lattice + Clone + Default> Lattice for ByteTrieNode<V> {
                 let index = lm.trailing_zeros();
 
                 let to_join: Vec<&V> = xs.iter().enumerate().filter_map(|(i, x)| x.get(i as u8)).collect();
-                let dst = unsafe { v.get_unchecked_mut(c) };
-                *dst = Lattice::join_all(to_join);
+                let joined = Lattice::join_all(to_join);
+                unsafe { std::ptr::write(v.get_unchecked_mut(c), joined) };
 
                 lm ^= 1u64 << index;
                 c += 1;
