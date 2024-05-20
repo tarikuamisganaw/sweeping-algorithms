@@ -108,14 +108,13 @@ fn join_into_sparse(bencher: Bencher, n: u64) {
             (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
         }).collect();
 
-        let mut vnl = BytesTrieMap::new();
-        let mut vnr = BytesTrieMap::new();
-        for i in 0..n { vnl.insert(&keys[i as usize], i); }
-        for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
-
         //Benchmark the join_into operation
         bencher.with_inputs(|| {
-            (vnl.clone(), vnr.clone())
+            let mut vnl = BytesTrieMap::new();
+            let mut vnr = BytesTrieMap::new();
+            for i in 0..n { vnl.insert(&keys[i as usize], i); }
+            for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
+            (vnl, vnr)
         }).bench_local_values(|(mut left, right)| {
             left.join_into(right);
             left

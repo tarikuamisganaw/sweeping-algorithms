@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct ByteTrieNode<V> {
@@ -70,7 +71,7 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct CoFree<V> {
-    pub(crate) rec: Option<Box<ByteTrieNode<CoFree<V>>>>,
+    pub(crate) rec: Option<Rc<ByteTrieNode<CoFree<V>>>>,
     pub(crate) value: Option<V>
 }
 
@@ -150,9 +151,9 @@ impl <V : Clone> BytesTrieMap<V> {
 
                 if cf.rec.is_none() {
                     let l = ByteTrieNode::new();
-                    cf.rec = Some(Box::new(l));
+                    cf.rec = Some(Rc::new(l));
                 }
-                node = cf.rec.as_mut().unwrap();
+                node = Rc::make_mut(cf.rec.as_mut().unwrap());
             }
         }
 
@@ -205,9 +206,9 @@ impl <V : Clone> BytesTrieMap<V> {
 
                 if cf.rec.is_none() {
                     let l = ByteTrieNode::new();
-                    cf.rec = Some(Box::new(l));
+                    cf.rec = Some(Rc::new(l));
                 }
-                node = cf.rec.as_mut().unwrap();
+                node = Rc::make_mut(cf.rec.as_mut().unwrap());
             }
         }
 
@@ -258,7 +259,7 @@ impl <V : Clone> BytesTrieMap<V> {
 
 #[derive(Clone)]
 pub struct ShortTrieMap<V> {
-    pub(crate) root: ByteTrieNode<Option<Box<ByteTrieNode<V>>>>
+    pub(crate) root: ByteTrieNode<Option<Rc<ByteTrieNode<V>>>>
 }
 
 impl <V : Clone> FromIterator<(u16, V)> for ShortTrieMap<V> {
@@ -298,11 +299,11 @@ impl <V : Clone> ShortTrieMap<V> {
         let k2 = (k >> 8) as u8;
         if self.root.contains(k1) {
             let rl1 = unsafe{ self.root.get_unchecked_mut(k1) };
-            rl1.as_mut().unwrap().insert(k2, v)
+            Rc::make_mut(rl1.as_mut().unwrap()).insert(k2, v)
         } else {
             let mut l1 = ByteTrieNode::new();
             l1.insert(k2, v);
-            let rl1 = Some(Box::new(l1));
+            let rl1 = Some(Rc::new(l1));
             self.root.insert(k1, rl1);
             false
         }
@@ -313,7 +314,7 @@ impl <V : Clone> ShortTrieMap<V> {
         let k2 = (k >> 8) as u8;
         match self.root.get_mut(k1) {
             Some(btn) => {
-                let btnr = &mut **btn.as_mut().unwrap();
+                let btnr = Rc::make_mut(btn.as_mut().unwrap());
                 let r = btnr.remove(k2);
                 if btnr.len() == 0 {
                     btnr.remove(k1);

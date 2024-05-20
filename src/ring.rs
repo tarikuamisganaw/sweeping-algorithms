@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::bytetrie::{BytesTrieMap, ByteTrieNode, ShortTrieMap, CoFree};
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -474,7 +476,7 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Byt
 //     }
 // }
 
-impl<V: Lattice + Clone> Lattice for Option<Box<ByteTrieNode<V>>> {
+impl<V: Lattice + Clone> Lattice for Option<Rc<ByteTrieNode<V>>> {
     fn join(&self, other: &Self) -> Self {
         match self {
             None => { other.clone() }
@@ -483,7 +485,7 @@ impl<V: Lattice + Clone> Lattice for Option<Box<ByteTrieNode<V>>> {
                     None => { None }
                     Some(optr) => {
                         let v = sptr.join(optr);
-                        Some(Box::new(v))
+                        Some(Rc::new(v))
                     }
                 }
             }
@@ -497,7 +499,8 @@ impl<V: Lattice + Clone> Lattice for Option<Box<ByteTrieNode<V>>> {
                 match other {
                     None => { }
                     Some(optr) => {
-                        sptr.join_into(*optr);
+                        let raw_other = Rc::unwrap_or_clone(optr);
+                        Rc::make_mut(sptr).join_into(raw_other);
                     }
                 }
             }
@@ -512,7 +515,7 @@ impl<V: Lattice + Clone> Lattice for Option<Box<ByteTrieNode<V>>> {
                     None => { None }
                     Some(optr) => {
                         let v = sptr.meet(optr);
-                        Some(Box::new(v))
+                        Some(Rc::new(v))
                     }
                 }
             }
@@ -524,7 +527,7 @@ impl<V: Lattice + Clone> Lattice for Option<Box<ByteTrieNode<V>>> {
     }
 }
 
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<Box<ByteTrieNode<V>>> {
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<Rc<ByteTrieNode<V>>> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         match self {
             None => { None }
@@ -535,7 +538,7 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Optio
                         let v = sr.subtract(or);
                         if v.len() == 0 { None }
                         else {
-                            let vb = Box::new(v);
+                            let vb = Rc::new(v);
                             Some(Some(vb))
                         }
                     }
