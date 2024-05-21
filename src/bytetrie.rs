@@ -39,7 +39,7 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
         loop {
             match self.btnis.last_mut() {
                 None => { return None }
-                Some(mut last) => {
+                Some(last) => {
                     match last.next() {
                         None => {
                             self.prefix.pop();
@@ -72,11 +72,27 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct CoFree<V> {
+pub(crate) struct CoFree<V> {
     pub(crate) rec: *mut ByteTrieNode<CoFree<V>>,
     pub(crate) value: Option<V>
 }
 
+/// A map type that uses byte slices `&[u8]` as keys
+///
+/// This type is implemented using some of the approaches explained in the
+/// ["Bitwise trie with bitmap" Wikipedia article](https://en.wikipedia.org/wiki/Bitwise_trie_with_bitmap).
+///
+/// ```
+/// # use ringmap::bytetrie::BytesTrieMap;
+/// let mut map = BytesTrieMap::<String>::new();
+/// map.insert("one", "1".to_string());
+/// map.insert("two", "2".to_string());
+///
+/// assert!(map.contains("one"));
+/// assert_eq!(map.get("two"), Some(&"2".to_string()));
+/// assert!(!map.contains("three"));
+/// ```
+#[repr(transparent)]
 pub struct BytesTrieMap<V> {
     pub(crate) root: ByteTrieNode<CoFree<V>>
 }
@@ -88,21 +104,24 @@ impl <V : Clone> BytesTrieMap<V> {
         }
     }
 
-    pub fn at(&self, k: &[u8]) -> Option<&mut BytesTrieMap<V>> {
+    //QUESTION: who is the intended user of this method?  This interface is fundamentally unsafe
+    // because it exposes a mutable reference inside an immutable structure
+    pub(crate) fn at<K: AsRef<[u8]>>(&self, k: K) -> Option<&mut BytesTrieMap<V>> {
+        let k = k.as_ref();
         let mut node = &self.root;
 
         if k.len() > 1 {
-        for i in 0..k.len() - 1 {
-            match node.get(k[i]) {
-                Some(cf) => {
-                    match unsafe { cf.rec.as_ref() } {
-                        Some(r) => { node = r }
-                        None => { return None }
+            for i in 0..k.len() - 1 {
+                match node.get(k[i]) {
+                    Some(cf) => {
+                        match unsafe { cf.rec.as_ref() } {
+                            Some(r) => { node = r }
+                            None => { return None }
+                        }
                     }
+                    None => { return None }
                 }
-                None => { return None }
             }
-        }
         }
 
         match node.get(k[k.len() - 1]) {
@@ -118,37 +137,34 @@ impl <V : Clone> BytesTrieMap<V> {
         BytesTrieMapIter::new(self)
     }
 
-    pub fn contains(&self, k: &[u8]) -> bool {
+    pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
         self.get(k).is_some()
     }
 
-    pub fn insert(&mut self, k: &[u8], v: V) -> bool {
-        assert!(k.len() >= 0);
+    /// Inserts `v` at into the map at `k`.  Panics if `k` has a zero length
+    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
+        let k = k.as_ref();
         let mut node = &mut self.root;
 
         if k.len() > 1 {
-        for i in 0..k.len() - 1 {
-            unsafe {
-            let cf = node.update(k[i], || CoFree{rec: ptr::null_mut(), value: None});
+            for i in 0..k.len() - 1 {
+                let cf = node.update(k[i], || CoFree{rec: ptr::null_mut(), value: None});
 
-            node = match cf.rec.as_mut() {
-                Some(r) => { r }
-                None => {
-                    let l = ByteTrieNode::new();
-                    let mut rl = Box::new(l);
-                    let ptr: *mut ByteTrieNode<CoFree<V>> = rl.as_mut();
-                    mem::forget(rl);
-                    cf.rec = ptr;
-                    ptr.as_mut().unwrap()
+                node = match unsafe{ cf.rec.as_mut() } {
+                    Some(r) => { r }
+                    None => {
+                        let l = ByteTrieNode::new();
+                        let ptr = Box::into_raw(Box::new(l));
+                        cf.rec = ptr;
+                        unsafe{ &mut *ptr }
+                    }
                 }
             }
-            }
-        }
         }
 
         let lk = k[k.len() - 1];
         if node.contains(lk) {
-            let cf = node.get_unchecked_mut(lk);
+            let cf = unsafe{ node.get_unchecked_mut(lk) };
             match cf.value {
                 None => {
                     cf.value = Some(v);
@@ -185,8 +201,8 @@ impl <V : Clone> BytesTrieMap<V> {
     //     return self.items().collect();
     // }
 
-    pub fn update<F : FnOnce() -> V>(&mut self, k: &[u8], default: F) -> &mut V {
-        assert!(k.len() >= 0);
+    pub fn update<K: AsRef<[u8]>, F : FnOnce() -> V>(&mut self, k: K, default: F) -> &mut V {
+        let k = k.as_ref();
         let mut node = &mut self.root;
 
         if k.len() > 1 {
@@ -214,7 +230,8 @@ impl <V : Clone> BytesTrieMap<V> {
         cf.value.get_or_insert_with(default)
     }
 
-    pub fn get(&self, k: &[u8]) -> Option<&V> {
+    pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
+        let k = k.as_ref();
         let mut node = &self.root;
 
         if k.len() > 1 {
@@ -283,8 +300,7 @@ impl <V : Clone> ShortTrieMap<V> {
         let k1 = k as u8;
         let k2 = (k >> 8) as u8;
         if self.root.contains(k1) {
-            let l1 = self.root.get_unchecked(k1);
-            let rl1 = unsafe { &**l1 };
+            let rl1 = self.root.get_child(k1);
             rl1.contains(k2)
         } else {
             false
@@ -295,8 +311,7 @@ impl <V : Clone> ShortTrieMap<V> {
         let k1 = k as u8;
         let k2 = (k >> 8) as u8;
         if self.root.contains(k1) {
-            let l1 = self.root.get_unchecked(k1);
-            let rl1 = unsafe { &mut **l1 };
+            let rl1 = self.root.get_child_mut(k1);
             rl1.insert(k2, v)
         } else {
             let mut l1 = ByteTrieNode::new();
@@ -364,7 +379,7 @@ impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
                 let wi = self.w.trailing_zeros() as u8;
                 self.w ^= 1u64 << wi;
                 let index = self.i*64 + wi;
-                return Some((index, self.btn.get_unchecked(index).clone()))
+                return Some((index, unsafe{ self.btn.get_unchecked(index).clone() } ))
             } else if self.i < 3 {
                 self.i += 1;
                 self.w = unsafe { *self.btn.mask.get_unchecked(self.i as usize) };
@@ -464,17 +479,17 @@ impl <V : Clone> ByteTrieNode<V> {
     }
 
     #[inline]
-    pub fn get_unchecked(&self, k: u8) -> &V {
+    pub unsafe fn get_unchecked(&self, k: u8) -> &V {
         let ix = self.left(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
-        return unsafe { self.values.get_unchecked(ix) };
+        self.values.get_unchecked(ix)
     }
 
     #[inline]
-    pub fn get_unchecked_mut(&mut self, k: u8) -> &mut V {
+    pub unsafe fn get_unchecked_mut(&mut self, k: u8) -> &mut V {
         let ix = self.left(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
-        return unsafe { self.values.get_unchecked_mut(ix) };
+        self.values.get_unchecked_mut(ix)
     }
 
     pub fn len(&self) -> usize {
@@ -482,3 +497,13 @@ impl <V : Clone> ByteTrieNode<V> {
     }
 }
 
+impl<V> ByteTrieNode<*mut ByteTrieNode<V>> {
+    #[inline(always)] 
+    fn get_child(&self, k: u8) -> &ByteTrieNode<V> {
+        unsafe{ &**self.get_unchecked(k) }
+    }
+    #[inline(always)] 
+    fn get_child_mut(&mut self, k: u8) -> &mut ByteTrieNode<V> {
+        unsafe{ &mut **self.get_unchecked_mut(k) }
+    }
+}

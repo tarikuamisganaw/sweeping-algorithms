@@ -2,7 +2,7 @@ use std::hash::Hash;
 use std::time::Instant;
 use ringmap::ring::*;
 use ringmap::bytize::*;
-use ringmap::bytetrie::{ByteTrieNode, BytesTrieMap, CoFree};
+use ringmap::bytetrie::{ByteTrieNode, BytesTrieMap};
 
 
 fn main() {

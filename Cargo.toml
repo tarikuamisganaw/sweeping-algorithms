@@ -12,3 +12,15 @@ edition = "2021"
 
 [build]
 rustflags = "-C opt-level=3 -C target-cpu=native"
+
+[dev-dependencies]
+divan = "0.1.14"
+rand = "0.8.5"
+
+[[bench]]
+name = "basics"
+harness = false
+
+[[bench]]
+name = "sparse_keys"
+harness = false
