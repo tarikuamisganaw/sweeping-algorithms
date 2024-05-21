@@ -108,7 +108,31 @@ impl <V : Clone> MapRing<V> for Option<V> {
     //     }
     // }
 }
+impl <V : Lattice> Lattice for Box<V> {
+    fn join(&self, other: &Self) -> Self {
+        Box::new(self.as_ref().join(other.as_ref()))
+    }
 
+    fn meet(&self, other: &Self) -> Self {
+        Box::new(self.as_ref().meet(other.as_ref()))
+    }
+
+    fn bottom() -> Self {
+        Box::new(V::bottom())
+    }
+}
+
+impl Lattice for () {
+    fn join(&self, other: &Self) -> Self { () }
+    fn meet(&self, other: &Self) -> Self { () }
+    fn bottom() -> Self { () }
+}
+
+impl Lattice for &() {
+    fn join(&self, other: &Self) -> Self { &() }
+    fn meet(&self, other: &Self) -> Self { &() }
+    fn bottom() -> Self { &() }
+}
 
 impl Lattice for u64 {
     fn join(&self, other: &u64) -> u64 { *self }

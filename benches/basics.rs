@@ -25,7 +25,7 @@ fn join(bencher: Bencher, n: u64) {
         for i in n..2*n { assert_eq!(vnl.get(prefix_key(&i)), None); }
         let mut c: Vec<u64> = Vec::with_capacity(n as usize);
         vnl.items().for_each(|(k, v)| {
-            assert!(v < n);
+            assert!(*v < n);
             assert_eq!(k, prefix_key(&v));
             c.push(from_prefix_key(k.clone()));
         });
@@ -105,6 +105,6 @@ fn iter(bencher: Bencher, n: u64) {
     //Benchmark the iterator
     let mut sink = 0;
     bencher.bench_local(|| {
-        map.items().for_each(|(_key, val)| *black_box(&mut sink) = val);
+        map.items().for_each(|(_key, val)| *black_box(&mut sink) = *val);
     });
 }

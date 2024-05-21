@@ -1,6 +1,7 @@
 use std::alloc::{dealloc, Layout};
 use std::{mem, ptr};
 use std::fmt::{Debug, Formatter};
+use std::ptr::slice_from_raw_parts;
 
 
 #[derive(Clone)]
@@ -18,12 +19,12 @@ impl <V : Debug> Debug for ByteTrieNode<V> {
     }
 }
 
-pub struct BytesTrieMapIter<'a, V> {
+pub struct BytesTrieMapIter<'a, V> where V : Clone {
     prefix: Vec<u8>,
     btnis: Vec<ByteTrieNodeIter<'a, CoFree<V>>>,
 }
 
-impl <'a, V> BytesTrieMapIter<'a, V> {
+impl <'a, V : Clone> BytesTrieMapIter<'a, V> {
     fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self {
             prefix: vec![],
@@ -33,9 +34,9 @@ impl <'a, V> BytesTrieMapIter<'a, V> {
 }
 
 impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
-    type Item = (Vec<u8>, V);
+    type Item = (Vec<u8>, &'a V);
 
-    fn next(&mut self) -> Option<(Vec<u8>, V)> {
+    fn next(&mut self) -> Option<(Vec<u8>, &'a V)> {
         loop {
             match self.btnis.last_mut() {
                 None => { return None }
@@ -57,7 +58,7 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
                                 }
                             }
 
-                            match cf.value {
+                            match &cf.value {
                                 None => {}
                                 Some(v) => {
                                     return Some((k, v))
@@ -71,8 +72,68 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
     }
 }
 
+pub struct BytesTrieMapCursor<'a, V> where V : Clone {
+    prefix: Vec<u8>,
+    btnis: Vec<ByteTrieNodeIter<'a, CoFree<V>>>,
+    nopush: bool
+}
+
+impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
+    fn new(btm: &'a BytesTrieMap<V>) -> Self {
+        Self {
+            prefix: vec![],
+            btnis: vec![ByteTrieNodeIter::new(&btm.root)],
+            nopush: false
+        }
+    }
+}
+
+impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
+    pub fn next<'b>(&mut self) -> Option<(&'b [u8], &'a V)> {
+        loop {
+            match self.btnis.last_mut() {
+                None => { return None }
+                Some(last) => {
+                    match last.next() {
+                        None => {
+                            // decrease view len with one
+                            self.prefix.pop();
+                            self.btnis.pop();
+                        }
+                        Some((b, cf)) => {
+                            if self.nopush {
+                                *self.prefix.last_mut().unwrap() = b;
+                                self.nopush = false;
+                            } else {
+                                self.prefix.push(b);
+                            }
+
+                            match unsafe { cf.rec.as_ref() } {
+                                None => {
+                                    self.nopush = true;
+                                }
+                                Some(rec) => {
+                                    self.nopush = false;
+                                    self.btnis.push(ByteTrieNodeIter::new(rec));
+                                }
+                            }
+
+                            match &cf.value {
+                                None => {}
+                                Some(v) => {
+                                    return Some((unsafe { mem::transmute::<&[u8], &'b [u8]>(&self.prefix) }, v))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CoFree<V> {
+pub(crate) struct CoFree<V> where V : Clone {
     pub(crate) rec: *mut ByteTrieNode<CoFree<V>>,
     pub(crate) value: Option<V>
 }
@@ -93,7 +154,8 @@ pub(crate) struct CoFree<V> {
 /// assert!(!map.contains("three"));
 /// ```
 #[repr(transparent)]
-pub struct BytesTrieMap<V> {
+#[derive(Clone)]
+pub struct BytesTrieMap<V> where V : Clone {
     pub(crate) root: ByteTrieNode<CoFree<V>>
 }
 
@@ -133,8 +195,12 @@ impl <V : Clone> BytesTrieMap<V> {
         }
     }
 
-    pub fn items<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, V)> + 'a {
+    pub fn items<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, &'a V)> + 'a {
         BytesTrieMapIter::new(self)
+    }
+
+    pub fn item_cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
+        BytesTrieMapCursor::new(self)
     }
 
     pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
@@ -290,9 +356,9 @@ impl <V : Clone> ShortTrieMap<V> {
         }
     }
 
-    pub fn items<'a>(&'a self) -> impl Iterator<Item=(u16, V)> + 'a {
+    pub fn items<'a>(&'a self) -> impl Iterator<Item=(u16, &'a V)> + 'a {
         self.root.items().flat_map(move |(k1, l1)| unsafe {
-            (*l1).items().map(move |(k2, v)| ((k1 as u16) | ((k2 as u16) << 8), v))
+            unsafe { &**l1 }.items().map(move |(k2, v)| ((k1 as u16) | ((k2 as u16) << 8), v))
         })
     }
 
@@ -340,9 +406,9 @@ impl <V : Clone> ShortTrieMap<V> {
         }
     }
 
-    pub fn deepcopy(&self) -> Self {
-        return self.items().collect();
-    }
+    // pub fn deepcopy(&self) -> Self {
+    //     return self.items().collect();
+    // }
 
     pub fn get(&self, k: u16) -> Option<&V> {
         let k1 = k as u8;
@@ -371,15 +437,15 @@ impl <'a, V> ByteTrieNodeIter<'a, V> {
 }
 
 impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
-    type Item = (u8, V);
+    type Item = (u8, &'a V);
 
-    fn next(&mut self) -> Option<(u8, V)> {
+    fn next(&mut self) -> Option<(u8, &'a V)> {
         loop {
             if self.w != 0 {
                 let wi = self.w.trailing_zeros() as u8;
                 self.w ^= 1u64 << wi;
                 let index = self.i*64 + wi;
-                return Some((index, unsafe{ self.btn.get_unchecked(index).clone() } ))
+                return Some((index, unsafe{ self.btn.get_unchecked(index) } ))
             } else if self.i < 3 {
                 self.i += 1;
                 self.w = unsafe { *self.btn.mask.get_unchecked(self.i as usize) };

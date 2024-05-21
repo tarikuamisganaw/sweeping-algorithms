@@ -45,7 +45,7 @@ enum Instruction {
     Restrict()
 }
 
-pub struct ReadZipper<'a, V> {
+pub struct ReadZipper<'a, V> where V : Clone {
     pub root: &'a BytesTrieMap<V>,
     pub focus: &'a ByteTrieNode<CoFree<V>>,
     pub path: Vec<u8>,
