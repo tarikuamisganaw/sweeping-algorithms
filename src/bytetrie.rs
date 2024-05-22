@@ -76,6 +76,8 @@ pub(crate) struct CoFree<V> {
     pub(crate) value: Option<V>
 }
 
+/// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
+/// returned reference may exist at a given time
 pub struct BytesTrieMapCursor<'a, V> where V : Clone {
     prefix: Vec<u8>,
     btnis: Vec<ByteTrieNodeIter<'a, CoFree<V>>>,
@@ -93,7 +95,7 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
 }
 
 impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
-    pub fn next<'b>(&mut self) -> Option<(&'b [u8], &'a V)> {
+    pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
         loop {
             match self.btnis.last_mut() {
                 None => { return None }
@@ -125,7 +127,7 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
                             match &cf.value {
                                 None => {}
                                 Some(v) => {
-                                    return Some((unsafe { core::mem::transmute::<&[u8], &'b [u8]>(&self.prefix) }, v))
+                                    return Some((&self.prefix, v))
                                 }
                             }
                         }
@@ -319,6 +321,16 @@ impl <V : Clone> BytesTrieMap<V> {
 
     pub fn len(&self) -> usize {
         return Self::cofreelen(&self.root);
+    }
+}
+
+impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
+    fn from_iter<I: IntoIterator<Item=(K, V)>>(iter: I) -> Self {
+        let mut map = Self::new();
+        for (key, val) in iter {
+            map.insert(key, val);
+        }
+        map
     }
 }
 
