@@ -71,8 +71,8 @@ fn sparse_get(bencher: Bencher, n: u64) {
     });
 }
 
-#[divan::bench(sample_size = 1, args = [1000, 2000, 4000, 8000, 16000, 32000])]
-fn join(bencher: Bencher, n: u64) {
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+fn join_sparse(bencher: Bencher, n: u64) {
 
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;
