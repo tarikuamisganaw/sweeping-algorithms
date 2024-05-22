@@ -90,4 +90,15 @@ mod tests {
         assert_eq!(63, bit_sibling(63, 1u64 << 63, false));
         assert_eq!(63, bit_sibling(63, 1u64 << 63, true));
     }
+
+    #[test]
+    fn btm_cursor_test() {
+        let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
+        let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
+        let mut cursor = btm.item_cursor();
+        while let Some((k, v)) = cursor.next() {
+            // println!("{}, {v}", std::str::from_utf8(k).unwrap());
+            assert_eq!(k, table[*v].as_bytes());
+        }
+    }
 }
