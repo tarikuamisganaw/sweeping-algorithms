@@ -108,3 +108,19 @@ fn superdense_iter(bencher: Bencher, n: u64) {
         map.items().for_each(|(_key, val)| *black_box(&mut sink) = *val);
     });
 }
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn superdense_cursor(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the cursor
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        let mut cursor = map.item_cursor();
+        while let Some((_key, val)) = cursor.next() {
+            *black_box(&mut sink) = *val
+        }
+    });
+}

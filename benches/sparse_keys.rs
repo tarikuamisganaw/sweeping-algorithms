@@ -71,6 +71,45 @@ fn sparse_get(bencher: Bencher, n: u64) {
     });
 }
 
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn sparse_cursor(bencher: Bencher, n: u64) {
+
+    let mut r = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+    }).collect();
+    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+
+    //Benchmark the iterator
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        let mut cursor = map.item_cursor();
+        while let Some((_key, val)) = cursor.next() {
+            *black_box(&mut sink) = *val
+        }
+    });
+}
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn sparse_iter(bencher: Bencher, n: u64) {
+
+    let mut r = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+    }).collect();
+    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+
+    //Benchmark the iterator
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        map.items().for_each(|(_key, val)| *black_box(&mut sink) = *val);
+    });
+}
+
+
+
 //GOAT, re-enable these
 // #[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
 // fn join_sparse(bencher: Bencher, n: u64) {

@@ -29,7 +29,7 @@ fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
 mod tests {
     use std::collections::HashSet;
     use crate::bit_sibling;
-    use crate::bytetrie::BytesTrieMap;
+    use crate::bytetrie::{BytesTrieMap, TrieNode};
 
     #[test]
     fn btm_prefix() {
@@ -45,28 +45,28 @@ mod tests {
         rz.child('r' as u8); rz.child('o' as u8); rz.child('m' as u8); // focus = rom
         assert!(rz.child('\'' as u8)); // focus = rom'  (' is the lowest byte)
         assert!(rz.sibling(true)); // focus = roma  (a is the second byte)
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]); // both follow-ups romane and romanus have n following a
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // both follow-ups romane and romanus have n following a
         assert!(rz.sibling(true)); // focus = romu  (u is the third byte)
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['l' as u8]); // and romu is followed by lus
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'l']]); // and romu is followed by lus
         assert!(!rz.sibling(true)); // fails (u is the highest byte)
         assert!(rz.sibling(false)); // focus = roma (we can step back)
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]); // again
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // again
         assert!(rz.parent()); // focus = rom
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['\'' as u8, 'a' as u8, 'u' as u8]); // all three options we visited
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'\''], [b'a'], [b'u']]); // all three options we visited
         assert!(rz.nth_child(0, true)); // focus = rom'
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['i' as u8]);
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'i']]);
         assert!(rz.parent()); // focus = rom
         assert!(rz.nth_child(1, true)); // focus = roma
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]);
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]);
         assert!(rz.parent());
         assert!(rz.nth_child(2, true)); // focus = romu
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['l' as u8]);
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'l']]);
         assert!(rz.parent());
         assert!(rz.nth_child(1, false)); // focus = roma
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['n' as u8]);
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]);
         assert!(rz.parent());
         assert!(rz.nth_child(2, false)); // focus = rom'
-        assert_eq!(rz.focus.items().map(|(k, _)| k).collect::<Vec<_>>(), vec!['i' as u8]);
+        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'i']]);
         // ' < a < u
         // 39 105 117
     }
@@ -97,11 +97,10 @@ mod tests {
     fn btm_cursor_test() {
         let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
         let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
-        //goat turn this back on
-        // let mut cursor = btm.item_cursor();
-        // while let Some((k, v)) = cursor.next() {
-        //     // println!("{}, {v}", std::str::from_utf8(k).unwrap());
-        //     assert_eq!(k, table[*v].as_bytes());
-        // }
+        let mut cursor = btm.item_cursor();
+        while let Some((k, v)) = cursor.next() {
+            // println!("{}, {v}", std::str::from_utf8(k).unwrap());
+            assert_eq!(k, table[*v].as_bytes());
+        }
     }
 }

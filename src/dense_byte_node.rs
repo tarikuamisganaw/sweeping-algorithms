@@ -34,9 +34,9 @@ impl <V : Clone> DenseByteNode<V> {
     }
 
     //GOAT, make this a DenseByteNodeIter, so CoFree doesn't leak outside this module
-    pub fn items<'a>(&'a self) -> impl Iterator<Item=(u8, &'a CoFree<V>)> {
-        CfIter::new(self)
-    }
+    // pub fn items<'a>(&'a self) -> impl Iterator<Item=(u8, &'a CoFree<V>)> {
+    //     CfIter::new(self)
+    // }
 
     #[inline]
     fn left(&self, pos: u8) -> u8 {
@@ -333,9 +333,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.node_subtree_len()).unwrap_or(0)
         });
     }
-    fn child_count(&self) -> usize {
-        12345//GOAT, need to un-tangle what's a value from what's a child
-    }
+    // fn child_count(&self) -> usize {
+    //     12345//GOAT, need to un-tangle what's a value from what's a child
+    // }
     fn nth_child(&self, n: usize, forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
         // #iterations can be reduced by popcount(mask[i] & prefix)
 
@@ -452,7 +452,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
 // }
 
 #[derive(Debug, Default, Clone)]
-pub struct CoFree<V> { //GOAT, make this private
+struct CoFree<V> {
     pub(crate) rec: Option<Rc<DenseByteNode<V>>>,
     pub(crate) value: Option<V>
 }

@@ -69,68 +69,77 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
     }
 }
 
-//GOAT, turn this back on
-// /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
-// /// returned reference may exist at a given time
-// pub struct BytesTrieMapCursor<'a, V> where V : Clone {
-//     prefix: Vec<u8>,
-//     btnis: Vec<Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>>,
-//     nopush: bool
-// }
+/// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
+/// returned reference may exist at a given time
+pub struct BytesTrieMapCursor<'a, V> where V : Clone {
+    prefix_buf: Vec<u8>,
+    prefix_idx: Vec<usize>,
+    btnis: Vec<Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>>,
+}
 
-// impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
-//     fn new(btm: &'a BytesTrieMap<V>) -> Self {
-//         Self {
-//             prefix: vec![],
-//             btnis: vec![btm.root.boxed_node_iter()],
-//             nopush: false
-//         }
-//     }
-// }
+impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
+    fn new(btm: &'a BytesTrieMap<V>) -> Self {
+        const EXPECTED_DEPTH: usize = 16;
+        let mut prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
+        prefix_idx.push(0);
+        let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
+        btnis.push(btm.root.boxed_node_iter());
+        Self {
+            prefix_buf: Vec::with_capacity(256),
+            prefix_idx,
+            btnis,
+        }
+    }
+}
 
-// impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
-//     pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
-//         loop {
-//             match self.btnis.last_mut() {
-//                 None => { return None }
-//                 Some(last) => {
-//                     match last.next() {
-//                         None => {
-//                             // decrease view len with one
-//                             self.prefix.pop();
-//                             self.btnis.pop();
-//                         }
-//                         Some((b, cf)) => {
-//                             if self.nopush {
-//                                 *self.prefix.last_mut().unwrap() = b;
-//                                 self.nopush = false;
-//                             } else {
-//                                 self.prefix.push(b);
-//                             }
+impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
+    pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
+        loop {
+            match self.btnis.last_mut() {
+                None => { return None }
+                Some(last) => {
+                    match last.next() {
+                        None => {
+                            // decrease view len by one level
+                            self.prefix_idx.pop();
+                            self.btnis.pop();
+                        }
+                        Some((key_bytes, item)) => {
+                            let key_start = *self.prefix_idx.last().unwrap();
+                            self.prefix_buf.truncate(key_start);
+                            self.prefix_buf.extend(key_bytes);
 
-//                             match unsafe { cf.rec.as_ref() } {
-//                                 None => {
-//                                     self.nopush = true;
-//                                 }
-//                                 Some(rec) => {
-//                                     self.nopush = false;
-//                                     self.btnis.push(rec.boxed_node_iter());
-//                                 }
-//                             }
+                            match item {
+                                ValOrChildRef::Val(val) => return Some((&self.prefix_buf[..], val)),
+                                ValOrChildRef::Child(child) => {
+                                    self.prefix_idx.push(self.prefix_buf.len());
+                                    self.btnis.push(child.boxed_node_iter())
+                                }
+                            }
 
-//                             match &cf.value {
-//                                 None => {}
-//                                 Some(v) => {
-//                                     return Some((&self.prefix, v))
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
+                            // match cf.rec.as_ref() {
+                            //     None => {
+                            //         self.nopush = true;
+                            //     }
+                            //     Some(rec) => {
+                            //         self.nopush = false;
+                            //         self.btnis.push(rec.boxed_node_iter());
+                            //     }
+                            // }
+
+                            // match &cf.value {
+                            //     None => {}
+                            //     Some(v) => {
+                            //         return Some((&self.prefix, v))
+                            //     }
+                            // }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -194,10 +203,9 @@ impl <V : Clone> BytesTrieMap<V> {
         BytesTrieMapIter::new(self)
     }
 
-    //goat turn this back on
-    // pub fn item_cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
-    //     BytesTrieMapCursor::new(self)
-    // }
+    pub fn item_cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
+        BytesTrieMapCursor::new(self)
+    }
 
     pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
         self.get(k).is_some()
@@ -522,8 +530,9 @@ pub(crate) trait TrieNode<V> {
     /// Returns the total number of leaves contained within the whole subtree defined by the node
     fn node_subtree_len(&self) -> usize;
 
-    /// Returns the number of child nodes descending from this node
-    fn child_count(&self) -> usize;
+    //GOAT, this method might not be needed
+    // /// Returns the number of child nodes descending from this node
+    // fn child_count(&self) -> usize;
 
     /// Returns the nth child of this node and the prefix leading to that child, or None
     /// if `n >= self.child_count()`
