@@ -1,0 +1,761 @@
+
+use std::fmt::{Debug, Formatter};
+
+use rclite::Rc;
+
+use crate::bit_sibling;
+use crate::ring::*;
+use crate::bytetrie::*;
+
+//NOTE: This: `core::array::from_fn(|i| i as u8);` ought to work, but https://github.com/rust-lang/rust/issues/109341
+const ALL_BYTES: [u8; 256] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255];
+
+#[derive(Clone)]
+pub struct DenseByteNode<V> {
+    mask: [u64; 4],
+    values: Vec<CoFree<V>>
+}
+
+impl <V : Debug> Debug for DenseByteNode<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+               "DenseByteNode (mask: {:b} {:b} {:b} {:b}, values: {:?})",
+               self.mask[0], self.mask[1], self.mask[2], self.mask[3],
+               self.values)
+    }
+}
+
+impl <V : Clone> DenseByteNode<V> {
+    pub fn new() -> Self {
+        Self {
+            mask: [0u64; 4],
+            values: Vec::new()
+        }
+    }
+
+    //GOAT, make this a DenseByteNodeIter, so CoFree doesn't leak outside this module
+    pub fn items<'a>(&'a self) -> impl Iterator<Item=(u8, &'a CoFree<V>)> {
+        CfIter::new(self)
+    }
+
+    #[inline]
+    fn left(&self, pos: u8) -> u8 {
+        if pos == 0 { return 0 }
+        let mut c = 0u8;
+        let m = !0u64 >> (63 - ((pos - 1) & 0b00111111));
+        if pos > 0b01000000 { c += self.mask[0].count_ones() as u8; }
+        else { return c + (self.mask[0] & m).count_ones() as u8 }
+        if pos > 0b10000000 { c += self.mask[1].count_ones() as u8; }
+        else { return c + (self.mask[1] & m).count_ones() as u8 }
+        if pos > 0b11000000 { c += self.mask[2].count_ones() as u8; }
+        else { return c + (self.mask[2] & m).count_ones() as u8 }
+        // println!("{} {:b} {} {}", pos, self.mask[3], m.count_ones(), c);
+        return c + (self.mask[3] & m).count_ones() as u8;
+    }
+
+    #[inline]
+    fn contains(&self, k: u8) -> bool {
+        0 != (self.mask[((k & 0b11000000) >> 6) as usize] & (1u64 << (k & 0b00111111)))
+    }
+
+    #[inline]
+    fn set(&mut self, k: u8) -> () {
+        // println!("setting k {} : {} {:b}", k, ((k & 0b11000000) >> 6) as usize, 1u64 << (k & 0b00111111));
+        self.mask[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
+    }
+
+    #[inline]
+    fn clear(&mut self, k: u8) -> () {
+        // println!("setting k {} : {} {:b}", k, ((k & 0b11000000) >> 6) as usize, 1u64 << (k & 0b00111111));
+        self.mask[((k & 0b11000000) >> 6) as usize] &= !(1u64 << (k & 0b00111111));
+    }
+
+    #[inline]
+    fn add_child(&mut self, k: u8, node: Box<dyn TrieNode<V> + '_>) -> &mut dyn TrieNode<V> {
+        let ix = self.left(k) as usize;
+        if self.contains(k) {
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            let node = node.as_dense().clone();
+            debug_assert!(cf.rec.is_none()); //add_child should not be called unless there is no child for a given key
+            cf.rec = Some(Rc::new(node));
+            Rc::make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V>
+        } else {
+            self.set(k);
+            let node = node.as_dense().clone();
+            let new_cf = CoFree {rec: Some(Rc::new(node)), value: None };
+            self.values.insert(ix, new_cf);
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            Rc::make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V>
+        }
+    }
+
+    #[inline]
+    fn set_val(&mut self, k: u8, mut val: V) -> Option<V> {
+        let ix = self.left(k) as usize;
+        if self.contains(k) {
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            let result = core::mem::take(&mut cf.value);
+            cf.value = Some(val);
+            result
+        } else {
+            self.set(k);
+            let new_cf = CoFree {rec: None, value: Some(val) };
+            self.values.insert(ix, new_cf);
+            None
+        }
+    }
+
+    #[inline]
+    fn update_val(&mut self, k: u8, default_f: Box<dyn FnOnce()->V + '_>) -> &mut V {
+        let ix = self.left(k) as usize;
+        if self.contains(k) {
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            if cf.value.is_none() {
+                cf.value = Some(default_f());
+            }
+            cf.value.as_mut().unwrap()
+        } else {
+            self.set(k);
+            let new_cf = CoFree {rec: None, value: Some(default_f()) };
+            self.values.insert(ix, new_cf);
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            cf.value.as_mut().unwrap()
+        }
+    }
+
+    //GOAT, change this to ordinary V, actually, this is probably shit, given the separate add_child and set_val methods
+    fn insert(&mut self, k: u8, v: CoFree<V>) -> bool {
+        let ix = self.left(k) as usize;
+        if self.contains(k) {
+            let node_ref = unsafe { self.values.get_unchecked_mut(ix) };
+            *node_ref = v;
+            true
+        } else {
+            self.set(k);
+            self.values.insert(ix, v);
+            false
+        }
+    }
+
+    fn update<F : FnOnce() -> CoFree<V>>(&mut self, k: u8, default: F) -> &mut CoFree<V> {
+        let ix = self.left(k) as usize;
+        if !self.contains(k) {
+            self.set(k);
+            self.values.insert(ix, default());
+        }
+        unsafe { self.values.get_unchecked_mut(ix) }
+    }
+
+    fn remove(&mut self, k: u8) -> Option<CoFree<V>> {
+        if self.contains(k) {
+            let v = self.values.remove(k as usize);
+            self.clear(k);
+            return Some(v);
+        }
+        None
+    }
+
+    fn get(&self, k: u8) -> Option<&CoFree<V>> {
+        if self.contains(k) {
+            let ix = self.left(k) as usize;
+            // println!("pos ix {} {} {:b}", pos, ix, self.mask);
+            unsafe { Some(self.values.get_unchecked(ix)) }
+        } else {
+            None
+        }
+    }
+
+    fn get_mut(&mut self, k: u8) -> Option<&mut CoFree<V>> {
+        if self.contains(k) {
+            let ix = self.left(k) as usize;
+            unsafe { Some(self.values.get_unchecked_mut(ix)) }
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
+        let ix = self.left(k) as usize;
+        // println!("pos ix {} {} {:b}", pos, ix, self.mask);
+        self.values.get_unchecked(ix)
+    }
+
+    #[inline]
+    unsafe fn get_unchecked_mut(&mut self, k: u8) -> &mut CoFree<V> {
+        let ix = self.left(k) as usize;
+        // println!("pos ix {} {} {:b}", pos, ix, self.mask);
+        self.values.get_unchecked_mut(ix)
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        return (self.mask[0].count_ones() + self.mask[1].count_ones() + self.mask[2].count_ones() + self.mask[3].count_ones()) as usize;
+    }
+}
+
+pub(crate) struct DenseByteNodeIter<'a, V> {
+    child_link: Option<(usize, &'a dyn TrieNode<V>)>,
+    cf_iter: CfIter<'a, V>,
+}
+
+impl <'a, V> DenseByteNodeIter<'a, V> {
+    fn new(btn: &'a DenseByteNode<V>) -> Self {
+        Self {
+            child_link: None,
+            cf_iter: CfIter::new(btn),
+        }
+    }
+}
+
+impl <'a, V : Clone> Iterator for DenseByteNodeIter<'a, V> {
+    type Item = (&'a[u8], ValOrChildRef<'a, V>);
+
+    fn next(&mut self) -> Option<(&'a[u8], ValOrChildRef<'a, V>)> {
+        if self.child_link.is_none() {
+            match self.cf_iter.next() {
+                None => None,
+                Some((prefix, cf)) => {
+                    let prefix = prefix as usize;
+                    match &cf.value {
+                        None => {
+                            //No value means the cf must be a child-link alone
+                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(&**cf.rec.as_ref().unwrap())))
+                        },
+                        Some(val) => {
+                            self.child_link = cf.rec.as_ref().map(|node| (prefix, &**node as &dyn TrieNode<V>));
+                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Val(val)))
+                        }
+                    }
+                }
+            }
+        } else {
+            let (prefix, node) = core::mem::take(&mut self.child_link).unwrap();
+            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(node)))
+        }
+    }
+}
+
+struct CfIter<'a, V> {
+    i: u8,
+    w: u64,
+    btn: &'a DenseByteNode<V>
+}
+
+impl <'a, V> CfIter<'a, V> {
+    fn new(btn: &'a DenseByteNode<V>) -> Self {
+        Self {
+            i: 0,
+            w: btn.mask[0],
+            btn: btn
+        }
+    }
+}
+
+impl <'a, V : Clone> Iterator for CfIter<'a, V> {
+    type Item = (u8, &'a CoFree<V>);
+
+    fn next(&mut self) -> Option<(u8, &'a CoFree<V>)> {
+        loop {
+            if self.w != 0 {
+                let wi = self.w.trailing_zeros() as u8;
+                self.w ^= 1u64 << wi;
+                let index = self.i*64 + wi;
+                return Some((index, unsafe{ self.btn.get_unchecked(index) } ))
+            } else if self.i < 3 {
+                self.i += 1;
+                self.w = *unsafe{ self.btn.mask.get_unchecked(self.i as usize) };
+            } else {
+                return None
+            }
+        }
+    }
+}
+
+impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
+    // fn node_contains_child(&self, key: &[u8]) -> bool {
+    //     self.contains(key[0])
+    // }
+    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
+        self.get(key[0]).and_then(|cf|
+            cf.rec.as_ref().map(|child_node| {
+                (1, &**child_node as &dyn TrieNode<V>)
+            })
+        )
+    }
+    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
+        self.get_mut(key[0]).and_then(|cf|
+            cf.rec.as_mut().map(|child_node_ptr| {
+                (1, Rc::make_mut(child_node_ptr) as &mut dyn TrieNode<V>)
+            })
+        )
+    }
+    fn node_get_val(&self, key: &[u8]) -> Option<&V> {
+        self.get(key[0]).and_then(|cf| cf.value.as_ref() )
+    }
+    fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
+        self.get_mut(key[0]).and_then(|cf| cf.value.as_mut() )
+    }
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, Box<dyn TrieNode<V>>> {
+
+        //GOAT, I am recursively createing DenseByteNodes to the end, temporarily until I add a better
+        // tail node type
+        let mut cur = self;
+        for i in 0..key.len() - 1 {
+            let new_node = Self::new();
+            cur = cur.add_child(key[i], Box::new(new_node)).as_dense_mut();
+        }
+
+        //This implementation will never return Err, because the DenseByteNode can hold any possible value
+        Ok(cur.set_val(key[key.len()-1], val))
+    }
+    fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, Box<dyn TrieNode<V>>> {
+
+        //GOAT, I am recursively createing DenseByteNodes to the end, temporarily until I add a better
+        // tail node type
+        let mut cur = self;
+        for i in 0..key.len() - 1 {
+            let new_node = Self::new();
+            cur = cur.add_child(key[i], Box::new(new_node)).as_dense_mut();
+        }
+
+        //This implementation will never return Err, because the DenseByteNode can hold any possible value
+        Ok(cur.update_val(key[key.len()-1], default_f))
+    }
+    fn node_is_empty(&self) -> bool {
+        self.values.len() == 0
+    }
+    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
+        Box::new(DenseByteNodeIter::new(self))
+    }
+    fn node_subtree_len(&self) -> usize {
+        return self.values.iter().rfold(0, |t, cf| {
+            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.node_subtree_len()).unwrap_or(0)
+        });
+    }
+    fn child_count(&self) -> usize {
+        12345//GOAT, need to un-tangle what's a value from what's a child
+    }
+    fn nth_child(&self, n: usize, forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+        // #iterations can be reduced by popcount(mask[i] & prefix)
+
+        //Find the nth entry, by ignoring the ones that just contain values and not child pointers
+        let mut child = -1;
+        // this is not DRY but I lost the fight to the Rust compiler
+        let pair = if forward { self.values.iter().enumerate().find(|(_, v)| {
+            let has_child = v.rec.is_some();
+            if has_child { child += 1; child == (n as i32) } else { false }
+        }) } else { self.values.iter().rev().enumerate().find(|(_, v)| {
+            let has_child = v.rec.is_some();
+            if has_child { child += 1; child == (n as i32) } else { false }
+        }) };
+
+        //Figure out which prefix corresponds to that entry
+        match pair {
+            None => { return None }
+            Some((item, cf)) => {
+                let mut i = if forward { 0 } else { 3 };
+                let mut m = self.mask[i];
+                let mut c = 0;
+                let mut c_ahead = m.count_ones() as usize;
+                loop {
+                    if item < c_ahead { break; }
+                    if forward { i += 1} else { i -= 1 };
+                    if i > 3 || i < 0 { return None }
+                    m = self.mask[i];
+                    c = c_ahead;
+                    c_ahead += m.count_ones() as usize;
+                }
+
+                let mut loc= 0;
+                if forward {
+                    loc = 63 - m.leading_zeros();
+                    while c < item {
+                        m ^= 1u64 << loc;
+                        loc = 63 - m.leading_zeros();
+                        c += 1;
+                    }
+                } else {
+                    loc = m.trailing_zeros();
+                    while c < item {
+                        m ^= 1u64 << loc;
+                        loc = m.trailing_zeros();
+                        c += 1;
+                    }
+                }
+
+                let prefix = (i << 6 | (loc as usize));
+                // println!("{:#066b}", self.focus.mask[i]);
+                // println!("{i} {loc} {prefix}");
+                debug_assert!(self.contains(prefix as u8));
+
+                Some((&ALL_BYTES[prefix..=prefix], &**cf.rec.as_ref().unwrap() as &dyn TrieNode<V>))
+            }
+        }
+    }
+
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+        let k = key[0];
+        let mut mask_i = ((k & 0b11000000) >> 6) as usize;
+        let mut bit_i = k & 0b00111111;
+        // println!("k {k}");
+
+        loop {
+            // println!("loop");
+            let mut n = bit_sibling(bit_i, self.mask[mask_i], !next);
+            // println!("{} {bit_i} {mask_i}", n == bit_i);
+            if n == bit_i { // outside of word
+                loop {
+                    if next { mask_i += 1 } else { mask_i -= 1 };
+                    if !(0 <= mask_i && mask_i < 4) { return None }
+                    if self.mask[mask_i] == 0 { continue }
+                    n = self.mask[mask_i].trailing_zeros() as u8; break;
+                }
+            }
+            bit_i = n;
+            // println!("{} {bit_i} {mask_i}", n == bit_i);
+            // println!("{:?}", parent.items().map(|(k, _)| k).collect::<Vec<_>>());
+            let sibling_key_char = n | ((mask_i << 6) as u8);
+            // println!("candidate {}", sk);
+            debug_assert!(self.contains(sibling_key_char));
+            match unsafe { self.get_unchecked(sibling_key_char).rec.as_ref() } {
+                None => {
+                    // println!("{} {}", k, sk);
+                    continue
+                }
+                Some(cs) => {
+                    let sibling_key_char = sibling_key_char as usize;
+                    return Some((&ALL_BYTES[sibling_key_char..=sibling_key_char], &**cs as &dyn TrieNode<V>));
+                }
+            }
+        }
+
+    }
+
+
+
+    fn as_dense(&self) -> &DenseByteNode<V> {
+        self
+    }
+    fn as_dense_mut(&mut self) -> &mut DenseByteNode<V> {
+        self
+    }
+}
+
+//GOAT, this is probably a pointless trait
+// impl<'a, V> IterableNode for &'a DenseByteNode<V> {
+//     type IterT = DenseByteNodeIter<'a, V>;
+
+//     fn node_iter(self) -> Self::IterT {
+//         DenseByteNodeIter::new(self)
+//     }
+// }
+
+#[derive(Debug, Default, Clone)]
+pub struct CoFree<V> { //GOAT, make this private
+    pub(crate) rec: Option<Rc<DenseByteNode<V>>>,
+    pub(crate) value: Option<V>
+}
+
+impl<V : Clone + Lattice> Lattice for CoFree<V> {
+    fn join(&self, other: &Self) -> Self {
+        CoFree {
+            rec: self.rec.join(&other.rec),
+            value: self.value.join(&other.value)
+        }
+    }
+
+    fn join_into(&mut self, other: Self) {
+        self.rec.join_into(other.rec);
+        self.value.join_into(other.value);
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        CoFree {
+            rec: self.rec.meet(&other.rec),
+            value: self.value.meet(&other.value)
+        }
+    }
+
+    fn bottom() -> Self {
+        CoFree {
+            rec: None,
+            value: None
+        }
+    }
+}
+
+impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
+    fn subtract(&self, other: &Self) -> Self {
+        CoFree {
+            rec: self.rec.psubtract(&other.rec).unwrap_or(None),
+            value: self.value.subtract(&other.value)
+        }
+    }
+}
+
+impl<V : Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
+    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
+        // .unwrap_or(ptr::null_mut())
+        let r = self.rec.psubtract(&other.rec);
+        let v = self.value.subtract(&other.value);
+        match r {
+            None => { if v.is_none() { None } else { Some(CoFree{ rec: None, value: v }) } }
+            Some(sr) => { Some(CoFree{ rec: sr, value: v }) }
+        }
+    }
+}
+
+impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
+    // #[inline(never)]
+    fn join(&self, other: &Self) -> Self {
+        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
+            self.mask[1] | other.mask[1],
+            self.mask[2] | other.mask[2],
+            self.mask[3] | other.mask[3]];
+        let mm: [u64; 4] = [self.mask[0] & other.mask[0],
+            self.mask[1] & other.mask[1],
+            self.mask[2] & other.mask[2],
+            self.mask[3] & other.mask[3]];
+
+        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+
+        let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
+        let mut v: Vec<CoFree<V>> = Vec::with_capacity(len);
+
+        let mut l = 0;
+        let mut r = 0;
+        let mut c = 0;
+
+        for i in 0..4 {
+            let mut lm = jm[i];
+            while lm != 0 {
+                // this body runs at most 256 times, in the case there is 100% overlap between full nodes
+                let index = lm.trailing_zeros();
+                // println!("{}", index);
+                if ((1u64 << index) & mm[i]) != 0 {
+                    let lv = unsafe { self.values.get_unchecked(l) };
+                    let rv = unsafe { other.values.get_unchecked(r) };
+                    let jv = lv.join(rv);
+                    // println!("pushing lv rv j {:?} {:?} {:?}", lv, rv, jv);
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), jv) };
+                    l += 1;
+                    r += 1;
+                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                    let lv = unsafe { self.values.get_unchecked(l) };
+                    // println!("pushing lv {:?}", lv);
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv.clone()) };
+                    l += 1;
+                } else {
+                    let rv = unsafe { other.values.get_unchecked(r) };
+                    // println!("pushing rv {:?}", rv);
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), rv.clone()) };
+                    r += 1;
+                }
+                lm ^= 1u64 << index;
+                c += 1;
+            }
+        }
+
+        unsafe{ v.set_len(c); }
+        return DenseByteNode::<V>{ mask: jm, values: v };
+    }
+
+    fn join_into(&mut self, mut other: Self) {
+        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
+            self.mask[1] | other.mask[1],
+            self.mask[2] | other.mask[2],
+            self.mask[3] | other.mask[3]];
+        let mm: [u64; 4] = [self.mask[0] & other.mask[0],
+            self.mask[1] & other.mask[1],
+            self.mask[2] & other.mask[2],
+            self.mask[3] & other.mask[3]];
+
+        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+
+        let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
+        let mut v = Vec::with_capacity(l);
+
+        let mut l = 0;
+        let mut r = 0;
+        let mut c = 0;
+
+        for i in 0..4 {
+            let mut lm = jm[i];
+            while lm != 0 {
+                // this body runs at most 256 times, in the case there is 100% overlap between full nodes
+                let index = lm.trailing_zeros();
+                // println!("{}", index);
+                if ((1u64 << index) & mm[i]) != 0 {
+                    let mut lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
+                    let rv = unsafe { std::ptr::read(other.values.get_unchecked_mut(r)) };
+                    lv.join_into(rv);
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv) };
+                    l += 1;
+                    r += 1;
+                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                    let lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv) };
+                    l += 1;
+                } else {
+                    let rv = unsafe { std::ptr::read(other.values.get_unchecked_mut(r)) };
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), rv) };
+                    r += 1;
+                }
+                lm ^= 1u64 << index;
+                c += 1;
+            }
+        }
+
+        unsafe { self.values.set_len(0) }
+        unsafe { other.values.set_len(0) }
+        unsafe { v.set_len(c) }
+        self.mask = jm;
+        self.values = v;
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        // TODO this technically doesn't need to calculate and iterate over jm
+        // iterating over mm and calculating m such that the following suffices
+        // c_{self,other} += popcnt(m & {self,other})
+        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
+            self.mask[1] | other.mask[1],
+            self.mask[2] | other.mask[2],
+            self.mask[3] | other.mask[3]];
+        let mm: [u64; 4] = [self.mask[0] & other.mask[0],
+            self.mask[1] & other.mask[1],
+            self.mask[2] & other.mask[2],
+            self.mask[3] & other.mask[3]];
+
+        let mmc = [mm[0].count_ones(), mm[1].count_ones(), mm[2].count_ones(), mm[3].count_ones()];
+
+        let len = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
+        let mut v = Vec::with_capacity(len);
+
+        let mut l = 0;
+        let mut r = 0;
+        let mut c = 0;
+
+        for i in 0..4 {
+            let mut lm = jm[i];
+            while lm != 0 {
+                let index = lm.trailing_zeros();
+
+                if ((1u64 << index) & mm[i]) != 0 {
+                    let lv = unsafe { self.values.get_unchecked(l) };
+                    let rv = unsafe { other.values.get_unchecked(r) };
+                    let jv = lv.meet(rv);
+                    unsafe { std::ptr::write(v.get_unchecked_mut(c), jv) };
+                    l += 1;
+                    r += 1;
+                    c += 1;
+                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                    l += 1;
+                } else {
+                    r += 1;
+                }
+                lm ^= 1u64 << index;
+            }
+        }
+
+        unsafe{ v.set_len(c); }
+        return DenseByteNode::<V>{ mask: mm, values: v };
+    }
+
+    fn bottom() -> Self {
+        DenseByteNode::new()
+    }
+
+    fn join_all(xs: Vec<&Self>) -> Self {
+        let mut jm: [u64; 4] = [0, 0, 0, 0];
+        for x in xs.iter() {
+            jm[0] |= x.mask[0];
+            jm[1] |= x.mask[1];
+            jm[2] |= x.mask[2];
+            jm[3] |= x.mask[3];
+        }
+
+        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+
+        let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
+        let mut v = Vec::with_capacity(len);
+
+        let mut c = 0;
+
+        for i in 0..4 {
+            let mut lm = jm[i];
+            while lm != 0 {
+                // this body runs at most 256 times, in the case there is 100% overlap between full nodes
+                let index = lm.trailing_zeros();
+
+                let to_join: Vec<&CoFree<V>> = xs.iter().enumerate().filter_map(|(i, x)| x.get(i as u8)).collect();
+                let joined = Lattice::join_all(to_join);
+                unsafe { std::ptr::write(v.get_unchecked_mut(c), joined) };
+
+                lm ^= 1u64 << index;
+                c += 1;
+            }
+        }
+
+        unsafe{ v.set_len(c); }
+        return DenseByteNode::<V>{ mask: jm, values: v };
+    }
+}
+
+impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for DenseByteNode<V> {
+    fn subtract(&self, other: &Self) -> Self {
+        let mut btn = self.clone();
+
+        for i in 0..4 {
+            let mut lm = self.mask[i];
+            while lm != 0 {
+                let index = lm.trailing_zeros();
+
+                if ((1u64 << index) & other.mask[i]) != 0 {
+                    let lv = unsafe { self.get_unchecked(64*(i as u8)) };
+                    let rv = unsafe { other.get_unchecked(64*(i as u8) + (index as u8)) };
+                    match lv.psubtract(rv) {
+                        None => { btn.remove(64*(i as u8)); }
+                        Some(jv) => {
+                            let dst = unsafe { btn.get_unchecked_mut(64*(i as u8)) };
+                            *dst = jv;
+                        }
+                    }
+                }
+
+                lm ^= 1u64 << index;
+            }
+        }
+
+        return btn;
+    }
+}
+
+impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for DenseByteNode<V> {
+    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
+        let r = self.subtract(other);
+        if r.len() == 0 { return None }
+        else { return Some(r) }
+    }
+}
+
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<Rc<DenseByteNode<V>>> {
+    fn psubtract(&self, other: &Self) -> Option<Self> {
+        match self {
+            None => { None }
+            Some(sr) => {
+                match other {
+                    None => { Some(self.clone()) }
+                    Some(or) => {
+                        let v = sr.subtract(or);
+                        if v.len() == 0 { None }
+                        else {
+                            let vb = Rc::new(v);
+                            Some(Some(vb))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

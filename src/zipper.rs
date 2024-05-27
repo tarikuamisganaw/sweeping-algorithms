@@ -1,7 +1,6 @@
 use std::fmt::Debug;
 use std::ptr;
-use crate::bit_sibling;
-use crate::bytetrie::{BytesTrieMap, ByteTrieNode, CoFree};
+use crate::bytetrie::{ByteTrieNode, BytesTrieMap, TrieNode};
 
 // CZ2 uses a stack machine
 // Store({a: 1}) // push
@@ -47,9 +46,9 @@ enum Instruction {
 
 pub struct ReadZipper<'a, V> where V : Clone {
     pub root: &'a BytesTrieMap<V>,
-    pub focus: &'a ByteTrieNode<CoFree<V>>,
+    pub focus: &'a ByteTrieNode<V>,
     pub path: Vec<u8>,
-    pub ancestors: Vec<&'a ByteTrieNode<CoFree<V>>>,
+    pub ancestors: Vec<&'a ByteTrieNode<V>>,
 }
 
 impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
@@ -64,76 +63,26 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
 
     // moves deeper
     pub fn child(&mut self, k: u8) -> bool {
-        match self.focus.get(k) {
+        match self.focus.node_get_child(&[k]) { //GOAT, this is going to fail as soon as we have keys that are variable length
             None => { false }
-            Some(cf) => unsafe {
-                match cf.rec.as_ref() {
-                    None => { false }
-                    Some(r) => {
-                        self.path.push(k);
-                        self.ancestors.push(self.focus);
-                        self.focus = r;
-                        true
-                    }
-                }
+            Some((consumed, child_node)) => {
+                self.path.push(k);
+                self.ancestors.push(self.focus);
+                self.focus = child_node.as_dense();
+                true
             }
         }
     }
 
-    pub fn nth_child(&mut self, n: u8, forward: bool) -> bool {
-        // println!("n {n}");
-        // #iterations can be reduced by popcount(mask[i] & prefix)
-        let mut child = -1;
-        // this is not DRY but I lost the fight to the Rust compiler
-        let pair = if forward { self.focus.values.iter().enumerate().find(|(_, v)| {
-            let has_child = v.rec.is_some();
-            if has_child { child += 1; child == (n as i32) } else { false }
-        }) } else { self.focus.values.iter().rev().enumerate().find(|(_, v)| {
-            let has_child = v.rec.is_some();
-            if has_child { child += 1; child == (n as i32) } else { false }
-        }) };
-        match pair {
-            None => { return false }
-            Some((item, cf)) => {
-                let mut i = if forward { 0 } else { 3 };
-                let mut m = self.focus.mask[i];
-                let mut c = 0;
-                let mut c_ahead = m.count_ones() as usize;
-                loop {
-                    if item < c_ahead { break; }
-                    if forward { i += 1} else { i -= 1 };
-                    if i > 3 || i < 0 { return false }
-                    m = self.focus.mask[i];
-                    c = c_ahead;
-                    c_ahead += m.count_ones() as usize;
-                }
-
-                let mut loc= 0;
-                if forward {
-                    loc = 63 - m.leading_zeros();
-                    while c < item {
-                        m ^= 1u64 << loc;
-                        loc = 63 - m.leading_zeros();
-                        c += 1;
-                    }
-                } else {
-                    loc = m.trailing_zeros();
-                    while c < item {
-                        m ^= 1u64 << loc;
-                        loc = m.trailing_zeros();
-                        c += 1;
-                    }
-                }
-
-                let prefix = (i << 6 | (loc as usize)) as u8;
-                // println!("{:#066b}", self.focus.mask[i]);
-                // println!("{i} {loc} {prefix}");
-                debug_assert!(self.focus.contains(prefix));
+    pub fn nth_child(&mut self, n: usize, forward: bool) -> bool {
+        match self.focus.nth_child(n, forward) {
+            Some((prefix, child_node)) => {
                 self.ancestors.push(self.focus);
-                self.path.push(prefix);
-                self.focus = cf.rec.as_ref().unwrap();
+                self.path.extend(prefix);
+                self.focus = child_node.as_dense();
                 true
-            }
+            },
+            None => false
         }
     }
 
@@ -142,40 +91,15 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
         match self.ancestors.last() {
             None => { false }
             Some(parent) => {
-                let k = self.path.last().unwrap(); // should be in-sync ancestors and non-empty
-                let mut mask_i = ((k & 0b11000000) >> 6) as usize;
-                let mut bit_i = k & 0b00111111;
-                // println!("k {k}");
+                let k = self.path.last().unwrap(); //GOAT, this is going to fail as soon as we have keys that are variable length
 
-                loop {
-                    // println!("loop");
-                    let mut n = bit_sibling(bit_i, parent.mask[mask_i], !next);
-                    // println!("{} {bit_i} {mask_i}", n == bit_i);
-                    if n == bit_i { // outside of word
-                        loop {
-                            if next { mask_i += 1 } else { mask_i -= 1 };
-                            if !(0 <= mask_i && mask_i < 4) { return false }
-                            if parent.mask[mask_i] == 0 { continue }
-                            n = parent.mask[mask_i].trailing_zeros() as u8; break;
-                        }
-                    }
-                    bit_i = n;
-                    // println!("{} {bit_i} {mask_i}", n == bit_i);
-                    // println!("{:?}", parent.items().map(|(k, _)| k).collect::<Vec<_>>());
-                    let sk = n | ((mask_i << 6) as u8);
-                    // println!("candidate {}", sk);
-                    debug_assert!(parent.contains(sk));
-                    match unsafe { parent.get_unchecked(sk).rec.as_ref() } {
-                        None => {
-                            // println!("{} {}", k, sk);
-                            continue
-                        }
-                        Some(cs) => {
-                            *self.path.last_mut().unwrap() = sk;
-                            self.focus = cs;
-                            return true
-                        }
-                    }
+                match parent.get_sibling_of_child(&[*k], next) {
+                    Some((prefix_key, child_node)) => {
+                        *self.path.last_mut().unwrap() = prefix_key[0];
+                        self.focus = child_node.as_dense();
+                        true
+                    },
+                    None => false
                 }
             }
         }

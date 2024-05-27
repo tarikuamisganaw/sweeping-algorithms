@@ -13,7 +13,7 @@ fn main() {
 }
 
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
-fn join(bencher: Bencher, n: u64) {
+fn superdense_join(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;
     {
@@ -57,7 +57,7 @@ fn join(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
-fn insert(bencher: Bencher, n: u64) {
+fn superdense_insert(bencher: Bencher, n: u64) {
 
     //Benchmark the insert operation
     let out = bencher.with_inputs(|| {
@@ -70,7 +70,7 @@ fn insert(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
-fn drop_bench(bencher: Bencher, n: u64) {
+fn superdense_drop_bench(bencher: Bencher, n: u64) {
 
     //Benchmark the time taken to drop the map
     bencher.with_inputs(|| {
@@ -83,7 +83,7 @@ fn drop_bench(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
-fn get(bencher: Bencher, n: u64) {
+fn superdense_get(bencher: Bencher, n: u64) {
 
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
@@ -97,7 +97,7 @@ fn get(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
-fn iter(bencher: Bencher, n: u64) {
+fn superdense_iter(bencher: Bencher, n: u64) {
 
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
