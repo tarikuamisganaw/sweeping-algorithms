@@ -5,8 +5,6 @@ use crate::dense_byte_node::*;
 
 use rclite::Rc;
 
-//GOAT, get rid of this when the abstraction is complete
-pub type ByteTrieNode<V> = DenseByteNode<V>;
 
 pub struct BytesTrieMapIter<'a, V> where V : Clone {
     prefixes: Vec<Vec<u8>>,

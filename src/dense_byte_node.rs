@@ -739,6 +739,57 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
     }
 }
 
+impl<V: Lattice + Clone> Lattice for Option<Rc<DenseByteNode<V>>> {
+    fn join(&self, other: &Self) -> Self {
+        match self {
+            None => { other.clone() }
+            Some(sptr) => {
+                match other {
+                    None => { None }
+                    Some(optr) => {
+                        let v = sptr.join(optr);
+                        Some(Rc::new(v))
+                    }
+                }
+            }
+        }
+    }
+
+    fn join_into(&mut self, other: Self) {
+        match self {
+            None => { *self = other }
+            Some(sptr) => {
+                match other {
+                    None => { }
+                    Some(optr) => {
+                        let raw_other = Rc::unwrap_or_clone(optr);
+                        Rc::make_mut(sptr).join_into(raw_other);
+                    }
+                }
+            }
+        }
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        match self {
+            None => { None }
+            Some(sptr) => {
+                match other {
+                    None => { None }
+                    Some(optr) => {
+                        let v = sptr.meet(optr);
+                        Some(Rc::new(v))
+                    }
+                }
+            }
+        }
+    }
+
+    fn bottom() -> Self {
+        None
+    }
+}
+
 impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<Rc<DenseByteNode<V>>> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         match self {

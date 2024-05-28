@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::ptr;
-use crate::bytetrie::{ByteTrieNode, BytesTrieMap, TrieNode};
+use crate::bytetrie::{BytesTrieMap, TrieNode};
 
 // CZ2 uses a stack machine
 // Store({a: 1}) // push
@@ -46,9 +46,9 @@ enum Instruction {
 
 pub struct ReadZipper<'a, V> where V : Clone {
     pub root: &'a BytesTrieMap<V>,
-    pub focus: &'a ByteTrieNode<V>,
+    pub focus: &'a dyn TrieNode<V>,
     pub path: Vec<u8>,
-    pub ancestors: Vec<&'a ByteTrieNode<V>>,
+    pub ancestors: Vec<&'a dyn TrieNode<V>>,
 }
 
 impl <'a, V : Clone + Debug> ReadZipper<'a, V> {

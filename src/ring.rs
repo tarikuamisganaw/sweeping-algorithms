@@ -4,7 +4,7 @@ use std::hash::Hash;
 
 use rclite::Rc;
 
-use crate::bytetrie::{ByteTrieNode, BytesTrieMap, TrieNode};
+use crate::bytetrie::{BytesTrieMap, TrieNode};
 
 pub trait Lattice: Sized {
     fn join(&self, other: &Self) -> Self;
@@ -270,57 +270,6 @@ impl <K : Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
 //         (&**self).psubtract(&**other).map(|btn| Box::new(btn))
 //     }
 // }
-
-impl<V: Lattice + Clone> Lattice for Option<Rc<ByteTrieNode<V>>> {
-    fn join(&self, other: &Self) -> Self {
-        match self {
-            None => { other.clone() }
-            Some(sptr) => {
-                match other {
-                    None => { None }
-                    Some(optr) => {
-                        let v = sptr.join(optr);
-                        Some(Rc::new(v))
-                    }
-                }
-            }
-        }
-    }
-
-    fn join_into(&mut self, other: Self) {
-        match self {
-            None => { *self = other }
-            Some(sptr) => {
-                match other {
-                    None => { }
-                    Some(optr) => {
-                        let raw_other = Rc::unwrap_or_clone(optr);
-                        Rc::make_mut(sptr).join_into(raw_other);
-                    }
-                }
-            }
-        }
-    }
-
-    fn meet(&self, other: &Self) -> Self {
-        match self {
-            None => { None }
-            Some(sptr) => {
-                match other {
-                    None => { None }
-                    Some(optr) => {
-                        let v = sptr.meet(optr);
-                        Some(Rc::new(v))
-                    }
-                }
-            }
-        }
-    }
-
-    fn bottom() -> Self {
-        None
-    }
-}
 
 // impl<V : Clone + Lattice> Lattice for ShortTrieMap<V> {
 //     fn join(&self, other: &Self) -> Self {
