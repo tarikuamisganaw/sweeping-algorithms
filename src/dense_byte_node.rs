@@ -33,11 +33,6 @@ impl <V : Clone> DenseByteNode<V> {
         }
     }
 
-    //GOAT, make this a DenseByteNodeIter, so CoFree doesn't leak outside this module
-    // pub fn items<'a>(&'a self) -> impl Iterator<Item=(u8, &'a CoFree<V>)> {
-    //     CfIter::new(self)
-    // }
-
     #[inline]
     fn left(&self, pos: u8) -> u8 {
         if pos == 0 { return 0 }
@@ -120,20 +115,6 @@ impl <V : Clone> DenseByteNode<V> {
             self.values.insert(ix, new_cf);
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             cf.value.as_mut().unwrap()
-        }
-    }
-
-    //GOAT, change this to ordinary V, actually, this is probably shit, given the separate add_child and set_val methods
-    fn insert(&mut self, k: u8, v: CoFree<V>) -> bool {
-        let ix = self.left(k) as usize;
-        if self.contains(k) {
-            let node_ref = unsafe { self.values.get_unchecked_mut(ix) };
-            *node_ref = v;
-            true
-        } else {
-            self.set(k);
-            self.values.insert(ix, v);
-            false
         }
     }
 
@@ -273,6 +254,7 @@ impl <'a, V : Clone> Iterator for CfIter<'a, V> {
 }
 
 impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
+    //GOAT
     // fn node_contains_child(&self, key: &[u8]) -> bool {
     //     self.contains(key[0])
     // }
@@ -333,6 +315,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.node_subtree_len()).unwrap_or(0)
         });
     }
+    //GOAT
     // fn child_count(&self) -> usize {
     //     12345//GOAT, need to un-tangle what's a value from what's a child
     // }
@@ -441,15 +424,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         self
     }
 }
-
-//GOAT, this is probably a pointless trait
-// impl<'a, V> IterableNode for &'a DenseByteNode<V> {
-//     type IterT = DenseByteNodeIter<'a, V>;
-
-//     fn node_iter(self) -> Self::IterT {
-//         DenseByteNodeIter::new(self)
-//     }
-// }
 
 #[derive(Debug, Default, Clone)]
 struct CoFree<V> {

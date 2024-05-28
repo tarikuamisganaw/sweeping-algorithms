@@ -37,21 +37,6 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
                             let mut cur_prefix = self.prefixes.last().unwrap().clone();
                             cur_prefix.extend(bytes);
 
-                            // match &cf.rec {
-                            //     None => {}
-                            //     Some(rec) => {
-                            //         self.prefix = k.clone();
-                            //         self.btnis.push(rec.boxed_node_iter());
-                            //     }
-                            // }
-
-                            // match &cf.value {
-                            //     None => {}
-                            //     Some(v) => {
-                            //         return Some((k, &v))
-                            //     }
-                            // }
-
                             match item {
                                 ValOrChildRef::Val(val) => return Some((cur_prefix, val)),
                                 ValOrChildRef::Child(child) => {
@@ -114,23 +99,6 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
                                     self.btnis.push(child.boxed_node_iter())
                                 }
                             }
-
-                            // match cf.rec.as_ref() {
-                            //     None => {
-                            //         self.nopush = true;
-                            //     }
-                            //     Some(rec) => {
-                            //         self.nopush = false;
-                            //         self.btnis.push(rec.boxed_node_iter());
-                            //     }
-                            // }
-
-                            // match &cf.value {
-                            //     None => {}
-                            //     Some(v) => {
-                            //         return Some((&self.prefix, v))
-                            //     }
-                            // }
                         }
                     }
                 }
@@ -214,24 +182,6 @@ impl <V : Clone> BytesTrieMap<V> {
         let mut k = k.as_ref();
         let (node, remaining_key) = traverse_to_leaf_mut(&mut self.root, k);
 
-        //GOAT
-        // let mut node = &mut self.root;
-
-        // let mut node_ptr = node as *mut DenseByteNode<V>;
-        // while let Some((consumed, next_node)) = node.node_get_child_mut(k) {
-        //     if k.len() > consumed {
-        //         k = &k[consumed..];
-        //         node = next_node.as_dense_mut();
-        //         node_ptr = node as *mut DenseByteNode<V>;
-        //     } else {
-        //         break;
-        //     }
-        // }
-
-        // //SAFETY: node_ptr is a work-around for lack of Polonius.  Remove node_ptr and use node in Rust 2024
-        // let node = unsafe{ &mut *node_ptr };
-
-
         match node.node_set_val(remaining_key, v) {
             Ok(old_val) => old_val.is_some(),
             Err(replacement_node) => {
@@ -239,36 +189,6 @@ impl <V : Clone> BytesTrieMap<V> {
                 panic!();
             }
         }
-
-        //GOAT DEAD
-        // if k.len() > 1 {
-        //     for i in 0..k.len() - 1 {
-        //         let cf = node.update(k[i], || CoFree{rec: None, value: None});
-
-        //         if cf.rec.is_none() {
-        //             let l = ByteTrieNode::new();
-        //             cf.rec = Some(Rc::new(l));
-        //         }
-        //         node = Rc::make_mut(cf.rec.as_mut().unwrap());
-        //     }
-        // }
-        //
-        // let lk = k[k.len() - 1];
-        // if node.node_contains(&[lk]) { //GOAT, Need a "get_or_split" type interface
-        //     let cf = unsafe{ node.get_unchecked_mut(lk) };
-        //     match cf.value {
-        //         None => {
-        //             cf.value = Some(v);
-        //             false
-        //         }
-        //         Some(_) => {
-        //             true
-        //         }
-        //     }
-        // } else {
-        //     let cf = CoFree{ rec: None, value: Some(v) };
-        //     node.insert(lk, cf)
-        // }
     }
 
     // pub fn remove(&mut self, k: u16) -> Option<V> {
@@ -288,29 +208,9 @@ impl <V : Clone> BytesTrieMap<V> {
     //     }
     // }
 
-    // pub fn deepcopy(&self) -> Self {
-    //     return self.items().collect();
-    // }
-
     pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
         let mut k = k.as_ref();
         let (node, remaining_key) = traverse_to_leaf_mut(&mut self.root, k);
-
-        // let k = k.as_ref();
-        // let mut node = &mut self.root;
-
-        // if k.len() > 1 {
-        //     for i in 0..k.len() - 1 {
-        //         let cf = node.update(k[i], || CoFree{rec: None, value: None});
-
-        //         if cf.rec.is_none() {
-        //             let l = ByteTrieNode::new();
-        //             cf.rec = Some(Rc::new(l));
-        //         }
-        //         node = Rc::make_mut(cf.rec.as_mut().unwrap());
-        //     }
-        // }
-
 
         match node.node_update_val(remaining_key, Box::new(default_f)) {
             Ok(val) => val,
@@ -320,10 +220,6 @@ impl <V : Clone> BytesTrieMap<V> {
                 panic!();
             }
         }
-
-        // let lk = k[k.len() - 1];
-        // let cf = node.update(lk, || CoFree{ rec: None, value: None });
-        // cf.value.get_or_insert_with(default)
     }
 
     pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
@@ -340,32 +236,6 @@ impl <V : Clone> BytesTrieMap<V> {
         }
 
         node.node_get_val(k)
-
-
-        //GOAT trash
-        // if k.len() > 1 {
-        //     for i in 0..k.len() - 1 {
-        //         match node.get(k[i]) {
-        //             Some(cf) => {
-        //                 match cf.rec.as_ref() {
-        //                     Some(r) => { node = r }
-        //                     None => { return None }
-        //                 }
-        //             }
-        //             None => { return None }
-        //         }
-        //     }
-        // }
-
-        // match node.get(k[k.len() - 1]) {
-        //     None => { None }
-        //     Some(CoFree{ rec: _, value }) => {
-        //         match value {
-        //             None => { None }
-        //             Some(v) => { Some(v) }
-        //         }
-        //     }
-        // }
     }
 
     pub fn len(&self) -> usize {
@@ -401,88 +271,6 @@ impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
         map
     }
 }
-
-// #[derive(Clone)]
-// pub struct ShortTrieMap<V> {
-//     pub(crate) root: ByteTrieNode<Option<Rc<ByteTrieNode<V>>>>
-// }
-
-// impl <V : Clone> FromIterator<(u16, V)> for ShortTrieMap<V> {
-//     fn from_iter<I: IntoIterator<Item=(u16, V)>>(iter: I) -> Self {
-//         let mut tm = ShortTrieMap::new();
-//         for (k, v) in iter { tm.insert(k, v); }
-//         tm
-//     }
-// }
-
-// impl <V : Clone> ShortTrieMap<V> {
-//     pub fn new() -> Self {
-//         Self {
-//             root: ByteTrieNode::new()
-//         }
-//     }
-
-//     pub fn items<'a>(&'a self) -> impl Iterator<Item=(u16, &'a V)> + 'a {
-//         self.root.items().flat_map(|(k1, l1)| {
-//             l1.as_ref().unwrap().items().map(move |(k2, v)| ((k1 as u16) | ((k2 as u16) << 8), v))
-//         })
-//     }
-
-//     pub fn contains(&self, k: u16) -> bool {
-//         let k1 = k as u8;
-//         let k2 = (k >> 8) as u8;
-//         if self.root.contains(k1) {
-//             let rl1 = unsafe{ self.root.get_unchecked(k1) };
-//             rl1.as_ref().unwrap().contains(k2)
-//         } else {
-//             false
-//         }
-//     }
-
-//     pub fn insert(&mut self, k: u16, v: V) -> bool {
-//         let k1 = k as u8;
-//         let k2 = (k >> 8) as u8;
-//         if self.root.contains(k1) {
-//             let rl1 = unsafe{ self.root.get_unchecked_mut(k1) };
-//             Rc::make_mut(rl1.as_mut().unwrap()).insert(k2, v)
-//         } else {
-//             let mut l1 = ByteTrieNode::new();
-//             l1.insert(k2, v);
-//             let rl1 = Some(Rc::new(l1));
-//             self.root.insert(k1, rl1);
-//             false
-//         }
-//     }
-
-//     pub fn remove(&mut self, k: u16) -> Option<V> {
-//         let k1 = k as u8;
-//         let k2 = (k >> 8) as u8;
-//         match self.root.get_mut(k1) {
-//             Some(btn) => {
-//                 let btnr = Rc::make_mut(btn.as_mut().unwrap());
-//                 let r = btnr.remove(k2);
-//                 if btnr.len() == 0 {
-//                     btnr.remove(k1);
-//                 }
-//                 r
-//             }
-//             None => None
-//         }
-//     }
-
-//     // pub fn deepcopy(&self) -> Self {
-//     //     return self.items().collect();
-//     // }
-
-//     pub fn get(&self, k: u16) -> Option<&V> {
-//         let k1 = k as u8;
-//         let k2 = (k >> 8) as u8;
-//         self.root.get(k1).and_then(|l1| {
-//             let rl1 = &**l1.as_ref().unwrap();
-//             rl1.get(k2)
-//         })
-//     }
-// }
 
 pub(crate) trait TrieNode<V> {
 
@@ -562,18 +350,3 @@ pub(crate) enum ValOrChildRef<'a, V> {
     Val(&'a V),
     Child(&'a dyn TrieNode<V>)
 }
-
-//GOAT, this is probably a pointless trait
-// pub(crate) trait IterableNode {
-//     type ValuesIterT;
-//     type ChildIterT;
-
-//     /// Returns an Iterator over all values directly contained by the node itself, but not by traversing
-//     /// the node's subtrees
-//     fn values_iter(self) -> Self::ValuesIterT;
-
-//     /// Returns an Iterator over all child nodes of the node
-//     fn child_iter(self) -> Self::ChildIterT;
-
-// }
-
