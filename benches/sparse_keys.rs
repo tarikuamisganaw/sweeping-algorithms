@@ -51,7 +51,7 @@ fn sparse_drop_bench(bencher: Bencher, n: u64) {
     });
 }
 
-#[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
+#[divan::bench(args = [250, 500, 1000, 2000, 4000, 8000])]
 fn sparse_get(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
@@ -71,7 +71,7 @@ fn sparse_get(bencher: Bencher, n: u64) {
     });
 }
 
-#[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
+#[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_meet(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;
@@ -115,8 +115,30 @@ fn sparse_meet_after_join(bencher: Bencher, n: u64) {
     });
 }
 
+/// This tests the performance of the meet op when there are already some shared nodes between the maps
+#[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
+fn sparse_subtract_after_join(bencher: Bencher, n: u64) {
 
-#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+    let mut rng = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+    }).collect();
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..(n/2) { l.insert(&keys[i as usize], i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in (n/2)..n { r.insert(&keys[i as usize], i); }
+
+    let joined = l.join(&r);
+    let mut remaining: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut remaining) = joined.subtract(black_box(&r));
+    });
+    assert_eq!(remaining.len(), l.len())
+}
+
+#[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_cursor(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
@@ -136,7 +158,7 @@ fn sparse_cursor(bencher: Bencher, n: u64) {
     });
 }
 
-#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+#[divan::bench(args = [10, 20, 40, 80, 160, 320])]
 fn sparse_iter(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
@@ -153,7 +175,7 @@ fn sparse_iter(bencher: Bencher, n: u64) {
     });
 }
 
-#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+#[divan::bench(sample_size = 1, args = [50, 100, 200, 400, 800, 1600])]
 fn join_sparse(bencher: Bencher, n: u64) {
 
     let overlap = 0.5;
@@ -178,7 +200,7 @@ fn join_sparse(bencher: Bencher, n: u64) {
     }
 }
 
-#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+#[divan::bench(sample_size = 1, args = [50, 100, 200, 400, 800, 1600])]
 fn join_into_sparse(bencher: Bencher, n: u64) {
 
     let overlap = 0.5;

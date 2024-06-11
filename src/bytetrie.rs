@@ -400,6 +400,9 @@ mod opaque_dyn_rc_trie_node{
             V: 'odb
         {
             let inner = std::rc::Rc::new(obj) as std::rc::Rc<dyn TrieNode<V>>;
+            //SAFETY NOTE: The key to making this abstraction safe is the bound on this method,
+            // such that it's impossible to create this wrapper around a concrete type unless the
+            // same lifetime can bound both the trait's type parameter and the type itself
             unsafe { Self(core::mem::transmute(inner)) }
         }
         #[inline]
@@ -407,15 +410,27 @@ mod opaque_dyn_rc_trie_node{
             where V: 'odb
         {
             let inner = rc as std::rc::Rc<dyn TrieNode<V>>;
+            //SAFETY NOTE: The key to making this abstraction safe is the bound on this method,
+            // such that it's impossible to create this wrapper around a concrete type unless the
+            // same lifetime can bound both the trait's type parameter and the type itself
             unsafe { Self(core::mem::transmute(inner)) }
         }
         #[inline]
-        pub fn borrow<'s>(&'s self) -> &'s dyn TrieNode<V> {
+        pub fn as_rc(&self) -> &std::rc::Rc<dyn TrieNode<V>> {
+            &self.0
+        }
+        #[inline]
+        pub fn borrow(&self) -> &dyn TrieNode<V> {
             &*self.0
+        }
+        /// Returns `true` if both internal Rc ptrs point to the same object
+        #[inline]
+        pub fn ptr_eq(&self, other: &Self) -> bool {
+            std::rc::Rc::ptr_eq(self.as_rc(), other.as_rc())
         }
         //GOAT, make this contingent on a dyn_clone compile-time feature
         #[inline]
-        pub fn make_mut<'s>(&'s mut self) -> &'s mut dyn TrieNode<V> {
+        pub fn make_mut(&mut self) -> &mut dyn TrieNode<V> {
             dyn_clone::rc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
         }
     }
@@ -437,7 +452,11 @@ impl<V: Lattice + Clone> Lattice for TrieNodeODRc<V> {
         self.make_mut().join_into_dyn(other)
     }
     fn meet(&self, other: &Self) -> Self {
-        self.borrow().meet_dyn(other.borrow())
+        if self.ptr_eq(other) {
+            self.clone()
+        } else {
+            self.borrow().meet_dyn(other.borrow())
+        }
     }
     fn bottom() -> Self {
         //If we end up hitting this, we should add an "empty node" type that implements TrieNode,
@@ -448,6 +467,10 @@ impl<V: Lattice + Clone> Lattice for TrieNodeODRc<V> {
 
 impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for TrieNodeODRc<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
-        self.borrow().psubtract_dyn(other.borrow())
+        if self.ptr_eq(other) {
+            None
+        } else {
+            self.borrow().psubtract_dyn(other.borrow())
+        }
     }
 }

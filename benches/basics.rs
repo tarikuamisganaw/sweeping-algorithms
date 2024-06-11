@@ -128,6 +128,23 @@ fn superdense_meet_after_join(bencher: Bencher, n: u64) {
     });
 }
 
+/// This tests the performance of the meet op when there are already some shared nodes between the maps
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn superdense_subtract_after_join(bencher: Bencher, n: u64) {
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..(n/2) { l.insert(prefix_key(&i), i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in (n/2)..n { r.insert(prefix_key(&i), i); }
+
+    let joined = l.join(&r);
+    let mut remaining: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut remaining) = joined.subtract(black_box(&r));
+    });
+    assert_eq!(remaining.len(), l.len())
+}
+
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_iter(bencher: Bencher, n: u64) {
 
