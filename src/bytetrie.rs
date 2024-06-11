@@ -446,10 +446,16 @@ mod opaque_dyn_rc_trie_node{
 
 impl<V: Lattice + Clone> Lattice for TrieNodeODRc<V> {
     fn join(&self, other: &Self) -> Self {
-        self.borrow().join_dyn(other.borrow())
+        if self.ptr_eq(other) {
+            self.clone()
+        } else {
+            self.borrow().join_dyn(other.borrow())
+        }
     }
     fn join_into(&mut self, other: Self) {
-        self.make_mut().join_into_dyn(other)
+        if !self.ptr_eq(&other) {
+            self.make_mut().join_into_dyn(other)
+        }
     }
     fn meet(&self, other: &Self) -> Self {
         if self.ptr_eq(other) {
