@@ -1,10 +1,8 @@
-use std::fmt::{Debug, Formatter};
-use std::ptr::slice_from_raw_parts;
+
+use dyn_clone::*;
 
 use crate::dense_byte_node::*;
-
-use rclite::Rc;
-
+use crate::ring::*;
 
 pub struct BytesTrieMapIter<'a, V> where V : Clone {
     prefixes: Vec<Vec<u8>>,
@@ -174,12 +172,14 @@ impl <V : Clone> BytesTrieMap<V> {
     }
 
     pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
-        self.get(k).is_some()
+        let k = k.as_ref();
+        let (node, remaining_key) = traverse_to_leaf(&self.root, k);
+        node.node_contains_val(remaining_key)
     }
 
     /// Inserts `v` at into the map at `k`.  Panics if `k` has a zero length
     pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
-        let mut k = k.as_ref();
+        let k = k.as_ref();
         let (node, remaining_key) = traverse_to_leaf_mut(&mut self.root, k);
 
         match node.node_set_val(remaining_key, v) {
@@ -209,7 +209,7 @@ impl <V : Clone> BytesTrieMap<V> {
     // }
 
     pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
-        let mut k = k.as_ref();
+        let k = k.as_ref();
         let (node, remaining_key) = traverse_to_leaf_mut(&mut self.root, k);
 
         match node.node_update_val(remaining_key, Box::new(default_f)) {
@@ -223,24 +223,28 @@ impl <V : Clone> BytesTrieMap<V> {
     }
 
     pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
-        let mut k = k.as_ref();
-        let mut node = &self.root;
-
-        while let Some((consumed, next_node)) = node.node_get_child(k) {
-            if k.len() > consumed {
-                k = &k[consumed..];
-                node = next_node.as_dense();
-            } else {
-                break;
-            }
-        }
-
-        node.node_get_val(k)
+        let k = k.as_ref();
+        let (node, remaining_key) = traverse_to_leaf(&self.root, k);
+        node.node_get_val(remaining_key)
     }
 
     pub fn len(&self) -> usize {
         return self.root.node_subtree_len()
     }
+}
+
+fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a dyn TrieNode<V>, &'k [u8]) {
+    let mut node = start_node;
+
+    while let Some((consumed, next_node)) = node.node_get_child(key) {
+        if key.len() > consumed {
+            key = &key[consumed..];
+            node = next_node;
+        } else {
+            break;
+        }
+    }
+    (node, key)
 }
 
 fn traverse_to_leaf_mut<'a, 'k, V>(start_node: &'a mut dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a mut dyn TrieNode<V>, &'k [u8]) {
@@ -272,9 +276,10 @@ impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
     }
 }
 
-pub(crate) trait TrieNode<V> {
+pub(crate) trait TrieNode<V>: DynClone {
 
     // /// Returns `true` if the node contains a child node for the key path, otherwise returns `false`
+    //GOAT what would you do with a child node except for traverse it?
     // fn node_contains_child(&self, key: &[u8]) -> bool;
 
     /// Returns the child node that matches `key` along with the number of `key` characters matched.
@@ -284,7 +289,16 @@ pub(crate) trait TrieNode<V> {
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)>;
 
+    /// Returns `true` if the node contains a value at the specified key, otherwise returns `false`
+    ///
+    /// NOTE: just as with [Self::node_get_val], this method will return `false` if key is longer than
+    /// the exact key contained within this node
+    fn node_contains_val(&self, key: &[u8]) -> bool;
+
     /// Returns the value that matches `key` if it contained within the node
+    ///
+    /// NOTE: this method will return `None` if key is longer than the exact key contained within this
+    /// node, even if there is a valid value at the leading subset of `key`
     fn node_get_val(&self, key: &[u8]) -> Option<&V>;
 
     /// Mutable version of [node_get_val]
@@ -336,17 +350,104 @@ pub(crate) trait TrieNode<V> {
     /// `key`, oterwise it will be immedtely before
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> Option<(&[u8], &dyn TrieNode<V>)>;
 
+    /// Allows for the implementation of the Lattice trait on different node implementations, and
+    /// the logic to promote nodes to other node types.
+    fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
 
+    /// Allows for the implementation of the Lattice trait on different node implementations, and
+    /// the logic to promote nodes to other node types.
+    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
 
+    /// Allows for the implementation of the Lattice trait on different node implementations, and
+    /// the logic to promote nodes to other node types.
+    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
 
-    /// Temporary scaffolding to make abstracting the code easier
-    fn as_dense(&self) -> &DenseByteNode<V>;
-    fn as_dense_mut(&mut self) -> &mut DenseByteNode<V>;
+    /// Allows for the implementation of the PartialDistributiveLattice trait on different node
+    /// implementations, and the logic to promote nodes to other node types.
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice;
 
+    /// Returns a reference to the node as a specific concrete type or None if it is not that type
+    ///
+    /// NOTE: If we end up checking more than one concrete type in the same implementation, it probably
+    /// makes sense to define a type enum
+    fn as_dense(&self) -> Option<&DenseByteNode<V>>;
 
+    /// Returns a mutable reference to the node as a specific concrete type or None if it is not that type
+    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
 }
 
 pub(crate) enum ValOrChildRef<'a, V> {
     Val(&'a V),
     Child(&'a dyn TrieNode<V>)
+}
+
+//TODO: Make a Macro to generate OpaqueDynBoxes and ODRc (OpaqueDynRc) and an Arc version
+pub(crate) use opaque_dyn_rc_trie_node::TrieNodeODRc;
+mod opaque_dyn_rc_trie_node{
+    use super::TrieNode;
+
+    //TODO_FUTURE: make a type alias within the trait to refer to this type, as soon as
+    // https://github.com/rust-lang/rust/issues/29661 is addressed
+
+    #[derive(Clone)]
+    #[repr(transparent)]
+    pub struct TrieNodeODRc<V>(std::rc::Rc<dyn TrieNode<V> + 'static>);
+
+    impl<V> TrieNodeODRc<V> {
+        #[inline]
+        pub fn new<'odb, T>(obj: T) -> Self
+            where T: 'odb + TrieNode<V>,
+            V: 'odb
+        {
+            let inner = std::rc::Rc::new(obj) as std::rc::Rc<dyn TrieNode<V>>;
+            unsafe { Self(core::mem::transmute(inner)) }
+        }
+        #[inline]
+        pub fn new_from_rc<'odb>(rc: std::rc::Rc<dyn TrieNode<V> + 'odb>) -> Self
+            where V: 'odb
+        {
+            let inner = rc as std::rc::Rc<dyn TrieNode<V>>;
+            unsafe { Self(core::mem::transmute(inner)) }
+        }
+        #[inline]
+        pub fn borrow<'s>(&'s self) -> &'s dyn TrieNode<V> {
+            &*self.0
+        }
+        //GOAT, make this contingent on a dyn_clone compile-time feature
+        #[inline]
+        pub fn make_mut<'s>(&'s mut self) -> &'s mut dyn TrieNode<V> {
+            dyn_clone::rc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
+        }
+    }
+
+    impl<'odb, V> From<std::rc::Rc<dyn TrieNode<V> + 'odb>> for TrieNodeODRc<V>
+        where V: 'odb
+    {
+        fn from(rc: std::rc::Rc<dyn TrieNode<V> + 'odb>) -> Self {
+            Self::new_from_rc(rc)
+        }
+    }
+}
+
+impl<V: Lattice + Clone> Lattice for TrieNodeODRc<V> {
+    fn join(&self, other: &Self) -> Self {
+        self.borrow().join_dyn(other.borrow())
+    }
+    fn join_into(&mut self, other: Self) {
+        self.make_mut().join_into_dyn(other)
+    }
+    fn meet(&self, other: &Self) -> Self {
+        self.borrow().meet_dyn(other.borrow())
+    }
+    fn bottom() -> Self {
+        //If we end up hitting this, we should add an "empty node" type that implements TrieNode,
+        // but is incapable of holding any values or children
+        panic!()
+    }
+}
+
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for TrieNodeODRc<V> {
+    fn psubtract(&self, other: &Self) -> Option<Self> {
+        self.borrow().psubtract_dyn(other.borrow())
+    }
 }

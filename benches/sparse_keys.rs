@@ -71,6 +71,51 @@ fn sparse_get(bencher: Bencher, n: u64) {
     });
 }
 
+#[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
+fn sparse_meet(bencher: Bencher, n: u64) {
+    let overlap = 0.5;
+    let o = ((1. - overlap) * n as f64) as u64;
+
+    let mut rng = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n+o).into_iter().map(|_| {
+        let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+    }).collect();
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { l.insert(&keys[i as usize], i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in o..(n+o) { r.insert(&keys[i as usize], i); }
+
+    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut intersection) = l.meet(black_box(&r));
+    });
+}
+
+/// This tests the performance of the meet op when there are already some shared nodes between the maps
+#[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
+fn sparse_meet_after_join(bencher: Bencher, n: u64) {
+
+    let mut rng = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+    }).collect();
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..(n/2) { l.insert(&keys[i as usize], i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in (n/2)..n { r.insert(&keys[i as usize], i); }
+
+    let joined = l.join(&r);
+    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut intersection) = joined.meet(black_box(&l));
+    });
+}
+
+
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn sparse_cursor(bencher: Bencher, n: u64) {
 
@@ -108,56 +153,53 @@ fn sparse_iter(bencher: Bencher, n: u64) {
     });
 }
 
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+fn join_sparse(bencher: Bencher, n: u64) {
 
+    let overlap = 0.5;
+    let o = ((1. - overlap) * n as f64) as u64;
+    {
+        let mut r = StdRng::seed_from_u64(1);
+        let keys: Vec<Vec<u8>> = (0..(n+o)).into_iter().map(|_| {
+            let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+            (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        }).collect();
 
-//GOAT, re-enable these
-// #[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
-// fn join_sparse(bencher: Bencher, n: u64) {
+        let mut vnl = BytesTrieMap::new();
+        let mut vnr = BytesTrieMap::new();
+        for i in 0..n { vnl.insert(&keys[i as usize], i); }
+        for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
 
-//     let overlap = 0.5;
-//     let o = ((1. - overlap) * n as f64) as u64;
-//     {
-//         let mut r = StdRng::seed_from_u64(1);
-//         let keys: Vec<Vec<u8>> = (0..(n+o)).into_iter().map(|_| {
-//             let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-//             (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
-//         }).collect();
+        //Benchmark the join operation
+        let mut j: BytesTrieMap<u64> = BytesTrieMap::new();
+        bencher.bench_local(|| {
+            *black_box(&mut j) = vnl.join(black_box(&vnr));
+        });
+    }
+}
 
-//         let mut vnl = BytesTrieMap::new();
-//         let mut vnr = BytesTrieMap::new();
-//         for i in 0..n { vnl.insert(&keys[i as usize], i); }
-//         for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+fn join_into_sparse(bencher: Bencher, n: u64) {
 
-//         //Benchmark the join operation
-//         let mut j: BytesTrieMap<u64> = BytesTrieMap::new();
-//         bencher.bench_local(|| {
-//             *black_box(&mut j) = vnl.join(black_box(&vnr));
-//         });
-//     }
-// }
+    let overlap = 0.5;
+    let o = ((1. - overlap) * n as f64) as u64;
+    {
+        let mut r = StdRng::seed_from_u64(1);
+        let keys: Vec<Vec<u8>> = (0..(n+o)).into_iter().map(|_| {
+            let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+            (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        }).collect();
 
-// #[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
-// fn join_into_sparse(bencher: Bencher, n: u64) {
-
-//     let overlap = 0.5;
-//     let o = ((1. - overlap) * n as f64) as u64;
-//     {
-//         let mut r = StdRng::seed_from_u64(1);
-//         let keys: Vec<Vec<u8>> = (0..(n+o)).into_iter().map(|_| {
-//             let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-//             (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
-//         }).collect();
-
-//         //Benchmark the join_into operation
-//         bencher.with_inputs(|| {
-//             let mut vnl = BytesTrieMap::new();
-//             let mut vnr = BytesTrieMap::new();
-//             for i in 0..n { vnl.insert(&keys[i as usize], i); }
-//             for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
-//             (vnl, vnr)
-//         }).bench_local_values(|(mut left, right)| {
-//             left.join_into(right);
-//             left
-//         });
-//     }
-// }
+        //Benchmark the join_into operation
+        bencher.with_inputs(|| {
+            let mut vnl = BytesTrieMap::new();
+            let mut vnr = BytesTrieMap::new();
+            for i in 0..n { vnl.insert(&keys[i as usize], i); }
+            for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
+            (vnl, vnr)
+        }).bench_local_values(|(mut left, right)| {
+            left.join_into(right);
+            left
+        });
+    }
+}

@@ -42,8 +42,8 @@ fn superdense_join(bencher: Bencher, n: u64) {
         //Sanity check that we didn't break anything and the benchmarks are valid
         let m = vnl.meet(&vnr);
         let l_no_r = vnl.subtract(&vnr);
-        for i in 0..n { assert_eq!(l_no_r.get(prefix_key(&i)), vnl.get(prefix_key(&i))); }
-        for i in n..(2*n) { assert!(!l_no_r.contains(prefix_key(&i))); }
+        for i in 0..o { assert_eq!(l_no_r.get(prefix_key(&i)), vnl.get(prefix_key(&i))); }
+        for i in o..(n+o) { assert!(!l_no_r.contains(prefix_key(&i))); }
 
         for i in o..n { assert!(vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i))); }
         for i in 0..o { assert!(vnl.contains(prefix_key(&i)) && !vnr.contains(prefix_key(&i))); }
@@ -93,6 +93,38 @@ fn superdense_get(bencher: Bencher, n: u64) {
         for i in 0..n {
             assert_eq!(map.get(prefix_key(&i)), Some(&i));
         }
+    });
+}
+
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn superdense_meet(bencher: Bencher, n: u64) {
+    let overlap = 0.5;
+    let o = ((1. - overlap) * n as f64) as u64;
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { l.insert(prefix_key(&i), i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in o..(n+o) { r.insert(prefix_key(&i), i); }
+
+    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut intersection) = l.meet(black_box(&r));
+    });
+}
+
+/// This tests the performance of the meet op when there are already some shared nodes between the maps
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn superdense_meet_after_join(bencher: Bencher, n: u64) {
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..(n/2) { l.insert(prefix_key(&i), i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in (n/2)..n { r.insert(prefix_key(&i), i); }
+
+    let joined = l.join(&r);
+    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut intersection) = joined.meet(black_box(&l));
     });
 }
 

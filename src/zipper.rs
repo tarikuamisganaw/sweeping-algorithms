@@ -1,5 +1,4 @@
 use std::fmt::Debug;
-use std::ptr;
 use crate::bytetrie::{BytesTrieMap, TrieNode};
 
 // CZ2 uses a stack machine
@@ -45,10 +44,10 @@ enum Instruction {
 }
 
 pub struct ReadZipper<'a, V> where V : Clone {
-    pub root: &'a BytesTrieMap<V>,
-    pub focus: &'a dyn TrieNode<V>,
-    pub path: Vec<u8>,
-    pub ancestors: Vec<&'a dyn TrieNode<V>>,
+    pub(crate) root: &'a BytesTrieMap<V>,
+    pub(crate) focus: &'a dyn TrieNode<V>,
+    pub(crate) path: Vec<u8>,
+    pub(crate) ancestors: Vec<&'a dyn TrieNode<V>>,
 }
 
 impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
@@ -68,7 +67,7 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
             Some((consumed, child_node)) => {
                 self.path.push(k);
                 self.ancestors.push(self.focus);
-                self.focus = child_node.as_dense();
+                self.focus = child_node;
                 true
             }
         }
@@ -79,7 +78,7 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
             Some((prefix, child_node)) => {
                 self.ancestors.push(self.focus);
                 self.path.extend(prefix);
-                self.focus = child_node.as_dense();
+                self.focus = child_node;
                 true
             },
             None => false
@@ -96,7 +95,7 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
                 match parent.get_sibling_of_child(&[*k], next) {
                     Some((prefix_key, child_node)) => {
                         *self.path.last_mut().unwrap() = prefix_key[0];
-                        self.focus = child_node.as_dense();
+                        self.focus = child_node;
                         true
                     },
                     None => false

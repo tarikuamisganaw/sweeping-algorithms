@@ -2,8 +2,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use rclite::Rc;
-
 use crate::bytetrie::{BytesTrieMap, TrieNode};
 
 pub trait Lattice: Sized {
@@ -58,7 +56,6 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
             }
         }
     }
-
     fn meet(&self, other: &Option<V>) -> Option<V> {
         match self {
             None => { None }
@@ -70,9 +67,20 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
             }
         }
     }
-
     fn bottom() -> Self {
         None
+    }
+}
+
+impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<V> {
+    fn psubtract(&self, other: &Self) -> Option<Self> {
+        match self {
+            None => { None }
+            Some(s) => { match other {
+                None => { Some(Some(s.clone())) }
+                Some(o) => { Some(s.psubtract(o)) }
+            } }
+        }
     }
 }
 
@@ -140,15 +148,30 @@ impl <V : Lattice> Lattice for Box<V> {
     }
 }
 
+//TODO: Roll a macro to impl lattice across all the primitive types without a blanket impl
+
+impl Lattice for &str {
+    fn join(&self, _other: &Self) -> Self { self }
+    fn meet(&self, _other: &Self) -> Self { self }
+    fn bottom() -> Self { "" }
+}
+
+impl PartialDistributiveLattice for &str {
+    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
+        if self == other { None }
+        else { Some(*self) }
+    }
+}
+
 impl Lattice for () {
-    fn join(&self, other: &Self) -> Self { () }
-    fn meet(&self, other: &Self) -> Self { () }
+    fn join(&self, _other: &Self) -> Self { () }
+    fn meet(&self, _other: &Self) -> Self { () }
     fn bottom() -> Self { () }
 }
 
 impl Lattice for &() {
-    fn join(&self, other: &Self) -> Self { &() }
-    fn meet(&self, other: &Self) -> Self { &() }
+    fn join(&self, _other: &Self) -> Self { &() }
+    fn meet(&self, _other: &Self) -> Self { &() }
     fn bottom() -> Self { &() }
 }
 

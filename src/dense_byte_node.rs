@@ -1,7 +1,35 @@
 
 use std::fmt::{Debug, Formatter};
 
-use rclite::Rc;
+//OPTIMIZATION QUESTION 2, a note on Rc vs. rclite: Rc's payload bloat is 16 bytes, while rclite's is much smaller <8 Bytes.
+// That's a big deal on a DenseByteNode because it pushes it from a single cache line onto two.
+// However, rclite doesn't currently support DSTs. (like &dyn)  Therefore there are two options if we
+// want to keep Rc<DenseByteNode<_>> as a type that's a single cache line. (See OPTIMIZATION QUESTION 1)
+//
+// 1. try and add a PR to rclite.  However it's possible not supporting DSTs was a deliberate choice, so
+//  they may not even take the PR.  And it's also possible (likely) it's hard to do (given the original
+//  authors didn't do it alrady)... If I had to guess it's because the rclite header is at the end of
+//  the object, while the Rc header is at the beginning.
+// 2. hunt for a solution that lets us do something like: Vec<dyn TrieNode<_>> where TrieNode is only
+//  implementable on pointer types like Rc, Box, etc.  I don't think Rust lets you do that, but perhaps
+//  it should!
+//
+// use rclite::Rc;
+use std::rc::Rc;
+
+
+//OPTIMIZATION QUESTION 1, figure out the best compromise with regard to where to put Rc...
+// Question: Is it true that it's always going to be cheaper to increment a refcount than to do a clone?
+//  and to decrement a refcount instead of free?  because that seems like it would argue for an Rc at every node.
+//
+// However, the mutable traversal loop calls `node_get_child_mut`, which, in turn, needs to check the
+// refcount imposing non-zero overhead.
+//
+// The bigger concern is that incrementing the refcount requires thread syncronization around the atomic
+// access and that could be painful
+//
+//Conclusion: Need a massively multi-threaded benchmark to decide what to do with Rc / RcLite
+//
 
 use crate::bit_sibling;
 use crate::ring::*;
@@ -16,12 +44,23 @@ pub struct DenseByteNode<V> {
     values: Vec<CoFree<V>>
 }
 
+impl<V> Default for DenseByteNode<V> {
+    fn default() -> Self {
+        Self {
+            mask: [0u64; 4],
+            values: vec![]
+        }
+    }
+}
+
 impl <V : Debug> Debug for DenseByteNode<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        //Recursively printing a whole tree will get pretty unwieldy.  Should do something
+        // like serialization for inspection using standard tools.
         write!(f,
-               "DenseByteNode (mask: {:b} {:b} {:b} {:b}, values: {:?})",
+               "DenseByteNode (mask: {:b} {:b} {:b} {:b}, count: {})",
                self.mask[0], self.mask[1], self.mask[2], self.mask[3],
-               self.values)
+               self.values.len())
     }
 }
 
@@ -66,26 +105,26 @@ impl <V : Clone> DenseByteNode<V> {
     }
 
     #[inline]
-    fn add_child(&mut self, k: u8, node: Box<dyn TrieNode<V> + '_>) -> &mut dyn TrieNode<V> {
+    fn add_child(&mut self, k: u8, node: Rc<dyn TrieNode<V> + '_>) -> &mut dyn TrieNode<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            let node = node.as_dense().clone();
             debug_assert!(cf.rec.is_none()); //add_child should not be called unless there is no child for a given key
-            cf.rec = Some(Rc::new(node));
-            Rc::make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V>
+            cf.rec = Some(node.into());
+            TrieNodeODRc::make_mut(cf.rec.as_mut().unwrap())
+            //dyn_clone::rc_make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V> GOAT
         } else {
             self.set(k);
-            let node = node.as_dense().clone();
-            let new_cf = CoFree {rec: Some(Rc::new(node)), value: None };
+            let new_cf = CoFree {rec: Some(node.into()), value: None };
             self.values.insert(ix, new_cf);
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            Rc::make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V>
+            //dyn_clone::rc_make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V> GOAT
+            TrieNodeODRc::make_mut(cf.rec.as_mut().unwrap())
         }
     }
 
     #[inline]
-    fn set_val(&mut self, k: u8, mut val: V) -> Option<V> {
+    fn set_val(&mut self, k: u8, val: V) -> Option<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
@@ -129,7 +168,8 @@ impl <V : Clone> DenseByteNode<V> {
 
     fn remove(&mut self, k: u8) -> Option<CoFree<V>> {
         if self.contains(k) {
-            let v = self.values.remove(k as usize);
+            let ix = self.left(k) as usize;
+            let v = self.values.remove(ix);
             self.clear(k);
             return Some(v);
         }
@@ -170,6 +210,11 @@ impl <V : Clone> DenseByteNode<V> {
     }
 
     #[inline]
+    fn is_empty(&self) -> bool {
+        self.mask[0] == 0 && self.mask[1] == 0 && self.mask[2] == 0 && self.mask[3] == 0
+    }
+
+    #[inline]
     fn len(&self) -> usize {
         return (self.mask[0].count_ones() + self.mask[1].count_ones() + self.mask[2].count_ones() + self.mask[3].count_ones()) as usize;
     }
@@ -201,10 +246,10 @@ impl <'a, V : Clone> Iterator for DenseByteNodeIter<'a, V> {
                     match &cf.value {
                         None => {
                             //No value means the cf must be a child-link alone
-                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(&**cf.rec.as_ref().unwrap())))
+                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(&*cf.rec.as_ref().unwrap().borrow())))
                         },
                         Some(val) => {
-                            self.child_link = cf.rec.as_ref().map(|node| (prefix, &**node as &dyn TrieNode<V>));
+                            self.child_link = cf.rec.as_ref().map(|node| (prefix, &*node.borrow()));
                             Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Val(val)))
                         }
                     }
@@ -254,29 +299,47 @@ impl <'a, V : Clone> Iterator for CfIter<'a, V> {
 }
 
 impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
-    //GOAT
+    //GOAT what would you do with a child node except for traverse it?
     // fn node_contains_child(&self, key: &[u8]) -> bool {
     //     self.contains(key[0])
     // }
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         self.get(key[0]).and_then(|cf|
             cf.rec.as_ref().map(|child_node| {
-                (1, &**child_node as &dyn TrieNode<V>)
+                (1, &*child_node.borrow())
             })
         )
     }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
         self.get_mut(key[0]).and_then(|cf|
             cf.rec.as_mut().map(|child_node_ptr| {
-                (1, Rc::make_mut(child_node_ptr) as &mut dyn TrieNode<V>)
+                (1, child_node_ptr.make_mut())
             })
         )
     }
+    fn node_contains_val(&self, key: &[u8]) -> bool {
+        if key.len() == 1 {
+            match self.get(key[0]) {
+                Some(cf) => cf.value.is_some(),
+                None => false
+            }
+        } else {
+            false
+        }
+    }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
-        self.get(key[0]).and_then(|cf| cf.value.as_ref() )
+        if key.len() == 1 {
+            self.get(key[0]).and_then(|cf| cf.value.as_ref() )
+        } else {
+            None
+        }
     }
     fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
-        self.get_mut(key[0]).and_then(|cf| cf.value.as_mut() )
+        if key.len() == 1 {
+            self.get_mut(key[0]).and_then(|cf| cf.value.as_mut() )
+        } else {
+            None
+        }
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, Box<dyn TrieNode<V>>> {
 
@@ -285,20 +348,20 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         let mut cur = self;
         for i in 0..key.len() - 1 {
             let new_node = Self::new();
-            cur = cur.add_child(key[i], Box::new(new_node)).as_dense_mut();
+            cur = cur.add_child(key[i], Rc::new(new_node)).as_dense_mut().unwrap();
         }
 
         //This implementation will never return Err, because the DenseByteNode can hold any possible value
         Ok(cur.set_val(key[key.len()-1], val))
     }
-    fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, Box<dyn TrieNode<V>>> {
+    fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, Box<dyn TrieNode<V>>> {
 
         //GOAT, I am recursively createing DenseByteNodes to the end, temporarily until I add a better
         // tail node type
         let mut cur = self;
         for i in 0..key.len() - 1 {
             let new_node = Self::new();
-            cur = cur.add_child(key[i], Box::new(new_node)).as_dense_mut();
+            cur = cur.add_child(key[i], Rc::new(new_node)).as_dense_mut().unwrap();
         }
 
         //This implementation will never return Err, because the DenseByteNode can hold any possible value
@@ -312,10 +375,10 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
     fn node_subtree_len(&self) -> usize {
         return self.values.iter().rfold(0, |t, cf| {
-            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.node_subtree_len()).unwrap_or(0)
+            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
         });
     }
-    //GOAT
+    //GOAT, maybe this method isn't needed
     // fn child_count(&self) -> usize {
     //     12345//GOAT, need to un-tangle what's a value from what's a child
     // }
@@ -344,13 +407,13 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 loop {
                     if item < c_ahead { break; }
                     if forward { i += 1} else { i -= 1 };
-                    if i > 3 || i < 0 { return None }
+                    if i > 3 { return None }
                     m = self.mask[i];
                     c = c_ahead;
                     c_ahead += m.count_ones() as usize;
                 }
 
-                let mut loc= 0;
+                let mut loc;
                 if forward {
                     loc = 63 - m.leading_zeros();
                     while c < item {
@@ -367,12 +430,12 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                     }
                 }
 
-                let prefix = (i << 6 | (loc as usize));
+                let prefix = i << 6 | (loc as usize);
                 // println!("{:#066b}", self.focus.mask[i]);
                 // println!("{i} {loc} {prefix}");
                 debug_assert!(self.contains(prefix as u8));
 
-                Some((&ALL_BYTES[prefix..=prefix], &**cf.rec.as_ref().unwrap() as &dyn TrieNode<V>))
+                Some((&ALL_BYTES[prefix..=prefix], &*cf.rec.as_ref().unwrap().borrow()))
             }
         }
     }
@@ -390,7 +453,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             if n == bit_i { // outside of word
                 loop {
                     if next { mask_i += 1 } else { mask_i -= 1 };
-                    if !(0 <= mask_i && mask_i < 4) { return None }
+                    if !(mask_i < 4) { return None }
                     if self.mask[mask_i] == 0 { continue }
                     n = self.mask[mask_i].trailing_zeros() as u8; break;
                 }
@@ -408,26 +471,70 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 }
                 Some(cs) => {
                     let sibling_key_char = sibling_key_char as usize;
-                    return Some((&ALL_BYTES[sibling_key_char..=sibling_key_char], &**cs as &dyn TrieNode<V>));
+                    return Some((&ALL_BYTES[sibling_key_char..=sibling_key_char], &*cs.borrow()));
                 }
             }
         }
 
     }
 
-
-
-    fn as_dense(&self) -> &DenseByteNode<V> {
-        self
+    fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+        if let Some(other_dense_node) = other.as_dense() {
+            let new_node = self.join(other_dense_node);
+            TrieNodeODRc::new(new_node)
+        } else {
+            //GOAT, need to iterate other, grow self, and merge each item in other into self
+            panic!();
+        }
     }
-    fn as_dense_mut(&mut self) -> &mut DenseByteNode<V> {
-        self
+
+    fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V>) where V: Lattice {
+        let other_node = other.make_mut();
+        if let Some(other_dense_node) = other_node.as_dense_mut() {
+            self.join_into(core::mem::take(other_dense_node));
+        } else {
+            //GOAT, need to iterate other, grow self, and merge each item in other into self
+            panic!();
+        }
+    }
+
+    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+        if let Some(other_dense_node) = other.as_dense() {
+            let new_node = self.meet(other_dense_node);
+            TrieNodeODRc::new(new_node)
+        } else {
+            //GOAT, need to iterate other, and perform intersection operation
+            panic!();
+        }
+    }
+
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
+//GOAT, I want a fast path where I can check the pointers.
+
+        if let Some(other_dense_node) = other.as_dense() {
+            let new_node = self.subtract(other_dense_node);
+            if new_node.is_empty() {
+                None
+            } else {
+                Some(TrieNodeODRc::new(new_node))
+            }
+        } else {
+            //GOAT, need to iterate other, and perform subtract operation
+            panic!();
+        }
+    }
+
+    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
+        Some(self)
+    }
+    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
+        Some(self)
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Default, Clone)]
 struct CoFree<V> {
-    pub(crate) rec: Option<Rc<DenseByteNode<V>>>,
+    pub(crate) rec: Option<TrieNodeODRc<V>>,
     pub(crate) value: Option<V>
 }
 
@@ -459,18 +566,18 @@ impl<V : Clone + Lattice> Lattice for CoFree<V> {
     }
 }
 
-impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
-    fn subtract(&self, other: &Self) -> Self {
-        CoFree {
-            rec: self.rec.psubtract(&other.rec).unwrap_or(None),
-            value: self.value.subtract(&other.value)
-        }
-    }
-}
+//NOTE: this impl doesn't seem to be used
+// impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
+//     fn subtract(&self, other: &Self) -> Self {
+//         CoFree {
+//             rec: self.rec.psubtract(&other.rec).unwrap_or(None),
+//             value: self.value.subtract(&other.value)
+//         }
+//     }
+// }
 
 impl<V : Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
-        // .unwrap_or(ptr::null_mut())
         let r = self.rec.psubtract(&other.rec);
         let v = self.value.subtract(&other.value);
         match r {
@@ -496,6 +603,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
 
         let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v: Vec<CoFree<V>> = Vec::with_capacity(len);
+        let new_v = v.spare_capacity_mut();
 
         let mut l = 0;
         let mut r = 0;
@@ -512,18 +620,18 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.join(rv);
                     // println!("pushing lv rv j {:?} {:?} {:?}", lv, rv, jv);
-                    unsafe { std::ptr::write(v.get_unchecked_mut(c), jv) };
+                    unsafe { new_v.get_unchecked_mut(c).write(jv) };
                     l += 1;
                     r += 1;
                 } else if ((1u64 << index) & self.mask[i]) != 0 {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     // println!("pushing lv {:?}", lv);
-                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv.clone()) };
+                    unsafe { new_v.get_unchecked_mut(c).write(lv.clone()) };
                     l += 1;
                 } else {
                     let rv = unsafe { other.values.get_unchecked(r) };
                     // println!("pushing rv {:?}", rv);
-                    unsafe { std::ptr::write(v.get_unchecked_mut(c), rv.clone()) };
+                    unsafe { new_v.get_unchecked_mut(c).write(rv.clone()) };
                     r += 1;
                 }
                 lm ^= 1u64 << index;
@@ -549,6 +657,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
 
         let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v = Vec::with_capacity(l);
+        let new_v = v.spare_capacity_mut();
 
         let mut l = 0;
         let mut r = 0;
@@ -564,16 +673,16 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
                     let mut lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
                     let rv = unsafe { std::ptr::read(other.values.get_unchecked_mut(r)) };
                     lv.join_into(rv);
-                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv) };
+                    unsafe { new_v.get_unchecked_mut(c).write(lv) };
                     l += 1;
                     r += 1;
                 } else if ((1u64 << index) & self.mask[i]) != 0 {
                     let lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
-                    unsafe { std::ptr::write(v.get_unchecked_mut(c), lv) };
+                    unsafe { new_v.get_unchecked_mut(c).write(lv) };
                     l += 1;
                 } else {
                     let rv = unsafe { std::ptr::read(other.values.get_unchecked_mut(r)) };
-                    unsafe { std::ptr::write(v.get_unchecked_mut(c), rv) };
+                    unsafe { new_v.get_unchecked_mut(c).write(rv) };
                     r += 1;
                 }
                 lm ^= 1u64 << index;
@@ -605,6 +714,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
 
         let len = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
         let mut v = Vec::with_capacity(len);
+        let new_v = v.spare_capacity_mut();
 
         let mut l = 0;
         let mut r = 0;
@@ -619,7 +729,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.meet(rv);
-                    unsafe { std::ptr::write(v.get_unchecked_mut(c), jv) };
+                    unsafe { new_v.get_unchecked_mut(c).write(jv) };
                     l += 1;
                     r += 1;
                     c += 1;
@@ -653,6 +763,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
 
         let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v = Vec::with_capacity(len);
+        let new_v = v.spare_capacity_mut();
 
         let mut c = 0;
 
@@ -664,7 +775,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
 
                 let to_join: Vec<&CoFree<V>> = xs.iter().enumerate().filter_map(|(i, x)| x.get(i as u8)).collect();
                 let joined = Lattice::join_all(to_join);
-                unsafe { std::ptr::write(v.get_unchecked_mut(c), joined) };
+                unsafe { new_v.get_unchecked_mut(c).write(joined) };
 
                 lm ^= 1u64 << index;
                 c += 1;
@@ -686,12 +797,21 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for DenseByteN
                 let index = lm.trailing_zeros();
 
                 if ((1u64 << index) & other.mask[i]) != 0 {
-                    let lv = unsafe { self.get_unchecked(64*(i as u8)) };
+// if (64*(i as u8) + (index as u8)) == 244 {
+//     println!("goat 1");
+// }
+// if (64*(i as u8) + (index as u8)) == 1 {
+//     println!("goat 2");
+// }
+
+                    let lv = unsafe { self.get_unchecked(64*(i as u8) + (index as u8)) };
                     let rv = unsafe { other.get_unchecked(64*(i as u8) + (index as u8)) };
                     match lv.psubtract(rv) {
-                        None => { btn.remove(64*(i as u8)); }
+                        None => {
+                            btn.remove(64*(i as u8) + (index as u8));
+                        },
                         Some(jv) => {
-                            let dst = unsafe { btn.get_unchecked_mut(64*(i as u8)) };
+                            let dst = unsafe { btn.get_unchecked_mut(64*(i as u8) + (index as u8)) };
                             *dst = jv;
                         }
                     }
@@ -710,77 +830,5 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
         let r = self.subtract(other);
         if r.len() == 0 { return None }
         else { return Some(r) }
-    }
-}
-
-impl<V: Lattice + Clone> Lattice for Option<Rc<DenseByteNode<V>>> {
-    fn join(&self, other: &Self) -> Self {
-        match self {
-            None => { other.clone() }
-            Some(sptr) => {
-                match other {
-                    None => { None }
-                    Some(optr) => {
-                        let v = sptr.join(optr);
-                        Some(Rc::new(v))
-                    }
-                }
-            }
-        }
-    }
-
-    fn join_into(&mut self, other: Self) {
-        match self {
-            None => { *self = other }
-            Some(sptr) => {
-                match other {
-                    None => { }
-                    Some(optr) => {
-                        let raw_other = Rc::unwrap_or_clone(optr);
-                        Rc::make_mut(sptr).join_into(raw_other);
-                    }
-                }
-            }
-        }
-    }
-
-    fn meet(&self, other: &Self) -> Self {
-        match self {
-            None => { None }
-            Some(sptr) => {
-                match other {
-                    None => { None }
-                    Some(optr) => {
-                        let v = sptr.meet(optr);
-                        Some(Rc::new(v))
-                    }
-                }
-            }
-        }
-    }
-
-    fn bottom() -> Self {
-        None
-    }
-}
-
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<Rc<DenseByteNode<V>>> {
-    fn psubtract(&self, other: &Self) -> Option<Self> {
-        match self {
-            None => { None }
-            Some(sr) => {
-                match other {
-                    None => { Some(self.clone()) }
-                    Some(or) => {
-                        let v = sr.subtract(or);
-                        if v.len() == 0 { None }
-                        else {
-                            let vb = Rc::new(v);
-                            Some(Some(vb))
-                        }
-                    }
-                }
-            }
-        }
     }
 }
