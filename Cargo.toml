@@ -16,6 +16,8 @@ rustflags = "-C opt-level=3 -C target-cpu=native"
 [dev-dependencies]
 divan = "0.1.14"
 rand = "0.8.5"
+serde = { version = "1.0.163", features = ["derive"]}
+csv = "1.1.6"
 
 [[bench]]
 name = "basics"
@@ -23,4 +25,12 @@ harness = false
 
 [[bench]]
 name = "sparse_keys"
+harness = false
+
+[[bench]]
+name = "cities"
+harness = false
+
+[[bench]]
+name = "shakespeare"
 harness = false

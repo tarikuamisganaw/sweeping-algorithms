@@ -378,10 +378,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
         });
     }
-    //GOAT, maybe this method isn't needed
-    // fn child_count(&self) -> usize {
-    //     12345//GOAT, need to un-tangle what's a value from what's a child
-    // }
+    fn item_count(&self) -> usize {
+        self.values.len()
+    }
     fn nth_child(&self, n: usize, forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
         // #iterations can be reduced by popcount(mask[i] & prefix)
 
@@ -509,8 +508,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
 
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
-//GOAT, I want a fast path where I can check the pointers.
-
         if let Some(other_dense_node) = other.as_dense() {
             let new_node = self.subtract(other_dense_node);
             if new_node.is_empty() {
