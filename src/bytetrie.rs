@@ -4,41 +4,6 @@ use dyn_clone::*;
 use crate::dense_byte_node::*;
 use crate::ring::*;
 
-mod stats {
-    use core::sync::atomic::{AtomicUsize, Ordering};
-
-    pub struct Stats {
-        total_nodes: AtomicUsize,
-        total_child_items: AtomicUsize,
-    }
-    impl Stats {
-        pub const fn new() -> Self {
-            Self {
-                total_nodes: AtomicUsize::new(0),
-                total_child_items: AtomicUsize::new(0),
-            }
-        }
-        pub fn reset(&self) {
-            self.total_nodes.store(0, Ordering::SeqCst);
-            self.total_child_items.store(0, Ordering::SeqCst);
-        }
-        pub fn total_nodes(&self) -> usize {
-            self.total_nodes.load(Ordering::SeqCst)
-        }
-        pub fn total_child_items(&self) -> usize {
-            self.total_child_items.load(Ordering::SeqCst)
-        }
-        pub fn count_node(&self, child_item_count: usize) {
-            self.total_nodes.fetch_add(1, Ordering::Relaxed);
-            self.total_child_items.fetch_add(child_item_count, Ordering::Relaxed);
-        }
-
-    }
-}
-
-pub static STATS: stats::Stats = stats::Stats::new();
-
-
 pub struct BytesTrieMapIter<'a, V> where V : Clone {
     prefixes: Vec<Vec<u8>>,
     btnis: Vec<Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>>,
@@ -73,8 +38,6 @@ impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
                             match item {
                                 ValOrChildRef::Val(val) => return Some((cur_prefix, val)),
                                 ValOrChildRef::Child(child) => {
-                                    STATS.count_node(child.item_count());
-
                                     self.prefixes.push(cur_prefix);
                                     self.btnis.push(child.boxed_node_iter())
                                 }

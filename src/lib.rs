@@ -2,6 +2,8 @@ pub mod ring;
 pub mod bytize;
 pub mod bytetrie;
 pub mod zipper;
+//GOAT: Make this a compile-time feature
+pub mod counters;
 
 mod dense_byte_node;
 

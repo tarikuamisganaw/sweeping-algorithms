@@ -1,7 +1,6 @@
 
 use divan::{Divan, Bencher, black_box};
 use ringmap::bytetrie::BytesTrieMap;
-use ringmap::bytetrie::STATS;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -106,9 +105,9 @@ fn cities_get(bencher: Bencher) {
         map.insert(k, *v);
     }
 
-    // STATS.reset();
-    // map.items().last();
-    // println!("nodes: {}, items: {}, avg children-per-node: {}", STATS.total_nodes(), STATS.total_child_items(), STATS.total_child_items() as f32 / STATS.total_nodes() as f32);
+    let counters = ringmap::counters::Counters::count_ocupancy(&map);
+    // counters.print_histogram_by_depth();
+    counters.print_run_length_histogram();
 
     let mut _map_v = 0;
     bencher.bench_local(|| {
