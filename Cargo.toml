@@ -9,6 +9,7 @@ edition = "2021"
 #hashbrown = "0.14.3"
 #roaring = "0.10.3"
 dyn-clone = "1.0.17"
+local-or-heap = "0.1.0"
 
 [build]
 rustflags = "-C opt-level=3 -C target-cpu=native"

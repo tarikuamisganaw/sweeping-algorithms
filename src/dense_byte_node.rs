@@ -46,10 +46,7 @@ pub struct DenseByteNode<V> {
 
 impl<V> Default for DenseByteNode<V> {
     fn default() -> Self {
-        Self {
-            mask: [0u64; 4],
-            values: vec![]
-        }
+        Self::new()
     }
 }
 
@@ -64,7 +61,7 @@ impl <V : Debug> Debug for DenseByteNode<V> {
     }
 }
 
-impl <V : Clone> DenseByteNode<V> {
+impl <V> DenseByteNode<V> {
     pub fn new() -> Self {
         Self {
             mask: [0u64; 4],

@@ -6,6 +6,7 @@ pub mod zipper;
 pub mod counters;
 
 mod dense_byte_node;
+mod line_list_node;
 
 /// returns the position of the next/previous active bit in x
 /// if there is no next/previous bit, returns the argument position
