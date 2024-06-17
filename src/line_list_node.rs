@@ -183,39 +183,49 @@ impl<V> LineListNode<V> {
         core::slice::from_raw_parts(base_ptr.as_ptr().cast(), self.key_len_1())
     }
     #[inline]
-    unsafe fn set_val_0(&mut self, key: &[u8], val: V) {
-        debug_assert!(key.len() <= KEY_BYTES_CNT);
-        core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
-        let node_val = unsafe{ &mut self.val_or_child0.val };
-        *node_val = ManuallyDrop::new(LocalOrHeap::new(val));
-        let mask = 0x8000 | (key.len() << 5);
-        self.header |= mask as u16;
-        if key.len() == KEY_BYTES_CNT {
-            self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
-        }
+    unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
+        self.set_payload_0(key, false, ValOrChild{ val: ManuallyDrop::new(val) });
     }
     #[inline]
-    unsafe fn set_val_1(&mut self, key: &[u8], val: V) {
+    unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
         let key_0_used_cnt = self.key_len_0();
         debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
         let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
         core::ptr::copy_nonoverlapping(key.as_ptr(), base_ptr.as_mut_ptr().cast(), key.len());
         let node_val = unsafe{ &mut self.val_or_child1.val };
-        *node_val = ManuallyDrop::new(LocalOrHeap::new(val));
+        *node_val = ManuallyDrop::new(val);
         let mask = 0x4000 | key.len();
         self.header |= mask as u16;
     }
+    /// Sets the payload and key for slot_0
     #[inline]
-    unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
+    unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChild<V>) {
         debug_assert!(key.len() <= KEY_BYTES_CNT);
         core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
-        let node_child = unsafe{ &mut self.val_or_child0.child };
-        *node_child = ManuallyDrop::new(child);
-        let mask = 	0xa000 | (key.len() << 5);
+        self.val_or_child0 = payload;
+        let mask = if is_child_ptr {
+            0xa000 | (key.len() << 5)
+        } else {
+            0x8000 | (key.len() << 5)
+        };
         self.header |= mask as u16;
         if key.len() == KEY_BYTES_CNT {
             self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
         }
+    }
+    //goat, might be easier to just inline this
+    // /// Takes the ValOrChild<V> from slot_0.  WARNING! This method leaves the node in a corrupt state,
+    // /// so it must be followed by something else to repair the node.
+    // /// Also this method will corrput the node if there is a payload in slot_1
+    // #[inline]
+    // unsafe fn take_payload_0(&mut self) -> ValOrChild<V> {
+    //     let mut payload = ValOrChild{ _unused: () };
+    //     core::mem::swap(&mut payload, &mut self.val_or_child0);
+    //     payload
+    // }
+    #[inline]
+    unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
+        self.set_payload_0(key, true, ValOrChild{ child: ManuallyDrop::new(child) });
     }
     #[inline]
     unsafe fn set_child_1(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
@@ -281,7 +291,19 @@ impl<V> LineListNode<V> {
         None
     }
 
+}
 
+/// Returns the number of characters shared between two slices
+#[inline]
+fn find_prefix_overlap_2(a: &[u8], b: &[u8]) -> usize {
+    let mut cnt = 0;
+    loop {
+        if cnt == a.len() {break}
+        if cnt == b.len() {break}
+        if a[cnt] != b[cnt] {break}
+        cnt += 1;
+    }
+    cnt
 }
 
 impl<V: Clone> TrieNode<V> for LineListNode<V> {
@@ -330,16 +352,20 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
         self.get_val_mut(key)
     }
-    fn node_set_val(&mut self, key: &[u8], mut val: V) -> Result<Option<V>, Box<dyn TrieNode<V>>> {
+    fn node_set_val(&mut self, key: &[u8], mut val: V) -> Result<Option<V>, Box<dyn TrieNode<V> + '_>> {
+
+        //If we already have a value at the key, then replace it
         if self.contains_val(key) {
             let node_val = self.get_val_mut(key).unwrap();
             core::mem::swap(&mut val, node_val);
             return Ok(Some(val));
         }
+
+        //If this node is empty, insert the new key-value into slot_0
         if !self.is_used_0() {
             if key.len() <= KEY_BYTES_CNT {
                 //The entire key fits within the node
-                unsafe{ self.set_val_0(key, val); }
+                unsafe{ self.set_val_0(key, LocalOrHeap::new(val)); }
                 return Ok(None)
             } else {
                 //We need to recursively create a new node to hold the remaining part of the key
@@ -349,23 +375,55 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                 return Ok(None)
             }
         }
+
+        //See if we are able to insert the node into slot_1
         if self.is_available_1() {
             let remaining_key_bytes = KEY_BYTES_CNT - self.key_len_0();
             if key.len() <= remaining_key_bytes {
                 //The entire key fits within the node
-                unsafe{ self.set_val_1(key, val); }
+                unsafe{ self.set_val_1(key, LocalOrHeap::new(val)); }
                 return Ok(None)
             } else {
                 //We need to recursively create a new node to hold the remaining part of the key
                 let mut child_node = Self::new();
-                child_node.node_set_val(&key[remaining_key_bytes..], val).unwrap_or_else(|_| panic!("Internal error: Why can't a newly created node accept the value???"));
+                child_node.node_set_val(&key[remaining_key_bytes..], val).unwrap_or_else(|_| panic!()); //If a newly created node can't accept the value then it's a bug
                 unsafe{ self.set_child_1(&key[..remaining_key_bytes], TrieNodeODRc::new(child_node)); }
                 return Ok(None)
             }
         }
+
+        //If there is a single slot that is occupied, chop the key
+        //NOTE: We don't try and calculate overlap earlier than this because we don't want to worry about
+        // shifting a key in slot_1 if we change the length of the key in slot_0
+//GOAT, the argument to reconsider where I check for overlap is that adding "hello my name is billy", and then
+// "hello my name is johnny" should be combined.  With the present logic, that condition would never be detected
+        if !self.is_used_1() {
+            let mut self_payload = ValOrChild{ _unused: () };
+            core::mem::swap(&mut self_payload, &mut self.val_or_child0);
+            let node_key_0 = unsafe{ self.key_unchecked_0() };
+            let overlap = find_prefix_overlap_2(key, node_key_0);
+            if overlap == 0 {
+                //If there is no overlap between the keys, arbitrarily chop the existing key in half to make room
+                let new_key_len = KEY_BYTES_CNT / 2;
+                let mut child_node = Self::new();
+                unsafe{ child_node.set_payload_0(&node_key_0[new_key_len..], self.is_child_ptr_0(), self_payload); }
+
+                //Convert slot_0 from to a child ptr, and re-adjust the length and flags
+                self.val_or_child0 = ValOrChild{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+                self.header = (0xa000 | (new_key_len << 5)) as u16;
+            } else {
+                //GOAT, chop the key at the overlap point
+                panic!()
+            }
+
+            //Lastly try again to add the new value to self, now that we've cleared some space
+            return self.node_set_val(key, val);
+        }
+
         //We couldn't store the value in either of the slots, so upgrade the node
+        //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
         //GOAT.
-        //1. If there is a single value, chop the key in half
         //2. If there is a pair, check to see if there is a common prefix between the existing nodes, or the node we're adding
         //3. If there is a pair and no common prefix, upgrade to a node with a higher branching factor
         panic!();
@@ -451,6 +509,10 @@ fn test_line_list_node() {
     assert_eq!(new_node.node_set_val("goodbye".as_bytes(), 24).map_err(|_| 0), Ok(None));
     assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
     assert_eq!(new_node.node_get_val("goodbye".as_bytes()), Some(&24));
+}
+
+#[test]
+fn test_line_list_node_overflow_keys() {
 
     //A test using both slots, where the second key exceeds the available space.  Make sure recursive nodes
     // are created
@@ -463,6 +525,12 @@ fn test_line_list_node() {
     let remaining_key = &LONG_KEY[bytes_used..];
     assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 
+}
+
+#[test]
+fn test_line_list_node_split_in_place() {
+    const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
+
     //A test using only one slot, where the key exceeds the available space, make sure recursive nodes
     // are created
     let mut new_node = LineListNode::<usize>::new();
@@ -471,9 +539,27 @@ fn test_line_list_node() {
     let remaining_key = &LONG_KEY[bytes_used..];
     assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 
-    //Now make sure that trying to add a second key upgrades the node
-    let result = new_node.node_set_val("hello".as_bytes(), 42);
-    let replacement_node = result.unwrap_err();
+    //Now make sure that adding a second key is still ok because of in-place splitting
+    assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
+
+    //We are expecting 3 levels to store the whole key after it was split
+    let mut total_bytes_used = 0;
+    let (bytes_used, l1_child_node) = new_node.node_get_child(LONG_KEY).unwrap();
+    total_bytes_used += bytes_used;
+    let (bytes_used, l2_child_node) = l1_child_node.node_get_child(&LONG_KEY[total_bytes_used..]).unwrap();
+    total_bytes_used += bytes_used;
+    assert_eq!(l2_child_node.node_get_val(&LONG_KEY[total_bytes_used..]), Some(&24));
+}
+
+#[test]
+fn test_line_list_node_shared_prefixes() {
+
+
+
+
+
+    const FIFTY_DIGITS: &[u8] = "01234567890123456789012345678901234567890123456789".as_bytes();
 
 
     //A test where the first key exactly fills the available key space.  Make sure the node is upgraded

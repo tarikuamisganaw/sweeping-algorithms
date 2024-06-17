@@ -309,7 +309,7 @@ pub(crate) trait TrieNode<V>: DynClone {
     ///
     /// If this method returns Err(node), then the node was upgraded, and the new node must be
     /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
-    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, Box<dyn TrieNode<V>>>;
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, Box<dyn TrieNode<V> + '_>>;
 
     /// Returns a mutable reference to the value, creating it using `default_f` if it doesn't already
     /// exist
