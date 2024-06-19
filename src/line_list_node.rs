@@ -91,9 +91,20 @@ impl <V : core::fmt::Debug> core::fmt::Debug for LineListNode<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
+        let key_0 = if self.is_used_0() {
+            std::str::from_utf8(unsafe{ self.key_unchecked_0() }).unwrap_or("")
+        } else {
+            ""
+        };
+        let key_1 = if self.is_used_1() {
+            std::str::from_utf8(unsafe{ self.key_unchecked_1() }).unwrap_or("")
+        } else {
+            ""
+        };
         write!(f,
-               "LineListNode (slot0: occupied={} is_child={}, slot1: occupied={} is_child={})",
-               self.is_used_0(), self.is_child_ptr_0(), self.is_used_1(), self.is_child_ptr_1())
+               "LineListNode (\nslot0: occupied={} is_child={} key=\"{}\"\nslot1: occupied={} is_child={} key=\"{}\")",
+               self.is_used_0(), self.is_child_ptr_0(), key_0,
+               self.is_used_1(), self.is_child_ptr_1(), key_1)
     }
 }
 
@@ -116,18 +127,24 @@ impl<V> LineListNode<V> {
     pub fn is_used_1(&self) -> bool {
         self.header & (1 << 14) > 0
     }
-    /// Extracts the flag and length bits assocated with slot_01
+    /// Extracts the flag and length bits assocated with slot_0
     #[inline]
-    fn flags_and_len_1(&self) -> u16 {
-        const LEN_MASK: u16 = 0x1f; //bits 4 to 0, inclusive
-        self.header & ((1 << 14) | (1 << 12) | LEN_MASK)
+    fn flags_and_len_0(&self) -> usize {
+        const LEN_MASK: usize = 0x3e0; //bits 9 to 5, inclusive
+        self.header as usize & ((1 << 15) | (1 << 13) | LEN_MASK)
+    }
+    /// Extracts the flag and length bits assocated with slot_1
+    #[inline]
+    fn flags_and_len_1(&self) -> usize {
+        const LEN_MASK: usize = 0x1f; //bits 4 to 0, inclusive
+        (self.header as usize) & ((1 << 14) | (1 << 12) | LEN_MASK)
     }
     /// Returns `true` if slot_1 is available to be filled with an entry, otherwise `false`.  The reason
     /// `!is_used_1()` is insufficient is because `slot_1` may be empty but the key storage may be fully
     /// consumed by slot_0's key
     #[inline]
     pub fn is_available_1(&self) -> bool {
-        self.header & ((1 << 14) | (1 << 12)) != (1 << 12)
+        self.header & ((1 << 14) | (1 << 12)) == 0
     }
     #[inline]
     pub fn is_child_ptr_0(&self) -> bool {
@@ -194,13 +211,7 @@ impl<V> LineListNode<V> {
     }
     #[inline]
     unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-        let key_0_used_cnt = self.key_len_0();
-        debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
-        let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
-        core::ptr::copy_nonoverlapping(key.as_ptr(), base_ptr.as_mut_ptr().cast(), key.len());
-        self.val_or_child1 = ValOrChild{ val: ManuallyDrop::new(val) };
-        let mask = 0x4000 | key.len();
-        self.header |= mask as u16;
+        self.set_payload_1(key, false, ValOrChild{ val: ManuallyDrop::new(val) });
     }
     /// Sets the payload and key for slot_0
     #[inline]
@@ -218,6 +229,20 @@ impl<V> LineListNode<V> {
             self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
         }
     }
+    #[inline]
+    unsafe fn set_payload_1(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChild<V>) {
+        let key_0_used_cnt = self.key_len_0();
+        debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
+        let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
+        core::ptr::copy_nonoverlapping(key.as_ptr(), base_ptr.as_mut_ptr().cast(), key.len());
+        self.val_or_child1 = payload;
+        let mask = if is_child_ptr {
+            0x5000 | key.len()
+        } else {
+            0x4000 | key.len()
+        };
+        self.header |= mask as u16;
+    }
     //goat, might be easier to just inline this
     // /// Takes the ValOrChild<V> from slot_0.  WARNING! This method leaves the node in a corrupt state,
     // /// so it must be followed by something else to repair the node.
@@ -234,13 +259,7 @@ impl<V> LineListNode<V> {
     }
     #[inline]
     unsafe fn set_child_1(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
-        let key_0_used_cnt = self.key_len_0();
-        debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
-        let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
-        core::ptr::copy_nonoverlapping(key.as_ptr(), base_ptr.as_mut_ptr().cast(), key.len());
-        self.val_or_child1 = ValOrChild{ child: ManuallyDrop::new(child) };
-        let mask = 	0x5000 | key.len();
-        self.header |= mask as u16;
+        self.set_payload_1(key, true, ValOrChild{ child: ManuallyDrop::new(child) });
     }
     /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
     #[inline]
@@ -269,10 +288,27 @@ impl<V> LineListNode<V> {
         };
 
         //Re-adjust the length and flags
-        self.header = (0xa000 | (idx << 5) | slot_mask_1 as usize) as u16;
+        self.header = (0xa000 | (idx << 5) | slot_mask_1) as u16;
         if idx == KEY_BYTES_CNT {
             self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
         }
+    }
+    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
+    #[inline]
+    fn split_1(&mut self, idx: usize) where V: Clone {
+        let mut self_payload = ValOrChild{ _unused: () };
+        core::mem::swap(&mut self_payload, &mut self.val_or_child1);
+        let node_key_1 = unsafe{ self.key_unchecked_1() };
+
+        let mut child_node = Self::new();
+        unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr_1(), self_payload); }
+
+        //Convert slot_0 from to a child ptr
+        self.val_or_child1 = ValOrChild{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+
+        //Re-adjust the length and flags
+        let slot_mask_0 = self.flags_and_len_0();
+        self.header = (slot_mask_0 | 0x5000 | idx) as u16;
     }
     #[inline]
     fn contains_val(&self, key: &[u8]) -> bool {
@@ -447,7 +483,13 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
 
         //If the key has overlap with slot_1, split that key
-        //GOAT
+        let node_key_1 = unsafe{ self.key_unchecked_1() };
+        let overlap = find_prefix_overlap_2(key, node_key_1);
+        if overlap > 0 {
+            self.split_1(overlap);
+            let child = unsafe{ &mut *self.val_or_child1.child }.make_mut();
+            return child.node_set_val(&key[overlap..], val);
+        }
 
         //We couldn't store the value in either of the slots, so upgrade the node
         //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
@@ -505,9 +547,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         None
     }
-
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         None
+    }
+    fn as_list(&self) -> Option<&Self> {
+        Some(self)
     }
 }
 
@@ -600,17 +644,31 @@ fn test_line_list_node_split_in_place() {
 }
 
 #[test]
-fn test_line_list_node_shared_prefixes() {
+fn test_line_list_node_shared_prefixes_slot_0() {
 
     let mut new_node = LineListNode::<usize>::new();
+    assert_eq!(new_node.node_set_val("hello my name is billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_set_val("slot_1".as_bytes(), 123).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_set_val("hello my name is johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
+    let (bytes_used, child_node) = new_node.node_get_child("hello my name is billy".as_bytes()).unwrap();
+    assert_eq!(bytes_used, 17);
+    assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
+    assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
+    assert_eq!(new_node.node_get_val("slot_1".as_bytes()), Some(&123));
+}
+
+#[test]
+fn test_line_list_node_shared_prefixes_slot_1() {
+
+    let mut new_node = LineListNode::<usize>::new();
+    assert_eq!(new_node.node_set_val("slot_0".as_bytes(), 123).map_err(|_| 0), Ok(None));
     assert_eq!(new_node.node_set_val("hello my name is billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
     assert_eq!(new_node.node_set_val("hello my name is johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
     let (bytes_used, child_node) = new_node.node_get_child("hello my name is billy".as_bytes()).unwrap();
     assert_eq!(bytes_used, 17);
     assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
     assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
-
-
+    assert_eq!(new_node.node_get_val("slot_0".as_bytes()), Some(&123));
 
 
 

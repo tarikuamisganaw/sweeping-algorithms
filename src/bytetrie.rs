@@ -2,6 +2,7 @@
 use dyn_clone::*;
 
 use crate::dense_byte_node::*;
+use crate::line_list_node::LineListNode;
 use crate::ring::*;
 
 pub struct BytesTrieMapIter<'a, V> where V : Clone {
@@ -375,6 +376,10 @@ pub(crate) trait TrieNode<V>: DynClone {
 
     /// Returns a mutable reference to the node as a specific concrete type or None if it is not that type
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
+
+    /// Returns a reference to the node as a specific concrete type or None if it is not that type
+    fn as_list(&self) -> Option<&LineListNode<V>>;
+
 }
 
 pub(crate) enum ValOrChildRef<'a, V> {
