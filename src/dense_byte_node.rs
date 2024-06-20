@@ -69,6 +69,12 @@ impl <V> DenseByteNode<V> {
             values: Vec::new()
         }
     }
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            mask: [0u64; 4],
+            values: Vec::with_capacity(capacity)
+        }
+    }
 
     #[inline]
     fn left(&self, pos: u8) -> u8 {
@@ -103,26 +109,24 @@ impl <V> DenseByteNode<V> {
     }
 
     #[inline]
-    fn add_child(&mut self, k: u8, node: Rc<dyn TrieNode<V> + '_>) -> &mut dyn TrieNode<V> {
+    pub fn add_child(&mut self, k: u8, node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             debug_assert!(cf.rec.is_none()); //add_child should not be called unless there is no child for a given key
-            cf.rec = Some(node.into());
+            cf.rec = Some(node);
             TrieNodeODRc::make_mut(cf.rec.as_mut().unwrap())
-            //dyn_clone::rc_make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V> GOAT
         } else {
             self.set(k);
-            let new_cf = CoFree {rec: Some(node.into()), value: None };
+            let new_cf = CoFree {rec: Some(node), value: None };
             self.values.insert(ix, new_cf);
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            //dyn_clone::rc_make_mut(cf.rec.as_mut().unwrap()) as &mut dyn TrieNode<V> GOAT
             TrieNodeODRc::make_mut(cf.rec.as_mut().unwrap())
         }
     }
 
     #[inline]
-    fn set_val(&mut self, k: u8, val: V) -> Option<V> {
+    pub fn set_val(&mut self, k: u8, val: V) -> Option<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
@@ -339,27 +343,27 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             None
         }
     }
-    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, Box<dyn TrieNode<V>>> {
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
 
-        //GOAT, I am recursively createing DenseByteNodes to the end, temporarily until I add a better
+        //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
         // tail node type
         let mut cur = self;
         for i in 0..key.len() - 1 {
             let new_node = Self::new();
-            cur = cur.add_child(key[i], Rc::new(new_node)).as_dense_mut().unwrap();
+            cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
         }
 
         //This implementation will never return Err, because the DenseByteNode can hold any possible value
         Ok(cur.set_val(key[key.len()-1], val))
     }
-    fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, Box<dyn TrieNode<V>>> {
+    fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
 
-        //GOAT, I am recursively createing DenseByteNodes to the end, temporarily until I add a better
+        //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
         // tail node type
         let mut cur = self;
         for i in 0..key.len() - 1 {
             let new_node = Self::new();
-            cur = cur.add_child(key[i], Rc::new(new_node)).as_dense_mut().unwrap();
+            cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
         }
 
         //This implementation will never return Err, because the DenseByteNode can hold any possible value
