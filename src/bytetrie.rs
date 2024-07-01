@@ -4,6 +4,7 @@ use mutcursor::MutCursor;
 
 use crate::dense_byte_node::*;
 use crate::line_list_node::LineListNode;
+use crate::empty_node::EmptyNode;
 use crate::ring::*;
 
 pub struct BytesTrieMapIter<'a, V> where V : Clone {
@@ -589,11 +590,11 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for TrieN
 impl<V: PartialDistributiveLattice + Clone> DistributiveLattice for TrieNodeODRc<V> {
     fn subtract(&self, other: &Self) -> Self {
         if self.ptr_eq(other) {
-            panic!(); //GOAT.  I think I need to return an empty node type
+            TrieNodeODRc::new(EmptyNode::new())
         } else {
             match self.borrow().psubtract_dyn(other.borrow()) {
                 Some(node) => node,
-                None => panic!() //GOAT.  I think I need to return an empty node type
+                None => TrieNodeODRc::new(EmptyNode::new())
             }
         }
     }

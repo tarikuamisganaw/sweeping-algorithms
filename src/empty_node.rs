@@ -1,0 +1,96 @@
+
+use core::marker::PhantomData;
+
+use crate::ring::*;
+use crate::bytetrie::*;
+use crate::line_list_node::LineListNode;
+use crate::dense_byte_node::DenseByteNode;
+
+#[derive(Clone, Default)]
+pub struct EmptyNode<V> {
+    phantom: PhantomData<V>
+}
+
+impl<V> EmptyNode<V> {
+    pub fn new() -> Self {
+        Self {
+            phantom: <_>::default()
+        }
+    }
+}
+
+impl<V: Clone> TrieNode<V> for EmptyNode<V> {
+    fn node_get_child(&self, _key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
+        None
+    }
+    fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
+        None
+    }
+    fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
+        panic!();
+    }
+    fn node_contains_val(&self, _key: &[u8]) -> bool {
+        false
+    }
+    fn node_get_val(&self, _key: &[u8]) -> Option<&V> {
+        None
+    }
+    fn node_get_val_mut(&mut self, _key: &[u8]) -> Option<&mut V> {
+        None
+    }
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
+        let mut replacement_node = LineListNode::new();
+        replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
+        Err(TrieNodeODRc::new(replacement_node))
+    }
+    fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
+        let mut replacement_node = LineListNode::new();
+        replacement_node.node_update_val(key, default_f).unwrap_or_else(|_| panic!());
+        Err(TrieNodeODRc::new(replacement_node))
+    }
+    fn node_is_empty(&self) -> bool {
+        true
+    }
+    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
+        panic!()
+    }
+    fn node_subtree_len(&self) -> usize {
+        panic!()
+    }
+    fn item_count(&self) -> usize {
+        0
+    }
+    fn nth_child(&self, _n: usize, _forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+        None
+    }
+
+    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+        None
+    }
+
+    fn join_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+        panic!()
+    }
+
+    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice {
+        panic!()
+    }
+
+    fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+        panic!()
+    }
+
+    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
+        panic!()
+    }
+
+    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
+        None
+    }
+    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
+        None
+    }
+    fn as_list(&self) -> Option<&LineListNode<V>> {
+        None
+    }
+}
