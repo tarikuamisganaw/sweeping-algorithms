@@ -357,27 +357,27 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
 
         //GOAT, this is the real implementation
-        // if key.len() > 1 {
-        //     let mut child = LineListNode::new();
-        //     child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
-        //     self.add_child(key[0], TrieNodeODRc::new(child));
-        //     Ok(None)
-        // } else {
-        //     Ok(self.set_val(key[0], val))
-        // }
-
-        //GOAT, this is dead code when we cut over to the hybrid nodes once and for all.
-        // however it's handy here to keep the tests all passing and use for benchmarking comparison
-        //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
-        // tail node type
-        let mut cur = self;
-        for i in 0..key.len() - 1 {
-            let new_node = Self::new();
-            cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
+        if key.len() > 1 {
+            let mut child = LineListNode::new();
+            child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
+            self.add_child(key[0], TrieNodeODRc::new(child));
+            Ok(None)
+        } else {
+            Ok(self.set_val(key[0], val))
         }
 
-        //This implementation will never return Err, because the DenseByteNode can hold any possible value
-        Ok(cur.set_val(key[key.len()-1], val))
+        // //GOAT, this is dead code when we cut over to the hybrid nodes once and for all.
+        // // however it's handy here to keep the tests all passing and use for benchmarking comparison
+        // //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
+        // // tail node type
+        // let mut cur = self;
+        // for i in 0..key.len() - 1 {
+        //     let new_node = Self::new();
+        //     cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
+        // }
+
+        // //This implementation will never return Err, because the DenseByteNode can hold any possible value
+        // Ok(cur.set_val(key[key.len()-1], val))
     }
     fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
 

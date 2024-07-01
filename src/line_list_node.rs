@@ -1,4 +1,5 @@
 use core::mem::{ManuallyDrop, MaybeUninit};
+use core::iter::Iterator;
 
 use local_or_heap::LocalOrHeap;
 
@@ -591,7 +592,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        panic!()
+        Box::new(ListNodeIter::new(self))
     }
 
     fn node_subtree_len(&self) -> usize {
@@ -634,6 +635,60 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
     fn as_list(&self) -> Option<&Self> {
         Some(self)
+    }
+}
+
+pub(crate) struct ListNodeIter<'a, V> {
+    node: &'a LineListNode<V>,
+    n: usize,
+}
+
+impl<'a, V> ListNodeIter<'a, V> {
+    fn new(node: &'a LineListNode<V>) -> Self {
+        Self {
+            node,
+            n: 0
+        }
+    }
+}
+
+impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
+    type Item = (&'a[u8], ValOrChildRef<'a, V>);
+
+    fn next(&mut self) -> Option<(&'a[u8], ValOrChildRef<'a, V>)> {
+        match self.n {
+            0 => {
+                self.n += 1;
+                if self.node.is_used_0() {
+                    let key = unsafe{ self.node.key_unchecked_0() };
+                    if self.node.is_used_child_0() {
+                        let child = unsafe{ &*self.node.val_or_child0.child };
+                        Some((key, ValOrChildRef::Child(child.borrow())))
+                    } else {
+                        let val = unsafe{ &**self.node.val_or_child0.val };
+                        Some((key, ValOrChildRef::Val(val)))
+                    }
+                } else {
+                    None
+                }
+            },
+            1 => {
+                self.n += 1;
+                if self.node.is_used_1() {
+                    let key = unsafe{ self.node.key_unchecked_1() };
+                    if self.node.is_used_child_1() {
+                        let child = unsafe{ &*self.node.val_or_child1.child };
+                        Some((key, ValOrChildRef::Child(child.borrow())))
+                    } else {
+                        let val = unsafe{ &**self.node.val_or_child1.val };
+                        Some((key, ValOrChildRef::Val(val)))
+                    }
+                } else {
+                    None
+                }
+            },
+            _ => None
+        }
     }
 }
 

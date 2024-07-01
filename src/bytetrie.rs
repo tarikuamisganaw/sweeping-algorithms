@@ -132,8 +132,8 @@ pub struct BytesTrieMap<V> {
 impl <V : Clone> BytesTrieMap<V> {
     pub fn new() -> Self {
         Self {
-            // root: TrieNodeODRc::new(LineListNode::new()) // GOAT, this is the real node type
-            root: TrieNodeODRc::new(DenseByteNode::new()) //GOAT, compatibility
+            root: TrieNodeODRc::new(LineListNode::new()) // GOAT, this is the real node type
+            // root: TrieNodeODRc::new(DenseByteNode::new()) //GOAT, compatibility
         }
     }
 
