@@ -13,15 +13,19 @@ pub struct LineListNode<V> {
     /// bit 14 = slot_1_used
     /// bit 13 = slot_0_is_child (child ptr vs value)
     /// bit 12 = slot_1_is_child (child ptr vs value).  If bit 14 is 0, but bit 12 is 1, it means slot_0 consumed all the key space, so nothing can go in slot_1
-    /// bits 11 & 10 = unused
-    /// bit 9 to bit 5 = slot_0_key_len
-    /// bit 4 to bit 0 = slot_1_key_len
+    /// bits 11 to bit 6 = slot_0_key_len
+    /// bit 5 to bit 0 = slot_1_key_len
     header: u16,
     key_bytes: [MaybeUninit<u8>; KEY_BYTES_CNT],
     val_or_child0: ValOrChild<V>,
     val_or_child1: ValOrChild<V>,
 }
-const KEY_BYTES_CNT: usize = 30;
+//DISCUSSION: Choosing a KEY_BYTES_CNT size
+// The rest of the ListNode is 34 bytes.  So setting KEY_BYTES_CNT=30 means the ListNode is 64 bytes or
+// one chache line.  But if we put in into an RcBox, (which adds a 16 byte header) we either need 14 bytes
+// to stay within 1 cache line, or 78 to pack into two.
+//WARNING the length bits mean I will overflow if I go above 63
+const KEY_BYTES_CNT: usize = 14;
 
 union ValOrChild<V> {
     child: ManuallyDrop<TrieNodeODRc<V>>,
@@ -130,13 +134,13 @@ impl<V> LineListNode<V> {
     /// Extracts the flag and length bits assocated with slot_0
     #[inline]
     fn flags_and_len_0(&self) -> usize {
-        const LEN_MASK: usize = 0x3e0; //bits 9 to 5, inclusive
+        const LEN_MASK: usize = 0xfc0; //bits 11 to 6, inclusive
         self.header as usize & ((1 << 15) | (1 << 13) | LEN_MASK)
     }
     /// Extracts the flag and length bits assocated with slot_1
     #[inline]
     fn flags_and_len_1(&self) -> usize {
-        const LEN_MASK: usize = 0x1f; //bits 4 to 0, inclusive
+        const LEN_MASK: usize = 0x3f; //bits 5 to 0, inclusive
         (self.header as usize) & ((1 << 14) | (1 << 12) | LEN_MASK)
     }
     /// Returns `true` if slot_1 is available to be filled with an entry, otherwise `false`.  The reason
@@ -174,12 +178,12 @@ impl<V> LineListNode<V> {
     }
     #[inline]
     pub fn key_len_0(&self) -> usize {
-        const MASK: u16 = 0x3e0; //bits 9 to 5, inclusive
-        ((self.header & MASK) >> 5) as usize
+        const MASK: u16 = 0xfc0; //bits 11 to 6, inclusive
+        ((self.header & MASK) >> 6) as usize
     }
     #[inline]
     pub fn key_len_1(&self) -> usize {
-        const MASK: u16 = 0x1f; //bits 4 to 0, inclusive
+        const MASK: u16 = 0x3f; //bits 5 to 0, inclusive
         (self.header & MASK) as usize
     }
     //NOTE: max_key_len_0 == KEY_BYTES_CNT, because LineListNodes are append-only
@@ -220,9 +224,9 @@ impl<V> LineListNode<V> {
         core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
         self.val_or_child0 = payload;
         let mask = if is_child_ptr {
-            0xa000 | (key.len() << 5)
+            0xa000 | (key.len() << 6)
         } else {
-            0x8000 | (key.len() << 5)
+            0x8000 | (key.len() << 6)
         };
         self.header |= mask as u16;
         if key.len() == KEY_BYTES_CNT {
@@ -288,7 +292,7 @@ impl<V> LineListNode<V> {
         };
 
         //Re-adjust the length and flags
-        self.header = (0xa000 | (idx << 5) | slot_mask_1) as u16;
+        self.header = (0xa000 | (idx << 6) | slot_mask_1) as u16;
         if idx == KEY_BYTES_CNT {
             self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
         }
@@ -362,6 +366,30 @@ impl<V> LineListNode<V> {
         }
         None
     }
+    #[inline]
+    fn get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
+        if self.is_used_child_0() {
+            let node_key_0 = unsafe{ self.key_unchecked_0() };
+            let key_len = self.key_len_0();
+            if key.len() >= key_len {
+                if node_key_0 == &key[..key_len] {
+                    let child = unsafe{ &mut *self.val_or_child0.child };
+                    return Some((key_len, child))
+                }
+            }
+        }
+        if self.is_used_child_1() {
+            let node_key_1 = unsafe{ self.key_unchecked_1() };
+            let key_len = self.key_len_1();
+            if key.len() >= key_len {
+                if node_key_1 == &key[..key_len] {
+                    let child = unsafe{ &mut *self.val_or_child1.child };
+                    return Some((key_len, child))
+                }
+            }
+        }
+        None
+    }
 
 }
 
@@ -382,38 +410,34 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked_0() };
-            if node_key_0 == &key[..self.key_len_0()] {
-                let child = unsafe{ self.val_or_child0.child.borrow() };
-                return Some((self.key_len_0(), child))
-            }
-        }
-        if self.is_used_child_1() {
-            let node_key_1 = unsafe{ self.key_unchecked_1() };
-            if node_key_1 == &key[..self.key_len_1()] {
-                let child = unsafe{ self.val_or_child1.child.borrow() };
-                return Some((self.key_len_1(), child))
-            }
-        }
-        None
-    }
-    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
-        if self.is_used_child_0() {
-            let node_key_0 = unsafe{ self.key_unchecked_0() };
             let key_len = self.key_len_0();
-            if node_key_0 == &key[..key_len] {
-                let child = unsafe{ &mut *self.val_or_child0.child }.make_mut();
-                return Some((key_len, child))
+            if key.len() >= key_len {
+                if node_key_0 == &key[..key_len] {
+                    let child = unsafe{ self.val_or_child0.child.borrow() };
+                    return Some((key_len, child))
+                }
             }
         }
         if self.is_used_child_1() {
             let node_key_1 = unsafe{ self.key_unchecked_1() };
             let key_len = self.key_len_1();
-            if node_key_1 == &key[..key_len] {
-                let child = unsafe{ &mut *self.val_or_child1.child }.make_mut();
-                return Some((key_len, child))
+            if key.len() >= key_len {
+                if node_key_1 == &key[..key_len] {
+                    let child = unsafe{ self.val_or_child1.child.borrow() };
+                    return Some((key_len, child))
+                }
             }
         }
         None
+    }
+    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
+        self.get_child_mut(key).map(|(consumed_bytes, child)| (consumed_bytes, child.make_mut()))
+    }
+    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
+        let (consumed_bytes, child_node) = self.get_child_mut(key).unwrap();
+        debug_assert!(consumed_bytes == key.len());
+        *child_node = new_node;
+        child_node.make_mut()
     }
     fn node_contains_val(&self, key: &[u8]) -> bool {
         self.contains_val(key)
@@ -546,11 +570,14 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         //3. Add the new key-value pair to the new DenseByteNode
         if key.len() > 1 {
             let mut child_node = Self::new();
-            unsafe{ child_node.set_val_0(&key[1..], LocalOrHeap::new(val)); }
+            child_node.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
             replacement_node.add_child(key[0], TrieNodeODRc::new(child_node));
         } else {
             replacement_node.set_val(key[0], val);
         }
+
+        //4. Clear self.header, so we don't double-free when this old node gets dropped
+        self.header = 0;
 
         Err(TrieNodeODRc::new(replacement_node))
     }
@@ -760,6 +787,3 @@ fn test_line_list_node_replacement() {
 
 //GOAT unneeded
 // const FIFTY_DIGITS: &[u8] = "01234567890123456789012345678901234567890123456789".as_bytes();
-
-//GOAT
-//Remember to check on the size of the node, after the Rc header is included

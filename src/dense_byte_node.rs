@@ -63,19 +63,20 @@ impl <V : Debug> Debug for DenseByteNode<V> {
 }
 
 impl <V> DenseByteNode<V> {
+    #[inline]
     pub fn new() -> Self {
         Self {
             mask: [0u64; 4],
             values: Vec::new()
         }
     }
+    #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             mask: [0u64; 4],
             values: Vec::with_capacity(capacity)
         }
     }
-
     #[inline]
     fn left(&self, pos: u8) -> u8 {
         if pos == 0 { return 0 }
@@ -159,6 +160,7 @@ impl <V> DenseByteNode<V> {
         }
     }
 
+    #[inline]
     fn update<F : FnOnce() -> CoFree<V>>(&mut self, k: u8, default: F) -> &mut CoFree<V> {
         let ix = self.left(k) as usize;
         if !self.contains(k) {
@@ -168,6 +170,7 @@ impl <V> DenseByteNode<V> {
         unsafe { self.values.get_unchecked_mut(ix) }
     }
 
+    #[inline]
     fn remove(&mut self, k: u8) -> Option<CoFree<V>> {
         if self.contains(k) {
             let ix = self.left(k) as usize;
@@ -178,6 +181,7 @@ impl <V> DenseByteNode<V> {
         None
     }
 
+    #[inline]
     fn get(&self, k: u8) -> Option<&CoFree<V>> {
         if self.contains(k) {
             let ix = self.left(k) as usize;
@@ -188,6 +192,7 @@ impl <V> DenseByteNode<V> {
         }
     }
 
+    #[inline]
     fn get_mut(&mut self, k: u8) -> Option<&mut CoFree<V>> {
         if self.contains(k) {
             let ix = self.left(k) as usize;
@@ -319,6 +324,12 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             })
         )
     }
+    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
+        debug_assert!(key.len() == 1);
+        let cf = self.get_mut(key[0]).unwrap();
+        *cf.rec.as_mut().unwrap() = new_node;
+        cf.rec.as_mut().unwrap().make_mut()
+    }
     fn node_contains_val(&self, key: &[u8]) -> bool {
         if key.len() == 1 {
             match self.get(key[0]) {
@@ -345,6 +356,18 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
 
+        //GOAT, this is the real implementation
+        // if key.len() > 1 {
+        //     let mut child = LineListNode::new();
+        //     child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
+        //     self.add_child(key[0], TrieNodeODRc::new(child));
+        //     Ok(None)
+        // } else {
+        //     Ok(self.set_val(key[0], val))
+        // }
+
+        //GOAT, this is dead code when we cut over to the hybrid nodes once and for all.
+        // however it's handy here to keep the tests all passing and use for benchmarking comparison
         //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
         // tail node type
         let mut cur = self;
@@ -834,3 +857,13 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
         else { return Some(r) }
     }
 }
+
+// //GOAT, this is total trash
+// impl<V> DenseByteNode<V> {
+//     pub fn borrow(&self) -> &Self {
+//         self
+//     }
+//     pub fn make_mut(&mut self) -> &mut Self {
+//         self
+//     }
+// }

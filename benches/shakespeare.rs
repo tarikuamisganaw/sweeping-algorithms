@@ -75,9 +75,9 @@ fn shakespeare_words_get(bencher: Bencher) {
         map.insert(k, v);
     }
 
-    let counters = ringmap::counters::Counters::count_ocupancy(&map);
-    // counters.print_histogram_by_depth();
-    counters.print_run_length_histogram();
+    // let counters = ringmap::counters::Counters::count_ocupancy(&map);
+    // // counters.print_histogram_by_depth();
+    // counters.print_run_length_histogram();
 
     let mut _map_v = 0;
     bencher.bench_local(|| {
@@ -111,9 +111,9 @@ fn shakespeare_sentences_get(bencher: Bencher) {
         map.insert(k, v);
     }
 
-    let counters = ringmap::counters::Counters::count_ocupancy(&map);
-    // counters.print_histogram_by_depth();
-    counters.print_run_length_histogram();
+    // let counters = ringmap::counters::Counters::count_ocupancy(&map);
+    // // counters.print_histogram_by_depth();
+    // counters.print_run_length_histogram();
 
     let mut _map_v = 0;
     bencher.bench_local(|| {

@@ -357,7 +357,7 @@ impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for BytesTrieMa
 impl<V : Clone + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         let s = self.root.subtract(&other.root);
-        if s.node_is_empty() { None }
+        if s.borrow().node_is_empty() { None }
         else { Some(Self { root: s }) }
     }
 }

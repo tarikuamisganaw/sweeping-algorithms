@@ -56,9 +56,9 @@ impl Counters {
         let mut byte_depth = 0;
         let mut byte_depth_stack: Vec<usize> = vec![0];
         let mut prefixes: Vec<Vec<u8>> = vec![vec![]];
-        let mut btnis = vec![map.root.boxed_node_iter()];
+        let mut btnis = vec![map.root.borrow().boxed_node_iter()];
 
-        counters.count_node(map.root.item_count(), 0);
+        counters.count_node(map.root.borrow().item_count(), 0);
         loop {
             match btnis.last_mut() {
                 None => { break }

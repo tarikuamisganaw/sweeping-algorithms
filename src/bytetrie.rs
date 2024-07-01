@@ -1,5 +1,6 @@
 
 use dyn_clone::*;
+use mutcursor::MutCursor;
 
 use crate::dense_byte_node::*;
 use crate::line_list_node::LineListNode;
@@ -14,7 +15,7 @@ impl <'a, V : Clone> BytesTrieMapIter<'a, V> {
     fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self {
             prefixes: vec![vec![]],
-            btnis: vec![btm.root.boxed_node_iter()],
+            btnis: vec![btm.root.borrow().boxed_node_iter()],
         }
     }
 }
@@ -65,7 +66,7 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
         let mut prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
         prefix_idx.push(0);
         let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
-        btnis.push(btm.root.boxed_node_iter());
+        btnis.push(btm.root.borrow().boxed_node_iter());
         Self {
             prefix_buf: Vec::with_capacity(256),
             prefix_idx,
@@ -124,13 +125,14 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
 #[repr(transparent)]
 #[derive(Clone)]
 pub struct BytesTrieMap<V> {
-    pub(crate) root: DenseByteNode<V>
+    pub(crate) root: TrieNodeODRc<V>
 }
 
 impl <V : Clone> BytesTrieMap<V> {
     pub fn new() -> Self {
         Self {
-            root: DenseByteNode::new()
+            // root: TrieNodeODRc::new(LineListNode::new()) // GOAT, this is the real node type
+            root: TrieNodeODRc::new(DenseByteNode::new()) //GOAT, compatibility
         }
     }
 
@@ -174,22 +176,16 @@ impl <V : Clone> BytesTrieMap<V> {
 
     pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
         let k = k.as_ref();
-        let (node, remaining_key) = traverse_to_leaf(&self.root, k);
+        let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
         node.node_contains_val(remaining_key)
     }
 
     /// Inserts `v` at into the map at `k`.  Panics if `k` has a zero length
     pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
         let k = k.as_ref();
-        let (node, remaining_key) = traverse_to_leaf_mut(&mut self.root, k);
-
-        match node.node_set_val(remaining_key, v) {
-            Ok(old_val) => old_val.is_some(),
-            Err(replacement_node) => {
-                //GOAT, this is where I need to call a function to swap replacement_node with node.
-                panic!();
-            }
-        }
+        traverse_to_leaf_static_result(&mut self.root, k,
+        |node, remaining_key| node.node_set_val(remaining_key, v).map(|old_val| old_val.is_some()),
+        |new_leaf_node, remaining_key| false)
     }
 
     // pub fn remove(&mut self, k: u16) -> Option<V> {
@@ -211,29 +207,26 @@ impl <V : Clone> BytesTrieMap<V> {
 
     pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
         let k = k.as_ref();
-        let (node, remaining_key) = traverse_to_leaf_mut(&mut self.root, k);
 
-        match node.node_update_val(remaining_key, Box::new(default_f)) {
-            Ok(val) => val,
-            Err(replacement_node) => {
-                //GOAT, this is where I need to call a function to swap replacement_node with node,
-                // and the re-borrow with node_get_val_mut()
-                panic!();
-            }
-        }
+//GOAT, update can be decomposed into get_val, followed by insert, followed by get again
+
+        traverse_to_leaf_mut(&mut self.root, k,
+        |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
+        |new_leaf_node, remaining_key| new_leaf_node.node_get_val_mut(remaining_key).unwrap())
     }
 
     pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
         let k = k.as_ref();
-        let (node, remaining_key) = traverse_to_leaf(&self.root, k);
+        let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
         node.node_get_val(remaining_key)
     }
 
     pub fn len(&self) -> usize {
-        return self.root.node_subtree_len()
+        return self.root.borrow().node_subtree_len()
     }
 }
 
+#[inline]
 fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a dyn TrieNode<V>, &'k [u8]) {
     let mut node = start_node;
 
@@ -248,23 +241,121 @@ fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]
     (node, key)
 }
 
-fn traverse_to_leaf_mut<'a, 'k, V>(start_node: &'a mut dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a mut dyn TrieNode<V>, &'k [u8]) {
-    let mut node = start_node;
+// #[inline]
+// fn traverse_to_leaf_mut<'a, 'k, V>(start_node: &'a mut dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a mut dyn TrieNode<V>, &'k [u8]) {
+//     let mut node = start_node;
 
-    let mut node_ptr = node as *mut dyn TrieNode<V>;
-    while let Some((consumed, next_node)) = node.node_get_child_mut(key) {
-        if key.len() > consumed {
-            key = &key[consumed..];
-            node = next_node;
-            node_ptr = node as *mut dyn TrieNode<V>;
-        } else {
+//     let mut node_ptr = node as *mut dyn TrieNode<V>;
+//     while let Some((consumed, next_node)) = node.node_get_child_mut(key) {
+//         if key.len() > consumed {
+//             key = &key[consumed..];
+//             node = next_node;
+//             node_ptr = node as *mut dyn TrieNode<V>;
+//         } else {
+//             break;
+//         }
+//     }
+
+//     //SAFETY: node_ptr is a work-around for lack of Polonius.  Remove node_ptr and just use node itself in Rust 2024
+//     let node = unsafe{ &mut *node_ptr }; 
+//     (node, key)
+// }
+
+#[inline]
+fn traverse_to_leaf_mut<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> &'a mut R
+    where
+    NodeF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> Result<&'f mut R, TrieNodeODRc<V>>,
+    RetryF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> &'f mut R,
+{
+    //TODO: Get rid of this `start_node_ptr` under polonius
+    let start_node_ptr = start_node as *mut TrieNodeODRc<V>;
+    let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
+
+    //Traverse until we find a leaf
+    let mut parent_key: &[u8] = &[];
+    loop {
+        if !node.advance(|node| {
+            match node.node_get_child_mut(key) {
+                Some((consumed, next_node)) => {
+                    if key.len() > consumed {
+                        parent_key = &key[..consumed];
+                        key = &key[consumed..];
+                        Some(next_node)
+                    } else {
+                        None
+                    }
+                },
+                None => None
+            }
+        }) {
             break;
         }
     }
 
-    //SAFETY: node_ptr is a work-around for lack of Polonius.  Remove node_ptr and just use node itself in Rust 2024
-    let node = unsafe{ &mut *node_ptr }; 
-    (node, key)
+    match node.try_map_into_mut(|top_ref| {
+        node_f(top_ref, key)
+    }) {
+        Ok(result) => result,
+        Err((mut node, err_node)) => {
+            if node.depth() > 0 {
+                node.backtrack();
+                let leaf_node = node.into_mut().node_replace_child(parent_key, err_node);
+                retry_f(leaf_node, key)
+            } else {
+                //Safety: Under Polonius, this is fine.
+                let start_node = unsafe{ &mut *start_node_ptr };
+                *start_node = err_node;
+                retry_f(start_node.make_mut(), key)
+            }
+        }
+    }
+}
+
+/// This is an ugly duplication of the logic in [Self::traverse_to_leaf_mut].  The reason is a limitation in
+/// the generic system's inability to differentiate a mutable lifetime from a borrowed lifetime.  Duplicating
+/// the logic is the least-bad option for now.  See response from Quinedot in thread: https://users.rust-lang.org/t/lifetimes-on-closure-bounds-to-end-mutable-borrow/113575/3
+#[inline]
+fn traverse_to_leaf_static_result<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> R
+    where
+    NodeF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> Result<R, TrieNodeODRc<V>>,
+    RetryF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> R,
+{
+    let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
+
+    //Traverse until we find a leaf
+    let mut parent_key: &[u8] = &[];
+    loop {
+        if !node.advance(|node| {
+            match node.node_get_child_mut(key) {
+                Some((consumed, next_node)) => {
+                    if key.len() > consumed {
+                        parent_key = &key[..consumed];
+                        key = &key[consumed..];
+                        Some(next_node)
+                    } else {
+                        None
+                    }
+                },
+                None => None
+            }
+        }) {
+            break;
+        }
+    }
+
+    match node_f(node.top_mut(), key) {
+        Ok(result) => result,
+        Err(err_node) => {
+            if node.depth() > 0 {
+                node.backtrack();
+                let leaf_node = node.top_mut().node_replace_child(parent_key, err_node);
+                retry_f(leaf_node, key)
+            } else {
+                *start_node = err_node;
+                retry_f(start_node.make_mut(), key)
+            }
+        }
+    }
 }
 
 impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
@@ -289,6 +380,14 @@ pub(crate) trait TrieNode<V>: DynClone {
 
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)>;
+
+    /// Replaces a child-node at `key` with the node provided, returning a `&mut` reference to the newly
+    /// added child node
+    ///
+    /// Unlike [node_get_child], this method requires an exact key and not just a prefix, in order to
+    /// maintain tree integrity.  This method is not intended as a general-purpose "set" operation, and
+    /// may panic if the node does not already contain a child node at the specified key.
+    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V>;
 
     /// Returns `true` if the node contains a value at the specified key, otherwise returns `false`
     ///
@@ -485,4 +584,88 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for TrieN
             self.borrow().psubtract_dyn(other.borrow())
         }
     }
+}
+
+impl<V: PartialDistributiveLattice + Clone> DistributiveLattice for TrieNodeODRc<V> {
+    fn subtract(&self, other: &Self) -> Self {
+        if self.ptr_eq(other) {
+            panic!(); //GOAT.  I think I need to return an empty node type
+        } else {
+            match self.borrow().psubtract_dyn(other.borrow()) {
+                Some(node) => node,
+                None => panic!() //GOAT.  I think I need to return an empty node type
+            }
+        }
+    }
+}
+
+#[test]
+fn map_test() {
+    let mut map = BytesTrieMap::new();
+    //NOW: map contains an empty ListNode
+
+    map.insert("aaaaa", "aaaaa");
+    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+    //NOW: map contains a ListNode with slot_0 filled by a value
+
+    map.insert("bbbbb", "bbbbb");
+    assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
+    //NOW: map contains a ListNode with slot_0 and slot_1 filled by values
+
+    map.insert("ccccc", "ccccc");
+    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+    assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
+    assert_eq!(map.get("ccccc").unwrap(), &"ccccc");
+    //NOW: map contains a DenseByteNode, with 3 separate ListNodes, each containing one value
+
+    map.insert("ddddd", "ddddd");
+    assert_eq!(map.get("ddddd").unwrap(), &"ddddd");
+    //NOW: map contains a DenseByteNode, with 4 separate ListNodes, each containing one value
+
+    map.insert("abbbb", "abbbb");
+    assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
+    //NOW: Dense("a"..) -> List("aaaa", "bbbb")
+
+    map.insert("aaaab", "aaaab");
+    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+    assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
+    assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
+    assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
+    //NOW: Dense("a"..) -> List("aaa", "bbbb") -> List("a", "b")
+
+    map.insert("aaaac", "aaaac");
+    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+    assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
+    assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
+    //NOW: Dense("a"..) -> List("aaa", "bbbb") -> Dense("a", "b", "c")
+
+    map.insert("acaaa", "acaaa");
+    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+    assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
+    assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
+    assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
+    assert_eq!(map.get("acaaa").unwrap(), &"acaaa");
+    //NOW: Dense("a"..) -> Dense("a", "b", "c") a-> List("aa") -> Dense("a", "b", "c")
+    //                                          b-> List("bbb")
+    //                                          c-> List("aaa")
+}
+
+#[test]
+fn long_key_map_test() {
+    let mut map = BytesTrieMap::new();
+
+    map.insert("aaaaaaaaaa01234567890123456789", 30);
+    assert_eq!(map.get("aaaaaaaaaa01234567890123456789").unwrap(), &30);
+
+    map.insert("bbbbbbbbbb012345678901234567891", 31);
+    assert_eq!(map.get("bbbbbbbbbb012345678901234567891").unwrap(), &31);
+
+    map.insert("cccccccccc012345678901234567890123456789", 40);
+    assert_eq!(map.get("cccccccccc012345678901234567890123456789").unwrap(), &40);
+
+    map.insert("dddddddddd01234567890123456789012345678901234", 45);
+    assert_eq!(map.get("dddddddddd01234567890123456789012345678901234").unwrap(), &45);
+
+    map.insert("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789", 90);
+    assert_eq!(map.get("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789").unwrap(), &90);
 }

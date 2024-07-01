@@ -54,7 +54,7 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self {
             root: btm,
-            focus: &btm.root,
+            focus: btm.root.borrow(),
             path: vec![],
             ancestors: vec![],
         }
