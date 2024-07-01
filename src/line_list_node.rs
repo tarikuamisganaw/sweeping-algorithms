@@ -637,9 +637,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 }
 
+/// Common operations for a ListNode
 #[test]
 fn test_line_list_node() {
-    assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
+    // assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
+    assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 48); //Shrunk to account for DynBox header
 
     //A simple test with a V that fits inside 16 bytes, only testing slot_0
     let mut new_node = LineListNode::<usize>::new();
@@ -685,18 +687,20 @@ fn test_line_list_node_key_and_value_collision() {
     assert_eq!(child_node.node_get_val("hello".as_bytes()), Some(&24));
 }
 
+/// This tests that a common prefix will be found and the if the node only has an entry in slot_0
 #[test]
-fn test_line_list_node_key_and_value_collision_2() {
+fn test_line_list_node_shared_prefixes_empty() {
 
     let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("hello my name is".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("hello my name is billy".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    let (bytes_used, child_node) = new_node.node_get_child("hello my name is".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 15);
+    assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok(None));
+    let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
+    assert_eq!(bytes_used, 9);
     assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
     assert_eq!(child_node.node_get_val("s billy".as_bytes()), Some(&24));
 }
 
+/// This tests that a long key gets chopped up into multiple nodes
 #[test]
 fn test_line_list_node_overflow_keys() {
 
@@ -707,12 +711,17 @@ fn test_line_list_node_overflow_keys() {
     assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
     assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
     assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
-    let (bytes_used, child_node) = new_node.node_get_child(LONG_KEY).unwrap();
-    let remaining_key = &LONG_KEY[bytes_used..];
-    assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 
+    let mut remaining_key = LONG_KEY;
+    let mut child_node = &new_node as &dyn TrieNode<usize>;
+    while let Some((bytes_used, next_node)) = child_node.node_get_child(remaining_key) {
+        remaining_key = &remaining_key[bytes_used..];
+        child_node = next_node;
+    }
+    assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 }
 
+/// This tests the logic to split a single key that consumes a whole node into multiple nodes
 #[test]
 fn test_line_list_overflow_split_in_place() {
     const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
@@ -721,49 +730,50 @@ fn test_line_list_overflow_split_in_place() {
     // are created
     let mut new_node = LineListNode::<usize>::new();
     assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
-    let (bytes_used, child_node) = new_node.node_get_child(LONG_KEY).unwrap();
-    let remaining_key = &LONG_KEY[bytes_used..];
-    assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
+    let mut next_node = &new_node as &dyn TrieNode<usize>;
+    let mut remaining_key = LONG_KEY;
+    let mut levels = 0;
+    while let Some((bytes_used, child_node)) = next_node.node_get_child(remaining_key) {
+        next_node = child_node;
+        remaining_key = &remaining_key[bytes_used..];
+        levels += 1;
+    }
+    assert_eq!(next_node.node_get_val(remaining_key), Some(&24));
+    assert_eq!(levels, (LONG_KEY.len()-1) / KEY_BYTES_CNT);
 
     //Now make sure that adding a second key is still ok because of in-place splitting
     assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
     assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
-
-    //We are expecting 3 levels to store the whole key after it was split
-    let mut total_bytes_used = 0;
-    let (bytes_used, l1_child_node) = new_node.node_get_child(LONG_KEY).unwrap();
-    total_bytes_used += bytes_used;
-    let (bytes_used, l2_child_node) = l1_child_node.node_get_child(&LONG_KEY[total_bytes_used..]).unwrap();
-    total_bytes_used += bytes_used;
-    assert_eq!(l2_child_node.node_get_val(&LONG_KEY[total_bytes_used..]), Some(&24));
 }
 
+/// This tests that a common prefix is found with the entry in slot_0, when slot_1 is already full
 #[test]
 fn test_line_list_node_shared_prefixes_slot_0() {
 
     let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("hello my name is billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("slot_1".as_bytes(), 123).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("hello my name is johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    let (bytes_used, child_node) = new_node.node_get_child("hello my name is billy".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 17);
+    assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
+    let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+    assert_eq!(bytes_used, 4);
     assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
     assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
-    assert_eq!(new_node.node_get_val("slot_1".as_bytes()), Some(&123));
+    assert_eq!(new_node.node_get_val("slot1".as_bytes()), Some(&123));
 }
 
+/// This test consumes slot_0, and tests that a common prefix is found when adding an entry to slot_1 
 #[test]
 fn test_line_list_node_shared_prefixes_slot_1() {
 
     let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("slot_0".as_bytes(), 123).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("hello my name is billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("hello my name is johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    let (bytes_used, child_node) = new_node.node_get_child("hello my name is billy".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 17);
+    assert_eq!(new_node.node_set_val("slot0".as_bytes(), 123).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
+    assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
+    let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+    assert_eq!(bytes_used, 4);
     assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
     assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
-    assert_eq!(new_node.node_get_val("slot_0".as_bytes()), Some(&123));
+    assert_eq!(new_node.node_get_val("slot0".as_bytes()), Some(&123));
 }
 
 #[test]
