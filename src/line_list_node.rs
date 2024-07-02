@@ -37,14 +37,14 @@ union ValOrChild<V> {
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
         if self.is_used_0() {
-            if self.is_child_ptr_0() {
+            if self.is_child_ptr::<0>() {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.child) }
             } else {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
             }
         }
         if self.is_used_1() {
-            if self.is_child_ptr_1() {
+            if self.is_child_ptr::<1>() {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.child) }
             } else {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.val) }
@@ -56,7 +56,7 @@ impl<V> Drop for LineListNode<V> {
 impl<V: Clone> Clone for LineListNode<V> {
     fn clone(&self) -> Self {
         let val_or_child0 = if self.is_used_0() {
-            if self.is_child_ptr_0() {
+            if self.is_child_ptr::<0>() {
                 let child = unsafe{ &self.val_or_child0.child }.clone();
                 ValOrChild{ child }
             } else {
@@ -67,7 +67,7 @@ impl<V: Clone> Clone for LineListNode<V> {
             ValOrChild{ _unused: () }
         };
         let val_or_child1 = if self.is_used_1() {
-            if self.is_child_ptr_1() {
+            if self.is_child_ptr::<1>() {
                 let child = unsafe{ &self.val_or_child1.child }.clone();
                 ValOrChild{ child }
             } else {
@@ -108,8 +108,8 @@ impl <V : core::fmt::Debug> core::fmt::Debug for LineListNode<V> {
         };
         write!(f,
                "LineListNode (\nslot0: occupied={} is_child={} key=\"{}\"\nslot1: occupied={} is_child={} key=\"{}\")",
-               self.is_used_0(), self.is_child_ptr_0(), key_0,
-               self.is_used_1(), self.is_child_ptr_1(), key_1)
+               self.is_used_0(), self.is_child_ptr::<0>(), key_0,
+               self.is_used_1(), self.is_child_ptr::<1>(), key_1)
     }
 }
 
@@ -152,12 +152,12 @@ impl<V> LineListNode<V> {
         self.header & ((1 << 14) | (1 << 12)) == 0
     }
     #[inline]
-    pub fn is_child_ptr_0(&self) -> bool {
-        self.header & (1 << 13) > 0
-    }
-    #[inline]
-    pub fn is_child_ptr_1(&self) -> bool {
-        self.header & (1 << 12) > 0
+    pub fn is_child_ptr<const SLOT: usize>(&self) -> bool {
+        match SLOT {
+            0 => self.header & (1 << 13) > 0,
+            1 => self.header & (1 << 12) > 0,
+            _ => unreachable!()
+        }
     }
     /// Conceptually identical to is_used_0 && is_child_ptr_0, but with a compound operation
     #[inline]
@@ -209,6 +209,38 @@ impl<V> LineListNode<V> {
     unsafe fn key_unchecked_1(&self) -> &[u8] {
         let base_ptr = self.key_bytes.get_unchecked(self.key_len_0());
         core::slice::from_raw_parts(base_ptr.as_ptr().cast(), self.key_len_1())
+    }
+    #[inline]
+    unsafe fn child_in_slot<const SLOT: usize>(&self) -> &TrieNodeODRc<V> {
+        match SLOT {
+            0 => &*self.val_or_child0.child,
+            1 => &*self.val_or_child1.child,
+            _ => unreachable!()
+        }
+    }
+    #[inline]
+    unsafe fn child_in_slot_mut<const SLOT: usize>(&mut self) -> &mut TrieNodeODRc<V> {
+        match SLOT {
+            0 => &mut *self.val_or_child0.child,
+            1 => &mut *self.val_or_child1.child,
+            _ => unreachable!()
+        }
+    }
+    #[inline]
+    unsafe fn val_in_slot<const SLOT: usize>(&self) -> &V {
+        match SLOT {
+            0 => &**self.val_or_child0.val,
+            1 => &**self.val_or_child1.val,
+            _ => unreachable!()
+        }
+    }
+    #[inline]
+    unsafe fn val_in_slot_mut<const SLOT: usize>(&mut self) -> &mut V {
+        match SLOT {
+            0 => &mut **self.val_or_child0.val,
+            1 => &mut **self.val_or_child1.val,
+            _ => unreachable!()
+        }
     }
     #[inline]
     unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
@@ -274,7 +306,7 @@ impl<V> LineListNode<V> {
         let node_key_0 = unsafe{ self.key_unchecked_0() };
 
         let mut child_node = Self::new();
-        unsafe{ child_node.set_payload_0(&node_key_0[idx..], self.is_child_ptr_0(), self_payload); }
+        unsafe{ child_node.set_payload_0(&node_key_0[idx..], self.is_child_ptr::<0>(), self_payload); }
 
         //Convert slot_0 from to a child ptr
         self.val_or_child0 = ValOrChild{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
@@ -306,7 +338,7 @@ impl<V> LineListNode<V> {
         let node_key_1 = unsafe{ self.key_unchecked_1() };
 
         let mut child_node = Self::new();
-        unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr_1(), self_payload); }
+        unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr::<1>(), self_payload); }
 
         //Convert slot_0 from to a child ptr
         self.val_or_child1 = ValOrChild{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
@@ -336,14 +368,14 @@ impl<V> LineListNode<V> {
         if self.is_used_value_0() {
             let node_key_0 = unsafe{ self.key_unchecked_0() };
             if node_key_0 == key {
-                let val = unsafe{ &**self.val_or_child0.val };
+                let val = unsafe{ self.val_in_slot::<0>() };
                 return Some(val);
             }
         }
         if self.is_used_value_1() {
             let node_key_1 = unsafe{ self.key_unchecked_1() };
             if node_key_1 == key {
-                let val = unsafe{ &**self.val_or_child1.val };
+                let val = unsafe{ self.val_in_slot::<1>() };
                 return Some(val);
             }
         }
@@ -354,14 +386,14 @@ impl<V> LineListNode<V> {
         if self.is_used_value_0() {
             let node_key_0 = unsafe{ self.key_unchecked_0() };
             if node_key_0 == key {
-                let val = unsafe{ &mut **self.val_or_child0.val };
+                let val = unsafe{ self.val_in_slot_mut::<0>() };
                 return Some(val);
             }
         }
         if self.is_used_value_1() {
             let node_key_1 = unsafe{ self.key_unchecked_1() };
             if node_key_1 == key {
-                let val = unsafe{ &mut **self.val_or_child1.val };
+                let val = unsafe{ self.val_in_slot_mut::<1>() };
                 return Some(val);
             }
         }
@@ -374,7 +406,7 @@ impl<V> LineListNode<V> {
             let key_len = self.key_len_0();
             if key.len() >= key_len {
                 if node_key_0 == &key[..key_len] {
-                    let child = unsafe{ &mut *self.val_or_child0.child };
+                    let child = unsafe{ self.child_in_slot_mut::<0>() };
                     return Some((key_len, child))
                 }
             }
@@ -384,19 +416,39 @@ impl<V> LineListNode<V> {
             let key_len = self.key_len_1();
             if key.len() >= key_len {
                 if node_key_1 == &key[..key_len] {
-                    let child = unsafe{ &mut *self.val_or_child1.child };
+                    let child = unsafe{ self.child_in_slot_mut::<1>() };
                     return Some((key_len, child))
                 }
             }
         }
         None
     }
-
+    #[inline]
+    fn get_both_keys(&self) -> (&[u8], &[u8]) {
+        let mut key0: &[u8] = &[];
+        let mut key1: &[u8] = &[];
+        if self.is_used_0() {
+            key0 = unsafe{ self.key_unchecked_0() };
+        }
+        if self.is_used_1() {
+            key1 = unsafe{ self.key_unchecked_1() };
+        }
+        (key0, key1)
+    }
+    #[inline]
+    fn count(&self) -> usize {
+        match (self.is_used_0(), self.is_used_1()) {
+            (true, false) => 1,
+            (false, false) => 0,
+            (true, true) => 2,
+            (false, true) => unreachable!(),
+        }
+    }
 }
 
 /// Returns the number of characters shared between two slices
 #[inline]
-fn find_prefix_overlap_2(a: &[u8], b: &[u8]) -> usize {
+fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     let mut cnt = 0;
     loop {
         if cnt == a.len() {break}
@@ -414,7 +466,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             let key_len = self.key_len_0();
             if key.len() >= key_len {
                 if node_key_0 == &key[..key_len] {
-                    let child = unsafe{ self.val_or_child0.child.borrow() };
+                    let child = unsafe{ self.child_in_slot::<0>().borrow() };
                     return Some((key_len, child))
                 }
             }
@@ -424,7 +476,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             let key_len = self.key_len_1();
             if key.len() >= key_len {
                 if node_key_1 == &key[..key_len] {
-                    let child = unsafe{ self.val_or_child1.child.borrow() };
+                    let child = unsafe{ self.child_in_slot::<1>().borrow() };
                     return Some((key_len, child))
                 }
             }
@@ -475,14 +527,14 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
         //If the key has overlap with slot_0, split the key, and add the value to the child
         let node_key_0 = unsafe{ self.key_unchecked_0() };
-        let mut overlap = find_prefix_overlap_2(key, node_key_0);
+        let mut overlap = find_prefix_overlap(key, node_key_0);
         if overlap > 0 {
             if overlap == node_key_0.len() || overlap == key.len() {
                 overlap -= 1;
             }
             if overlap > 0 {
                 self.split_0(overlap);
-                let child = unsafe{ &mut *self.val_or_child0.child }.make_mut();
+                let child = unsafe{ self.child_in_slot_mut::<0>() }.make_mut();
                 return child.node_set_val(&key[overlap..], val);
             }
         }
@@ -514,14 +566,14 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
         //If the key has overlap with slot_1, split that key
         let node_key_1 = unsafe{ self.key_unchecked_1() };
-        let mut overlap = find_prefix_overlap_2(key, node_key_1);
+        let mut overlap = find_prefix_overlap(key, node_key_1);
         if overlap > 0 {
             if overlap == node_key_1.len() || overlap == key.len() {
                 overlap -= 1;
             }
             if overlap > 0 {
                 self.split_1(overlap);
-                let child = unsafe{ &mut *self.val_or_child1.child }.make_mut();
+                let child = unsafe{ self.child_in_slot_mut::<1>() }.make_mut();
                 return child.node_set_val(&key[overlap..], val);
             }
         }
@@ -538,10 +590,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         // make an intermediate node to hold the rest of the key
         if key_0.len() > 1 {
             let mut child_node = Self::new();
-            unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr_0(), slot_0_payload); }
+            unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr::<0>(), slot_0_payload); }
             replacement_node.add_child(key_0[0], TrieNodeODRc::new(child_node));
         } else {
-            if self.is_child_ptr_0() {
+            if self.is_child_ptr::<0>() {
                 let child_node = unsafe{ ManuallyDrop::into_inner(slot_0_payload.child) };
                 replacement_node.add_child(key_0[0], child_node);
             } else {
@@ -556,10 +608,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         let key_1 = unsafe{ self.key_unchecked_1() };
         if key_1.len() > 1 {
             let mut child_node = Self::new();
-            unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr_1(), slot_1_payload); }
+            unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr::<1>(), slot_1_payload); }
             replacement_node.add_child(key_1[0], TrieNodeODRc::new(child_node));
         } else {
-            if self.is_child_ptr_1() {
+            if self.is_child_ptr::<1>() {
                 let child_node = unsafe{ ManuallyDrop::into_inner(slot_1_payload.child) };
                 replacement_node.add_child(key_1[0], child_node);
             } else {
@@ -588,7 +640,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn node_is_empty(&self) -> bool {
-        panic!()
+        !self.is_used_0()
     }
 
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
@@ -600,7 +652,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn item_count(&self) -> usize {
-        panic!()
+        self.count()
     }
 
     fn nth_child(&self, n: usize, forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
@@ -612,7 +664,55 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
-        panic!()
+        if let Some(other_list_node) = other.as_list() {
+            let (self_key0, self_key1) = self.get_both_keys();
+            let (other_key0, other_key1) = other_list_node.get_both_keys();
+
+            //Are there are any common paths between the nodes?
+            let overlap_0_0 = find_prefix_overlap(self_key0, other_key0);
+            if overlap_0_0 > 0 {
+                //3 cases
+                //1. a common prefix followed by two unique sub-strings, each with their own termination
+                //2. One key is a subset of the other, in which case we need to back up to avoid zero-length keys
+                //3. The keys are identical, in which case we need to join the child node or value
+
+                //check case 3
+                if overlap_0_0 == self_key0.len() && overlap_0_0 == other_key1.len() {
+
+                    let onward = match (self.is_child_ptr::<0>(), other_list_node.is_child_ptr::<0>()) {
+                        (true, true) => { //both are child nodes
+                            let self_child = unsafe{ self.child_in_slot::<0>() };
+                            let other_child = unsafe{ other_list_node.child_in_slot::<0>() };
+
+                        },
+                        (false, false) => { //both are values
+
+                        },
+                        (true, false) => { //one of each
+
+                        },
+                        (false, true) => {
+
+                        }
+                    };
+                }
+
+                //check case 1
+                if overlap_0_0 < self_key0.len() && overlap_0_0 < other_key1.len() {
+
+                }
+            }
+
+panic!()
+
+            //Do we have two or fewer paths, that can be fit into a new ListNode? 
+
+            //Otherwise, create a DenseByteNode
+           // TrieNodeODRc::new(new_node)
+        } else {
+            //GOAT, need to iterate other, grow self, and merge each item in other into self
+            panic!();
+        }
     }
 
     fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice {
@@ -662,10 +762,10 @@ impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
                 if self.node.is_used_0() {
                     let key = unsafe{ self.node.key_unchecked_0() };
                     if self.node.is_used_child_0() {
-                        let child = unsafe{ &*self.node.val_or_child0.child };
+                        let child = unsafe{ self.node.child_in_slot::<0>() };
                         Some((key, ValOrChildRef::Child(child.borrow())))
                     } else {
-                        let val = unsafe{ &**self.node.val_or_child0.val };
+                        let val = unsafe{ self.node.val_in_slot::<0>() };
                         Some((key, ValOrChildRef::Val(val)))
                     }
                 } else {
@@ -677,10 +777,10 @@ impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
                 if self.node.is_used_1() {
                     let key = unsafe{ self.node.key_unchecked_1() };
                     if self.node.is_used_child_1() {
-                        let child = unsafe{ &*self.node.val_or_child1.child };
+                        let child = unsafe{ self.node.child_in_slot::<1>() };
                         Some((key, ValOrChildRef::Child(child.borrow())))
                     } else {
-                        let val = unsafe{ &**self.node.val_or_child1.val };
+                        let val = unsafe{ self.node.val_in_slot::<1>() };
                         Some((key, ValOrChildRef::Val(val)))
                     }
                 } else {

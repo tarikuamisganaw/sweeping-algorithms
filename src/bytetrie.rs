@@ -132,8 +132,8 @@ pub struct BytesTrieMap<V> {
 impl <V : Clone> BytesTrieMap<V> {
     pub fn new() -> Self {
         Self {
-            root: TrieNodeODRc::new(LineListNode::new()) // GOAT, this is the real node type
-            // root: TrieNodeODRc::new(DenseByteNode::new()) //GOAT, compatibility
+            // root: TrieNodeODRc::new(LineListNode::new()) // GOAT, this is the real node type
+            root: TrieNodeODRc::new(DenseByteNode::new()) //GOAT, compatibility
         }
     }
 
@@ -208,8 +208,6 @@ impl <V : Clone> BytesTrieMap<V> {
 
     pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
         let k = k.as_ref();
-
-//GOAT, update can be decomposed into get_val, followed by insert, followed by get again
 
         traverse_to_leaf_mut(&mut self.root, k,
         |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
