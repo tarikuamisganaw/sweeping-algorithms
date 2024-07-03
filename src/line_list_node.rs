@@ -18,8 +18,8 @@ pub struct LineListNode<V> {
     /// bit 5 to bit 0 = slot_1_key_len
     header: u16,
     key_bytes: [MaybeUninit<u8>; KEY_BYTES_CNT],
-    val_or_child0: ValOrChild<V>,
-    val_or_child1: ValOrChild<V>,
+    val_or_child0: ValOrChildUnion<V>,
+    val_or_child1: ValOrChildUnion<V>,
 }
 //DISCUSSION: Choosing a KEY_BYTES_CNT size
 // The rest of the ListNode is 34 bytes.  So setting KEY_BYTES_CNT=30 means the ListNode is 64 bytes or
@@ -28,7 +28,7 @@ pub struct LineListNode<V> {
 //WARNING the length bits mean I will overflow if I go above 63
 const KEY_BYTES_CNT: usize = 14;
 
-union ValOrChild<V> {
+union ValOrChildUnion<V> {
     child: ManuallyDrop<TrieNodeODRc<V>>,
     val: ManuallyDrop<LocalOrHeap<V>>,
     _unused: ()
@@ -36,14 +36,14 @@ union ValOrChild<V> {
 
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
-        if self.is_used_0() {
+        if self.is_used::<0>() {
             if self.is_child_ptr::<0>() {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.child) }
             } else {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
             }
         }
-        if self.is_used_1() {
+        if self.is_used::<1>() {
             if self.is_child_ptr::<1>() {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.child) }
             } else {
@@ -55,27 +55,27 @@ impl<V> Drop for LineListNode<V> {
 
 impl<V: Clone> Clone for LineListNode<V> {
     fn clone(&self) -> Self {
-        let val_or_child0 = if self.is_used_0() {
+        let val_or_child0 = if self.is_used::<0>() {
             if self.is_child_ptr::<0>() {
                 let child = unsafe{ &self.val_or_child0.child }.clone();
-                ValOrChild{ child }
+                ValOrChildUnion{ child }
             } else {
                 let val = unsafe{ &self.val_or_child0.val }.clone();
-                ValOrChild{ val }
+                ValOrChildUnion{ val }
             }
         } else {
-            ValOrChild{ _unused: () }
+            ValOrChildUnion{ _unused: () }
         };
-        let val_or_child1 = if self.is_used_1() {
+        let val_or_child1 = if self.is_used::<1>() {
             if self.is_child_ptr::<1>() {
                 let child = unsafe{ &self.val_or_child1.child }.clone();
-                ValOrChild{ child }
+                ValOrChildUnion{ child }
             } else {
                 let val = unsafe{ &self.val_or_child1.val }.clone();
-                ValOrChild{ val }
+                ValOrChildUnion{ val }
             }
         } else {
-            ValOrChild{ _unused: () }
+            ValOrChildUnion{ _unused: () }
         };
         Self {
             header: self.header,
@@ -96,20 +96,20 @@ impl <V : core::fmt::Debug> core::fmt::Debug for LineListNode<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
-        let key_0 = if self.is_used_0() {
+        let key_0 = if self.is_used::<0>() {
             std::str::from_utf8(unsafe{ self.key_unchecked_0() }).unwrap_or("")
         } else {
             ""
         };
-        let key_1 = if self.is_used_1() {
+        let key_1 = if self.is_used::<1>() {
             std::str::from_utf8(unsafe{ self.key_unchecked_1() }).unwrap_or("")
         } else {
             ""
         };
         write!(f,
                "LineListNode (\nslot0: occupied={} is_child={} key=\"{}\"\nslot1: occupied={} is_child={} key=\"{}\")",
-               self.is_used_0(), self.is_child_ptr::<0>(), key_0,
-               self.is_used_1(), self.is_child_ptr::<1>(), key_1)
+               self.is_used::<0>(), self.is_child_ptr::<0>(), key_0,
+               self.is_used::<1>(), self.is_child_ptr::<1>(), key_1)
     }
 }
 
@@ -120,17 +120,17 @@ impl<V> LineListNode<V> {
         Self {
             header: 0,
             key_bytes: [MaybeUninit::uninit(); KEY_BYTES_CNT],
-            val_or_child0: ValOrChild{ _unused: () },
-            val_or_child1: ValOrChild{ _unused: () },
+            val_or_child0: ValOrChildUnion{ _unused: () },
+            val_or_child1: ValOrChildUnion{ _unused: () },
         }
     }
     #[inline]
-    pub fn is_used_0(&self) -> bool {
-        self.header & (1 << 15) > 0
-    }
-    #[inline]
-    pub fn is_used_1(&self) -> bool {
-        self.header & (1 << 14) > 0
+    pub fn is_used<const SLOT: usize>(&self) -> bool {
+        match SLOT {
+            0 => self.header & (1 << 15) > 0,
+            1 => self.header & (1 << 14) > 0,
+            _ => unreachable!()
+        }
     }
     /// Extracts the flag and length bits assocated with slot_0
     #[inline]
@@ -244,15 +244,15 @@ impl<V> LineListNode<V> {
     }
     #[inline]
     unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-        self.set_payload_0(key, false, ValOrChild{ val: ManuallyDrop::new(val) });
+        self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
     }
     #[inline]
     unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-        self.set_payload_1(key, false, ValOrChild{ val: ManuallyDrop::new(val) });
+        self.set_payload_1(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
     }
     /// Sets the payload and key for slot_0
     #[inline]
-    unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChild<V>) {
+    unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
         debug_assert!(key.len() <= KEY_BYTES_CNT);
         core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
         self.val_or_child0 = payload;
@@ -267,7 +267,7 @@ impl<V> LineListNode<V> {
         }
     }
     #[inline]
-    unsafe fn set_payload_1(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChild<V>) {
+    unsafe fn set_payload_1(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
         let key_0_used_cnt = self.key_len_0();
         debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
         let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
@@ -280,28 +280,89 @@ impl<V> LineListNode<V> {
         };
         self.header |= mask as u16;
     }
-    //goat, might be easier to just inline this
-    // /// Takes the ValOrChild<V> from slot_0.  WARNING! This method leaves the node in a corrupt state,
-    // /// so it must be followed by something else to repair the node.
-    // /// Also this method will corrput the node if there is a payload in slot_1
-    // #[inline]
-    // unsafe fn take_payload_0(&mut self) -> ValOrChild<V> {
-    //     let mut payload = ValOrChild{ _unused: () };
-    //     core::mem::swap(&mut payload, &mut self.val_or_child0);
-    //     payload
-    // }
+    #[inline]
+    unsafe fn set_payload_owned<const SLOT: usize>(&mut self, key: &[u8], payload: ValOrChild<V>) {
+        match SLOT {
+            0 => match payload {
+                ValOrChild::Child(child) => self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }),
+                ValOrChild::Val(val) => self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) })
+            },
+            1 => match payload {
+                ValOrChild::Child(child) => self.set_payload_1(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }),
+                ValOrChild::Val(val) => self.set_payload_1(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) })
+            },
+            _ => unreachable!()
+        }
+    }
+    /// Creates continuation nodes rather than overflowing the key
+    #[inline]
+    unsafe fn set_payload_0_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) where V: Clone {
+        if key.len() <= KEY_BYTES_CNT {
+            //The entire key fits within the node
+            unsafe{ self.set_payload_0(key, is_child_ptr, payload); }
+        } else {
+            //We need to recursively create a new node to hold the remaining part of the key
+            let mut child_node = Self::new();
+            child_node.set_payload_0_no_overflow(&key[KEY_BYTES_CNT..], is_child_ptr, payload);
+            unsafe{ self.set_child_0(&key[..KEY_BYTES_CNT], TrieNodeODRc::new(child_node)); }
+        }
+    }
+    /// Creates continuation nodes rather than overflowing the key
+    #[inline]
+    unsafe fn set_payload_1_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) where V: Clone {
+        let remaining_key_bytes = KEY_BYTES_CNT - self.key_len_0();
+        if key.len() <= remaining_key_bytes {
+            //The entire key fits within the node
+            unsafe{ self.set_payload_1(key, is_child_ptr, payload); }
+        } else {
+            //We need to recursively create a new node to hold the remaining part of the key
+            let mut child_node = Self::new();
+            child_node.set_payload_0_no_overflow(&key[remaining_key_bytes..], is_child_ptr, payload);
+            unsafe{ self.set_child_1(&key[..remaining_key_bytes], TrieNodeODRc::new(child_node)); }
+        }
+    }
+    /// Returns the clone of the value or child in the slot
+    #[inline]
+    fn clone_payload<const SLOT: usize>(&self) -> Option<ValOrChild<V>> where V: Clone {
+        if !self.is_used::<SLOT>() {
+            return None;
+        }
+        match SLOT {
+            0 => match self.is_child_ptr::<SLOT>() {
+                true => {
+                    let child = unsafe{ &*self.val_or_child0.child }.clone();
+                    Some(ValOrChild::Child(child))
+                },
+                false => {
+                    let val = unsafe{ &**self.val_or_child0.val }.clone();
+                    Some(ValOrChild::Val(val))
+                }
+            },
+            1 => match self.is_child_ptr::<SLOT>() {
+                true => {
+                    let child = unsafe{ &*self.val_or_child1.child }.clone();
+                    Some(ValOrChild::Child(child))
+                },
+                false => {
+                    let val = unsafe{ &**self.val_or_child1.val }.clone();
+                    Some(ValOrChild::Val(val))
+                }
+            },
+            _ => unreachable!()
+        }
+    }
     #[inline]
     unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
-        self.set_payload_0(key, true, ValOrChild{ child: ManuallyDrop::new(child) });
+        self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
     }
     #[inline]
     unsafe fn set_child_1(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
-        self.set_payload_1(key, true, ValOrChild{ child: ManuallyDrop::new(child) });
+        self.set_payload_1(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
     }
     /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
     #[inline]
     fn split_0(&mut self, idx: usize) where V: Clone {
-        let mut self_payload = ValOrChild{ _unused: () };
+        let mut self_payload = ValOrChildUnion{ _unused: () };
         core::mem::swap(&mut self_payload, &mut self.val_or_child0);
         let node_key_0 = unsafe{ self.key_unchecked_0() };
 
@@ -309,10 +370,10 @@ impl<V> LineListNode<V> {
         unsafe{ child_node.set_payload_0(&node_key_0[idx..], self.is_child_ptr::<0>(), self_payload); }
 
         //Convert slot_0 from to a child ptr
-        self.val_or_child0 = ValOrChild{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+        self.val_or_child0 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
 
         //Shift the key for slot_1, if there is one
-        let slot_mask_1 = if self.is_used_1() {
+        let slot_mask_1 = if self.is_used::<1>() {
             let key_len_1 = self.key_len_1();
             unsafe {
                 let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
@@ -333,7 +394,7 @@ impl<V> LineListNode<V> {
     /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
     #[inline]
     fn split_1(&mut self, idx: usize) where V: Clone {
-        let mut self_payload = ValOrChild{ _unused: () };
+        let mut self_payload = ValOrChildUnion{ _unused: () };
         core::mem::swap(&mut self_payload, &mut self.val_or_child1);
         let node_key_1 = unsafe{ self.key_unchecked_1() };
 
@@ -341,7 +402,7 @@ impl<V> LineListNode<V> {
         unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr::<1>(), self_payload); }
 
         //Convert slot_0 from to a child ptr
-        self.val_or_child1 = ValOrChild{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+        self.val_or_child1 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
 
         //Re-adjust the length and flags
         let slot_mask_0 = self.flags_and_len_0();
@@ -427,17 +488,17 @@ impl<V> LineListNode<V> {
     fn get_both_keys(&self) -> (&[u8], &[u8]) {
         let mut key0: &[u8] = &[];
         let mut key1: &[u8] = &[];
-        if self.is_used_0() {
+        if self.is_used::<0>() {
             key0 = unsafe{ self.key_unchecked_0() };
         }
-        if self.is_used_1() {
+        if self.is_used::<1>() {
             key1 = unsafe{ self.key_unchecked_1() };
         }
         (key0, key1)
     }
     #[inline]
     fn count(&self) -> usize {
-        match (self.is_used_0(), self.is_used_1()) {
+        match (self.is_used::<0>(), self.is_used::<1>()) {
             (true, false) => 1,
             (false, false) => 0,
             (true, true) => 2,
@@ -457,6 +518,69 @@ fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
         cnt += 1;
     }
     cnt
+}
+
+#[inline]
+fn try_merge<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
+    //Are there are any common paths between the nodes?
+    let overlap = find_prefix_overlap(a_key, b_key);
+    if overlap > 0 {
+        try_merge_guts::<V, ASLOT, BSLOT>(overlap, a_key, a, b_key, b)
+    } else {
+        None //No overlap between keys
+    }
+}
+
+/// The part of `try_merge` that we probably shouldn't inline
+fn try_merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
+    let a_key_len = a_key.len();
+    let b_key_len = b_key.len();
+
+    //If the keys are identical, we may need to merge the value or node
+    if overlap == a_key_len && overlap == b_key_len {
+        match (a.is_child_ptr::<ASLOT>(), b.is_child_ptr::<BSLOT>()) {
+            (true, true) => { //both are child nodes, so join them
+                let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
+                let b_child = unsafe{ b.child_in_slot::<BSLOT>() };
+                let new_child = a_child.join(b_child);
+                return Some((a_key, ValOrChild::Child(new_child)))
+            },
+            (false, false) => { //both are values, so join them
+                let a_val = unsafe{ a.val_in_slot::<ASLOT>() };
+                let b_val = unsafe{ b.val_in_slot::<BSLOT>() };
+                let new_val = a_val.join(b_val);
+                return Some((a_key, ValOrChild::Val(new_val)))
+            },
+            _ => {}
+        }
+    }
+
+    if overlap == a_key_len || overlap == b_key_len {
+        overlap -= 1;
+    }
+    if overlap > 0 {
+        //We have a common prefix, so make a child node that contains both
+        let mut new_node = LineListNode::new();
+
+        if a.is_child_ptr::<ASLOT>() {
+            let a_child = unsafe{ a.child_in_slot::<ASLOT>() }.clone();
+            unsafe{ new_node.set_child_0(&a_key[overlap..], a_child); }
+        } else {
+            let a_val = unsafe{ a.val_in_slot::<ASLOT>() }.clone();
+            unsafe{ new_node.set_val_0(&a_key[overlap..], LocalOrHeap::new(a_val)); }
+        }
+        if b.is_child_ptr::<BSLOT>() {
+            let b_child = unsafe{ b.child_in_slot::<BSLOT>() }.clone();
+            unsafe{ new_node.set_payload_1_no_overflow(&b_key[(overlap)..], true, ValOrChildUnion{ child: ManuallyDrop::new(b_child)} ); }
+        } else {
+            let b_val = unsafe{ b.val_in_slot::<BSLOT>() }.clone();
+            unsafe{ new_node.set_payload_1_no_overflow(&b_key[(overlap)..], false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(b_val)) }); }
+        }
+
+        Some((&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node))))
+    } else {
+        None
+    }
 }
 
 impl<V: Clone> TrieNode<V> for LineListNode<V> {
@@ -511,18 +635,9 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
 
         //If this node is empty, insert the new key-value into slot_0
-        if !self.is_used_0() {
-            if key.len() <= KEY_BYTES_CNT {
-                //The entire key fits within the node
-                unsafe{ self.set_val_0(key, LocalOrHeap::new(val)); }
-                return Ok(None)
-            } else {
-                //We need to recursively create a new node to hold the remaining part of the key
-                let mut child_node = Self::new();
-                child_node.node_set_val(&key[KEY_BYTES_CNT..], val).unwrap_or_else(|_| panic!()); //If a newly created node can't accept the value then it's a bug
-                unsafe{ self.set_child_0(&key[..KEY_BYTES_CNT], TrieNodeODRc::new(child_node)); }
-                return Ok(None)
-            }
+        if !self.is_used::<0>() {
+            unsafe{ self.set_payload_0_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }) };
+            return Ok(None)
         }
 
         //If the key has overlap with slot_0, split the key, and add the value to the child
@@ -541,23 +656,13 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
         //See if we are able to insert the node into slot_1
         if self.is_available_1() {
-            let remaining_key_bytes = KEY_BYTES_CNT - self.key_len_0();
-            if key.len() <= remaining_key_bytes {
-                //The entire key fits within the node
-                unsafe{ self.set_val_1(key, LocalOrHeap::new(val)); }
-                return Ok(None)
-            } else {
-                //We need to recursively create a new node to hold the remaining part of the key
-                let mut child_node = Self::new();
-                child_node.node_set_val(&key[remaining_key_bytes..], val).unwrap_or_else(|_| panic!()); //If a newly created node can't accept the value then it's a bug
-                unsafe{ self.set_child_1(&key[..remaining_key_bytes], TrieNodeODRc::new(child_node)); }
-                return Ok(None)
-            }
+            unsafe{ self.set_payload_1_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }) };
+            return Ok(None)
         }
 
         //If there is a single slot that is occupied but the key consumes the full node, then arbitrarily
         // chop the existing key in half to make room
-        if !self.is_used_1() {
+        if !self.is_used::<1>() {
             self.split_0(KEY_BYTES_CNT / 2);
 
             //Try again to add the new value to self, now that we've cleared some space
@@ -583,7 +688,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         let mut replacement_node = DenseByteNode::<V>::with_capacity(3);
 
         //1. Transplant the key / value from slot_1 to the new node
-        let mut slot_0_payload = ValOrChild{ _unused: () };
+        let mut slot_0_payload = ValOrChildUnion{ _unused: () };
         core::mem::swap(&mut slot_0_payload, &mut self.val_or_child0);
         let key_0 = unsafe{ self.key_unchecked_0() };
         //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
@@ -603,7 +708,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
 
         //2. Transplant the key / value from slot_1 to the new node
-        let mut slot_1_payload = ValOrChild{ _unused: () };
+        let mut slot_1_payload = ValOrChildUnion{ _unused: () };
         core::mem::swap(&mut slot_1_payload, &mut self.val_or_child1);
         let key_1 = unsafe{ self.key_unchecked_1() };
         if key_1.len() > 1 {
@@ -640,7 +745,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn node_is_empty(&self) -> bool {
-        !self.is_used_0()
+        !self.is_used::<0>()
     }
 
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
@@ -667,47 +772,113 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         if let Some(other_list_node) = other.as_list() {
             let (self_key0, self_key1) = self.get_both_keys();
             let (other_key0, other_key1) = other_list_node.get_both_keys();
+            let mut entries: [MaybeUninit<(&[u8], ValOrChild<V>)>; 4] = [MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()];
+            let mut entry_cnt = 0;
+            let mut used: [bool; 4] = [false; 4]; //[self_0, self_1, other_0, other_1]
 
-            //Are there are any common paths between the nodes?
-            let overlap_0_0 = find_prefix_overlap(self_key0, other_key0);
-            if overlap_0_0 > 0 {
-                //3 cases
-                //1. a common prefix followed by two unique sub-strings, each with their own termination
-                //2. One key is a subset of the other, in which case we need to back up to avoid zero-length keys
-                //3. The keys are identical, in which case we need to join the child node or value
+            // Try each pairing in self and other, to see if there is a key-join that can happen
+            // We can assume two keys in the same node can't merge, because they would have already been merged,
+            // and therefore we can also assume that if a key can be merged with one key of a node it can't be
+            // merged with the other
+            match try_merge::<V, 0, 0>(self_key0, self, other_key0, other_list_node) {
+                Some(joined) => {
+                    entries[entry_cnt] = MaybeUninit::new(joined);
+                    entry_cnt += 1;
+                    used[0] = true;
+                    used[2] = true;
+                },
+                None => {}
+            }
+            match try_merge::<V, 0, 1>(self_key0, self, other_key1, other_list_node) {
+                Some(joined) => {
+                    entries[entry_cnt] = MaybeUninit::new(joined);
+                    entry_cnt += 1;
+                    debug_assert!(used[0] == false); //If we create multiple joined entries from the same source, it's a bug somewhere
+                    used[0] = true;
+                    used[3] = true;
+                },
+                None => {}
+            }
+            match try_merge::<V, 1, 0>(self_key1, self, other_key0, other_list_node) {
+                Some(joined) => {
+                    entries[entry_cnt] = MaybeUninit::new(joined);
+                    entry_cnt += 1;
+                    debug_assert!(used[2] == false); //See above
+                    used[1] = true;
+                    used[2] = true;
+                },
+                None => {}
+            }
+            match try_merge::<V, 1, 1>(self_key1, self, other_key1, other_list_node) {
+                Some(joined) => {
+                    entries[entry_cnt] = MaybeUninit::new(joined);
+                    entry_cnt += 1;
+                    debug_assert!(used[1] == false); //See above
+                    debug_assert!(used[3] == false); //See above
+                    used[1] = true;
+                    used[3] = true;
+                },
+                None => {}
+            }
 
-                //check case 3
-                if overlap_0_0 == self_key0.len() && overlap_0_0 == other_key1.len() {
-
-                    let onward = match (self.is_child_ptr::<0>(), other_list_node.is_child_ptr::<0>()) {
-                        (true, true) => { //both are child nodes
-                            let self_child = unsafe{ self.child_in_slot::<0>() };
-                            let other_child = unsafe{ other_list_node.child_in_slot::<0>() };
-
-                        },
-                        (false, false) => { //both are values
-
-                        },
-                        (true, false) => { //one of each
-
-                        },
-                        (false, true) => {
-
-                        }
-                    };
+            //Add the single entries that didn't merge
+            if !used[0] {
+                match self.clone_payload::<0>() {
+                    Some(payload) => {
+                        entries[entry_cnt] = MaybeUninit::new((self_key0, payload));
+                        entry_cnt += 1;
+                    },
+                    None => {}
                 }
-
-                //check case 1
-                if overlap_0_0 < self_key0.len() && overlap_0_0 < other_key1.len() {
-
+            }
+            if !used[1] {
+                match self.clone_payload::<1>() {
+                    Some(payload) => {
+                        entries[entry_cnt] = MaybeUninit::new((self_key1, payload));
+                        entry_cnt += 1;
+                    },
+                    None => {}
+                }
+            }
+            if !used[2] {
+                match other_list_node.clone_payload::<0>() {
+                    Some(payload) => {
+                        entries[entry_cnt] = MaybeUninit::new((other_key0, payload));
+                        entry_cnt += 1;
+                    },
+                    None => {}
+                }
+            }
+            if !used[3] {
+                match other_list_node.clone_payload::<1>() {
+                    Some(payload) => {
+                        entries[entry_cnt] = MaybeUninit::new((other_key1, payload));
+                        entry_cnt += 1;
+                    },
+                    None => {}
                 }
             }
 
-panic!()
-
-            //Do we have two or fewer paths, that can be fit into a new ListNode? 
+            //Do we have two or fewer paths, that can fit into a new ListNode? 
+            if entry_cnt <= 2 {
+                let mut joined_node = Self::new();
+                if entry_cnt > 0 {
+                    let mut pair: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+                    core::mem::swap(&mut pair, &mut entries[0]);
+                    let (key, payload) = unsafe{ pair.assume_init() };
+                    unsafe{ joined_node.set_payload_owned::<0>(key, payload); }
+                }
+                if entry_cnt > 1 {
+                    let mut pair: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+                    core::mem::swap(&mut pair, &mut entries[1]);
+                    let (key, payload) = unsafe{ pair.assume_init() };
+                    unsafe{ joined_node.set_payload_owned::<1>(key, payload); }
+                }
+                return TrieNodeODRc::new(joined_node)
+            }
 
             //Otherwise, create a DenseByteNode
+            panic!()
            // TrieNodeODRc::new(new_node)
         } else {
             //GOAT, need to iterate other, grow self, and merge each item in other into self
@@ -759,7 +930,7 @@ impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
         match self.n {
             0 => {
                 self.n += 1;
-                if self.node.is_used_0() {
+                if self.node.is_used::<0>() {
                     let key = unsafe{ self.node.key_unchecked_0() };
                     if self.node.is_used_child_0() {
                         let child = unsafe{ self.node.child_in_slot::<0>() };
@@ -774,7 +945,7 @@ impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
             },
             1 => {
                 self.n += 1;
-                if self.node.is_used_1() {
+                if self.node.is_used::<1>() {
                     let key = unsafe{ self.node.key_unchecked_1() };
                     if self.node.is_used_child_1() {
                         let child = unsafe{ self.node.child_in_slot::<1>() };
@@ -792,163 +963,267 @@ impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
     }
 }
 
-/// Common operations for a ListNode
-#[test]
-fn test_line_list_node() {
-    // assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
-    assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 48); //Shrunk to account for DynBox header
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    //A simple test with a V that fits inside 16 bytes, only testing slot_0
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
-    *new_node.node_get_val_mut("hello".as_bytes()).unwrap() = 123;
-    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&123));
-    assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(Some(123)));
-    assert_eq!(new_node.node_contains_val("test".as_bytes()), false);
-
-    //A simple test with a V that exceeds 16 bytes, only testing slot_0
-    let mut new_node = LineListNode::<[u128; 4]>::new();
-    assert_eq!(new_node.node_set_val("hello".as_bytes(), [0, 1, 2, 3]).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&[0, 1, 2, 3]));
-    *new_node.node_get_val_mut("hello".as_bytes()).unwrap() = [3, 2, 1, 0];
-    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&[3, 2, 1, 0]));
-    assert_eq!(new_node.node_contains_val("test".as_bytes()), false);
-
-    //A test using both slots for values, where the keys are different, but both fit inside the key space
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("goodbye".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
-    assert_eq!(new_node.node_get_val("goodbye".as_bytes()), Some(&24));
-}
-
-#[test]
-fn test_line_list_node_key_and_value_collision() {
-
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
-
-    let mut child_node = LineListNode::<usize>::new();
-    assert_eq!(child_node.node_set_val("hello".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    //We are manufacturing this case.  Otherwise it would be a lot more indirect to achieve the
-    // conditions for this test using the APIs available outside this module
-    unsafe{ new_node.set_child_1("a".as_bytes(), TrieNodeODRc::new(child_node)); }
-
-    assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
-    let (bytes_used, child_node) = new_node.node_get_child("a".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 1);
-    assert_eq!(child_node.node_get_val("hello".as_bytes()), Some(&24));
-}
-
-/// This tests that a common prefix will be found and the if the node only has an entry in slot_0
-#[test]
-fn test_line_list_node_shared_prefixes_empty() {
-
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 9);
-    assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
-    assert_eq!(child_node.node_get_val("s billy".as_bytes()), Some(&24));
-}
-
-/// This tests that a long key gets chopped up into multiple nodes
-#[test]
-fn test_line_list_node_overflow_keys() {
-
-    //A test using both slots, where the second key exceeds the available space.  Make sure recursive nodes
-    // are created
-    const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
-
-    let mut remaining_key = LONG_KEY;
-    let mut child_node = &new_node as &dyn TrieNode<usize>;
-    while let Some((bytes_used, next_node)) = child_node.node_get_child(remaining_key) {
-        remaining_key = &remaining_key[bytes_used..];
-        child_node = next_node;
+    fn get_recursive<'a, 'b, V: Clone>(key: &'a [u8], node: &'b dyn TrieNode<V>) -> (&'a [u8], &'b dyn TrieNode<V>, usize) {
+        let mut remaining_key = key;
+        let mut child_node = node as &dyn TrieNode<V>;
+        let mut levels = 0;
+        while let Some((bytes_used, next_node)) = child_node.node_get_child(remaining_key) {
+            remaining_key = &remaining_key[bytes_used..];
+            child_node = next_node;
+            levels += 1;
+        }
+        (remaining_key, child_node, levels)
     }
-    assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
-}
 
-/// This tests the logic to split a single key that consumes a whole node into multiple nodes
-#[test]
-fn test_line_list_overflow_split_in_place() {
-    const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
+    /// Common operations for a ListNode
+    #[test]
+    fn test_line_list_node() {
+        // assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
+        assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 48); //Shrunk to account for DynBox header
 
-    //A test using only one slot, where the key exceeds the available space, make sure recursive nodes
-    // are created
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
-    let mut next_node = &new_node as &dyn TrieNode<usize>;
-    let mut remaining_key = LONG_KEY;
-    let mut levels = 0;
-    while let Some((bytes_used, child_node)) = next_node.node_get_child(remaining_key) {
-        next_node = child_node;
-        remaining_key = &remaining_key[bytes_used..];
-        levels += 1;
+        //A simple test with a V that fits inside 16 bytes, only testing slot_0
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
+        *new_node.node_get_val_mut("hello".as_bytes()).unwrap() = 123;
+        assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&123));
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(Some(123)));
+        assert_eq!(new_node.node_contains_val("test".as_bytes()), false);
+
+        //A simple test with a V that exceeds 16 bytes, only testing slot_0
+        let mut new_node = LineListNode::<[u128; 4]>::new();
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), [0, 1, 2, 3]).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&[0, 1, 2, 3]));
+        *new_node.node_get_val_mut("hello".as_bytes()).unwrap() = [3, 2, 1, 0];
+        assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&[3, 2, 1, 0]));
+        assert_eq!(new_node.node_contains_val("test".as_bytes()), false);
+
+        //A test using both slots for values, where the keys are different, but both fit inside the key space
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("goodbye".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
+        assert_eq!(new_node.node_get_val("goodbye".as_bytes()), Some(&24));
     }
-    assert_eq!(next_node.node_get_val(remaining_key), Some(&24));
-    assert_eq!(levels, (LONG_KEY.len()-1) / KEY_BYTES_CNT);
 
-    //Now make sure that adding a second key is still ok because of in-place splitting
-    assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
+    #[test]
+    fn test_line_list_node_key_and_value_collision() {
+
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
+
+        let mut child_node = LineListNode::<usize>::new();
+        assert_eq!(child_node.node_set_val("hello".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        //We are manufacturing this case.  Otherwise it would be a lot more indirect to achieve the
+        // conditions for this test using the APIs available outside this module
+        unsafe{ new_node.set_child_1("a".as_bytes(), TrieNodeODRc::new(child_node)); }
+
+        assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
+        let (bytes_used, child_node) = new_node.node_get_child("a".as_bytes()).unwrap();
+        assert_eq!(bytes_used, 1);
+        assert_eq!(child_node.node_get_val("hello".as_bytes()), Some(&24));
+    }
+
+    /// This tests that a common prefix will be found and the if the node only has an entry in slot_0
+    #[test]
+    fn test_line_list_node_shared_prefixes_empty() {
+
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
+        assert_eq!(bytes_used, 9);
+        assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
+        assert_eq!(child_node.node_get_val("s billy".as_bytes()), Some(&24));
+    }
+
+    /// This tests that a long key gets chopped up into multiple nodes
+    #[test]
+    fn test_line_list_node_overflow_keys() {
+
+        //A test using both slots, where the second key exceeds the available space.  Make sure recursive nodes
+        // are created
+        const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
+
+        let (remaining_key, child_node, _) = get_recursive(LONG_KEY, &new_node);
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
+    }
+
+    /// This tests the logic to split a single key that consumes a whole node into multiple nodes
+    #[test]
+    fn test_line_list_overflow_split_in_place() {
+        const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
+
+        //A test using only one slot, where the key exceeds the available space, make sure recursive nodes
+        // are created
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
+        let (remaining_key, child_node, levels) = get_recursive(LONG_KEY, &new_node);
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
+        assert_eq!(levels, (LONG_KEY.len()-1) / KEY_BYTES_CNT);
+
+        //Now make sure that adding a second key is still ok because of in-place splitting
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
+    }
+
+    /// This tests that a common prefix is found with the entry in slot_0, when slot_1 is already full
+    #[test]
+    fn test_line_list_node_shared_prefixes_slot_0() {
+
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+        assert_eq!(bytes_used, 4);
+        assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
+        assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
+        assert_eq!(new_node.node_get_val("slot1".as_bytes()), Some(&123));
+    }
+
+    /// This test consumes slot_0, and tests that a common prefix is found when adding an entry to slot_1 
+    #[test]
+    fn test_line_list_node_shared_prefixes_slot_1() {
+
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("slot0".as_bytes(), 123).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+        assert_eq!(bytes_used, 4);
+        assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
+        assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
+        assert_eq!(new_node.node_get_val("slot0".as_bytes()), Some(&123));
+    }
+
+    #[test]
+    fn test_line_list_node_replacement() {
+
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok(None));
+        let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
+        assert!(replacement_node.borrow().as_dense().is_some());
+        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
+        assert_eq!(bytes_used, 1);
+        assert_eq!(child_node.node_get_val("pple".as_bytes()), Some(&1));
+        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("banana".as_bytes()).unwrap();
+        assert_eq!(bytes_used, 1);
+        assert_eq!(child_node.node_get_val("anana".as_bytes()), Some(&2));
+        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("carrot".as_bytes()).unwrap();
+        assert_eq!(bytes_used, 1);
+        assert_eq!(child_node.node_get_val("arrot".as_bytes()), Some(&3));
+    }
+
+    #[test]
+    fn test_line_list_join_1_single_values_no_conflict() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("apple".as_bytes(), 0).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("banana".as_bytes(), 1).unwrap_or_else(|_| panic!());
+
+        let joined = a.join_dyn(&b);
+        assert_eq!(joined.borrow().node_get_val("apple".as_bytes()), Some(&0));
+        assert_eq!(joined.borrow().node_get_val("banana".as_bytes()), Some(&1));
+    }
+
+    #[test]
+    fn test_line_list_join_2_single_values_joined() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("apple".as_bytes(), 42).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("apple".as_bytes(), 24).unwrap_or_else(|_| panic!());
+
+        //u64's default impl of Lattice::join just takes the value from self
+        let joined = a.join_dyn(&b);
+        assert_eq!(joined.borrow().node_get_val("apple".as_bytes()), Some(&42));
+    }
+
+    #[test]
+    fn test_line_list_join_3_single_values_prefix_joined() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("apple".as_bytes(), 42).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("apricot".as_bytes(), 24).unwrap_or_else(|_| panic!());
+        let joined = a.join_dyn(&b);
+
+        let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), joined.borrow());
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&42));
+
+        let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), joined.borrow());
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
+    }
+
+    #[test]
+    fn test_line_list_join_4_bytes() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
+        a.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
+        b.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
+
+        let joined = a.join_dyn(&b);
+        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
+    }
+
+    #[test]
+    fn test_line_list_join_5_bytes() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
+        a.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
+        b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
+
+        let joined = a.join_dyn(&b);
+        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
+    }
+
+    #[test]
+    fn test_line_list_join_6_bytes() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
+        a.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("2".as_bytes(), 2).unwrap_or_else(|_| panic!());
+        b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
+
+        let joined = a.join_dyn(&b);
+        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
+        assert_eq!(joined.borrow().node_get_val("2".as_bytes()), Some(&2));
+    }
+
+    #[test]
+    fn test_line_list_join_7_bytes() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
+        a.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("2".as_bytes(), 2).unwrap_or_else(|_| panic!());
+        b.node_set_val("3".as_bytes(), 3).unwrap_or_else(|_| panic!());
+
+        let joined = a.join_dyn(&b);
+        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
+        assert_eq!(joined.borrow().node_get_val("2".as_bytes()), Some(&2));
+        assert_eq!(joined.borrow().node_get_val("3".as_bytes()), Some(&3));
+    }
+
 }
 
-/// This tests that a common prefix is found with the entry in slot_0, when slot_1 is already full
-#[test]
-fn test_line_list_node_shared_prefixes_slot_0() {
 
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 4);
-    assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
-    assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
-    assert_eq!(new_node.node_get_val("slot1".as_bytes()), Some(&123));
-}
 
-/// This test consumes slot_0, and tests that a common prefix is found when adding an entry to slot_1 
-#[test]
-fn test_line_list_node_shared_prefixes_slot_1() {
-
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("slot0".as_bytes(), 123).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
-    let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 4);
-    assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
-    assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
-    assert_eq!(new_node.node_get_val("slot0".as_bytes()), Some(&123));
-}
-
-#[test]
-fn test_line_list_node_replacement() {
-
-    let mut new_node = LineListNode::<usize>::new();
-    assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok(None));
-    assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok(None));
-    let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
-    assert!(replacement_node.borrow().as_dense().is_some());
-    let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 1);
-    assert_eq!(child_node.node_get_val("pple".as_bytes()), Some(&1));
-    let (bytes_used, child_node) = replacement_node.borrow().node_get_child("banana".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 1);
-    assert_eq!(child_node.node_get_val("anana".as_bytes()), Some(&2));
-    let (bytes_used, child_node) = replacement_node.borrow().node_get_child("carrot".as_bytes()).unwrap();
-    assert_eq!(bytes_used, 1);
-    assert_eq!(child_node.node_get_val("arrot".as_bytes()), Some(&3));
-}
-
-//GOAT unneeded
-// const FIFTY_DIGITS: &[u8] = "01234567890123456789012345678901234567890123456789".as_bytes();

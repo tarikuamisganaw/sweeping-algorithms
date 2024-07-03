@@ -485,6 +485,12 @@ pub(crate) enum ValOrChildRef<'a, V> {
     Child(&'a dyn TrieNode<V>)
 }
 
+#[derive(Clone)]
+pub(crate) enum ValOrChild<V> {
+    Val(V),
+    Child(TrieNodeODRc<V>)
+}
+
 //TODO: Make a Macro to generate OpaqueDynBoxes and ODRc (OpaqueDynRc) and an Arc version
 pub(crate) use opaque_dyn_rc_trie_node::TrieNodeODRc;
 mod opaque_dyn_rc_trie_node{
