@@ -878,8 +878,21 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             }
 
             //Otherwise, create a DenseByteNode
-            panic!()
-           // TrieNodeODRc::new(new_node)
+            let mut joined_node = DenseByteNode::<V>::with_capacity(entry_cnt);
+            for i in 0..entry_cnt {
+                let mut pair: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+                core::mem::swap(&mut pair, &mut entries[i]);
+                let (key, payload) = unsafe{ pair.assume_init() };
+                debug_assert!(key.len() > 0);
+                if key.len() > 1 {
+                    let mut child_node = Self::new();
+                    unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
+                    joined_node.add_child(key[0], TrieNodeODRc::new(child_node));
+                } else {
+                    joined_node.set_payload_owned(key[0], payload);
+                }
+            }
+            TrieNodeODRc::new(joined_node)
         } else {
             //GOAT, need to iterate other, grow self, and merge each item in other into self
             panic!();
@@ -1221,6 +1234,30 @@ mod tests {
         assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
         assert_eq!(joined.borrow().node_get_val("2".as_bytes()), Some(&2));
         assert_eq!(joined.borrow().node_get_val("3".as_bytes()), Some(&3));
+    }
+
+    #[test]
+    fn test_line_list_join_8_common_byte_prefix() {
+        let mut a = LineListNode::<u64>::new();
+        a.node_set_val("0a".as_bytes(), 0).unwrap_or_else(|_| panic!());
+        a.node_set_val("1a".as_bytes(), 1).unwrap_or_else(|_| panic!());
+        let mut b = LineListNode::<u64>::new();
+        b.node_set_val("1b".as_bytes(), 1).unwrap_or_else(|_| panic!());
+        b.node_set_val("2b".as_bytes(), 2).unwrap_or_else(|_| panic!());
+
+        let joined = a.join_dyn(&b);
+
+        let (remaining_key, child_node, _) = get_recursive("0a".as_bytes(), joined.borrow());
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&0));
+
+        let (remaining_key, child_node, _) = get_recursive("1a".as_bytes(), joined.borrow());
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&1));
+
+        let (remaining_key, child_node, _) = get_recursive("1b".as_bytes(), joined.borrow());
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&1));
+
+        let (remaining_key, child_node, _) = get_recursive("2b".as_bytes(), joined.borrow());
+        assert_eq!(child_node.node_get_val(remaining_key), Some(&2));
     }
 
 }

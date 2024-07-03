@@ -143,6 +143,19 @@ impl <V> DenseByteNode<V> {
     }
 
     #[inline]
+    pub fn set_payload_owned(&mut self, k: u8, payload: ValOrChild<V>) {
+        match payload {
+            ValOrChild::Child(child) => {
+                let _ = self.add_child(k, child);
+            },
+            ValOrChild::Val(val) => {
+                let result = self.set_val(k, val);
+                debug_assert!(result.is_none()); //For now we don't want to replace existing nodes
+            }
+        }
+    }
+
+    #[inline]
     fn update_val(&mut self, k: u8, default_f: Box<dyn FnOnce()->V + '_>) -> &mut V {
         let ix = self.left(k) as usize;
         if self.contains(k) {
