@@ -34,7 +34,7 @@ use std::rc::Rc;
 use crate::bit_sibling;
 use crate::ring::*;
 use crate::bytetrie::*;
-use crate::line_list_node::LineListNode;
+use crate::line_list_node::{LineListNode, merge_into_dense_node};
 
 //NOTE: This: `core::array::from_fn(|i| i as u8);` ought to work, but https://github.com/rust-lang/rust/issues/109341
 const ALL_BYTES: [u8; 256] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255];
@@ -78,6 +78,10 @@ impl <V> DenseByteNode<V> {
         }
     }
     #[inline]
+    pub fn reserve_capacity(&mut self, additional: usize) {
+        self.values.reserve(additional)
+    }
+    #[inline]
     fn left(&self, pos: u8) -> u8 {
         if pos == 0 { return 0 }
         let mut c = 0u8;
@@ -109,6 +113,8 @@ impl <V> DenseByteNode<V> {
         self.mask[((k & 0b11000000) >> 6) as usize] &= !(1u64 << (k & 0b00111111));
     }
 
+    /// Adds a new child at the specified key byte.  Use [join_child_into] if there is a possibility that
+    /// there is already a child node at the key byte
     #[inline]
     pub fn add_child(&mut self, k: u8, node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         let ix = self.left(k) as usize;
@@ -123,6 +129,27 @@ impl <V> DenseByteNode<V> {
             self.values.insert(ix, new_cf);
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             TrieNodeODRc::make_mut(cf.rec.as_mut().unwrap())
+        }
+    }
+
+    /// The same as [add_child] if no child exists in the node at the key.  Otherwise joins the two nodes
+    /// together
+    #[inline]
+    pub fn join_child_into(&mut self, k: u8, node: TrieNodeODRc<V>) where V: Clone + Lattice {
+        let ix = self.left(k) as usize;
+        if self.contains(k) {
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            match &mut cf.rec {
+                Some(existing_node) => {
+                    let joined = existing_node.join(&node);
+                    *existing_node = joined;
+                },
+                None => { cf.rec = Some(node); }
+            }
+        } else {
+            self.set(k);
+            let new_cf = CoFree {rec: Some(node), value: None };
+            self.values.insert(ix, new_cf);
         }
     }
 
@@ -142,6 +169,28 @@ impl <V> DenseByteNode<V> {
         }
     }
 
+    /// Similar in behavior to [set_val], but will join v with the existing value instead of replacing it
+    #[inline]
+    pub fn join_val_into(&mut self, k: u8, val: V) where V: Lattice {
+        let ix = self.left(k) as usize;
+        if self.contains(k) {
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            match &mut cf.value {
+                Some(existing_val) => {
+                    let joined = existing_val.join(&val);
+                    *existing_val = joined;
+                }
+                None => { cf.value = Some(val); }
+            }
+        } else {
+            self.set(k);
+            let new_cf = CoFree {rec: None, value: Some(val) };
+            self.values.insert(ix, new_cf);
+        }
+    }
+
+    /// Sets the payload (child node or V) at the specified key.  Should not be used in situations where
+    /// a the child or value may already exist at the key
     #[inline]
     pub fn set_payload_owned(&mut self, k: u8, payload: ValOrChild<V>) {
         match payload {
@@ -151,6 +200,20 @@ impl <V> DenseByteNode<V> {
             ValOrChild::Val(val) => {
                 let result = self.set_val(k, val);
                 debug_assert!(result.is_none()); //For now we don't want to replace existing nodes
+            }
+        }
+    }
+
+    /// Behavior is the same as [set_payload_owned], if the child or value doens't already exist, otherwise
+    /// joins the existing entry with the supplied payload
+    #[inline]
+    pub fn join_payload_into(&mut self, k: u8, payload: ValOrChild<V>) where V: Clone + Lattice {
+        match payload {
+            ValOrChild::Child(child) => {
+                self.join_child_into(k, child);
+            },
+            ValOrChild::Val(val) => {
+                self.join_val_into(k, val);
             }
         }
     }
@@ -520,8 +583,13 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             let new_node = self.join(other_dense_node);
             TrieNodeODRc::new(new_node)
         } else {
-            //GOAT, need to iterate other, grow self, and merge each item in other into self
-            panic!();
+            if let Some(other_list_node) = other.as_list() {
+                let mut new_node = self.clone();
+                merge_into_dense_node(&mut new_node, other_list_node);
+                TrieNodeODRc::new(new_node)
+            } else {
+                unreachable!()
+            }
         }
     }
 
