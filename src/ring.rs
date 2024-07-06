@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::bytetrie::{BytesTrieMap, TrieNode};
+use crate::bytetrie::BytesTrieMap;
 
 pub trait Lattice: Sized {
     fn join(&self, other: &Self) -> Self;
@@ -11,7 +11,7 @@ pub trait Lattice: Sized {
     }
     fn meet(&self, other: &Self) -> Self;
     fn bottom() -> Self;
-    fn join_all(xs: Vec<&Self>) -> Self {
+    fn join_all(xs: &[&Self]) -> Self {
         xs.iter().rfold(Self::bottom(), |x, y| x.join(y))
     }
 }

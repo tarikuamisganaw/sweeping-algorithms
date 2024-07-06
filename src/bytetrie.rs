@@ -186,7 +186,7 @@ impl <V : Clone> BytesTrieMap<V> {
         let k = k.as_ref();
         traverse_to_leaf_static_result(&mut self.root, k,
         |node, remaining_key| node.node_set_val(remaining_key, v).map(|old_val| old_val.is_some()),
-        |new_leaf_node, remaining_key| false)
+        |_new_leaf_node, _remaining_key| false)
     }
 
     // pub fn remove(&mut self, k: u16) -> Option<V> {

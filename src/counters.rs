@@ -1,5 +1,5 @@
 
-use crate::bytetrie::{BytesTrieMap, TrieNode, ValOrChildRef};
+use crate::bytetrie::{BytesTrieMap, ValOrChildRef};
 
 pub struct Counters {
     total_nodes_by_depth: Vec<usize>,

@@ -15,7 +15,7 @@ use std::fmt::{Debug, Formatter};
 //  it should!
 //
 // use rclite::Rc;
-use std::rc::Rc;
+// use std::rc::Rc;
 
 
 //OPTIMIZATION QUESTION 1, figure out the best compromise with regard to where to put Rc...
@@ -856,7 +856,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
         DenseByteNode::new()
     }
 
-    fn join_all(xs: Vec<&Self>) -> Self {
+    fn join_all(xs: &[&Self]) -> Self {
         let mut jm: [u64; 4] = [0, 0, 0, 0];
         for x in xs.iter() {
             jm[0] |= x.mask[0];
@@ -880,7 +880,7 @@ impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
                 let index = lm.trailing_zeros();
 
                 let to_join: Vec<&CoFree<V>> = xs.iter().enumerate().filter_map(|(i, x)| x.get(i as u8)).collect();
-                let joined = Lattice::join_all(to_join);
+                let joined = Lattice::join_all(&to_join[..]);
                 unsafe { new_v.get_unchecked_mut(c).write(joined) };
 
                 lm ^= 1u64 << index;

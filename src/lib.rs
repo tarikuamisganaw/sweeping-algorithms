@@ -1,5 +1,6 @@
+mod bytize;
+
 pub mod ring;
-pub mod bytize;
 pub mod bytetrie;
 pub mod zipper;
 //GOAT: Make this a compile-time feature
