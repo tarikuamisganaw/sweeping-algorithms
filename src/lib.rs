@@ -42,13 +42,13 @@ mod tests {
         let mut btm = BytesTrieMap::new();
         let rs: Vec<&str> = vec!["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
-//GOAT, fix this, sub_map
+//GOAT, fix this, "at_path"
         // assert_eq!(btm.at("rom".as_bytes()).map(|m| m.items().collect::<HashSet<_>>()),
         //            Some(HashSet::from([("ane".as_bytes().to_vec(), &0), ("anus".as_bytes().to_vec(), &1), ("ulus".as_bytes().to_vec(), &2), ("'i".as_bytes().to_vec(), &7)])));
 
         let mut rz = crate::zipper::ReadZipper::new(&btm);
-        rz.child('r' as u8); rz.child('o' as u8); rz.child('m' as u8); // focus = rom
-        assert!(rz.child('\'' as u8)); // focus = rom'  (' is the lowest byte)
+        rz.child_towards(&[b'r']); rz.child_towards(&[b'o']); rz.child_towards(&[b'm']); // focus = rom
+        assert!(rz.child_towards(&[b'\''])); // focus = rom'  (' is the lowest byte)
         assert!(rz.sibling(true)); // focus = roma  (a is the second byte)
         assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // both follow-ups romane and romanus have n following a
         assert!(rz.sibling(true)); // focus = romu  (u is the third byte)

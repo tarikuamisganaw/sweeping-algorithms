@@ -674,3 +674,10 @@ fn long_key_map_test() {
     map.insert("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789", 90);
     assert_eq!(map.get("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789").unwrap(), &90);
 }
+
+
+//GOAT TODO LIST:
+// 1. Fix the read-zipper to support any key length in a node
+// 2. Implement the "Entry" API, instead of `update`
+// 3. Re-enable "at_path" API
+// 4. Other ops: "join_all"??, "restrict"??, ??

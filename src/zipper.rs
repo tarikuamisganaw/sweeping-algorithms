@@ -43,29 +43,38 @@ enum Instruction {
     Restrict()
 }
 
+const EXPECTED_DEPTH: usize = 16;
+const EXPECTED_PATH_LEN: usize = 64;
+
 pub struct ReadZipper<'a, V> where V : Clone {
-    pub(crate) root: &'a BytesTrieMap<V>,
+    pub(crate) _root: &'a BytesTrieMap<V>,
     pub(crate) focus: &'a dyn TrieNode<V>,
-    pub(crate) path: Vec<u8>,
+    pub(crate) prefix_buf: Vec<u8>,
+    pub(crate) prefix_idx: Vec<usize>,
     pub(crate) ancestors: Vec<&'a dyn TrieNode<V>>,
 }
 
 impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self {
-            root: btm,
+            _root: btm,
             focus: btm.root.borrow(),
-            path: vec![],
+            prefix_buf: Vec::with_capacity(EXPECTED_PATH_LEN),
+            prefix_idx: Vec::with_capacity(EXPECTED_DEPTH),
             ancestors: vec![],
         }
     }
 
-    // moves deeper
-    pub fn child(&mut self, k: u8) -> bool {
-        match self.focus.node_get_child(&[k]) { //GOAT, this is going to fail as soon as we have keys that are variable length
+    /// Moves the zipper deeper into the tree, in the direction of the specified key.  Returns `false` if
+    /// there is no node to move towards
+    pub fn child_towards<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
+        let k = k.as_ref();
+        match self.focus.node_get_child(k) {
             None => { false }
             Some((consumed, child_node)) => {
-                self.path.push(k);
+                let key_start = *self.prefix_idx.last().unwrap_or(&0);
+                self.prefix_buf.extend(&k[..consumed]);
+                self.prefix_idx.push(key_start + consumed);
                 self.ancestors.push(self.focus);
                 self.focus = child_node;
                 true
@@ -76,8 +85,10 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
     pub fn nth_child(&mut self, n: usize, forward: bool) -> bool {
         match self.focus.nth_child(n, forward) {
             Some((prefix, child_node)) => {
+                let key_start = *self.prefix_idx.last().unwrap_or(&0);
+                self.prefix_buf.extend(prefix);
+                self.prefix_idx.push(key_start + prefix.len());
                 self.ancestors.push(self.focus);
-                self.path.extend(prefix);
                 self.focus = child_node;
                 true
             },
@@ -90,11 +101,16 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
         match self.ancestors.last() {
             None => { false }
             Some(parent) => {
-                let k = self.path.last().unwrap(); //GOAT, this is going to fail as soon as we have keys that are variable length
+                let key_start = if self.prefix_idx.len() > 1 {
+                    *self.prefix_idx.get(self.prefix_idx.len()-2).unwrap_or(&0)
+                } else {
+                    0
+                };
 
-                match parent.get_sibling_of_child(&[*k], next) {
+                match parent.get_sibling_of_child(&self.prefix_buf[key_start..], next) {
                     Some((prefix_key, child_node)) => {
-                        *self.path.last_mut().unwrap() = prefix_key[0];
+                        self.prefix_buf.truncate(key_start);
+                        self.prefix_buf.extend(prefix_key);
                         self.focus = child_node;
                         true
                     },
@@ -110,12 +126,33 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
             None => { false }
             Some(parent) => {
                 self.focus = parent;
-                self.path.pop();
+                let key_start = self.prefix_idx.pop().unwrap_or(0);
+                self.prefix_buf.truncate(key_start);
                 true
             }
         }
     }
+
+    /// Returns the count of the nodes from the root node.  Returns 0 at the root
+    pub fn depth(&self) -> usize {
+        self.prefix_idx.len()
+    }
+
+    /// Returns the path from the root to the focus node
+    pub fn path(&self) -> &[u8] {
+        &self.prefix_buf[..]
+    }
 }
+
+//GOAT Thoughts / TODO on ReadZipper
+//1. I should merge the Curson structure with the ReadZipper, by eliminating the cursor and adding a "next" method
+//    that returns the next item in a depth-first traversal
+//2. I need a "child_count" method to compliment the "nth_child" method.  But I need to look at what n means.
+//    ie. is it the number of cofrees, or is it the number of actual children?
+//3. √ Should make an accessor method to get the current path, since we have it easily available
+//4. √ Should make an accessor method to get the current depth, since we have that in the form of self.prefix_idx.len()
+//5. Should implement the TrieMap Iterator using the Zipper
+
 
 
 // pub struct WriteZipper<'a, V> {
