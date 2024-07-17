@@ -68,6 +68,57 @@ use crate::bytetrie::{BytesTrieMap, TrieNode, traverse_to_leaf};
 //GOAT, End of Adam's experiments
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 
+pub trait Zipper<'a, V> {
+
+    /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
+    fn at_root(&self) -> bool;
+
+    //Resets the zipper's focus back to the root
+    fn reset(&mut self);
+
+    /// Returns the path from the zipper's root to the current focus
+    fn path(&self) -> &[u8];
+
+    /// Returns the number of child branches from the focus node
+    ///
+    /// Returns 0 if the focus is on a leaf
+    fn child_count(&self) -> usize;
+
+    /// Moves the zipper deeper into the tree, to the `key` specified relative to the current zipper focus
+    ///
+    /// Returns `false` if the zipper does not point to an existing path within the tree
+    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool;
+
+    /// Descends the zipper's focus one step into a child branch uniquely identified by `child_idx`
+    ///
+    /// `child_idx` must within the range `0..child_count()` or this method will do nothing and return `false`
+    ///
+    /// WARNING: The branch represented by a given index is not guaranteed to be stable across modifications
+    /// to the trie or successive runs of the program.  This method should only be used as part of a directed
+    /// traversal operation, but not index-based paths may not be stored as locations within the trie.
+    fn descend_indexed_child(&mut self, child_idx: usize) -> bool;
+
+    /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
+    /// moved otherwise returns `false`
+    fn descend_until(&mut self) -> bool;
+
+    /// Ascends the zipper `steps` steps.  Returns `true` if the zipper sucessfully moved `steps`
+    ///
+    /// If the root is fewer than `n` steps from the zipper's position, then this method will stop at
+    /// the root and return `false`
+    fn ascend(&mut self, steps: usize) -> bool;
+
+    /// Ascends the zipper to the nearest upstream branch point or value.  Returns `true` if the zipper
+    /// focus moved upwards, otherwise returns `false` if the zipper was already at the root
+    fn ascend_until(&mut self) -> bool;
+
+
+
+}
+
+
+
+
 /// Size of node stack to preallocate in the zipper
 const EXPECTED_DEPTH: usize = 16;
 
@@ -87,7 +138,131 @@ pub struct ReadZipper<'a, V> where V : Clone {
     ancestors: Vec<&'a dyn TrieNode<V>>,
 }
 
-impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
+impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
+
+    fn at_root(&self) -> bool {
+        self.prefix_buf.len() <= self.root_key.len()
+    }
+
+    fn reset(&mut self) {
+        self.ancestors.truncate(1);
+        match self.ancestors.pop() {
+            Some(node) => self.focus_node = node,
+            None => {}
+        }
+        self.prefix_buf.clear();
+        self.prefix_idx.clear();
+    }
+
+    fn path(&self) -> &[u8] {
+        if self.prefix_buf.len() > 0 {
+            &self.prefix_buf[self.root_key.len()..]
+        } else {
+            &[]
+        }
+    }
+
+    fn child_count(&self) -> usize {
+        self.focus_node.child_count_at_key(self.node_key())
+    }
+
+    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
+        self.prepare_buffers();
+
+        self.prefix_buf.extend(k.as_ref());
+        let mut key_start = self.node_key_start();
+        let mut key = &self.prefix_buf[key_start..];
+
+        //Step until we get to the end of the key or find a leaf node
+        while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
+            key_start += consumed_byte_cnt;
+            self.prefix_idx.push(key_start);
+            self.ancestors.push(self.focus_node);
+            self.focus_node = next_node;
+            if consumed_byte_cnt < key.len() {
+                key = &key[consumed_byte_cnt..]
+            } else {
+                return true;
+            };
+        }
+        self.focus_node.node_contains_partial_key(key)
+    }
+
+    fn descend_indexed_child(&mut self, child_idx: usize) -> bool {
+        self.prepare_buffers();
+
+        match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
+            (Some(prefix), Some(child_node)) => {
+                self.prefix_buf.push(prefix);
+                self.prefix_idx.push(self.prefix_buf.len());
+                self.ancestors.push(self.focus_node);
+                self.focus_node = child_node;
+                true
+            },
+            (Some(prefix), None) => {
+                self.prefix_buf.push(prefix);
+                true
+            },
+            (None, _) => false
+        }
+    }
+
+    fn descend_until(&mut self) -> bool {
+        let mut moved = false;
+        self.prepare_buffers();
+
+        while self.child_count() == 1 {
+            moved = true;
+            match self.focus_node.only_child_from_key(self.node_key()) {
+                (Some(prefix), Some(child_node)) => {
+
+                    self.prefix_buf.extend(prefix);
+                    self.prefix_idx.push(self.prefix_buf.len());
+                    self.ancestors.push(self.focus_node);
+                    self.focus_node = child_node;
+                },
+                (Some(prefix), None) => {
+                    self.prefix_buf.extend(prefix);
+                },
+                (None, _) => unreachable!()
+            }
+        }
+        moved
+    }
+
+    fn ascend(&mut self, mut steps: usize) -> bool {
+        while steps > 0 {
+            if self.excess_key_len() == 0 {
+                self.focus_node = match self.ancestors.pop() {
+                    Some(node) => node,
+                    None => return false
+                };
+                self.prefix_idx.pop();
+            }
+            let cur_jump = steps.min(self.excess_key_len());
+            self.prefix_buf.truncate(self.prefix_buf.len() - cur_jump);
+            steps -= cur_jump;
+        }
+        true
+    }
+
+    fn ascend_until(&mut self) -> bool {
+        if self.at_root() {
+            return false;
+        }
+
+        //See if the branch point is in the parent node
+        if self.node_key().len() == 0 {
+            self.focus_node = self.ancestors.pop().unwrap();
+            self.prefix_idx.pop();
+        }
+        self.ascend_within_node();
+        true
+    }
+
+}
+
+impl <'a, V : Clone> ReadZipper<'a, V> {
     /// Creates a new zipper starting at the root of a BytesTrieMap
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self::new_with_node_and_path_internal(btm.root.borrow(), &[])
@@ -138,52 +313,6 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
         }
     }
 
-    /// Moves the zipper deeper into the tree, to the `key` specified relative to the current zipper focus
-    ///
-    /// Returns `false` if the zipper does not point to an existing path within the tree
-    pub fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
-        self.prepare_buffers();
-
-        self.prefix_buf.extend(k.as_ref());
-        let mut key_start = self.node_key_start();
-        let mut key = &self.prefix_buf[key_start..];
-
-        //Step until we get to the end of the key or find a leaf node
-        while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
-            key_start += consumed_byte_cnt;
-            self.prefix_idx.push(key_start);
-            self.ancestors.push(self.focus_node);
-            self.focus_node = next_node;
-            if consumed_byte_cnt < key.len() {
-                key = &key[consumed_byte_cnt..]
-            } else {
-                return true;
-            };
-        }
-
-        self.focus_node.node_contains_partial_key(key)
-    }
-
-    //Resets the zipper to its newly created state, with the focus on the root
-    pub fn reset(&mut self) {
-        self.ancestors.truncate(1);
-        match self.ancestors.pop() {
-            Some(node) => self.focus_node = node,
-            None => {}
-        }
-        self.prefix_buf.clear();
-        self.prefix_idx.clear();
-    }
-
-    /// Returns the path from the zipper's root to the current focus
-    pub fn path(&self) -> &[u8] {
-        if self.prefix_buf.len() > 0 {
-            &self.prefix_buf[self.root_key.len()..]
-        } else {
-            &[]
-        }
-    }
-
 //GOAT, Unnecessary method.  It "feels" like a complete API needs a function to map from a key-based path
 // to an integer-based path but I can't actually come up with a real-world use case for this method
 //     /// Returns the index of the focus path, among its siblings at the nearest upstream branch point
@@ -218,63 +347,6 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
     //     self.focus_node.sibling_count_at_key(self.node_key())
     // }
 
-    /// Returns the number of child branches from the focus node
-    ///
-    /// Returns 0 if the focus is on a leaf
-    pub fn child_count(&self) -> usize {
-        self.focus_node.child_count_at_key(self.node_key())
-    }
-
-    /// Descends the zipper's focus one step into a child branch uniquely identified by `child_idx`
-    ///
-    /// `child_idx` must within the range `0..child_count()` or this method will do nothing and return `false`
-    ///
-    /// WARNING: The branch represented by a given index is not guaranteed to be stable across modifications
-    /// to the trie or successive runs of the program.  This method should only be used as part of a directed
-    /// traversal operation, but not index-based paths may not be stored as locations within the trie.
-    pub fn descend_indexed_child(&mut self, child_idx: usize) -> bool {
-        self.prepare_buffers();
-
-        match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
-            (Some(prefix), Some(child_node)) => {
-                self.prefix_buf.push(prefix);
-                self.prefix_idx.push(self.prefix_buf.len());
-                self.ancestors.push(self.focus_node);
-                self.focus_node = child_node;
-                true
-            },
-            (Some(prefix), None) => {
-                self.prefix_buf.push(prefix);
-                true
-            },
-            (None, _) => false
-        }
-    }
-
-    /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus moved
-    /// otherwise returns `false`
-    pub fn descend_until(&mut self) -> bool {
-        let mut moved = false;
-        self.prepare_buffers();
-
-        while self.child_count() == 1 {
-            moved = true;
-            match self.focus_node.only_child_from_key(self.node_key()) {
-                (Some(prefix), Some(child_node)) => {
-
-                    self.prefix_buf.extend(prefix);
-                    self.prefix_idx.push(self.prefix_buf.len());
-                    self.ancestors.push(self.focus_node);
-                    self.focus_node = child_node;
-                },
-                (Some(prefix), None) => {
-                    self.prefix_buf.extend(prefix);
-                },
-                (None, _) => unreachable!()
-            }
-        }
-        moved
-    }
 
     // /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
     // /// otherwise returns `false`
@@ -303,47 +375,6 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
     //         }
     //     }
     // }
-
-    /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
-    pub fn at_root(&self) -> bool {
-        self.prefix_buf.len() <= self.root_key.len()
-    }
-
-    /// Ascends the zipper `steps` steps.  Returns `true` if the zipper sucessfully moved `steps`
-    ///
-    /// If the root is fewer than `n` steps from the zipper's position, then this method will stop at
-    /// the root and return `false`
-    pub fn ascend(&mut self, mut steps: usize) -> bool {
-        while steps > 0 {
-            if self.excess_key_len() == 0 {
-                self.focus_node = match self.ancestors.pop() {
-                    Some(node) => node,
-                    None => return false
-                };
-                self.prefix_idx.pop();
-            }
-            let cur_jump = steps.min(self.excess_key_len());
-            self.prefix_buf.truncate(self.prefix_buf.len() - cur_jump);
-            steps -= cur_jump;
-        }
-        true
-    }
-
-    /// Ascends the zipper to the nearest upstream branch point.  Returns `true` if the zipper focus
-    /// moved upwards, otherwise returns `false` if the zipper was already at the root
-    pub fn ascend_until(&mut self) -> bool {
-        if self.at_root() {
-            return false;
-        }
-
-        //See if the branch point is in the parent node
-        if self.node_key().len() == 0 {
-            self.focus_node = self.ancestors.pop().unwrap();
-            self.prefix_idx.pop();
-        }
-        self.ascend_within_node();
-        true
-    }
 
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
     #[inline]
