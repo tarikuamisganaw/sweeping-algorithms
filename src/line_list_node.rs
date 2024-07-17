@@ -813,11 +813,75 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
-        panic!()
+
+        //If `n==1` we know the only way we will find a valid result is if it's in slot_1.  On the other
+        // hand, if `n==0` we might find the result in slot_0, or it might be in slot_1 because the key in
+        // slot_0 doesn't match the key being passed.
+        match n {
+            0 => {
+                if self.is_used::<0>() {
+                    let key0 = unsafe{ self.key_unchecked::<0>() };
+                    if key0.starts_with(key) && key0.len() > key.len() {
+                        if key.len() + 1 == key0.len() && self.is_child_ptr::<0>() {
+                            return (Some(key0[key.len()]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                        } else {
+                            return (Some(key0[key.len()]), None)
+                        }
+                    } else {
+                        if self.is_used::<1>() {
+                            let key1 = unsafe{ self.key_unchecked::<1>() };
+                            if key1.starts_with(key) && key1.len() > key.len() {
+                                if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
+                                    return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                                } else {
+                                    return (Some(key1[key.len()]), None)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            1 => {
+                if self.is_used::<1>() {
+                    let key1 = unsafe{ self.key_unchecked::<1>() };
+                    if key1.starts_with(key) && key1.len() > key.len() {
+                        if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
+                            return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                        } else {
+                            return (Some(key1[key.len()]), None)
+                        }
+                    }
+                }
+            },
+            _ => unreachable!()
+        }
+        (None, None)
     }
 
     fn only_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
-        panic!()
+
+        if self.is_used::<0>() {
+            let key0 = unsafe{ self.key_unchecked::<0>() };
+            if key0.starts_with(key) && key0.len() > key.len() {
+                if self.is_child_ptr::<0>() {
+                    return (Some(&key0[key.len()..]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                } else {
+                    return (Some(&key0[key.len()..]), None)
+                }
+            } else {
+                if self.is_used::<1>() {
+                    let key1 = unsafe{ self.key_unchecked::<1>() };
+                    if key1.starts_with(key) && key1.len() > key.len() {
+                        if self.is_child_ptr::<1>() {
+                            return (Some(&key1[key.len()..]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                        } else {
+                            return (Some(&key1[key.len()..]), None)
+                        }
+                    }
+                }
+            }
+        }
+        (None, None)
     }
 
     fn child_count_at_key(&self, key: &[u8]) -> usize {

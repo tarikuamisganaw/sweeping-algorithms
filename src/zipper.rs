@@ -141,7 +141,7 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
     /// Moves the zipper deeper into the tree, to the `key` specified relative to the current zipper focus
     ///
     /// Returns `false` if the zipper does not point to an existing path within the tree
-    pub fn descend_towards<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
+    pub fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
         self.prepare_buffers();
 
         self.prefix_buf.extend(k.as_ref());
@@ -249,28 +249,6 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
             },
             (None, _) => false
         }
-
-
-        //GOAT, old implementation, trash this
-        // let (prefix, mut child_node) = self.focus_node.nth_child_from_key(self.node_key(), child_idx);
-        // match prefix {
-        //     Some(prefix) => {
-        //         if prefix.len() > 1 {
-        //             child_node = None;
-        //         }
-        //         match child_node {
-        //             Some(child_node) => {
-        //                 self.prefix_buf.push(prefix[0]);
-        //                 self.prefix_idx.push(self.prefix_buf.len());
-        //                 self.ancestors.push(self.focus_node);
-        //                 self.focus_node = child_node;
-        //             },
-        //             None => self.prefix_buf.push(prefix[0])
-        //         }
-        //         true
-        //     },
-        //     None => false
-        // }
     }
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus moved
@@ -406,7 +384,6 @@ impl <'a, V : Clone + Debug> ReadZipper<'a, V> {
 //2. √I need a "child_count" method to compliment the "nth_child" method.  But I need to look at what n means.
 //    ie. is it the number of cofrees, or is it the number of actual children?
 //5. Should implement the TrieMap Iterator using the Zipper
-//- Rename "descend_towards" to "descend_to", now that a zipper can exist on any path and not just at branches and values
 
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 //GOAT, more of Adam's experiments
@@ -482,8 +459,8 @@ fn zipper_basic_test() {
     //            Some(HashSet::from([("ane".as_bytes().to_vec(), &0), ("anus".as_bytes().to_vec(), &1), ("ulus".as_bytes().to_vec(), &2), ("'i".as_bytes().to_vec(), &7)])));
 
     let mut rz = crate::zipper::ReadZipper::new(&btm);
-    rz.descend_towards(&[b'r']); rz.descend_towards(&[b'o']); rz.descend_towards(&[b'm']); // focus = rom
-    assert!(rz.descend_towards(&[b'\''])); // focus = rom'  (' is the lowest byte)
+    rz.descend_to(&[b'r']); rz.descend_to(&[b'o']); rz.descend_to(&[b'm']); // focus = rom
+    assert!(rz.descend_to(&[b'\''])); // focus = rom'  (' is the lowest byte)
 //GOAT, re-enable
     // assert!(rz.to_sibling(true)); // focus = roma  (a is the second byte)
     // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // both follow-ups romane and romanus have n following a
@@ -518,21 +495,21 @@ fn zipper_with_starting_key() {
     let rs = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
     rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
-    //Test `descend_towards` and `ascend_until`
+    //Test `descend_to` and `ascend_until`
     let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"ro");
     assert_eq!(zipper.path(), b"");
     assert_eq!(zipper.child_count(), 1);
-    zipper.descend_towards(b"m");
+    zipper.descend_to(b"m");
     assert_eq!(zipper.path(), b"m");
     assert_eq!(zipper.child_count(), 3);
-    zipper.descend_towards(b"an");
+    zipper.descend_to(b"an");
     assert_eq!(zipper.path(), b"man");
     assert_eq!(zipper.child_count(), 2);
-    zipper.descend_towards(b"e");
+    zipper.descend_to(b"e");
     assert_eq!(zipper.path(), b"mane");
     assert_eq!(zipper.child_count(), 0);
     assert_eq!(zipper.ascend_until(), true);
-    zipper.descend_towards(b"us");
+    zipper.descend_to(b"us");
     assert_eq!(zipper.path(), b"manus");
     assert_eq!(zipper.child_count(), 0);
     assert_eq!(zipper.ascend_until(), true);
@@ -548,14 +525,14 @@ fn zipper_with_starting_key() {
     assert_eq!(zipper.ascend_until(), false);
 
     //Test `ascend`
-    zipper.descend_towards(b"manus");
+    zipper.descend_to(b"manus");
     assert_eq!(zipper.path(), b"manus");
     assert_eq!(zipper.ascend(1), true);
     assert_eq!(zipper.path(), b"manu");
     assert_eq!(zipper.ascend(5), false);
     assert_eq!(zipper.path(), b"");
     assert_eq!(zipper.at_root(), true);
-    zipper.descend_towards(b"mane");
+    zipper.descend_to(b"mane");
     assert_eq!(zipper.path(), b"mane");
     assert_eq!(zipper.ascend(3), true);
     assert_eq!(zipper.path(), b"m");
