@@ -1,4 +1,4 @@
-mod bytize;
+pub mod bytize;
 
 pub mod ring;
 pub mod bytetrie;
@@ -35,46 +35,6 @@ mod tests {
     use crate::bytize::*;
     use crate::ring::*;
     use crate::bytetrie::BytesTrieMap;
-
-    #[test]
-    fn btm_prefix() {
-        // from https://en.wikipedia.org/wiki/Radix_tree#/media/File:Patricia_trie.svg
-        let mut btm = BytesTrieMap::new();
-        let rs: Vec<&str> = vec!["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
-//GOAT, fix this, "at_path"
-        // assert_eq!(btm.at("rom".as_bytes()).map(|m| m.items().collect::<HashSet<_>>()),
-        //            Some(HashSet::from([("ane".as_bytes().to_vec(), &0), ("anus".as_bytes().to_vec(), &1), ("ulus".as_bytes().to_vec(), &2), ("'i".as_bytes().to_vec(), &7)])));
-
-        let mut rz = crate::zipper::ReadZipper::new(&btm);
-        rz.child_towards(&[b'r']); rz.child_towards(&[b'o']); rz.child_towards(&[b'm']); // focus = rom
-        assert!(rz.child_towards(&[b'\''])); // focus = rom'  (' is the lowest byte)
-        assert!(rz.sibling(true)); // focus = roma  (a is the second byte)
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // both follow-ups romane and romanus have n following a
-        assert!(rz.sibling(true)); // focus = romu  (u is the third byte)
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'l']]); // and romu is followed by lus
-        assert!(!rz.sibling(true)); // fails (u is the highest byte)
-        assert!(rz.sibling(false)); // focus = roma (we can step back)
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // again
-        assert!(rz.parent()); // focus = rom
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'\''], [b'a'], [b'u']]); // all three options we visited
-        assert!(rz.nth_child(0, true)); // focus = rom'
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'i']]);
-        assert!(rz.parent()); // focus = rom
-        assert!(rz.nth_child(1, true)); // focus = roma
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]);
-        assert!(rz.parent());
-        assert!(rz.nth_child(2, true)); // focus = romu
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'l']]);
-        assert!(rz.parent());
-        assert!(rz.nth_child(1, false)); // focus = roma
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]);
-        assert!(rz.parent());
-        assert!(rz.nth_child(2, false)); // focus = rom'
-        assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'i']]);
-        // ' < a < u
-        // 39 105 117
-    }
 
     #[test]
     fn bit_siblings() {

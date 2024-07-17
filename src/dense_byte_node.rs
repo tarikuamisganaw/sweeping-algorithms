@@ -301,6 +301,47 @@ impl <V> DenseByteNode<V> {
     fn len(&self) -> usize {
         return (self.mask[0].count_ones() + self.mask[1].count_ones() + self.mask[2].count_ones() + self.mask[3].count_ones()) as usize;
     }
+
+    /// Determines the nth prefix in the node, counting forwards or backwards
+    #[inline]
+    fn item_idx_to_prefix<const FORWARD: bool>(&self, idx: usize) -> Option<u8> {
+        let mut i = if !FORWARD { 0 } else { 3 };
+        let mut m = self.mask[i];
+        let mut c = 0;
+        let mut c_ahead = m.count_ones() as usize;
+        loop {
+            if idx < c_ahead { break; }
+            if !FORWARD { i += 1} else { i -= 1 };
+            if i > 3 { return None }
+            m = self.mask[i];
+            c = c_ahead;
+            c_ahead += m.count_ones() as usize;
+        }
+
+        let mut loc;
+        if !FORWARD {
+            loc = 63 - m.leading_zeros();
+            while c < idx {
+                m ^= 1u64 << loc;
+                loc = 63 - m.leading_zeros();
+                c += 1;
+            }
+        } else {
+            loc = m.trailing_zeros();
+            while c < idx {
+                m ^= 1u64 << loc;
+                loc = m.trailing_zeros();
+                c += 1;
+            }
+        }
+
+        let prefix = i << 6 | (loc as usize);
+        // println!("{:#066b}", self.focus.mask[i]);
+        // println!("{i} {loc} {prefix}");
+        debug_assert!(self.contains(prefix as u8));
+
+        Some(prefix as u8)
+    }
 }
 
 pub(crate) struct DenseByteNodeIter<'a, V> {
@@ -386,6 +427,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     // fn node_contains_child(&self, key: &[u8]) -> bool {
     //     self.contains(key[0])
     // }
+    fn node_contains_partial_key(&self, key: &[u8]) -> bool {
+        self.contains(key[0])
+    }
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         self.get(key[0]).and_then(|cf|
             cf.rec.as_ref().map(|child_node| {
@@ -482,62 +526,68 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn item_count(&self) -> usize {
         self.values.len()
     }
-    fn nth_child(&self, n: usize, forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
+        debug_assert_eq!(key.len(), 0);
+        // NOTE: This code was originally written to support indexing from the front or the back of
+        // the list.  However, this capability can't be exposed in the higher-level interface because
+        // index stability can't be guaranteed in many (any) node implementations, and index ordering
+        // guarantees without cardinality don't provide muuch use and often come with an unnecessary cost
+        //
+        // However, This capability may be used again in the future, so I made "FORWARD" a const instead
+        // of an argument for now.
+        //
+        // If 'forward == true` then `n` counts forward from the first element, oterwise it counts
+        // backward from the last
+        const FORWARD: bool = true;
+
         // #iterations can be reduced by popcount(mask[i] & prefix)
 
-        //Find the nth entry, by ignoring the ones that just contain values and not child pointers
+        //Find the nth entry
         let mut child = -1;
         // this is not DRY but I lost the fight to the Rust compiler
-        let pair = if forward { self.values.iter().enumerate().find(|(_, v)| {
-            let has_child = v.rec.is_some();
-            if has_child { child += 1; child == (n as i32) } else { false }
-        }) } else { self.values.iter().rev().enumerate().find(|(_, v)| {
-            let has_child = v.rec.is_some();
-            if has_child { child += 1; child == (n as i32) } else { false }
+        let pair = if FORWARD { self.values.iter().enumerate().find(|_| {
+            child += 1; child == (n as i32)
+        }) } else { self.values.iter().rev().enumerate().find(|_| {
+            child += 1; child == (n as i32)
         }) };
 
         //Figure out which prefix corresponds to that entry
         match pair {
-            None => { return None }
+            None => { return (None, None) }
             Some((item, cf)) => {
-                let mut i = if forward { 0 } else { 3 };
-                let mut m = self.mask[i];
-                let mut c = 0;
-                let mut c_ahead = m.count_ones() as usize;
-                loop {
-                    if item < c_ahead { break; }
-                    if forward { i += 1} else { i -= 1 };
-                    if i > 3 { return None }
-                    m = self.mask[i];
-                    c = c_ahead;
-                    c_ahead += m.count_ones() as usize;
-                }
-
-                let mut loc;
-                if forward {
-                    loc = 63 - m.leading_zeros();
-                    while c < item {
-                        m ^= 1u64 << loc;
-                        loc = 63 - m.leading_zeros();
-                        c += 1;
-                    }
-                } else {
-                    loc = m.trailing_zeros();
-                    while c < item {
-                        m ^= 1u64 << loc;
-                        loc = m.trailing_zeros();
-                        c += 1;
-                    }
-                }
-
-                let prefix = i << 6 | (loc as usize);
-                // println!("{:#066b}", self.focus.mask[i]);
-                // println!("{i} {loc} {prefix}");
-                debug_assert!(self.contains(prefix as u8));
-
-                Some((&ALL_BYTES[prefix..=prefix], &*cf.rec.as_ref().unwrap().borrow()))
+                (self.item_idx_to_prefix::<FORWARD>(item), cf.rec.as_ref().map(|cf| &*cf.borrow()))
             }
         }
+    }
+
+    fn only_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
+        debug_assert_eq!(key.len(), 0);
+        debug_assert_eq!(self.values.len(), 1);
+
+        let cf = unsafe{ self.values.get_unchecked(0) };
+        let prefix = self.item_idx_to_prefix::<true>(0).unwrap() as usize;
+        (Some(&ALL_BYTES[prefix..=prefix]), cf.rec.as_ref().map(|cf| &*cf.borrow()))
+    }
+
+    fn child_count_at_key(&self, key: &[u8]) -> usize {
+        match key.len() {
+            0 => self.values.len(),
+            1 => 0, //There are two ways we could get a length 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
+            // GOAT The below recursive version is unneeded, because the caller should advance to a child node, so we only need to concern ourself with values
+            // 1 => {
+            //     self.get(key[0]).and_then(|cf|
+            //         cf.rec.as_ref().map(|child|
+            //             child.borrow().child_count_at_key(&[]))
+            //     ).unwrap_or(0)
+            // },
+            _ => unreachable!() //The calling code should have advanced to the next node
+        }
+    }
+
+    fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+        debug_assert!(key.len() == 1);
+        &[]
     }
 
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {

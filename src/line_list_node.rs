@@ -630,6 +630,21 @@ pub fn merge_into_dense_node<V>(dense_node: &mut DenseByteNode<V>, list_node: &L
 }
 
 impl<V: Clone> TrieNode<V> for LineListNode<V> {
+    fn node_contains_partial_key(&self, key: &[u8]) -> bool {
+        if self.is_used::<0>() {
+            let node_key = unsafe{ self.key_unchecked::<0>() };
+            if node_key.starts_with(key) {
+                return true;
+            }
+        }
+        if self.is_used::<1>() {
+            let node_key = unsafe{ self.key_unchecked::<1>() };
+            if node_key.starts_with(key) {
+                return true;
+            }
+        }
+        false
+    }
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
@@ -797,8 +812,67 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         self.count()
     }
 
-    fn nth_child(&self, n: usize, forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         panic!()
+    }
+
+    fn only_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
+        panic!()
+    }
+
+    fn child_count_at_key(&self, key: &[u8]) -> usize {
+        let key_len = key.len();
+        let (key0, key1) = self.get_both_keys();
+
+        // The logic here is tricky, primarily because keys and values are represented
+        // separately in the list with overlapping keys
+        //
+        // k0="h", k1="hi", key="", result = 1
+        // k0="h", k1="hi", key="h", result = 1
+        // k0="h", k1="hi", key="hi", result = 0, because "hi" must be a value, otherwise the node would have advanced to the next node
+        // k0="ahoy", k1="howdy", key="h", result = 1
+        // k0="ahoy", k1="howdy", key="", result = 2
+
+        let c0 = if key0.len() > key_len && key0.starts_with(key) {
+            Some(key0[key_len])
+        } else {
+            None
+        };
+        let c1 = if key1.len() > key_len && key1.starts_with(key) {
+            Some(key1[key_len])
+        } else {
+            None
+        };
+        match (c0, c1) {
+            (None, None) => 0,
+            (Some(_), None) => 1,
+            (None, Some(_)) => 1,
+            (Some(c0), Some(c1)) => {
+                if c0 == c1 {
+                    1
+                } else {
+                    2
+                }
+            }
+        }
+    }
+
+    fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+        debug_assert!(key.len() > 0);
+        let (key0, key1) = self.get_both_keys();
+
+        //The key-add logic elsewhere in this file would have split the node if the overlap between the keys
+        // were more than one character. However list-node keys are allowed to have the first character in
+        // common to avoid the possibility of needing zero-length keys.
+        //Therefore there are only two possible cases:
+        // - Case1 - The keys' first bytes are the same and therfore we have a 1-byte banch key or
+        // - Case2 - The keys' first bytes are different, in which case we have a zero-length branch key
+        let key_byte = key.get(0);
+        if key0.get(0) == key_byte && key1.get(0) == key_byte {
+            &key0[0..1]
+        } else {
+            &[]
+        }
     }
 
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
@@ -1332,6 +1406,27 @@ mod tests {
         //re-run join, just to make sure the source maps didn't get modified 
         let joined = a.join_dyn(&b);
         assert!(!joined.borrow().node_is_empty());
+    }
+
+    #[test]
+    fn test_list_node_child_count_at_key() {
+        // k0="h", k1="hi", key="", result = 1
+        // k0="h", k1="hi", key="h", result = 1
+        // k0="h", k1="hi", key="hi", result = 0, because "hi" must be a value, otherwise the node would have advanced to the next node
+        let mut node = LineListNode::<u64>::new();
+        node.node_set_val(b"h", 0).unwrap_or_else(|_| panic!());
+        node.node_set_val(b"hi", 1).unwrap_or_else(|_| panic!());
+        assert_eq!(node.child_count_at_key(b"h"), 1);
+        assert_eq!(node.child_count_at_key(b""), 1);
+        assert_eq!(node.child_count_at_key(b"hi"), 0);
+
+        // k0="ahoy", k1="howdy", key="h", result = 1
+        // k0="ahoy", k1="howdy", key="", result = 2
+        let mut node = LineListNode::<u64>::new();
+        node.node_set_val(b"ahoy", 0).unwrap_or_else(|_| panic!());
+        node.node_set_val(b"howdy", 1).unwrap_or_else(|_| panic!());
+        assert_eq!(node.child_count_at_key(b"h"), 1);
+        assert_eq!(node.child_count_at_key(b""), 2);
     }
 
 }

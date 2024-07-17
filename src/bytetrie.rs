@@ -137,7 +137,7 @@ impl <V : Clone> BytesTrieMap<V> {
         }
     }
 
-    //GOAT, redo this as "sub_map"
+    //GOAT, redo this as "at_path"
     // //QUESTION: who is the intended user of this method?  This interface is fundamentally unsafe
     // // because it exposes a mutable reference inside an immutable structure
     // #[allow(invalid_reference_casting)] //TODO: Take this away when the QUESTION is answered
@@ -226,7 +226,7 @@ impl <V : Clone> BytesTrieMap<V> {
 }
 
 #[inline]
-fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a dyn TrieNode<V>, &'k [u8]) {
+pub(crate) fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a dyn TrieNode<V>, &'k [u8]) {
     let mut node = start_node;
 
     while let Some((consumed, next_node)) = node.node_get_child(key) {
@@ -373,6 +373,10 @@ pub(crate) trait TrieNode<V>: DynClone {
     //GOAT what would you do with a child node except for traverse it?
     // fn node_contains_child(&self, key: &[u8]) -> bool;
 
+    /// Returns `true` if the node contains a key that begins with `key`, irrespective of whether the key
+    /// specifies a child, value, or both
+    fn node_contains_partial_key(&self, key: &[u8]) -> bool;
+
     /// Returns the child node that matches `key` along with the number of `key` characters matched.
     /// Returns `None` if no child node matches the key, even if there is a value with that prefix
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)>;
@@ -434,12 +438,49 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// it will be counted as one item
     fn item_count(&self) -> usize;
 
-    /// Returns the nth child of this node and the prefix leading to that child, or None
-    /// if `n >= self.child_count()`
+    /// Returns the nth child in the branch specified by `key` within this node, as the prefix leading to
+    /// that child and optionally a new node
     ///
-    /// If 'forward == true` then `n` counts forward from the first element, oterwise it counts
-    /// backward from the last
-    fn nth_child(&self, n: usize, forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)>;
+    /// This method returns (None, _) if `n >= self.child_count()`.
+    /// This method returns (Some(_), None) if the child is is contained within the same node.
+    /// This method returns (Some(_), Some(_)) if the child is is contained within a different node.
+    ///
+    /// NOTE: onward paths that lead to values are still part of the enumeration
+    /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>);
+
+    /// Behaves similarly to [Self::nth_child_from_key(0)] with the difference being that the returned
+    /// prefix should be an entire path to the onward link or to the next branch
+    ///
+    /// This method should never be called for a path unless `Self::child_count_at_key == 1`
+    fn only_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>);
+
+    /// Returns the number of onward (child) paths within a node from a specified key
+    ///
+    /// If the node doesn't contain the key, this method returns 0.
+    /// If the key identifies a value but no onward child, this method returns 0.
+    /// If the key identifies a partial path within the node, this method returns 1.
+    ///
+    /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
+    fn child_count_at_key(&self, key: &[u8]) -> usize;
+
+    /// Returns the key of the prior upstream branch, within the node
+    ///
+    /// This method will never be called with a zero-length key.
+    /// Returns &[] if `key` is descended from the root and therefore has no upstream branch.
+    /// Returns &[] if `key` does not exist within the node.
+    fn prior_branch_key(&self, key: &[u8]) -> &[u8];
+
+//GOAT, Current thinking is this method (and the upstread functionality enabled by it) are unneeded
+// This method itself has a number of conceptual issues - for example, is it the sibling count at the
+// nearest upstream fork, or just the nearest upstream byte.  Both implementations come with extra
+// complications, and neither provide functionality that isn't nearly as efficient to do another way.
+//     /// Returns the number of siblings of a focus specified by a key within a node
+//     ///
+//     /// This method will never be invoked with a zero-length key
+//     /// Returns 0 if the node doesn't contain the key
+//     /// 
+//     fn sibling_count_at_key(&self, key: &[u8]) -> usize;
 
     /// Returns the child of this node that is immediately before or after the child identified by `key`
     ///
@@ -677,6 +718,8 @@ fn long_key_map_test() {
 
 
 //GOAT TODO LIST:
+// a. delete "bytize.rs" and just incorporate it into the superdense tests and benchmarks
+// b. move a bunch of tests from lib.rs into the dense_byte_node.rs
 // 1. Fix the read-zipper to support any key length in a node
 // 2. Implement the "Entry" API, instead of `update`
 // 3. Re-enable "at_path" API

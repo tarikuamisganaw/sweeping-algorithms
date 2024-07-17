@@ -20,6 +20,9 @@ impl<V> EmptyNode<V> {
 }
 
 impl<V: Clone> TrieNode<V> for EmptyNode<V> {
+    fn node_contains_partial_key(&self, _key: &[u8]) -> bool {
+        false
+    }
     fn node_get_child(&self, _key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         None
     }
@@ -60,8 +63,20 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn item_count(&self) -> usize {
         0
     }
-    fn nth_child(&self, _n: usize, _forward: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
-        None
+    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
+        (None, None)
+    }
+
+    fn only_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
+        (None, None)
+    }
+
+    fn child_count_at_key(&self, _key: &[u8]) -> usize {
+        0
+    }
+
+    fn prior_branch_key(&self, _key: &[u8]) -> &[u8] {
+        &[]
     }
 
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
