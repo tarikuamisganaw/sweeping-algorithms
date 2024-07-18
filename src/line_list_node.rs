@@ -940,7 +940,34 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
-        panic!()
+        let common_key = &key[..=key.len()-1];
+        let (key0, key1) = self.get_both_keys();
+        match next {
+            true => {
+                if key0.starts_with(key) && key1.starts_with(common_key) {
+                    let sib_node = if key1.len() == key.len() && self.is_child_ptr::<1>() {
+                        Some(unsafe{ self.child_in_slot::<1>().borrow() })
+                    } else {
+                        None
+                    };
+                    (Some(key1[key.len()-1]), sib_node)
+                } else {
+                    (None, None)
+                }
+            },
+            false => {
+                if key1.starts_with(key) && key0.starts_with(common_key) {
+                    let sib_node = if key0.len() == key.len() && self.is_child_ptr::<0>() {
+                        Some(unsafe{ self.child_in_slot::<0>().borrow() })
+                    } else {
+                        None
+                    };
+                    (Some(key0[key.len()-1]), sib_node)
+                } else {
+                    (None, None)
+                }
+            }
+        }
     }
 
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
