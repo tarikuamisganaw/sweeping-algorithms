@@ -305,13 +305,13 @@ impl <V> DenseByteNode<V> {
     /// Determines the nth prefix in the node, counting forwards or backwards
     #[inline]
     fn item_idx_to_prefix<const FORWARD: bool>(&self, idx: usize) -> Option<u8> {
-        let mut i = if !FORWARD { 0 } else { 3 };
+        let mut i = if FORWARD { 0 } else { 3 };
         let mut m = self.mask[i];
         let mut c = 0;
         let mut c_ahead = m.count_ones() as usize;
         loop {
             if idx < c_ahead { break; }
-            if !FORWARD { i += 1} else { i -= 1 };
+            if FORWARD { i += 1} else { i -= 1 };
             if i > 3 { return None }
             m = self.mask[i];
             c = c_ahead;

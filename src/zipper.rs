@@ -21,7 +21,7 @@
 //!
 
 
-use crate::bytetrie::{BytesTrieMap, TrieNode, traverse_to_leaf};
+use crate::bytetrie::{BytesTrieMap, TrieNode};
 
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 //GOAT, Adam's experiments.  Avoiding deletion in case they're still needed
@@ -130,6 +130,10 @@ pub trait Zipper<'a, V> {
     /// operation, but the relative relationship between siblings is not stable and should not be stored.
     fn to_sibling(&mut self, next: bool) -> bool;
 
+    /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
+    fn fork_zipper(&self) -> ReadZipper<V>;
+
+
 }
 
 
@@ -141,7 +145,8 @@ const EXPECTED_DEPTH: usize = 16;
 /// Size in bytes to preallocate path storage in the zipper
 const EXPECTED_PATH_LEN: usize = 64;
 
-pub struct ReadZipper<'a, V> where V : Clone {
+#[derive(Clone)]
+pub struct ReadZipper<'a, V> {
     /// A reference to the part of the key within the root node that represents the zipper root
     root_key: &'a [u8],
     /// A reference to the root node
@@ -321,6 +326,9 @@ impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
         true
     }
 
+    fn fork_zipper(&self) -> ReadZipper<V> {
+        ReadZipper::new_with_node_and_path_internal(self.focus_node, self.node_key())
+    }
 }
 
 impl <'a, V : Clone> ReadZipper<'a, V> {
@@ -411,6 +419,15 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
 
     // pub fn next GOAT.
 
+    /// Consumes the zipper and returns a Iterator over the downstream child bytes from the focus branch
+    ///
+    /// NOTE: This is mainly a convenience to allow the use of `collect` and `for` loops, as the other
+    /// zipper methods can do the same thing without consuming the iterator
+    pub fn into_child_iter(mut self) -> impl Iterator<Item=u8> + 'a {
+        self.descend_indexed_child(0);
+        ReadZipperChildIter(Some(self))
+    }
+
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
     #[inline]
     fn node_key_start(&self) -> usize {
@@ -440,6 +457,25 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
         self.prefix_buf.truncate(new_len);
         if self.child_count() == 1 {
             self.ascend_until();
+        }
+    }
+}
+
+/// An Iterator returned by [ReadZipper::into_child_iter] to iterate over the children from a branch
+pub struct ReadZipperChildIter<'a, V>(Option<ReadZipper<'a, V>>);
+
+impl<V: Clone> Iterator for ReadZipperChildIter<'_, V> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<u8> {
+        if let Some(zipper) = &mut self.0 {
+            let result = zipper.path().last().cloned();
+            if !zipper.to_sibling(true) {
+                self.0 = None;
+            }
+            result
+        } else {
+            None
         }
     }
 }
@@ -541,35 +577,32 @@ fn zipper_basic_test() {
     let mut rz = crate::zipper::ReadZipper::new(&btm);
     rz.descend_to(&[b'r']); rz.descend_to(&[b'o']); rz.descend_to(&[b'm']); // focus = rom
     assert!(rz.descend_to(&[b'\''])); // focus = rom'  (' is the lowest byte)
-//GOAT, re-enable commented out lines
     assert!(rz.to_sibling(true)); // focus = roma  (a is the second byte), but we can't actually guarantee whether we land on 'a' or 'u'
     assert_in_list(rz.path(), &[b"roma", b"romu"]);
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // both follow-ups romane and romanus have n following a
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']); // both follow-ups romane and romanus have n following a
     assert!(rz.to_sibling(true)); // focus = romu  (u is the third byte)
     assert_in_list(rz.path(), &[b"roma", b"romu"]);
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'l']]); // and romu is followed by lus
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']); // and romu is followed by lus
     assert!(!rz.to_sibling(true)); // fails because there were only 3 children ['\'', 'a', 'u']
     assert!(rz.to_sibling(false)); // focus = roma or romu (we stepped back)
     assert_in_list(rz.path(), &[b"roma", b"romu"]);
     assert!(rz.to_sibling(false)); // focus = rom' (we stepped back to where we began)
     assert_eq!(rz.path(), b"rom'");
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // again
-    // assert!(rz.parent()); // focus = rom
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'\''], [b'a'], [b'u']]); // all three options we visited
-    // assert!(rz.nth_child(0, true)); // focus = rom'
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'i']]);
-    // assert!(rz.parent()); // focus = rom
-    // assert!(rz.nth_child(1, true)); // focus = roma
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]);
-    // assert!(rz.parent());
-    // assert!(rz.nth_child(2, true)); // focus = romu
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'l']]);
-    // assert!(rz.parent());
-    // assert!(rz.nth_child(1, false)); // focus = roma
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]);
-    // assert!(rz.parent());
-    // assert!(rz.nth_child(2, false)); // focus = rom'
-    // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'i']]);
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
+    assert!(rz.ascend(1)); // focus = rom
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'\'', b'a', b'u']); // all three options we visited
+    assert!(rz.descend_indexed_child(0)); // focus = rom'
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
+    assert!(rz.ascend(1)); // focus = rom
+    assert!(rz.descend_indexed_child(1)); // focus = roma
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
+    assert!(rz.ascend(1));
+    assert!(rz.descend_indexed_child(2)); // focus = romu
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']);
+    assert!(rz.ascend(1));
+    assert!(rz.descend_indexed_child(1)); // focus = roma
+    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
+    assert!(rz.ascend(1));
     // ' < a < u
     // 39 105 117
 }
