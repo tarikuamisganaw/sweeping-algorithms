@@ -12,6 +12,7 @@
 //! The stepping methods are:
 //! [Zipper::descend_indexed_child]
 //! [Zipper::ascend]
+//! [Zipper::to_sibling]
 //!
 //! The jumping methods are:
 //! [Zipper::descend_to]
@@ -116,7 +117,18 @@ pub trait Zipper<'a, V> {
     /// focus moved upwards, otherwise returns `false` if the zipper was already at the root
     fn ascend_until(&mut self) -> bool;
 
-
+    /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
+    /// otherwise returns `false`
+    ///
+    /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_child]
+    /// where the index passed is 1 more or less than the index of the current focus position.
+    ///
+    /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
+    /// 
+    /// WARNING: The sibling ordinality may not be relied upon across across modifications to the trie or
+    /// successive runs of the program.  This method should only be used as part of a directed traversal
+    /// operation, but the relative relationship between siblings is not stable and should not be stored.
+    fn to_sibling(&mut self, next: bool) -> bool;
 
 }
 
@@ -232,6 +244,51 @@ impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
             }
         }
         moved
+    }
+
+    fn to_sibling(&mut self, next: bool) -> bool {
+        if self.node_key().len() != 0 {
+            match self.focus_node.get_sibling_of_child(self.node_key(), next) {
+                (Some(prefix), Some(child_node)) => {
+                    *self.prefix_buf.last_mut().unwrap() = prefix;
+                    self.prefix_idx.push(self.prefix_buf.len());
+                    self.ancestors.push(self.focus_node);
+                    self.focus_node = child_node;
+                    true
+                },
+                (Some(prefix), None) => {
+                    *self.prefix_buf.last_mut().unwrap() = prefix;
+                    true
+                },
+                (None, _) => false
+            }
+        } else {
+            match self.ancestors.pop() {
+                None => { false }
+                Some(parent) => {
+                    let saved_prefix_idx = self.prefix_idx.pop();
+                    match parent.get_sibling_of_child(self.node_key(), next) {
+                        (Some(prefix), Some(child_node)) => {
+                            *self.prefix_buf.last_mut().unwrap() = prefix;
+                            self.prefix_idx.push(self.prefix_buf.len());
+                            self.ancestors.push(parent);
+                            self.focus_node = child_node;
+                            true
+                        },
+                        (Some(prefix), None) => {
+                            *self.prefix_buf.last_mut().unwrap() = prefix;
+                            self.focus_node = parent;
+                            true
+                        },
+                        (None, _) => {
+                            self.prefix_idx.push(saved_prefix_idx.unwrap());
+                            self.ancestors.push(parent);
+                            false
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn ascend(&mut self, mut steps: usize) -> bool {
@@ -352,33 +409,7 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     // }
 
 
-    // /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
-    // /// otherwise returns `false`
-    // ///
-    // /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
-    // pub fn to_sibling(&mut self, next: bool) -> bool {
-    //     if self.focus_key_len != 0 {
-    //         return false
-    //     }
-    //     match self.ancestors.last() {
-    //         None => { false }
-    //         Some(parent) => {
-    //             let _ = self.prefix_idx.pop();
-    //             let key_start = self.node_key_start();
-
-    //             match parent.get_sibling_of_child(&self.prefix_buf[key_start..], next) {
-    //                 Some((prefix_key, child_node)) => {
-    //                     self.prefix_buf.truncate(key_start);
-    //                     self.prefix_buf.extend(prefix_key);
-    //                     self.prefix_idx.push(key_start + prefix_key.len());
-    //                     self.focus = child_node;
-    //                     true
-    //                 },
-    //                 None => false
-    //             }
-    //         }
-    //     }
-    // }
+    // pub fn next GOAT.
 
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
     #[inline]
@@ -413,8 +444,12 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     }
 }
 
+//GOAT, current thinking on iterator conversion:
+//1. Make a "NodeTag" that's a u64
+//2. Node function to tag_for_path, and another that is first_tag
+//3. Node function `next_tag`, that takes a tag, returns a location for the tag, and then the next tag
+
 //GOAT Thoughts / TODO on ReadZipper
-//Roll back to see why some of my earlier measurements were faster...
 //1. I should merge the Cursor structure with the ReadZipper, by eliminating the cursor and adding a "next" method
 //    that returns the next item in a depth-first traversal
 //2. √I need a "child_count" method to compliment the "nth_child" method.  But I need to look at what n means.
@@ -494,16 +529,30 @@ fn zipper_basic_test() {
     // assert_eq!(btm.at("rom".as_bytes()).map(|m| m.items().collect::<HashSet<_>>()),
     //            Some(HashSet::from([("ane".as_bytes().to_vec(), &0), ("anus".as_bytes().to_vec(), &1), ("ulus".as_bytes().to_vec(), &2), ("'i".as_bytes().to_vec(), &7)])));
 
+    fn assert_in_list(val: &[u8], list: &[&[u8]]) {
+        for test_val in list {
+            if *test_val == val {
+                return;
+            }
+        }
+        panic!("val not found in list: {}", std::str::from_utf8(val).unwrap_or(""))
+    }
+
     let mut rz = crate::zipper::ReadZipper::new(&btm);
     rz.descend_to(&[b'r']); rz.descend_to(&[b'o']); rz.descend_to(&[b'm']); // focus = rom
     assert!(rz.descend_to(&[b'\''])); // focus = rom'  (' is the lowest byte)
-//GOAT, re-enable
-    // assert!(rz.to_sibling(true)); // focus = roma  (a is the second byte)
+//GOAT, re-enable commented out lines
+    assert!(rz.to_sibling(true)); // focus = roma  (a is the second byte), but we can't actually guarantee whether we land on 'a' or 'u'
+    assert_in_list(rz.path(), &[b"roma", b"romu"]);
     // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // both follow-ups romane and romanus have n following a
-    // assert!(rz.to_sibling(true)); // focus = romu  (u is the third byte)
+    assert!(rz.to_sibling(true)); // focus = romu  (u is the third byte)
+    assert_in_list(rz.path(), &[b"roma", b"romu"]);
     // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'l']]); // and romu is followed by lus
-    // assert!(!rz.sibling(true)); // fails (u is the highest byte)
-    // assert!(rz.sibling(false)); // focus = roma (we can step back)
+    assert!(!rz.to_sibling(true)); // fails because there were only 3 children ['\'', 'a', 'u']
+    assert!(rz.to_sibling(false)); // focus = roma or romu (we stepped back)
+    assert_in_list(rz.path(), &[b"roma", b"romu"]);
+    assert!(rz.to_sibling(false)); // focus = rom' (we stepped back to where we began)
+    assert_eq!(rz.path(), b"rom'");
     // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'n']]); // again
     // assert!(rz.parent()); // focus = rom
     // assert_eq!(rz.focus.boxed_node_iter().map(|(k, _)| k).collect::<Vec<_>>(), vec![[b'\''], [b'a'], [b'u']]); // all three options we visited

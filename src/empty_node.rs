@@ -79,8 +79,8 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         &[]
     }
 
-    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
-        None
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
+        (None, None)
     }
 
     fn join_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {

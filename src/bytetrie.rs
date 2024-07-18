@@ -488,8 +488,10 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// identify any contained subnode
     ///
     /// If 'next == true` then the returned child will be immediately after to the node found by
-    /// `key`, oterwise it will be immedtely before
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> Option<(&[u8], &dyn TrieNode<V>)>;
+    /// `key`, otherwise it will be immedtely before
+    ///
+    /// NOTE: This method will never be called with a zero-length key
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>);
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types.

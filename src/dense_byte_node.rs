@@ -590,42 +590,31 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         &[]
     }
 
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
+        debug_assert_eq!(key.len(), 1);
         let k = key[0];
         let mut mask_i = ((k & 0b11000000) >> 6) as usize;
-        let mut bit_i = k & 0b00111111;
+        let bit_i = k & 0b00111111;
         // println!("k {k}");
 
-        loop {
-            // println!("loop");
-            let mut n = bit_sibling(bit_i, self.mask[mask_i], !next);
-            // println!("{} {bit_i} {mask_i}", n == bit_i);
-            if n == bit_i { // outside of word
-                loop {
-                    if next { mask_i += 1 } else { mask_i -= 1 };
-                    if !(mask_i < 4) { return None }
-                    if self.mask[mask_i] == 0 { continue }
-                    n = self.mask[mask_i].trailing_zeros() as u8; break;
-                }
-            }
-            bit_i = n;
-            // println!("{} {bit_i} {mask_i}", n == bit_i);
-            // println!("{:?}", parent.items().map(|(k, _)| k).collect::<Vec<_>>());
-            let sibling_key_char = n | ((mask_i << 6) as u8);
-            // println!("candidate {}", sk);
-            debug_assert!(self.contains(sibling_key_char));
-            match unsafe { self.get_unchecked(sibling_key_char).rec.as_ref() } {
-                None => {
-                    // println!("{} {}", k, sk);
-                    continue
-                }
-                Some(cs) => {
-                    let sibling_key_char = sibling_key_char as usize;
-                    return Some((&ALL_BYTES[sibling_key_char..=sibling_key_char], &*cs.borrow()));
-                }
+        let mut n = bit_sibling(bit_i, self.mask[mask_i], !next);
+        // println!("{} {bit_i} {mask_i}", n == bit_i);
+        if n == bit_i { // outside of word
+            loop {
+                if next { mask_i += 1 } else { mask_i -= 1 };
+                if !(mask_i < 4) { return (None, None) }
+                if self.mask[mask_i] == 0 { continue }
+                n = self.mask[mask_i].trailing_zeros() as u8; break;
             }
         }
 
+        // println!("{} {bit_i} {mask_i}", n == bit_i);
+        // println!("{:?}", parent.items().map(|(k, _)| k).collect::<Vec<_>>());
+        let sibling_key_char = n | ((mask_i << 6) as u8);
+        // println!("candidate {}", sk);
+        debug_assert!(self.contains(sibling_key_char));
+        let cf = unsafe{ self.get_unchecked(sibling_key_char) };
+        (Some(sibling_key_char), cf.rec.as_ref().map(|node| &*node.borrow()))
     }
 
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {

@@ -939,7 +939,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> Option<(&[u8], &dyn TrieNode<V>)> {
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         panic!()
     }
 
