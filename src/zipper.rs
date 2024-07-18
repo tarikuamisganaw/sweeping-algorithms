@@ -1,21 +1,25 @@
 //! # Zipper Usage
 //!
-//! A zipper represents a cursor in a trie, and has a location called its focus.  A zipper can be moved
+//! A zipper represents a cursor in a trie, and has a location called the focus.  A zipper can be moved
 //! within the trie in order to access the trie for reading and/or writing.  A zipper's focus may not be
 //! moved above the zipper's root.
 //!
 //! ## Move by Absolute Distance or by Trie Features
 //!
-//! Zippers may be moved either by stepping an absolute number of elements, or by jumping from features
+//! Zippers may be moved either by stepping an absolute number of elements, or by jumping to features
 //! such as branches and values.  In general, moving by jumping will be faster.
 //!
 //! The stepping methods are:
-//! GOAT
+//! [Zipper::descend_indexed_child]
+//! [Zipper::ascend]
 //!
 //! The jumping methods are:
-//! GOAT
+//! [Zipper::descend_to]
+//! [Zipper::descend_until]
+//! [Zipper::ascend_until]
+//!
 
-use std::fmt::Debug;
+
 use crate::bytetrie::{BytesTrieMap, TrieNode, traverse_to_leaf};
 
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
@@ -410,6 +414,7 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
 }
 
 //GOAT Thoughts / TODO on ReadZipper
+//Roll back to see why some of my earlier measurements were faster...
 //1. I should merge the Cursor structure with the ReadZipper, by eliminating the cursor and adding a "next" method
 //    that returns the next item in a depth-first traversal
 //2. √I need a "child_count" method to compliment the "nth_child" method.  But I need to look at what n means.
