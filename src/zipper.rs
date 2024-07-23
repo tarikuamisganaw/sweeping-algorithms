@@ -318,9 +318,11 @@ impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
             }
 
             //If there is a value here, return it
-            //UGH! Polonius!! We need you!!!  The code below checks the presence of a value twice, because get_value will return None if there is no value
-            if self.is_value_internal() {
-                return self.get_value()
+            //UGH! Polonius!! We need you!!!  We know this is safe because we either return the result,
+            // and hence no future use, or `get_value()` returns None, so we drop the borrow
+            let self_ptr: *const Self = self;
+            if let Some(val) = unsafe{ &*self_ptr }.get_value() {
+                return Some(val);
             }
         }
     }
