@@ -124,11 +124,18 @@ pub trait Zipper<'a, V> {
     /// where the index passed is 1 more or less than the index of the current focus position.
     ///
     /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
-    /// 
+    ///
     /// WARNING: The sibling ordinality may not be relied upon across across modifications to the trie or
     /// successive runs of the program.  This method should only be used as part of a directed traversal
     /// operation, but the relative relationship between siblings is not stable and should not be stored.
     fn to_sibling(&mut self, next: bool) -> bool;
+
+    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
+    /// order.  Returns a reference to the value
+    ///
+    /// WARNING: sibling order may not be relied upon across across modifications to the trie or successive
+    /// runs of the program.
+    fn to_next_val(&mut self) -> Option<&V>;
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     fn fork_zipper(&self) -> ReadZipper<V>;
@@ -266,30 +273,54 @@ impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
                 (None, _) => false
             }
         } else {
-            match self.ancestors.pop() {
+            let mut should_pop = false;
+            let result = match self.ancestors.last() {
                 None => { false }
                 Some(parent) => {
-                    let saved_prefix_idx = self.prefix_idx.pop();
-                    match parent.get_sibling_of_child(self.node_key(), next) {
+                    match parent.get_sibling_of_child(self.parent_key(), next) {
                         (Some(prefix), Some(child_node)) => {
                             *self.prefix_buf.last_mut().unwrap() = prefix;
-                            self.prefix_idx.push(self.prefix_buf.len());
-                            self.ancestors.push(parent);
                             self.focus_node = child_node;
                             true
                         },
                         (Some(prefix), None) => {
                             *self.prefix_buf.last_mut().unwrap() = prefix;
-                            self.focus_node = parent;
+                            should_pop = true;
                             true
                         },
                         (None, _) => {
-                            self.prefix_idx.push(saved_prefix_idx.unwrap());
-                            self.ancestors.push(parent);
                             false
                         }
                     }
                 }
+            };
+            if should_pop {
+                self.focus_node = self.ancestors.pop().unwrap();
+                self.prefix_idx.pop();
+            }
+            result
+        }
+    }
+
+    fn to_next_val(&mut self) -> Option<&V> {
+        loop {
+            //If we're at a leaf ascend and jump to the next sibling
+            if self.focus_node.is_leaf(self.node_key()) {
+                //We can stop ascending when we succeed in moving to a sibling
+                while !self.to_sibling(true) {
+                    if !self.ascend_jump() {
+                        return None;
+                    }
+                }
+            } else {
+                //We're at a branch, so descend
+                self.descend_first();
+            }
+
+            //If there is a value here, return it
+            //UGH! Polonius!! We need you!!!  The code below checks the presence of a value twice, because get_value will return None if there is no value
+            if self.is_value_internal() {
+                return self.get_value()
             }
         }
     }
@@ -472,34 +503,6 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     //     //GOAT, handle backing out to parent
     //     self.focus_node.sibling_count_at_key(self.node_key())
     // }
-
-
-    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
-    /// order.  Returns a reference to the value
-    pub fn to_next_val(&mut self) -> Option<&V> {
-        loop {
-            //If we're at a leaf ascend and jump to the next sibling
-            if self.focus_node.is_leaf(self.node_key()) {
-                //We can stop ascending when we succeed in moving to a sibling
-                while !self.to_sibling(true) {
-                    if !self.ascend_jump() {
-                        //Reset the zipper, because otherwise the zipper might be in a potentially invalid state
-                        self.reset();
-                        return None;
-                    }
-                }
-            } else {
-                //We're at a branch, so descend
-                self.descend_first();
-            }
-
-            //If there is a value here, return it
-            //UGH! Polonius!! We need you!!!  The code below checks the presence of a value twice, because get_value will return None if there is no value
-            if self.is_value_internal() {
-                return self.get_value()
-            }
-        }
-    }
 
     /// Consumes the zipper and returns a Iterator over the downstream child bytes from the focus branch
     ///

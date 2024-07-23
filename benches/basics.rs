@@ -3,6 +3,7 @@ use divan::{Divan, Bencher, black_box};
 use ringmap::ring::*;
 use ringmap::bytize::*;
 use ringmap::bytetrie::BytesTrieMap;
+use ringmap::zipper::{Zipper, ReadZipper};
 
 fn main() {
     // Run registered benchmarks.
@@ -173,3 +174,20 @@ fn superdense_cursor(bencher: Bencher, n: u64) {
         }
     });
 }
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn superdense_zipper_cursor(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the cursor
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        let mut zipper = ReadZipper::new(&map);
+        while let Some(val) = zipper.to_next_val() {
+            *black_box(&mut sink) = *val
+        }
+    });
+}
+
