@@ -92,7 +92,7 @@ impl<V> Default for LineListNode<V> {
     }
 }
 
-impl <V : core::fmt::Debug> core::fmt::Debug for LineListNode<V> {
+impl<V> core::fmt::Debug for LineListNode<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
@@ -858,25 +858,39 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         (None, None)
     }
 
-    fn only_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
-
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         if self.is_used::<0>() {
             let key0 = unsafe{ self.key_unchecked::<0>() };
-            if key0.starts_with(key) && key0.len() > key.len() {
-                if self.is_child_ptr::<0>() {
-                    return (Some(&key0[key.len()..]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+            if key0.starts_with(key) {
+                let remaining_key = if key0.len() > key.len() {
+                    &key0[key.len()..]
                 } else {
-                    return (Some(&key0[key.len()..]), None)
-                }
-            } else {
-                if self.is_used::<1>() {
+                    &[]
+                };
+                if self.is_child_ptr::<0>() {
+                    return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                } else {
+                    //If both keys are the same, we need to return the onward link too
                     let key1 = unsafe{ self.key_unchecked::<1>() };
-                    if key1.starts_with(key) && key1.len() > key.len() {
-                        if self.is_child_ptr::<1>() {
-                            return (Some(&key1[key.len()..]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
-                        } else {
-                            return (Some(&key1[key.len()..]), None)
-                        }
+                    if self.is_child_ptr::<1>() && key1 == key0 {
+                        return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                    } else {
+                        return (Some(remaining_key), None)
+                    }
+                }
+            }
+            if self.is_used::<1>() {
+                let key1 = unsafe{ self.key_unchecked::<1>() };
+                if key1.starts_with(key) {
+                    let remaining_key = if key1.len() > key.len() {
+                        &key1[key.len()..]
+                    } else {
+                        &[]
+                    };
+                    if self.is_child_ptr::<1>() {
+                        return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                    } else {
+                        return (Some(remaining_key), None)
                     }
                 }
             }
@@ -921,16 +935,35 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
+    fn is_leaf(&self, key: &[u8]) -> bool {
+        let key_len = key.len();
+        let (key0, key1) = self.get_both_keys();
+        if key0.starts_with(key) {
+            if key_len < key0.len() || self.is_child_ptr::<0>() {
+                return false;
+            }
+        }
+        if key1.starts_with(key) {
+            if key_len < key1.len() || self.is_child_ptr::<1>() {
+                return false;
+            }
+        }
+        true
+    }
+
     fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
         debug_assert!(key.len() > 0);
-        let (key0, key1) = self.get_both_keys();
 
         //The key-add logic elsewhere in this file would have split the node if the overlap between the keys
         // were more than one character. However list-node keys are allowed to have the first character in
         // common to avoid the possibility of needing zero-length keys.
         //Therefore there are only two possible cases:
-        // - Case1 - The keys' first bytes are the same and therfore we have a 1-byte banch key or
-        // - Case2 - The keys' first bytes are different, in which case we have a zero-length branch key
+        // - Case1 - key.len() > 1 and the node keys' first bytes are the same and therfore we have a 1-byte banch key or
+        // - Case2 - key.len() == 1, or the node keys' first bytes are different, in which case we have a zero-length branch key
+        if key.len() == 1 {
+            return &[]
+        }
+        let (key0, key1) = self.get_both_keys();
         let key_byte = key.get(0);
         if key0.get(0) == key_byte && key1.get(0) == key_byte {
             &key0[0..1]
@@ -940,29 +973,47 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
-        let common_key = &key[..=key.len()-1];
+        debug_assert!(key.len() > 0);
+        let last_key_byte_idx = key.len()-1;
+        let common_key = &key[..last_key_byte_idx];
         let (key0, key1) = self.get_both_keys();
         match next {
             true => {
                 if key0.starts_with(key) && key1.starts_with(common_key) {
-                    let sib_node = if key1.len() == key.len() && self.is_child_ptr::<1>() {
-                        Some(unsafe{ self.child_in_slot::<1>().borrow() })
-                    } else {
-                        None
+                    let key1_last_byte = match key1.get(last_key_byte_idx) {
+                        Some(byte) => byte,
+                        None => return (None, None)
                     };
-                    (Some(key1[key.len()-1]), sib_node)
+                    if key1_last_byte != key.last().unwrap() {
+                        let sib_node = if key1.len() == key.len() && self.is_child_ptr::<1>() {
+                            Some(unsafe{ self.child_in_slot::<1>().borrow() })
+                        } else {
+                            None
+                        };
+                        (Some(*key1_last_byte), sib_node)
+                    } else {
+                        (None, None)
+                    }
                 } else {
                     (None, None)
                 }
             },
             false => {
                 if key1.starts_with(key) && key0.starts_with(common_key) {
-                    let sib_node = if key0.len() == key.len() && self.is_child_ptr::<0>() {
-                        Some(unsafe{ self.child_in_slot::<0>().borrow() })
-                    } else {
-                        None
+                    let key0_last_byte = match key0.get(last_key_byte_idx) {
+                        Some(byte) => byte,
+                        None => return (None, None)
                     };
-                    (Some(key0[key.len()-1]), sib_node)
+                    if key0_last_byte != key.last().unwrap() {
+                        let sib_node = if key0.len() == key.len() && self.is_child_ptr::<0>() {
+                            Some(unsafe{ self.child_in_slot::<0>().borrow() })
+                        } else {
+                            None
+                        };
+                        (Some(*key0_last_byte), sib_node)
+                    } else {
+                        (None, None)
+                    }
                 } else {
                     (None, None)
                 }
@@ -1520,6 +1571,45 @@ mod tests {
         assert_eq!(node.child_count_at_key(b""), 2);
     }
 
+    #[test]
+    fn test_line_list_siblings_and_children() {
+
+        //Test two separate keys
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val(b"albatross", 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val(b"brubru", 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.child_count_at_key(b""), 2);
+        assert_eq!(new_node.child_count_at_key(b"a"), 1);
+        assert_eq!(new_node.child_count_at_key(b"alb"), 1);
+        assert_eq!(new_node.child_count_at_key(b"albatross"), 0);
+        assert_eq!(new_node.get_sibling_of_child(b"albatross", true).0, None);
+        assert_eq!(new_node.get_sibling_of_child(b"brubru", true).0, None);
+        assert_eq!(new_node.get_sibling_of_child(b"a", true).0, Some(b'b'));
+        assert_eq!(new_node.get_sibling_of_child(b"b", true).0, None);
+        assert_eq!(new_node.get_sibling_of_child(b"b", false).0, Some(b'a'));
+        assert_eq!(new_node.get_sibling_of_child(b"a", false).0, None);
+
+        //This leads to a node that holds both keys, although one is semantically a prefix to the other
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val(b"a", 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val(b"albatross", 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.child_count_at_key(b""), 1);
+        assert_eq!(new_node.child_count_at_key(b"a"), 1);
+        assert_eq!(new_node.child_count_at_key(b"al"), 1);
+        assert_eq!(new_node.child_count_at_key(b"albatross"), 0);
+        assert_eq!(new_node.get_sibling_of_child(b"albatross", true).0, None);
+        assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
+        assert_eq!(new_node.get_sibling_of_child(b"al", true).0, None);
+
+        let mut new_node = LineListNode::<usize>::new();
+        assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("al".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.child_count_at_key(b""), 1);
+        // assert_eq!(new_node.child_count_at_key(b"a"), 1); NOTE: This looks like it should be return 1, but this is not a valid argument for `child_count_at_key`
+        assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
+
+    }
 }
 
 

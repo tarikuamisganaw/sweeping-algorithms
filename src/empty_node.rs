@@ -67,7 +67,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         (None, None)
     }
 
-    fn only_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
+    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
 
@@ -75,11 +75,15 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         0
     }
 
+    fn is_leaf(&self, _key: &[u8]) -> bool {
+        true
+    }
+
     fn prior_branch_key(&self, _key: &[u8]) -> &[u8] {
         &[]
     }
 
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
+    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
 

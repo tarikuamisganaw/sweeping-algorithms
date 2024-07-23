@@ -12,6 +12,9 @@ dyn-clone = "1.0.17"
 local-or-heap = "0.1.0"
 mutcursor = {version = "0.1.1"}
 
+[features]
+all_dense_nodes = []
+
 [build]
 rustflags = "-C opt-level=3 -C target-cpu=native"
 

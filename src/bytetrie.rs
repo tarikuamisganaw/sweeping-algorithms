@@ -131,10 +131,11 @@ pub struct BytesTrieMap<V> {
 
 impl <V : Clone> BytesTrieMap<V> {
     pub fn new() -> Self {
-        Self {
-            // root: TrieNodeODRc::new(LineListNode::new()) // GOAT, this is the real node type
-            root: TrieNodeODRc::new(DenseByteNode::new()) //GOAT, compatibility
-        }
+        #[cfg(feature = "all_dense_nodes")]
+        let root = TrieNodeODRc::new(DenseByteNode::new());
+        #[cfg(not(feature = "all_dense_nodes"))]
+        let root = TrieNodeODRc::new(LineListNode::new());
+        Self { root }
     }
 
     //GOAT, redo this as "at_path"
@@ -428,6 +429,7 @@ pub(crate) trait TrieNode<V>: DynClone {
     fn node_is_empty(&self) -> bool;
 
     /// Returns a boxed iterator over each item contained within the node, both child nodes and values
+    /// GOAT, hopefully we can deprecate this method
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>;
 
     /// Returns the total number of leaves contained within the whole subtree defined by the node
@@ -437,6 +439,19 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// the node as well as values; in the case where a child node and a value have the same internal path
     /// it will be counted as one item
     fn item_count(&self) -> usize;
+
+//GOAT this looks like trash
+    // /// Returns the next key within the node that contains a value and/or a branch, from the 
+    // /// supplied key.  The iteration order is unspecified and implementation-dependent.  However,
+    // /// 
+    // /// 
+    // ///  according to an iteration
+    // /// order that is internal to the node.  The constraints of the iteration order are that:
+    // /// 1. Each key containing a value or branch must be visited exactly once
+    // /// 2. For a given node, the order must not change 
+    // //GOAT!!!! This won't work because the internal branching structure of the node matters because
+    // // iteration might start in the middle of the node!!!!
+    // fn next_within_node<'a>(&'a self, key: &[u8], key_or_val: bool) -> (&'a[u8], ValOrChildRef<'a, V>);
 
     /// Returns the nth child in the branch specified by `key` within this node, as the prefix leading to
     /// that child and optionally a new node
@@ -451,18 +466,30 @@ pub(crate) trait TrieNode<V>: DynClone {
 
     /// Behaves similarly to [Self::nth_child_from_key(0)] with the difference being that the returned
     /// prefix should be an entire path to the onward link or to the next branch
-    ///
-    /// This method should never be called for a path unless `Self::child_count_at_key == 1`
-    fn only_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>);
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>);
 
     /// Returns the number of onward (child) paths within a node from a specified key
     ///
     /// If the node doesn't contain the key, this method returns 0.
-    /// If the key identifies a value but no onward child, this method returns 0.
+    /// If the key identifies a value but no onward path within the node, this method returns 0.
     /// If the key identifies a partial path within the node, this method returns 1.
     ///
+    /// WARNING: This method does not recurse, so an onward child link's children will not be
+    ///   considered.  Therefore, it is necessary to call this method on the referenced node and
+    ///   not the parent.
     /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
     fn child_count_at_key(&self, key: &[u8]) -> usize;
+
+    /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
+    /// descend further, otherwise returns `false`
+    ///
+    /// NOTE: Returns `true` if the key specifies an invalid path, because an invalid path has no
+    ///   onward paths branching from it.
+    /// NOTE: The reason this is not the same as `node.child_count_at_key() == 0` is because [Self::child_count_at_key]
+    ///   counts only internal children, and treats values and onward links equivalently.  Therefore
+    ///   some keys that specify onward links will be reported as having a `child_count` of 0, but `is_leaf`
+    ///   will be true.
+    fn is_leaf(&self, key: &[u8]) -> bool;
 
     /// Returns the key of the prior upstream branch, within the node
     ///

@@ -476,28 +476,29 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
 
-        // //GOAT, this is the real implementation
-        // if key.len() > 1 {
-        //     let mut child = LineListNode::new();
-        //     child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
-        //     self.add_child(key[0], TrieNodeODRc::new(child));
-        //     Ok(None)
-        // } else {
-        //     Ok(self.set_val(key[0], val))
-        // }
-
-        //GOAT, this is dead code when we cut over to the hybrid nodes once and for all.
-        // however it's handy here to keep the tests all passing and use for benchmarking comparison
-        //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
-        // tail node type
-        let mut cur = self;
-        for i in 0..key.len() - 1 {
-            let new_node = Self::new();
-            cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
+        #[cfg(not(feature = "all_dense_nodes"))]
+        {
+            //Split a ListNode to hold everything after the first byte of the key
+            if key.len() > 1 {
+                let mut child = LineListNode::new();
+                child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
+                self.add_child(key[0], TrieNodeODRc::new(child));
+                Ok(None)
+            } else {
+                Ok(self.set_val(key[0], val))
+            }
         }
 
-        //This implementation will never return Err, because the DenseByteNode can hold any possible value
-        Ok(cur.set_val(key[key.len()-1], val))
+        #[cfg(feature = "all_dense_nodes")]
+        {
+            //Recursively create DenseByteNodes to the end
+            let mut cur = self;
+            for i in 0..key.len() - 1 {
+                let new_node = Self::new();
+                cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
+            }
+            Ok(cur.set_val(key[key.len()-1], val))
+        }
     }
     fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
 
@@ -561,9 +562,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
-    fn only_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         debug_assert_eq!(key.len(), 0);
-        debug_assert_eq!(self.values.len(), 1);
+        debug_assert!(self.values.len() > 0);
 
         let cf = unsafe{ self.values.get_unchecked(0) };
         let prefix = self.item_idx_to_prefix::<true>(0).unwrap() as usize;
@@ -573,7 +574,11 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn child_count_at_key(&self, key: &[u8]) -> usize {
         match key.len() {
             0 => self.values.len(),
-            1 => 0, //There are two ways we could get a length 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
+            1 => {
+                //There are two ways we could get a length 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
+                debug_assert!(self.get(key[0]).and_then(|cf| cf.rec.as_ref()).is_none());
+                0
+            },
             // GOAT The below recursive version is unneeded, because the caller should advance to a child node, so we only need to concern ourself with values
             // 1 => {
             //     self.get(key[0]).and_then(|cf|
@@ -581,6 +586,14 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             //             child.borrow().child_count_at_key(&[]))
             //     ).unwrap_or(0)
             // },
+            _ => unreachable!() //The calling code should have advanced to the next node
+        }
+    }
+
+    fn is_leaf(&self, key: &[u8]) -> bool {
+        match key.len() {
+            0 => self.values.len() == 0,
+            1 => self.get(key[0]).map(|cf| !cf.rec.is_some()).unwrap_or(true),
             _ => unreachable!() //The calling code should have advanced to the next node
         }
     }
