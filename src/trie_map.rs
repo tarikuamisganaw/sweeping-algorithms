@@ -2,52 +2,7 @@
 use mutcursor::MutCursor;
 
 use crate::trie_node::*;
-
-pub struct BytesTrieMapIter<'a, V> where V : Clone {
-    prefixes: Vec<Vec<u8>>,
-    btnis: Vec<Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>>,
-}
-
-impl <'a, V : Clone> BytesTrieMapIter<'a, V> {
-    fn new(btm: &'a BytesTrieMap<V>) -> Self {
-        Self {
-            prefixes: vec![vec![]],
-            btnis: vec![btm.root.borrow().boxed_node_iter()],
-        }
-    }
-}
-
-impl <'a, V : Clone> Iterator for BytesTrieMapIter<'a, V> {
-    type Item = (Vec<u8>, &'a V);
-
-    fn next(&mut self) -> Option<(Vec<u8>, &'a V)> {
-        loop {
-            match self.btnis.last_mut() {
-                None => { return None }
-                Some(last) => {
-                    match last.next() {
-                        None => {
-                            self.prefixes.pop();
-                            self.btnis.pop();
-                        }
-                        Some((bytes, item)) => {
-                            let mut cur_prefix = self.prefixes.last().unwrap().clone();
-                            cur_prefix.extend(bytes);
-
-                            match item {
-                                ValOrChildRef::Val(val) => return Some((cur_prefix, val)),
-                                ValOrChildRef::Child(child) => {
-                                    self.prefixes.push(cur_prefix);
-                                    self.btnis.push(child.boxed_node_iter())
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
+use crate::zipper::*;
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
@@ -174,11 +129,23 @@ impl <V : Clone> BytesTrieMap<V> {
     //     )
     // }
 
-    pub fn items<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, &'a V)> + 'a {
-        BytesTrieMapIter::new(self)
+    /// Creates a new [ReadZipper](zipper::ReadZipper) starting at the root of a BytesTrieMap
+    pub fn read_zipper(&self) -> ReadZipper<V> {
+        ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], None)
     }
 
-    pub fn item_cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
+    /// Returns an iterator over all key-value pairs within the map
+    ///
+    /// NOTE: This is much less efficient than using the [read_zipper](Self::read_zipper) method
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, &'a V)> + 'a {
+        self.read_zipper().into_iter()
+    }
+
+    /// Returns a [BytesTrieMapCursor] to traverse all key-value pairs within the map.  This is more efficient
+    /// than using [iter](Self::iter), but is not compatible with the [Iterator] trait
+    ///
+    /// WARNING: This API will be deprecated in favor of the [read_zipper](Self::read_zipper) method
+    pub fn cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
         BytesTrieMapCursor::new(self)
     }
 

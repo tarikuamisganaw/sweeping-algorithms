@@ -2,7 +2,7 @@
 use divan::{Divan, Bencher, black_box};
 use ringmap::ring::*;
 use ringmap::trie_map::BytesTrieMap;
-use ringmap::zipper::{Zipper, ReadZipper};
+use ringmap::zipper::Zipper;
 
 fn main() {
     // Run registered benchmarks.
@@ -24,7 +24,7 @@ fn superdense_join(bencher: Bencher, n: u64) {
         for i in 0..n { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
         for i in n..2*n { assert_eq!(vnl.get(prefix_key(&i)), None); }
         let mut c: Vec<u64> = Vec::with_capacity(n as usize);
-        vnl.items().for_each(|(k, v)| {
+        vnl.iter().for_each(|(k, v)| {
             assert!(*v < n);
             assert_eq!(k, prefix_key(&v));
             c.push(from_prefix_key(k.clone()));
@@ -154,7 +154,7 @@ fn superdense_iter(bencher: Bencher, n: u64) {
     //Benchmark the iterator
     let mut sink = 0;
     bencher.bench_local(|| {
-        map.items().for_each(|(_key, val)| *black_box(&mut sink) = *val);
+        map.iter().for_each(|(_key, val)| *black_box(&mut sink) = *val);
     });
 }
 
@@ -167,7 +167,7 @@ fn superdense_cursor(bencher: Bencher, n: u64) {
     //Benchmark the cursor
     let mut sink = 0;
     bencher.bench_local(|| {
-        let mut cursor = map.item_cursor();
+        let mut cursor = map.cursor();
         while let Some((_key, val)) = cursor.next() {
             *black_box(&mut sink) = *val
         }
@@ -183,7 +183,7 @@ fn superdense_zipper_cursor(bencher: Bencher, n: u64) {
     //Benchmark the cursor
     let mut sink = 0;
     bencher.bench_local(|| {
-        let mut zipper = ReadZipper::new(&map);
+        let mut zipper = map.read_zipper();
         while let Some(val) = zipper.to_next_val() {
             *black_box(&mut sink) = *val
         }

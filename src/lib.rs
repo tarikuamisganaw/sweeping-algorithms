@@ -79,9 +79,9 @@ mod tests {
         let l_no_r = vnl.subtract(&vnr);
 
         //Validate the ByteTrieMap::subtract against HashSet::difference
-        let vnl_set: std::collections::HashSet<Vec<u8>> = vnl.items().map(|(k, _)| k).collect();
-        let vnr_set: std::collections::HashSet<Vec<u8>> = vnr.items().map(|(k, _)| k).collect();
-        let mut l_no_r_set: Vec<Vec<u8>> = l_no_r.items().map(|(k, _)| k).collect();
+        let vnl_set: std::collections::HashSet<Vec<u8>> = vnl.iter().map(|(k, _)| k).collect();
+        let vnr_set: std::collections::HashSet<Vec<u8>> = vnr.iter().map(|(k, _)| k).collect();
+        let mut l_no_r_set: Vec<Vec<u8>> = l_no_r.iter().map(|(k, _)| k).collect();
         let mut l_no_r_ref_set: Vec<Vec<u8>> = vnl_set.difference(&vnr_set).cloned().collect();
         l_no_r_set.sort();
         l_no_r_ref_set.sort();
@@ -137,7 +137,7 @@ mod tests {
                 for i in 0..n { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
                 for i in n..2*n { assert_eq!(vnl.get(prefix_key(&i)), None); }
                 let mut c: Vec<u64> = Vec::with_capacity(n as usize);
-                vnl.items().for_each(|(k, v)| {
+                vnl.iter().for_each(|(k, v)| {
                     assert!(*v < n);
                     assert_eq!(k, prefix_key(&v));
                     c.push(from_prefix_key(k.clone()));
@@ -169,7 +169,7 @@ mod tests {
     fn btm_cursor_test() {
         let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
         let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
-        let mut cursor = btm.item_cursor();
+        let mut cursor = btm.cursor();
         while let Some((k, v)) = cursor.next() {
             // println!("{}, {v}", std::str::from_utf8(k).unwrap());
             assert_eq!(k, table[*v].as_bytes());

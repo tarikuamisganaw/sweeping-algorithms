@@ -21,7 +21,6 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::trie_map::BytesTrieMap;
 use crate::trie_node::TrieNode;
 
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
@@ -387,10 +386,6 @@ impl<'a, V: Clone> Zipper<'a> for ReadZipper<'a, V> {
 }
 
 impl <'a, V : Clone> ReadZipper<'a, V> {
-    /// Creates a new zipper starting at the root of a BytesTrieMap
-    pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
-        Self::new_with_node_and_path_internal(btm.root.borrow(), &[], None)
-    }
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'a [u8]) -> Self {
         let mut key = path;
@@ -729,207 +724,213 @@ impl<V: Clone> Iterator for ReadZipperChildIter<'_, V> {
 //GOAT, End of Adam's experiments
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 
-#[test]
-fn zipper_basic_test() {
-    // from https://en.wikipedia.org/wiki/Radix_tree#/media/File:Patricia_trie.svg
-    let mut btm = BytesTrieMap::new();
-    let rs = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
-//GOAT, fix this, "at_path"
-    // assert_eq!(btm.at("rom".as_bytes()).map(|m| m.items().collect::<HashSet<_>>()),
-    //            Some(HashSet::from([("ane".as_bytes().to_vec(), &0), ("anus".as_bytes().to_vec(), &1), ("ulus".as_bytes().to_vec(), &2), ("'i".as_bytes().to_vec(), &7)])));
+#[cfg(test)]
+mod tests {
+    use crate::trie_map::*;
+    use super::*;
 
-    fn assert_in_list(val: &[u8], list: &[&[u8]]) {
-        for test_val in list {
-            if *test_val == val {
-                return;
+    #[test]
+    fn zipper_basic_test() {
+        // from https://en.wikipedia.org/wiki/Radix_tree#/media/File:Patricia_trie.svg
+        let mut btm = BytesTrieMap::new();
+        let rs = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+    //GOAT, fix this, "at_path"
+        // assert_eq!(btm.at("rom".as_bytes()).map(|m| m.items().collect::<HashSet<_>>()),
+        //            Some(HashSet::from([("ane".as_bytes().to_vec(), &0), ("anus".as_bytes().to_vec(), &1), ("ulus".as_bytes().to_vec(), &2), ("'i".as_bytes().to_vec(), &7)])));
+
+        fn assert_in_list(val: &[u8], list: &[&[u8]]) {
+            for test_val in list {
+                if *test_val == val {
+                    return;
+                }
+            }
+            panic!("val not found in list: {}", std::str::from_utf8(val).unwrap_or(""))
+        }
+
+        let mut rz = btm.read_zipper();
+        rz.descend_to(&[b'r']); rz.descend_to(&[b'o']); rz.descend_to(&[b'm']); // focus = rom
+        assert!(rz.descend_to(&[b'\''])); // focus = rom'  (' is the lowest byte)
+        assert!(rz.to_sibling(true)); // focus = roma  (a is the second byte), but we can't actually guarantee whether we land on 'a' or 'u'
+        assert_in_list(rz.path(), &[b"roma", b"romu"]);
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']); // both follow-ups romane and romanus have n following a
+        assert!(rz.to_sibling(true)); // focus = romu  (u is the third byte)
+        assert_in_list(rz.path(), &[b"roma", b"romu"]);
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']); // and romu is followed by lus
+        assert!(!rz.to_sibling(true)); // fails because there were only 3 children ['\'', 'a', 'u']
+        assert!(rz.to_sibling(false)); // focus = roma or romu (we stepped back)
+        assert_in_list(rz.path(), &[b"roma", b"romu"]);
+        assert!(rz.to_sibling(false)); // focus = rom' (we stepped back to where we began)
+        assert_eq!(rz.path(), b"rom'");
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
+        assert!(rz.ascend(1)); // focus = rom
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'\'', b'a', b'u']); // all three options we visited
+        assert!(rz.descend_indexed_child(0)); // focus = rom'
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
+        assert!(rz.ascend(1)); // focus = rom
+        assert!(rz.descend_indexed_child(1)); // focus = roma
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
+        assert!(rz.ascend(1));
+        assert!(rz.descend_indexed_child(2)); // focus = romu
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']);
+        assert!(rz.ascend(1));
+        assert!(rz.descend_indexed_child(1)); // focus = roma
+        assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
+        assert!(rz.ascend(1));
+        // ' < a < u
+        // 39 105 117
+    }
+
+    #[test]
+    fn zipper_with_starting_key() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+        //Test `descend_to` and `ascend_until`
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"ro");
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.child_count(), 1);
+        zipper.descend_to(b"m");
+        assert_eq!(zipper.path(), b"m");
+        assert_eq!(zipper.child_count(), 3);
+        zipper.descend_to(b"an");
+        assert_eq!(zipper.path(), b"man");
+        assert_eq!(zipper.child_count(), 2);
+        zipper.descend_to(b"e");
+        assert_eq!(zipper.path(), b"mane");
+        assert_eq!(zipper.child_count(), 0);
+        assert_eq!(zipper.ascend_until(), true);
+        zipper.descend_to(b"us");
+        assert_eq!(zipper.path(), b"manus");
+        assert_eq!(zipper.child_count(), 0);
+        assert_eq!(zipper.ascend_until(), true);
+        assert_eq!(zipper.path(), b"man");
+        assert_eq!(zipper.child_count(), 2);
+        assert_eq!(zipper.ascend_until(), true);
+        assert_eq!(zipper.path(), b"m");
+        assert_eq!(zipper.child_count(), 3);
+        assert_eq!(zipper.ascend_until(), true);
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.at_root(), true);
+        assert_eq!(zipper.ascend_until(), false);
+
+        //Test `ascend`
+        zipper.descend_to(b"manus");
+        assert_eq!(zipper.path(), b"manus");
+        assert_eq!(zipper.ascend(1), true);
+        assert_eq!(zipper.path(), b"manu");
+        assert_eq!(zipper.ascend(5), false);
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.at_root(), true);
+        zipper.descend_to(b"mane");
+        assert_eq!(zipper.path(), b"mane");
+        assert_eq!(zipper.ascend(3), true);
+        assert_eq!(zipper.path(), b"m");
+        assert_eq!(zipper.child_count(), 3);
+    }
+
+    #[test]
+    fn indexed_zipper_movement() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arrow", "bow", "cannon", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        let mut zipper = btm.read_zipper();
+
+        //descends a single specific byte using `descend_indexed_child`. Just for testing. A real user would use `descend_towards`
+        fn descend_byte(zipper: &mut ReadZipper<usize>, byte: u8) {
+            for i in 0..zipper.child_count() {
+                assert_eq!(zipper.descend_indexed_child(i), true);
+                if *zipper.path().last().unwrap() == byte {
+                    break
+                } else {
+                    assert_eq!(zipper.ascend(1), true);
+                }
             }
         }
-        panic!("val not found in list: {}", std::str::from_utf8(val).unwrap_or(""))
+
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.child_count(), 4);
+        descend_byte(&mut zipper, b'r');
+        assert_eq!(zipper.path(), b"r");
+        assert_eq!(zipper.child_count(), 2);
+        assert_eq!(zipper.descend_until(), false);
+        descend_byte(&mut zipper, b'o');
+        assert_eq!(zipper.path(), b"ro");
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.descend_until(), true);
+        assert_eq!(zipper.path(), b"rom");
+        assert_eq!(zipper.child_count(), 3);
+
+        zipper.reset();
+        assert_eq!(zipper.descend_until(), false);
+        descend_byte(&mut zipper, b'a');
+        assert_eq!(zipper.path(), b"a");
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.descend_until(), true);
+        assert_eq!(zipper.path(), b"arrow");
+        assert_eq!(zipper.child_count(), 0);
+
+        assert_eq!(zipper.ascend(3), true);
+        assert_eq!(zipper.path(), b"ar");
+        assert_eq!(zipper.child_count(), 1);
+
     }
 
-    let mut rz = crate::zipper::ReadZipper::new(&btm);
-    rz.descend_to(&[b'r']); rz.descend_to(&[b'o']); rz.descend_to(&[b'm']); // focus = rom
-    assert!(rz.descend_to(&[b'\''])); // focus = rom'  (' is the lowest byte)
-    assert!(rz.to_sibling(true)); // focus = roma  (a is the second byte), but we can't actually guarantee whether we land on 'a' or 'u'
-    assert_in_list(rz.path(), &[b"roma", b"romu"]);
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']); // both follow-ups romane and romanus have n following a
-    assert!(rz.to_sibling(true)); // focus = romu  (u is the third byte)
-    assert_in_list(rz.path(), &[b"roma", b"romu"]);
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']); // and romu is followed by lus
-    assert!(!rz.to_sibling(true)); // fails because there were only 3 children ['\'', 'a', 'u']
-    assert!(rz.to_sibling(false)); // focus = roma or romu (we stepped back)
-    assert_in_list(rz.path(), &[b"roma", b"romu"]);
-    assert!(rz.to_sibling(false)); // focus = rom' (we stepped back to where we began)
-    assert_eq!(rz.path(), b"rom'");
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
-    assert!(rz.ascend(1)); // focus = rom
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'\'', b'a', b'u']); // all three options we visited
-    assert!(rz.descend_indexed_child(0)); // focus = rom'
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
-    assert!(rz.ascend(1)); // focus = rom
-    assert!(rz.descend_indexed_child(1)); // focus = roma
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
-    assert!(rz.ascend(1));
-    assert!(rz.descend_indexed_child(2)); // focus = romu
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']);
-    assert!(rz.ascend(1));
-    assert!(rz.descend_indexed_child(1)); // focus = roma
-    assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
-    assert!(rz.ascend(1));
-    // ' < a < u
-    // 39 105 117
-}
+    #[test]
+    fn zipper_value_access() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().for_each(|r| { btm.insert(r.as_bytes(), *r); });
 
-#[test]
-fn zipper_with_starting_key() {
-    let mut btm = BytesTrieMap::new();
-    let rs = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"ro");
+        assert_eq!(zipper.is_value(), false);
+        zipper.descend_to(b"mulus");
+        assert_eq!(zipper.is_value(), true);
+        assert_eq!(zipper.get_value(), Some(&"romulus"));
 
-    //Test `descend_to` and `ascend_until`
-    let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"ro");
-    assert_eq!(zipper.path(), b"");
-    assert_eq!(zipper.child_count(), 1);
-    zipper.descend_to(b"m");
-    assert_eq!(zipper.path(), b"m");
-    assert_eq!(zipper.child_count(), 3);
-    zipper.descend_to(b"an");
-    assert_eq!(zipper.path(), b"man");
-    assert_eq!(zipper.child_count(), 2);
-    zipper.descend_to(b"e");
-    assert_eq!(zipper.path(), b"mane");
-    assert_eq!(zipper.child_count(), 0);
-    assert_eq!(zipper.ascend_until(), true);
-    zipper.descend_to(b"us");
-    assert_eq!(zipper.path(), b"manus");
-    assert_eq!(zipper.child_count(), 0);
-    assert_eq!(zipper.ascend_until(), true);
-    assert_eq!(zipper.path(), b"man");
-    assert_eq!(zipper.child_count(), 2);
-    assert_eq!(zipper.ascend_until(), true);
-    assert_eq!(zipper.path(), b"m");
-    assert_eq!(zipper.child_count(), 3);
-    assert_eq!(zipper.ascend_until(), true);
-    assert_eq!(zipper.path(), b"");
-    assert_eq!(zipper.child_count(), 1);
-    assert_eq!(zipper.at_root(), true);
-    assert_eq!(zipper.ascend_until(), false);
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"roman");
+        assert_eq!(zipper.is_value(), true);
+        assert_eq!(zipper.get_value(), Some(&"roman"));
+        zipper.descend_to(b"e");
+        assert_eq!(zipper.is_value(), true);
+        assert_eq!(zipper.get_value(), Some(&"romane"));
+        assert_eq!(zipper.ascend(1), true);
+        zipper.descend_to(b"u");
+        assert_eq!(zipper.is_value(), false);
+        assert_eq!(zipper.get_value(), None);
+        zipper.descend_until();
+        assert_eq!(zipper.is_value(), true);
+        assert_eq!(zipper.get_value(), Some(&"romanus"));
+    }
 
-    //Test `ascend`
-    zipper.descend_to(b"manus");
-    assert_eq!(zipper.path(), b"manus");
-    assert_eq!(zipper.ascend(1), true);
-    assert_eq!(zipper.path(), b"manu");
-    assert_eq!(zipper.ascend(5), false);
-    assert_eq!(zipper.path(), b"");
-    assert_eq!(zipper.at_root(), true);
-    zipper.descend_to(b"mane");
-    assert_eq!(zipper.path(), b"mane");
-    assert_eq!(zipper.ascend(3), true);
-    assert_eq!(zipper.path(), b"m");
-    assert_eq!(zipper.child_count(), 3);
-}
+    #[test]
+    fn zipper_iter() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        let mut zipper = btm.read_zipper();
 
-#[test]
-fn indexed_zipper_movement() {
-    let mut btm = BytesTrieMap::new();
-    let rs = ["arrow", "bow", "cannon", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
-    let mut zipper = ReadZipper::new(&btm);
-
-    //descends a single specific byte using `descend_indexed_child`. Just for testing. A real user would use `descend_towards`
-    fn descend_byte(zipper: &mut ReadZipper<usize>, byte: u8) {
-        for i in 0..zipper.child_count() {
-            assert_eq!(zipper.descend_indexed_child(i), true);
-            if *zipper.path().last().unwrap() == byte {
-                break
-            } else {
-                assert_eq!(zipper.ascend(1), true);
-            }
+        //Test iteration of the whole tree
+        assert_eq!(zipper.is_value(), false);
+        while let Some(&val) = zipper.to_next_val() {
+            // println!("{val}  {} = {}", std::str::from_utf8(zipper.path()).unwrap(), zipper.get_value().unwrap());
+            assert_eq!(rs[val].as_bytes(), zipper.path());
         }
-    }
 
-    assert_eq!(zipper.path(), b"");
-    assert_eq!(zipper.child_count(), 4);
-    descend_byte(&mut zipper, b'r');
-    assert_eq!(zipper.path(), b"r");
-    assert_eq!(zipper.child_count(), 2);
-    assert_eq!(zipper.descend_until(), false);
-    descend_byte(&mut zipper, b'o');
-    assert_eq!(zipper.path(), b"ro");
-    assert_eq!(zipper.child_count(), 1);
-    assert_eq!(zipper.descend_until(), true);
-    assert_eq!(zipper.path(), b"rom");
-    assert_eq!(zipper.child_count(), 3);
+        //Fork a sub-zipper, and test iteration of that subtree
+        zipper.reset();
+        zipper.descend_to(b"rub");
+        let mut sub_zipper = zipper.fork_zipper();
+        while let Some(&val) = sub_zipper.to_next_val() {
+            // println!("{val}  {} = {}", std::str::from_utf8(sub_zipper.path()).unwrap(), std::str::from_utf8(&rs[val].as_bytes()[3..]).unwrap());
+            assert_eq!(&rs[val].as_bytes()[3..], sub_zipper.path());
+        }
 
-    zipper.reset();
-    assert_eq!(zipper.descend_until(), false);
-    descend_byte(&mut zipper, b'a');
-    assert_eq!(zipper.path(), b"a");
-    assert_eq!(zipper.child_count(), 1);
-    assert_eq!(zipper.descend_until(), true);
-    assert_eq!(zipper.path(), b"arrow");
-    assert_eq!(zipper.child_count(), 0);
-
-    assert_eq!(zipper.ascend(3), true);
-    assert_eq!(zipper.path(), b"ar");
-    assert_eq!(zipper.child_count(), 1);
-
-}
-
-#[test]
-fn zipper_value_access() {
-    let mut btm = BytesTrieMap::new();
-    let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().for_each(|r| { btm.insert(r.as_bytes(), *r); });
-
-    let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"ro");
-    assert_eq!(zipper.is_value(), false);
-    zipper.descend_to(b"mulus");
-    assert_eq!(zipper.is_value(), true);
-    assert_eq!(zipper.get_value(), Some(&"romulus"));
-
-    let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"roman");
-    assert_eq!(zipper.is_value(), true);
-    assert_eq!(zipper.get_value(), Some(&"roman"));
-    zipper.descend_to(b"e");
-    assert_eq!(zipper.is_value(), true);
-    assert_eq!(zipper.get_value(), Some(&"romane"));
-    assert_eq!(zipper.ascend(1), true);
-    zipper.descend_to(b"u");
-    assert_eq!(zipper.is_value(), false);
-    assert_eq!(zipper.get_value(), None);
-    zipper.descend_until();
-    assert_eq!(zipper.is_value(), true);
-    assert_eq!(zipper.get_value(), Some(&"romanus"));
-}
-
-#[test]
-fn zipper_iter() {
-    let mut btm = BytesTrieMap::new();
-    let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
-    let mut zipper = ReadZipper::new(&btm);
-
-    //Test iteration of the whole tree
-    assert_eq!(zipper.is_value(), false);
-    while let Some(&val) = zipper.to_next_val() {
-        // println!("{val}  {} = {}", std::str::from_utf8(zipper.path()).unwrap(), zipper.get_value().unwrap());
-        assert_eq!(rs[val].as_bytes(), zipper.path());
-    }
-
-    //Fork a sub-zipper, and test iteration of that subtree
-    zipper.reset();
-    zipper.descend_to(b"rub");
-    let mut sub_zipper = zipper.fork_zipper();
-    while let Some(&val) = sub_zipper.to_next_val() {
-        // println!("{val}  {} = {}", std::str::from_utf8(sub_zipper.path()).unwrap(), std::str::from_utf8(&rs[val].as_bytes()[3..]).unwrap());
-        assert_eq!(&rs[val].as_bytes()[3..], sub_zipper.path());
-    }
-
-    for (path, &val) in zipper {
-        // println!("{val}  {} = {}", std::str::from_utf8(&path).unwrap(), std::str::from_utf8(rs[val].as_bytes()).unwrap());
-        assert_eq!(rs[val].as_bytes(), path);
+        for (path, &val) in zipper {
+            // println!("{val}  {} = {}", std::str::from_utf8(&path).unwrap(), std::str::from_utf8(rs[val].as_bytes()).unwrap());
+            assert_eq!(rs[val].as_bytes(), path);
+        }
     }
 }

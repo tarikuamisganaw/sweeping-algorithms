@@ -4,7 +4,7 @@ use divan::{Divan, Bencher, black_box};
 
 use ringmap::ring::*;
 use ringmap::trie_map::BytesTrieMap;
-use ringmap::zipper::{Zipper, ReadZipper};
+use ringmap::zipper::Zipper;
 
 fn main() {
     // Run registered benchmarks.
@@ -152,7 +152,7 @@ fn sparse_cursor(bencher: Bencher, n: u64) {
     //Benchmark the iterator
     let mut sink = 0;
     bencher.bench_local(|| {
-        let mut cursor = map.item_cursor();
+        let mut cursor = map.cursor();
         while let Some((_key, val)) = cursor.next() {
             *black_box(&mut sink) = *val
         }
@@ -172,7 +172,7 @@ fn sparse_zipper_cursor(bencher: Bencher, n: u64) {
     //Benchmark the zipper's iterator
     let mut sink = 0;
     bencher.bench_local(|| {
-        let mut zipper = ReadZipper::new(&map);
+        let mut zipper = map.read_zipper();
         while let Some(val) = zipper.to_next_val() {
             *black_box(&mut sink) = *val
         }
@@ -192,7 +192,7 @@ fn sparse_iter(bencher: Bencher, n: u64) {
     //Benchmark the iterator
     let mut sink = 0;
     bencher.bench_local(|| {
-        map.items().for_each(|(_key, val)| *black_box(&mut sink) = *val);
+        map.iter().for_each(|(_key, val)| *black_box(&mut sink) = *val);
     });
 }
 

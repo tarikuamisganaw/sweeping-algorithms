@@ -68,7 +68,8 @@ pub(crate) trait TrieNode<V>: DynClone {
     fn node_is_empty(&self) -> bool;
 
     /// Returns a boxed iterator over each item contained within the node, both child nodes and values
-    /// GOAT, hopefully we can deprecate this method
+    /// TODO, hopefully we can deprecate this method when the zipper iteration gets a little faster.  See
+    /// comments around [crate::trie_map::BytesTrieMapCursor]
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>;
 
     /// Returns the total number of leaves contained within the whole subtree defined by the node

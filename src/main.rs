@@ -42,7 +42,7 @@ fn main() {
                 for i in 0..N { assert_eq!(vnl.get(gen_key(i, buffer)), Some(i).as_ref()); }
                 for i in N..2*N { assert_eq!(vnl.get(gen_key(i, buffer)), None); }
                 let mut c: Vec<u64> = Vec::with_capacity(N as usize);
-                vnl.items().for_each(|(k, v)| {
+                vnl.iter().for_each(|(k, v)| {
                     assert!(0 <= *v && *v < N);
                     assert_eq!(k, gen_key(*v, buffer));
                     c.push(parse_key(&k[..], buffer));
