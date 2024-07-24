@@ -1,8 +1,8 @@
 
 use core::marker::PhantomData;
 
+use crate::trie_node::*;
 use crate::ring::*;
-use crate::bytetrie::*;
 use crate::line_list_node::LineListNode;
 use crate::dense_byte_node::DenseByteNode;
 

@@ -32,7 +32,7 @@ use std::fmt::{Debug, Formatter};
 //
 
 use crate::ring::*;
-use crate::bytetrie::*;
+use crate::trie_node::*;
 use crate::line_list_node::{LineListNode, merge_into_dense_node};
 
 //NOTE: This: `core::array::from_fn(|i| i as u8);` ought to work, but https://github.com/rust-lang/rust/issues/109341

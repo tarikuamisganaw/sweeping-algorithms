@@ -21,7 +21,8 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::bytetrie::{BytesTrieMap, TrieNode};
+use crate::bytetrie::BytesTrieMap;
+use crate::trie_node::TrieNode;
 
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 //GOAT, Adam's experiments.  Avoiding deletion in case they're still needed

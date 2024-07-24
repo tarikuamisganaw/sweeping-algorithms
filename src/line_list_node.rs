@@ -3,7 +3,7 @@ use core::iter::Iterator;
 
 use local_or_heap::LocalOrHeap;
 
-use crate::bytetrie::*;
+use crate::trie_node::*;
 use crate::ring::*;
 use crate::dense_byte_node::DenseByteNode;
 
