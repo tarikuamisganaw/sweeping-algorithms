@@ -1,7 +1,14 @@
 
+/// Traits to implement [ring](https://en.wikipedia.org/wiki/Ring_(mathematics)) and other algebraic
+/// operations on tries, such as union, intersection, and subtraction
 pub mod ring;
+
 pub mod bytetrie;
+
+/// Cursors that can move over a trie, to inspect and modify contained elements or entire branches
 pub mod zipper;
+
+/// Features to inspect performance properties of trees, for optimizing
 #[cfg(feature = "counters")]
 pub mod counters;
 

@@ -1,3 +1,4 @@
+
 //! # Zipper Usage
 //!
 //! A zipper represents a cursor in a trie, and has a location called the focus.  A zipper can be moved
@@ -10,16 +11,15 @@
 //! such as branches and values.  In general, moving by jumping will be faster.
 //!
 //! The stepping methods are:
-//! [Zipper::descend_indexed_child]
-//! [Zipper::ascend]
-//! [Zipper::to_sibling]
+//! - [descend_indexed_child](zipper::Zipper::descend_indexed_child)
+//! - [ascend](zipper::Zipper::ascend)
+//! - [to_sibling](zipper::Zipper::to_sibling)
 //!
 //! The jumping methods are:
-//! [Zipper::descend_to]
-//! [Zipper::descend_until]
-//! [Zipper::ascend_until]
+//! - [descend_to](zipper::Zipper::descend_to)
+//! - [descend_until](zipper::Zipper::descend_until)
+//! - [ascend_until](zipper::Zipper::ascend_until)
 //!
-
 
 use crate::bytetrie::{BytesTrieMap, TrieNode};
 
@@ -73,6 +73,8 @@ use crate::bytetrie::{BytesTrieMap, TrieNode};
 //GOAT, End of Adam's experiments
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 
+/// An interface common to all zippers, to support moving the zipper, reading elements, iterating across
+/// the trie
 pub trait Zipper<'a, V> {
 
     /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
@@ -148,15 +150,13 @@ pub trait Zipper<'a, V> {
 
 }
 
-
-
-
 /// Size of node stack to preallocate in the zipper
 const EXPECTED_DEPTH: usize = 16;
 
 /// Size in bytes to preallocate path storage in the zipper
 const EXPECTED_PATH_LEN: usize = 64;
 
+/// A [Zipper] that is unable to modify the trie
 #[derive(Clone)]
 pub struct ReadZipper<'a, V> {
     /// A reference to the part of the key within the root node that represents the zipper root
@@ -594,7 +594,20 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     }
 }
 
-/// An Iterator returned by [ReadZipper::into_child_iter] to iterate over the children from a branch
+//GOAT, resume this in a moment... But first I realized the zipper trait shouldn't have a generic type param, but it needs to be an associated type
+// impl<'a, V, I: Zipper<'a, V>> std::iter::IntoIterator for I {
+//     type Item = Vec<u8>;
+//     type IntoIter = ZipperIter<I>;
+
+//     fn into_iter(self) -> Self::IntoIter {
+
+//     }
+// }
+
+/// An Iterator returned by [into_child_iter](ReadZipper::into_child_iter) to iterate over the children from
+/// a branch of the trie
+///
+/// NOTE: Does not descend recursively.  Use [into_iter](Zipper::into_iter) for a depth-first traversal
 pub struct ReadZipperChildIter<'a, V>(Option<ReadZipper<'a, V>>);
 
 impl<V: Clone> Iterator for ReadZipperChildIter<'_, V> {
@@ -612,13 +625,6 @@ impl<V: Clone> Iterator for ReadZipperChildIter<'_, V> {
         }
     }
 }
-
-//GOAT Thoughts / TODO on ReadZipper
-//1. I should merge the Cursor structure with the ReadZipper, by eliminating the cursor and adding a "next" method
-//    that returns the next item in a depth-first traversal
-//2. √I need a "child_count" method to compliment the "nth_child" method.  But I need to look at what n means.
-//    ie. is it the number of cofrees, or is it the number of actual children?
-//5. Should implement the TrieMap Iterator using the Zipper
 
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 //GOAT, more of Adam's experiments

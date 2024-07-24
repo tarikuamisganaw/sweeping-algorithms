@@ -747,9 +747,6 @@ fn long_key_map_test() {
 
 
 //GOAT TODO LIST:
-// a. delete "bytize.rs" and just incorporate it into the superdense tests and benchmarks
-// b. move a bunch of tests from lib.rs into the dense_byte_node.rs
-// 1. Fix the read-zipper to support any key length in a node
 // 2. Implement the "Entry" API, instead of `update`
 // 3. Re-enable "at_path" API
 // 4. Other ops: "join_all"??, "restrict"??, ??
