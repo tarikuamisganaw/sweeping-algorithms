@@ -21,7 +21,7 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::bytetrie::BytesTrieMap;
+use crate::trie_map::BytesTrieMap;
 use crate::trie_node::TrieNode;
 
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--

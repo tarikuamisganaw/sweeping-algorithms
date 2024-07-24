@@ -3,7 +3,8 @@
 /// operations on tries, such as union, intersection, and subtraction
 pub mod ring;
 
-pub mod bytetrie;
+/// A collection indexed by paths of bytes, supporting [algebraic](crate::ring) operations
+pub mod trie_map;
 
 /// Cursors that can move over a trie, to inspect and modify contained elements or entire branches
 pub mod zipper;
@@ -20,7 +21,7 @@ mod empty_node;
 #[cfg(test)]
 mod tests {
     use crate::ring::*;
-    use crate::bytetrie::BytesTrieMap;
+    use crate::trie_map::BytesTrieMap;
 
     fn prefix_key(k: &u64) -> &[u8] {
         let bs = (8 - k.leading_zeros()/8) as u8;

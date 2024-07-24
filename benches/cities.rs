@@ -1,6 +1,6 @@
 
 use divan::{Divan, Bencher, black_box};
-use ringmap::bytetrie::BytesTrieMap;
+use ringmap::trie_map::BytesTrieMap;
 
 use std::fs::File;
 use std::io::BufReader;
