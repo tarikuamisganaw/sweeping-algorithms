@@ -75,7 +75,8 @@ use crate::bytetrie::{BytesTrieMap, TrieNode};
 
 /// An interface common to all zippers, to support moving the zipper, reading elements, iterating across
 /// the trie
-pub trait Zipper<'a, V> {
+pub trait Zipper<'a> {
+    type V;
 
     /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
     fn at_root(&self) -> bool;
@@ -137,16 +138,16 @@ pub trait Zipper<'a, V> {
     ///
     /// WARNING: sibling order may not be relied upon across across modifications to the trie or successive
     /// runs of the program.
-    fn to_next_val(&mut self) -> Option<&V>;
+    fn to_next_val(&mut self) -> Option<&'a Self::V>;
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
-    fn fork_zipper(&self) -> ReadZipper<V>;
+    fn fork_zipper(&self) -> ReadZipper<Self::V>;
 
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
     fn is_value(&self) -> bool;
 
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
-    fn get_value(&self) -> Option<&V>;
+    fn get_value(&self) -> Option<&'a Self::V>;
 
 }
 
@@ -173,7 +174,8 @@ pub struct ReadZipper<'a, V> {
     ancestors: Vec<&'a dyn TrieNode<V>>,
 }
 
-impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
+impl<'a, V: Clone> Zipper<'a> for ReadZipper<'a, V> {
+    type V = V;
 
     fn at_root(&self) -> bool {
         self.prefix_buf.len() <= self.root_key.len()
@@ -302,7 +304,7 @@ impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
         }
     }
 
-    fn to_next_val(&mut self) -> Option<&V> {
+    fn to_next_val(&mut self) -> Option<&'a V> {
         loop {
             //If we're at a leaf ascend and jump to the next sibling
             if self.focus_node.is_leaf(self.node_key()) {
@@ -368,7 +370,7 @@ impl<'a, V: Clone> Zipper<'a, V> for ReadZipper<'a, V> {
         self.is_value_internal()
     }
 
-    fn get_value(&self) -> Option<&V> {
+    fn get_value(&self) -> Option<&'a V> {
         let key = self.node_key();
         if key.len() > 0 {
             self.focus_node.node_get_val(key)
@@ -594,20 +596,57 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     }
 }
 
-//GOAT, resume this in a moment... But first I realized the zipper trait shouldn't have a generic type param, but it needs to be an associated type
-// impl<'a, V, I: Zipper<'a, V>> std::iter::IntoIterator for I {
-//     type Item = Vec<u8>;
-//     type IntoIter = ZipperIter<I>;
+impl<'a, V: Clone> std::iter::IntoIterator for ReadZipper<'a, V> {
+    type Item = (Vec<u8>, &'a V);
+    type IntoIter = ReadZipperIter<'a, V>;
 
-//     fn into_iter(self) -> Self::IntoIter {
+    fn into_iter(self) -> Self::IntoIter {
+        ReadZipperIter {
+            started: false,
+            zipper: Some(self)
+        }
+    }
+}
 
-//     }
-// }
+/// An iterator for depth-first traversal of a [ReadZipper], returned from [into_iter](std::iter::IntoIterator::into_iter)
+///
+/// NOTE: This is a convenience to allow access to syntactic sugar like `for` loops, [collect](std::iter::Iterator::collect),
+///  etc.  It will always be faster to use the zipper itself for iteration and traversal.
+pub struct ReadZipperIter<'a, V>{
+    started: bool,
+    zipper: Option<ReadZipper<'a, V>>,
+}
+
+impl<'a, V: Clone> Iterator for ReadZipperIter<'a, V> {
+    type Item = (Vec<u8>, &'a V);
+
+    fn next(&mut self) -> Option<(Vec<u8>, &'a V)> {
+        if !self.started {
+            self.started = true;
+            if let Some(zipper) = &mut self.zipper {
+                if let Some(val) = zipper.get_value() {
+                    return Some((zipper.path().to_vec(), val))
+                }
+            }
+        }
+        if let Some(zipper) = &mut self.zipper {
+            match zipper.to_next_val() {
+                Some(val) => return Some((zipper.path().to_vec(), val)),
+                None => self.zipper = None
+            }
+        }
+        None
+    }
+}
 
 /// An Iterator returned by [into_child_iter](ReadZipper::into_child_iter) to iterate over the children from
 /// a branch of the trie
 ///
-/// NOTE: Does not descend recursively.  Use [into_iter](Zipper::into_iter) for a depth-first traversal
+/// NOTE: This type is a convenience to allow access to syntactic sugar like `for` loops,
+/// [collect](std::iter::Iterator::collect), etc.
+///
+/// NOTE: Does not descend recursively.  Use [into_iter](std::iter::IntoIterator::into_iter) for a depth-first
+/// traversal, or just use the [Zipper] methods directly.
 pub struct ReadZipperChildIter<'a, V>(Option<ReadZipper<'a, V>>);
 
 impl<V: Clone> Iterator for ReadZipperChildIter<'_, V> {
@@ -886,5 +925,10 @@ fn zipper_iter() {
     while let Some(&val) = sub_zipper.to_next_val() {
         // println!("{val}  {} = {}", std::str::from_utf8(sub_zipper.path()).unwrap(), std::str::from_utf8(&rs[val].as_bytes()[3..]).unwrap());
         assert_eq!(&rs[val].as_bytes()[3..], sub_zipper.path());
+    }
+
+    for (path, &val) in zipper {
+        // println!("{val}  {} = {}", std::str::from_utf8(&path).unwrap(), std::str::from_utf8(rs[val].as_bytes()).unwrap());
+        assert_eq!(rs[val].as_bytes(), path);
     }
 }
