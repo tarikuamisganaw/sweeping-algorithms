@@ -2,7 +2,7 @@
 pub mod ring;
 pub mod bytetrie;
 pub mod zipper;
-//GOAT: Make this a compile-time feature
+#[cfg(feature = "counters")]
 pub mod counters;
 
 mod dense_byte_node;
