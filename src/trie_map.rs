@@ -104,7 +104,12 @@ impl <V : Clone> BytesTrieMap<V> {
         zipper.is_value()
     }
 
-    //GOAT, next implement `contains_path`, to check if a path is contained within the map
+    /// Returns `true` if a path is contained within the map, or `false` otherwise
+    pub fn contains_path<K: AsRef<[u8]>>(&self, k: K) -> bool {
+        let k = k.as_ref();
+        let zipper = self.read_zipper_at_path(k);
+        zipper.path_exists()
+    }
 
     /// Inserts `v` at into the map at `k`.  Panics if `k` has a zero length
     pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
@@ -445,6 +450,17 @@ fn long_key_map_test() {
     assert_eq!(map.get("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789").unwrap(), &90);
 }
 
+#[test]
+fn map_contains_path_test() {
+    let mut btm = BytesTrieMap::new();
+    let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+    assert_eq!(btm.contains_path(b"can"), true);
+    assert_eq!(btm.contains_path(b"cannon"), true);
+    assert_eq!(btm.contains_path(b"cannonade"), false);
+    assert_eq!(btm.contains_path(b""), true);
+}
 
 //GOAT TODO LIST:
 // 2. Implement the "Entry" API, instead of `update`

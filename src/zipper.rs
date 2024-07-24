@@ -94,7 +94,8 @@ pub trait Zipper<'a> {
 
     /// Moves the zipper deeper into the tree, to the `key` specified relative to the current zipper focus
     ///
-    /// Returns `false` if the zipper does not point to an existing path within the tree
+    /// Returns `true` if the zipper points to an existing path within the tree, otherwise `false`.  The
+    /// zipper's location will be updated, regardless of whether or not the path exists within the tree.
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool;
 
     /// Descends the zipper's focus one step into a child branch uniquely identified by `child_idx`
@@ -142,6 +143,9 @@ pub trait Zipper<'a> {
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     fn fork_zipper(&self) -> ReadZipper<Self::V>;
+
+    /// Returns `true` if the zipper's focus is on a path within the trie, otherwise `false`
+    fn path_exists(&self) -> bool;
 
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
     fn is_value(&self) -> bool;
@@ -362,8 +366,17 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn fork_zipper(&self) -> ReadZipper<V> {
-        let new_root_val = None;//GOAT, set this to zipper val
+        let new_root_val = self.get_value();
         ReadZipper::new_with_node_and_path_internal(self.focus_node, self.node_key(), new_root_val)
+    }
+
+    fn path_exists(&self) -> bool {
+        let key = self.node_key();
+        if key.len() > 0 {
+            self.focus_node.node_contains_partial_key(key)
+        } else {
+            true
+        }
     }
 
     fn is_value(&self) -> bool {
