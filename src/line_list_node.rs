@@ -248,10 +248,11 @@ impl<V> LineListNode<V> {
     unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
         self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
     }
-    #[inline]
-    unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-        self.set_payload_1(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
-    }
+    //Currently unneeded.  May delete
+    // #[inline]
+    // unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
+    //     self.set_payload_1(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
+    // }
     /// Sets the payload and key for slot_0
     #[inline]
     unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {

@@ -159,9 +159,9 @@ const EXPECTED_PATH_LEN: usize = 64;
 
 /// A [Zipper] that is unable to modify the trie
 #[derive(Clone)]
-pub struct ReadZipper<'a, V> {
+pub struct ReadZipper<'a, 'k, V> {
     /// A reference to the part of the key within the root node that represents the zipper root
-    root_key: &'a [u8],
+    root_key: &'k [u8],
     /// A special-case to access a value at the root node, because that value would be otherwise inaccessible
     root_val: Option<&'a V>,
     /// A reference to the root node
@@ -174,7 +174,7 @@ pub struct ReadZipper<'a, V> {
     ancestors: Vec<&'a dyn TrieNode<V>>,
 }
 
-impl<'a, V: Clone> Zipper<'a> for ReadZipper<'a, V> {
+impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     type V = V;
 
     fn at_root(&self) -> bool {
@@ -385,9 +385,9 @@ impl<'a, V: Clone> Zipper<'a> for ReadZipper<'a, V> {
 
 }
 
-impl <'a, V : Clone> ReadZipper<'a, V> {
+impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
-    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'a [u8]) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8]) -> Self {
         let mut key = path;
         let mut node = root_node;
         let mut val = None;
@@ -414,7 +414,7 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a dyn TrieNode<V>, path: &'a [u8], root_val: Option<&'a V>) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a dyn TrieNode<V>, path: &'k [u8], root_val: Option<&'a V>) -> Self {
         Self {
             root_key: path,
             root_val,
@@ -508,9 +508,9 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     ///
     /// NOTE: This is mainly a convenience to allow the use of `collect` and `for` loops, as the other
     /// zipper methods can do the same thing without consuming the iterator
-    pub fn into_child_iter(mut self) -> impl Iterator<Item=u8> + 'a {
+    pub fn into_child_iter(mut self) -> ReadZipperChildIter<'a, 'k, V> {
         self.descend_indexed_child(0);
-        ReadZipperChildIter(Some(self))
+        ReadZipperChildIter::<'a, 'k, V>(Some(self))
     }
 
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
@@ -592,9 +592,9 @@ impl <'a, V : Clone> ReadZipper<'a, V> {
     }
 }
 
-impl<'a, V: Clone> std::iter::IntoIterator for ReadZipper<'a, V> {
+impl<'a, 'k, V: Clone> std::iter::IntoIterator for ReadZipper<'a, 'k, V> {
     type Item = (Vec<u8>, &'a V);
-    type IntoIter = ReadZipperIter<'a, V>;
+    type IntoIter = ReadZipperIter<'a, 'k, V>;
 
     fn into_iter(self) -> Self::IntoIter {
         ReadZipperIter {
@@ -608,12 +608,12 @@ impl<'a, V: Clone> std::iter::IntoIterator for ReadZipper<'a, V> {
 ///
 /// NOTE: This is a convenience to allow access to syntactic sugar like `for` loops, [collect](std::iter::Iterator::collect),
 ///  etc.  It will always be faster to use the zipper itself for iteration and traversal.
-pub struct ReadZipperIter<'a, V>{
+pub struct ReadZipperIter<'a, 'k, V>{
     started: bool,
-    zipper: Option<ReadZipper<'a, V>>,
+    zipper: Option<ReadZipper<'a, 'k, V>>,
 }
 
-impl<'a, V: Clone> Iterator for ReadZipperIter<'a, V> {
+impl<'a, 'k, V: Clone> Iterator for ReadZipperIter<'a, 'k, V> {
     type Item = (Vec<u8>, &'a V);
 
     fn next(&mut self) -> Option<(Vec<u8>, &'a V)> {
@@ -643,9 +643,9 @@ impl<'a, V: Clone> Iterator for ReadZipperIter<'a, V> {
 ///
 /// NOTE: Does not descend recursively.  Use [into_iter](std::iter::IntoIterator::into_iter) for a depth-first
 /// traversal, or just use the [Zipper] methods directly.
-pub struct ReadZipperChildIter<'a, V>(Option<ReadZipper<'a, V>>);
+pub struct ReadZipperChildIter<'a, 'k, V>(Option<ReadZipper<'a, 'k, V>>);
 
-impl<V: Clone> Iterator for ReadZipperChildIter<'_, V> {
+impl<'a, 'k, V: Clone> Iterator for ReadZipperChildIter<'a, 'k, V> {
     type Item = u8;
 
     fn next(&mut self) -> Option<u8> {

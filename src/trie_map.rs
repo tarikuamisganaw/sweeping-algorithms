@@ -4,6 +4,163 @@ use mutcursor::MutCursor;
 use crate::trie_node::*;
 use crate::zipper::*;
 
+/// A map type that uses byte slices `&[u8]` as keys
+///
+/// This type is implemented using some of the approaches explained in the
+/// ["Bitwise trie with bitmap" Wikipedia article](https://en.wikipedia.org/wiki/Bitwise_trie_with_bitmap).
+///
+/// ```
+/// # use ringmap::trie_map::BytesTrieMap;
+/// let mut map = BytesTrieMap::<String>::new();
+/// map.insert("one", "1".to_string());
+/// map.insert("two", "2".to_string());
+///
+/// assert!(map.contains("one"));
+/// assert_eq!(map.get("two"), Some(&"2".to_string()));
+/// assert!(!map.contains("three"));
+/// ```
+#[repr(transparent)]
+#[derive(Clone)]
+pub struct BytesTrieMap<V> {
+    pub(crate) root: TrieNodeODRc<V>
+}
+
+impl <V : Clone> BytesTrieMap<V> {
+    /// Creates a new empty map
+    pub fn new() -> Self {
+        #[cfg(feature = "all_dense_nodes")]
+        let root = TrieNodeODRc::new(crate::dense_byte_node::DenseByteNode::new());
+        #[cfg(not(feature = "all_dense_nodes"))]
+        let root = TrieNodeODRc::new(crate::line_list_node::LineListNode::new());
+        Self { root }
+    }
+
+    //GOAT, redo this as "at_path"
+    // //QUESTION: who is the intended user of this method?  This interface is fundamentally unsafe
+    // // because it exposes a mutable reference inside an immutable structure
+    // #[allow(invalid_reference_casting)] //TODO: Take this away when the QUESTION is answered
+    // pub(crate) fn at<K: AsRef<[u8]>>(&self, k: K) -> Option<&mut BytesTrieMap<V>> {
+    //     let k = k.as_ref();
+    //     let mut node = &self.root;
+
+    //     if k.len() > 1 {
+    //         for i in 0..k.len() - 1 {
+    //             match node.get(k[i]) {
+    //                 Some(cf) => {
+    //                     match cf.rec.as_ref() {
+    //                         Some(r) => { node = r }
+    //                         None => { return None }
+    //                     }
+    //                 }
+    //                 None => { return None }
+    //             }
+    //         }
+    //     }
+
+    //     node.get(k[k.len() - 1]).and_then(|cf| cf.rec.as_ref()).map(|subnode| 
+    //         //SAFETY: the type-cast should be ok, because BytesTrieMap<V> is a #[repr(transparent)]
+    //         // wrapper around ByteTrieNode<CoFree<V>>.
+    //         //WARNING.  The cast_mut() is actually UNSAFE!!  See QUESTION above
+    //         unsafe{ &mut *((&**subnode) as *const ByteTrieNode<CoFree<V>>).cast_mut().cast()  }
+    //     )
+    // }
+
+    /// Creates a new [ReadZipper](zipper::ReadZipper) starting at the root of a BytesTrieMap
+    pub fn read_zipper(&self) -> ReadZipper<V> {
+        ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], None)
+    }
+
+    /// Creates a new [ReadZipper](zipper::ReadZipper) starting at the root of a BytesTrieMap
+    pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
+        ReadZipper::new_with_node_and_path(self.root.borrow(), path.as_ref())
+    }
+
+    /// Returns an iterator over all key-value pairs within the map
+    ///
+    /// NOTE: This is much less efficient than using the [read_zipper](Self::read_zipper) method
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, &'a V)> + 'a {
+        self.read_zipper().into_iter()
+    }
+
+    /// Returns a [BytesTrieMapCursor] to traverse all key-value pairs within the map.  This is more efficient
+    /// than using [iter](Self::iter), but is not compatible with the [Iterator] trait
+    ///
+    /// WARNING: This API will be deprecated in favor of the [read_zipper](Self::read_zipper) method
+    pub fn cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
+        BytesTrieMapCursor::new(self)
+    }
+
+    /// Returns `true` if the map contains a value at the specified key, otherwise returns `false`
+    pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
+        let k = k.as_ref();
+
+        //NOTE: Here is the old impl traversing without the zipper.  The zipper version appears to be
+        // nearly the same perf.  All averages within 3% in both directions, and the zipper impl being
+        // faster as often as the native (non-zipper) version
+        // let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
+        // node.node_contains_val(remaining_key)
+
+        let zipper = self.read_zipper_at_path(k);
+        zipper.is_value()
+    }
+
+    //GOAT, next implement `contains_path`, to check if a path is contained within the map
+
+    /// Inserts `v` at into the map at `k`.  Panics if `k` has a zero length
+    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
+        let k = k.as_ref();
+        traverse_to_leaf_static_result(&mut self.root, k,
+        |node, remaining_key| node.node_set_val(remaining_key, v).map(|old_val| old_val.is_some()),
+        |_new_leaf_node, _remaining_key| false)
+    }
+
+    // pub fn remove(&mut self, k: u16) -> Option<V> {
+    //     let k1 = k as u8;
+    //     let k2 = (k >> 8) as u8;
+    //     match self.root.get(k1) {
+    //         Some(btn) => {
+    //             let btnr = unsafe { &mut **btn };
+    //             let r = btnr.remove(k2);
+    //             if btnr.len() == 0 {
+    //                 self.root.remove(k1);
+    //                 unsafe { dealloc(ptr::from_mut(btnr).cast(), Layout::new::<ByteTrieNode<V>>()); }
+    //             }
+    //             r
+    //         }
+    //         None => None
+    //     }
+    // }
+
+    pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
+        let k = k.as_ref();
+
+        traverse_to_leaf_mut(&mut self.root, k,
+        |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
+        |new_leaf_node, remaining_key| new_leaf_node.node_get_val_mut(remaining_key).unwrap())
+    }
+
+    /// Returns a reference to the value at the specified path
+    pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
+        let k = k.as_ref();
+
+        //NOTE: Here is the old impl traversing without the zipper.  The zipper version appears to be
+        // nearly the same perf.  All averages within 3% in both directions, and the zipper impl being
+        // faster as often as the native (non-zipper) version
+        // let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
+        // node.node_get_val(remaining_key)
+
+        let zipper = self.read_zipper_at_path(k);
+        zipper.get_value()
+    }
+
+    /// Returns the total number of items contained within the map
+    ///
+    /// WARNING: This is not a cheap method. It may have an order-N cost
+    pub fn len(&self) -> usize {
+        return self.root.borrow().node_subtree_len()
+    }
+}
+
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
 ///
@@ -69,151 +226,27 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
     }
 }
 
-/// A map type that uses byte slices `&[u8]` as keys
-///
-/// This type is implemented using some of the approaches explained in the
-/// ["Bitwise trie with bitmap" Wikipedia article](https://en.wikipedia.org/wiki/Bitwise_trie_with_bitmap).
-///
-/// ```
-/// # use ringmap::bytetrie::BytesTrieMap;
-/// let mut map = BytesTrieMap::<String>::new();
-/// map.insert("one", "1".to_string());
-/// map.insert("two", "2".to_string());
-///
-/// assert!(map.contains("one"));
-/// assert_eq!(map.get("two"), Some(&"2".to_string()));
-/// assert!(!map.contains("three"));
-/// ```
-#[repr(transparent)]
-#[derive(Clone)]
-pub struct BytesTrieMap<V> {
-    pub(crate) root: TrieNodeODRc<V>
-}
+// NOTE: The below function duplicates the functionality of the zipper, so it's deprecated and will be deleted
+// however it's kept for now to re-enable the old code path if that's needed for any reason.
+// #[inline]
+// pub(crate) fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a dyn TrieNode<V>, &'k [u8]) {
+//     let mut node = start_node;
 
-impl <V : Clone> BytesTrieMap<V> {
-    pub fn new() -> Self {
-        #[cfg(feature = "all_dense_nodes")]
-        let root = TrieNodeODRc::new(crate::dense_byte_node::DenseByteNode::new());
-        #[cfg(not(feature = "all_dense_nodes"))]
-        let root = TrieNodeODRc::new(crate::line_list_node::LineListNode::new());
-        Self { root }
-    }
+//     while let Some((consumed, next_node)) = node.node_get_child(key) {
+//         if key.len() > consumed {
+//             key = &key[consumed..];
+//             node = next_node;
+//         } else {
+//             break;
+//         }
+//     }
+//     (node, key)
+// }
 
-    //GOAT, redo this as "at_path"
-    // //QUESTION: who is the intended user of this method?  This interface is fundamentally unsafe
-    // // because it exposes a mutable reference inside an immutable structure
-    // #[allow(invalid_reference_casting)] //TODO: Take this away when the QUESTION is answered
-    // pub(crate) fn at<K: AsRef<[u8]>>(&self, k: K) -> Option<&mut BytesTrieMap<V>> {
-    //     let k = k.as_ref();
-    //     let mut node = &self.root;
-
-    //     if k.len() > 1 {
-    //         for i in 0..k.len() - 1 {
-    //             match node.get(k[i]) {
-    //                 Some(cf) => {
-    //                     match cf.rec.as_ref() {
-    //                         Some(r) => { node = r }
-    //                         None => { return None }
-    //                     }
-    //                 }
-    //                 None => { return None }
-    //             }
-    //         }
-    //     }
-
-    //     node.get(k[k.len() - 1]).and_then(|cf| cf.rec.as_ref()).map(|subnode| 
-    //         //SAFETY: the type-cast should be ok, because BytesTrieMap<V> is a #[repr(transparent)]
-    //         // wrapper around ByteTrieNode<CoFree<V>>.
-    //         //WARNING.  The cast_mut() is actually UNSAFE!!  See QUESTION above
-    //         unsafe{ &mut *((&**subnode) as *const ByteTrieNode<CoFree<V>>).cast_mut().cast()  }
-    //     )
-    // }
-
-    /// Creates a new [ReadZipper](zipper::ReadZipper) starting at the root of a BytesTrieMap
-    pub fn read_zipper(&self) -> ReadZipper<V> {
-        ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], None)
-    }
-
-    /// Returns an iterator over all key-value pairs within the map
-    ///
-    /// NOTE: This is much less efficient than using the [read_zipper](Self::read_zipper) method
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, &'a V)> + 'a {
-        self.read_zipper().into_iter()
-    }
-
-    /// Returns a [BytesTrieMapCursor] to traverse all key-value pairs within the map.  This is more efficient
-    /// than using [iter](Self::iter), but is not compatible with the [Iterator] trait
-    ///
-    /// WARNING: This API will be deprecated in favor of the [read_zipper](Self::read_zipper) method
-    pub fn cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
-        BytesTrieMapCursor::new(self)
-    }
-
-    pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
-        let k = k.as_ref();
-        let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
-        node.node_contains_val(remaining_key)
-    }
-
-    /// Inserts `v` at into the map at `k`.  Panics if `k` has a zero length
-    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
-        let k = k.as_ref();
-        traverse_to_leaf_static_result(&mut self.root, k,
-        |node, remaining_key| node.node_set_val(remaining_key, v).map(|old_val| old_val.is_some()),
-        |_new_leaf_node, _remaining_key| false)
-    }
-
-    // pub fn remove(&mut self, k: u16) -> Option<V> {
-    //     let k1 = k as u8;
-    //     let k2 = (k >> 8) as u8;
-    //     match self.root.get(k1) {
-    //         Some(btn) => {
-    //             let btnr = unsafe { &mut **btn };
-    //             let r = btnr.remove(k2);
-    //             if btnr.len() == 0 {
-    //                 self.root.remove(k1);
-    //                 unsafe { dealloc(ptr::from_mut(btnr).cast(), Layout::new::<ByteTrieNode<V>>()); }
-    //             }
-    //             r
-    //         }
-    //         None => None
-    //     }
-    // }
-
-    pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
-        let k = k.as_ref();
-
-        traverse_to_leaf_mut(&mut self.root, k,
-        |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
-        |new_leaf_node, remaining_key| new_leaf_node.node_get_val_mut(remaining_key).unwrap())
-    }
-
-    pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
-        let k = k.as_ref();
-        let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
-        node.node_get_val(remaining_key)
-    }
-
-    pub fn len(&self) -> usize {
-        return self.root.borrow().node_subtree_len()
-    }
-}
-
-#[inline]
-pub(crate) fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a dyn TrieNode<V>, &'k [u8]) {
-    let mut node = start_node;
-
-    while let Some((consumed, next_node)) = node.node_get_child(key) {
-        if key.len() > consumed {
-            key = &key[consumed..];
-            node = next_node;
-        } else {
-            break;
-        }
-    }
-    (node, key)
-}
-
+// NOTE: The below function is a simple version of `traverse_to_leaf_mut`, but it has un-useful semantics
+//  on account of the inability to alias mutable pointers, thus requiring the more complicated `traverse_to_leaf_mut`
+//  and `traverse_to_leaf_static_result` functions below
+//
 // #[inline]
 // fn traverse_to_leaf_mut<'a, 'k, V>(start_node: &'a mut dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a mut dyn TrieNode<V>, &'k [u8]) {
 //     let mut node = start_node;
