@@ -31,7 +31,6 @@ use std::fmt::{Debug, Formatter};
 //Conclusion: Need a massively multi-threaded benchmark to decide what to do with Rc / RcLite
 //
 
-use crate::bit_sibling;
 use crate::ring::*;
 use crate::bytetrie::*;
 use crate::line_list_node::{LineListNode, merge_into_dense_node};
@@ -690,6 +689,25 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
 }
 
+/// returns the position of the next/previous active bit in x
+/// if there is no next/previous bit, returns the argument position
+/// assumes that pos is active in x
+pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
+    debug_assert_ne!((1u64 << pos) & x, 0);
+    if next {
+        if pos == 0 { return 0 } // resolves overflow in shift
+        let succ = !0u64 >> (64 - pos);
+        let m = x & succ;
+        if m == 0u64 { pos }
+        else { (63 - m.leading_zeros()) as u8 }
+    } else {
+        let prec = !(!0u64 >> (63 - pos));
+        let m = x & prec;
+        if m == 0u64 { pos }
+        else { m.trailing_zeros() as u8 }
+    }
+}
+
 #[derive(Default, Clone)]
 struct CoFree<V> {
     pub(crate) rec: Option<TrieNodeODRc<V>>,
@@ -989,6 +1007,28 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
         if r.len() == 0 { return None }
         else { return Some(r) }
     }
+}
+
+#[test]
+fn bit_siblings() {
+    let x = 0b0000000000000000000000000000000000000100001001100000000000000010u64;
+    let i = 0b0000000000000000000000000000000000000000000001000000000000000000u64;
+    let p = 0b0000000000000000000000000000000000000000001000000000000000000000u64;
+    let n = 0b0000000000000000000000000000000000000000000000100000000000000000u64;
+    let f = 0b0000000000000000000000000000000000000100000000000000000000000000u64;
+    let l = 0b0000000000000000000000000000000000000000000000000000000000000010u64;
+    let bit_i = 18;
+    let bit_i_onehot = 1u64 << bit_i;
+    assert_eq!(i, bit_i_onehot);
+    assert_ne!(bit_i_onehot & x, 0);
+    assert_eq!(p, 1u64 << bit_sibling(bit_i, x, false));
+    assert_eq!(n, 1u64 << bit_sibling(bit_i, x, true));
+    assert_eq!(f, 1u64 << bit_sibling(f.trailing_zeros() as u8, x, false));
+    assert_eq!(l, 1u64 << bit_sibling(l.trailing_zeros() as u8, x, true));
+    assert_eq!(0, bit_sibling(0, 1, false));
+    assert_eq!(0, bit_sibling(0, 1, true));
+    assert_eq!(63, bit_sibling(63, 1u64 << 63, false));
+    assert_eq!(63, bit_sibling(63, 1u64 << 63, true));
 }
 
 // //GOAT, this is total trash
