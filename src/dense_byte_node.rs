@@ -427,7 +427,12 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     //     self.contains(key[0])
     // }
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
-        self.contains(key[0])
+        debug_assert!(key.len() > 0);
+        if key.len() == 1 {
+            self.contains(key[0])
+        } else {
+            false
+        }
     }
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         self.get(key[0]).and_then(|cf|

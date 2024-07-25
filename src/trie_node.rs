@@ -15,6 +15,9 @@ pub(crate) trait TrieNode<V>: DynClone {
 
     /// Returns `true` if the node contains a key that begins with `key`, irrespective of whether the key
     /// specifies a child, value, or both
+    ///
+    /// This method should never be called with a zero-length key.  If the `key` arg is longer than the
+    /// keys contained within the node, this method should return `false`
     fn node_contains_partial_key(&self, key: &[u8]) -> bool;
 
     /// Returns the child node that matches `key` along with the number of `key` characters matched.
