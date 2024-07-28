@@ -669,8 +669,30 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         None
     }
-    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
-        self.get_child_mut(key).map(|(consumed_bytes, child)| (consumed_bytes, child.make_mut()))
+    fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> {
+        let self_ptr: *mut Self = self;
+        if let Some((consumed_bytes, child)) = self.get_child_mut(key) {
+            // SAFETY: We know the value and the child will be in different non-overlapping parts of the node,
+            // so it will be safe to mutably borrow them both at the same time.
+            let self_clone = unsafe{ &mut *self_ptr };
+            if let Some(val) = self_clone.get_val_mut(&key[..consumed_bytes]) {
+                Some((consumed_bytes, Some(val), Some(child)))
+            } else {
+                Some((consumed_bytes, None, Some(child)))
+            }
+        } else {
+            // SAFETY: In addition to the point above about the value not overlapping the child ptr, we also
+            // drop the previous borrow so this unsafe would be unnecessary under Polonius
+            let self_clone = unsafe{ &mut *self_ptr };
+            if let Some(val) = self_clone.get_val_mut(key) {
+                Some((key.len(), Some(val), None))
+            } else {
+                None
+            }
+        }
+    }
+    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
+        self.get_child_mut(key)
     }
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         let (consumed_bytes, child_node) = self.get_child_mut(key).unwrap();
@@ -793,6 +815,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         Err(TrieNodeODRc::new(replacement_node))
     }
 
+    //GOAT-Deprecated-Update
     fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>> {
         panic!()
     }

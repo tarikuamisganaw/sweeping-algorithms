@@ -23,6 +23,8 @@
 
 use crate::trie_node::TrieNode;
 
+pub use crate::write_zipper::*;
+
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 //GOAT, Adam's experiments.  Avoiding deletion in case they're still needed
 //==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
@@ -134,13 +136,6 @@ pub trait Zipper<'a> {
     /// operation, but the relative relationship between siblings is not stable and should not be stored.
     fn to_sibling(&mut self, next: bool) -> bool;
 
-    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
-    /// order.  Returns a reference to the value
-    ///
-    /// WARNING: sibling order may not be relied upon across across modifications to the trie or successive
-    /// runs of the program.
-    fn to_next_val(&mut self) -> Option<&'a Self::V>;
-
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     fn fork_zipper(&self) -> ReadZipper<Self::V>;
 
@@ -150,16 +145,13 @@ pub trait Zipper<'a> {
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
     fn is_value(&self) -> bool;
 
-    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
-    fn get_value(&self) -> Option<&'a Self::V>;
-
 }
 
 /// Size of node stack to preallocate in the zipper
-const EXPECTED_DEPTH: usize = 16;
+pub(crate) const EXPECTED_DEPTH: usize = 16;
 
 /// Size in bytes to preallocate path storage in the zipper
-const EXPECTED_PATH_LEN: usize = 64;
+pub(crate) const EXPECTED_PATH_LEN: usize = 64;
 
 /// A [Zipper] that is unable to modify the trie
 #[derive(Clone)]
@@ -308,31 +300,6 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         }
     }
 
-    fn to_next_val(&mut self) -> Option<&'a V> {
-        loop {
-            //If we're at a leaf ascend and jump to the next sibling
-            if self.focus_node.is_leaf(self.node_key()) {
-                //We can stop ascending when we succeed in moving to a sibling
-                while !self.to_sibling(true) {
-                    if !self.ascend_jump() {
-                        return None;
-                    }
-                }
-            } else {
-                //We're at a branch, so descend
-                self.descend_first();
-            }
-
-            //If there is a value here, return it
-            //UGH! Polonius!! We need you!!!  We know this is safe because we either return the result,
-            // and hence no future use, or `get_value()` returns None, so we drop the borrow
-            let self_ptr: *const Self = self;
-            if let Some(val) = unsafe{ &*self_ptr }.get_value() {
-                return Some(val);
-            }
-        }
-    }
-
     fn ascend(&mut self, mut steps: usize) -> bool {
         while steps > 0 {
             if self.excess_key_len() == 0 {
@@ -382,20 +349,6 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     fn is_value(&self) -> bool {
         self.is_value_internal()
     }
-
-    fn get_value(&self) -> Option<&'a V> {
-        let key = self.node_key();
-        if key.len() > 0 {
-            self.focus_node.node_get_val(key)
-        } else {
-            if let Some(parent) = self.ancestors.last() {
-                parent.node_get_val(self.parent_key())
-            } else {
-                self.root_val.clone() //Just clone the ref, not the value itself
-            }
-        }
-    }
-
 }
 
 impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
@@ -435,6 +388,50 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             prefix_buf: vec![],
             prefix_idx: vec![],
             ancestors: vec![],
+        }
+    }
+
+    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
+    pub fn get_value(&self) -> Option<&'a V> {
+        let key = self.node_key();
+        if key.len() > 0 {
+            self.focus_node.node_get_val(key)
+        } else {
+            if let Some(parent) = self.ancestors.last() {
+                parent.node_get_val(self.parent_key())
+            } else {
+                self.root_val.clone() //Just clone the ref, not the value itself
+            }
+        }
+    }
+
+    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
+    /// order.  Returns a reference to the value
+    ///
+    /// WARNING: sibling order may not be relied upon across across modifications to the trie or successive
+    /// runs of the program.
+    pub fn to_next_val(&mut self) -> Option<&'a V> {
+        loop {
+            //If we're at a leaf ascend and jump to the next sibling
+            if self.focus_node.is_leaf(self.node_key()) {
+                //We can stop ascending when we succeed in moving to a sibling
+                while !self.to_sibling(true) {
+                    if !self.ascend_jump() {
+                        return None;
+                    }
+                }
+            } else {
+                //We're at a branch, so descend
+                self.descend_first();
+            }
+
+            //If there is a value here, return it
+            //UGH! Polonius!! We need you!!!  We know this is safe because we either return the result,
+            // and hence no future use, or `get_value()` returns None, so we drop the borrow
+            let self_ptr: *const Self = self;
+            if let Some(val) = unsafe{ &*self_ptr }.get_value() {
+                return Some(val);
+            }
         }
     }
 

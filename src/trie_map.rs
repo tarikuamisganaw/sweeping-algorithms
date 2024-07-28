@@ -70,9 +70,19 @@ impl <V : Clone> BytesTrieMap<V> {
         ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], None)
     }
 
-    /// Creates a new [ReadZipper](zipper::ReadZipper) starting at the root of a BytesTrieMap
+    /// Creates a new [ReadZipper](zipper::ReadZipper) with the specified path from the root of the map
     pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
         ReadZipper::new_with_node_and_path(self.root.borrow(), path.as_ref())
+    }
+
+    /// Creates a new [WriteZipper](zipper::WriteZipper) starting at the root of a BytesTrieMap
+    pub fn write_zipper(&mut self) -> WriteZipper<V> {
+        WriteZipper::new_with_node_and_path_internal(&mut self.root, &[], None)
+    }
+
+    /// Creates a new [WriteZipper](zipper::WriteZipper) with the specified path from the root of the map
+    pub fn write_zipper_at_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
+        WriteZipper::new_with_node_and_path(&mut self.root, path.as_ref())
     }
 
     /// Returns an iterator over all key-value pairs within the map
@@ -111,13 +121,25 @@ impl <V : Clone> BytesTrieMap<V> {
         zipper.path_exists()
     }
 
-    /// Inserts `v` at into the map at `k`.  Panics if `k` has a zero length
-    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> bool {
+    /// Inserts `v` into the map at `k`.  Panics if `k` has a zero length
+    ///
+    /// Returns `Some(replaced_val)` if an existing value was replaced, otherwise returns `None` if
+    /// the value was added to the map without replacing anything.
+    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> Option<V> {
         let k = k.as_ref();
-        traverse_to_leaf_static_result(&mut self.root, k,
-        |node, remaining_key| node.node_set_val(remaining_key, v).map(|old_val| old_val.is_some()),
-        |_new_leaf_node, _remaining_key| false)
+
+        //NOTE: Here is the old impl traversing without the zipper.  Kept here for benchmarking purposes
+        // However, the zipper version is basically identical performance, within the margin of error 
+        // traverse_to_leaf_static_result(&mut self.root, k,
+        // |node, remaining_key| node.node_set_val(remaining_key, v),
+        // |_new_leaf_node, _remaining_key| None)
+
+        let mut zipper = self.write_zipper_at_path(k);
+        zipper.set_value(v)
     }
+
+    //GOAT, make a separate `join_with` that is similar to `insert` except replaces V with a merged V rather
+    // than replacing it
 
     // pub fn remove(&mut self, k: u16) -> Option<V> {
     //     let k1 = k as u8;
@@ -136,6 +158,7 @@ impl <V : Clone> BytesTrieMap<V> {
     //     }
     // }
 
+    //GOAT-Deprecated-Update
     pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
         let k = k.as_ref();
 
@@ -286,16 +309,17 @@ fn traverse_to_leaf_mut<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieN
     let mut parent_key: &[u8] = &[];
     loop {
         if !node.advance(|node| {
-            match node.node_get_child_mut(key) {
-                Some((consumed, next_node)) => {
+            match node.node_get_child_and_val_mut(key) {
+                Some((consumed, _, Some(next_node))) => {
                     if key.len() > consumed {
                         parent_key = &key[..consumed];
                         key = &key[consumed..];
-                        Some(next_node)
+                        Some(next_node.make_mut())
                     } else {
                         None
                     }
                 },
+                Some((_, _, None)) => None,
                 None => None
             }
         }) {
@@ -337,16 +361,17 @@ fn traverse_to_leaf_static_result<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a
     let mut parent_key: &[u8] = &[];
     loop {
         if !node.advance(|node| {
-            match node.node_get_child_mut(key) {
-                Some((consumed, next_node)) => {
+            match node.node_get_child_and_val_mut(key) {
+                Some((consumed, _, Some(next_node))) => {
                     if key.len() > consumed {
                         parent_key = &key[..consumed];
                         key = &key[consumed..];
-                        Some(next_node)
+                        Some(next_node.make_mut())
                     } else {
                         None
                     }
                 },
+                Some((_, _, None)) => None,
                 None => None
             }
         }) {
@@ -462,7 +487,16 @@ fn map_contains_path_test() {
     assert_eq!(btm.contains_path(b""), true);
 }
 
+#[test]
+fn map_update_test() {
+    let mut btm = BytesTrieMap::new();
+    let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+    // let zipper = btm.write_zipper_at_path(b"cannon");
+    //GOAT, need the `path_exists`, `get_mut`, and `insert` calls and an `get_mut_with_default` convenience
+}
+
 //GOAT TODO LIST:
-// 2. Implement the "Entry" API, instead of `update`
 // 3. Re-enable "at_path" API
 // 4. Other ops: "join_all"??, "restrict"??, ??

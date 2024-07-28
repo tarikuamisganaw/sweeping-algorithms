@@ -14,6 +14,7 @@ pub mod zipper;
 pub mod counters;
 
 mod trie_node;
+mod write_zipper;
 mod dense_byte_node;
 mod line_list_node;
 mod empty_node;

@@ -24,8 +24,17 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// Returns `None` if no child node matches the key, even if there is a value with that prefix
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)>;
 
+    /// Similar behavior to `node_get_child`, but operates across a mutable reference and returns both the 
+    /// value and onward link associated with a given path
+    ///
+    /// Unlike `node_get_child`, if the key matches a value but not an onward link, this method will return
+    /// `Some(byte_cnt, Some(val), None)`
+    fn node_get_child_and_val_mut<'a>(&'a mut self, key: &[u8]) -> Option<(usize, Option<&'a mut V>, Option<&'a mut TrieNodeODRc<V>>)>;
+
+    //GOAT, I don't think we need this function below since it's used to walk a mutable ref into the tree,
+    // but we almost always want a value at the same time, hence node_get_child_and_val_mut
     /// Same behavior as `node_get_child`, but operates across a mutable reference
-    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)>;
+    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
 
     /// Replaces a child-node at `key` with the node provided, returning a `&mut` reference to the newly
     /// added child node
@@ -45,7 +54,7 @@ pub(crate) trait TrieNode<V>: DynClone {
     ///
     /// NOTE: this method will return `None` if key is longer than the exact key contained within this
     /// node, even if there is a valid value at the leading subset of `key`
-    fn node_get_val(&self, key: &[u8]) -> Option<&V>;
+    fn node_get_val<'a>(&'a self, key: &[u8]) -> Option<&'a V>;
 
     /// Mutable version of [node_get_val]
     fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
@@ -57,6 +66,7 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>>;
 
+    //GOAT-Deprecated-Update  deprecating `update` interface in favor of WriteZipper
     /// Returns a mutable reference to the value, creating it using `default_f` if it doesn't already
     /// exist
     ///

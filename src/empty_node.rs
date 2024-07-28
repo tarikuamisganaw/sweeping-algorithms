@@ -26,7 +26,10 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn node_get_child(&self, _key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         None
     }
-    fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
+    fn node_get_child_and_val_mut(&mut self, _key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> {
+        None
+    }
+    fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         None
     }
     fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
@@ -46,6 +49,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
         Err(TrieNodeODRc::new(replacement_node))
     }
+    //GOAT-Deprecated-Update delete this, once we have WriteZipper doing everything update did
     fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
         let mut replacement_node = LineListNode::new();
         replacement_node.node_update_val(key, default_f).unwrap_or_else(|_| panic!());

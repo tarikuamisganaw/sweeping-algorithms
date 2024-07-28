@@ -441,10 +441,19 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             })
         )
     }
-    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut dyn TrieNode<V>)> {
+    fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> {
+        self.get_mut(key[0]).and_then(|cf|
+            if cf.rec.is_some() || cf.value.is_some() {
+                Some((1, cf.value.as_mut(), cf.rec.as_mut()))
+            } else {
+                None
+            }
+        )
+    }
+    fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         self.get_mut(key[0]).and_then(|cf|
             cf.rec.as_mut().map(|child_node_ptr| {
-                (1, child_node_ptr.make_mut())
+                (1, child_node_ptr)
             })
         )
     }
@@ -504,6 +513,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             Ok(cur.set_val(key[key.len()-1], val))
         }
     }
+    //GOAT-Deprecated-Update, delete this once we have the WriteZipper doing everything `Update` did
     fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
 
         //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
