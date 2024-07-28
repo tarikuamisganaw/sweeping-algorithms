@@ -44,18 +44,19 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
             }
         }
     }
-    fn join_into(&mut self, other: Self) {
-        match self {
-            None => { match other {
-                None => { }
-                Some(r) => { *self = Some(r) }
-            } }
-            Some(l) => match other {
-                None => { }
-                Some(r) => { l.join_into(r) }
-            }
-        }
-    }
+    //GOAT-Deprecated-JoinInto
+    // fn join_into(&mut self, other: Self) {
+    //     match self {
+    //         None => { match other {
+    //             None => { }
+    //             Some(r) => { *self = Some(r) }
+    //         } }
+    //         Some(l) => match other {
+    //             None => { }
+    //             Some(r) => { l.join_into(r) }
+    //         }
+    //     }
+    // }
     fn meet(&self, other: &Option<V>) -> Option<V> {
         match self {
             None => { None }

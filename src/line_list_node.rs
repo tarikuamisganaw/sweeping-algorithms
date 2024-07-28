@@ -816,9 +816,9 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     //GOAT-Deprecated-Update
-    fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>> {
-        panic!()
-    }
+    // fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>> {
+    //     panic!()
+    // }
 
     fn node_is_empty(&self) -> bool {
         !self.is_used::<0>()
@@ -1181,9 +1181,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
-    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice {
-        panic!()
-    }
+    //GOAT-Deprecated-JoinInto
+    // fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice {
+    //     panic!()
+    // }
 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!()

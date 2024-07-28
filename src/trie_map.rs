@@ -1,6 +1,4 @@
 
-use mutcursor::MutCursor;
-
 use crate::trie_node::*;
 use crate::zipper::*;
 
@@ -159,13 +157,13 @@ impl <V : Clone> BytesTrieMap<V> {
     // }
 
     //GOAT-Deprecated-Update
-    pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
-        let k = k.as_ref();
+    // pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
+    //     let k = k.as_ref();
 
-        traverse_to_leaf_mut(&mut self.root, k,
-        |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
-        |new_leaf_node, remaining_key| new_leaf_node.node_get_val_mut(remaining_key).unwrap())
-    }
+    //     traverse_to_leaf_mut(&mut self.root, k,
+    //     |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
+    //     |new_leaf_node, remaining_key| new_leaf_node.node_get_val_mut(remaining_key).unwrap())
+    // }
 
     /// Returns a reference to the value at the specified path
     pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
@@ -271,126 +269,105 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
 //     (node, key)
 // }
 
-// NOTE: The below function is a simple version of `traverse_to_leaf_mut`, but it has un-useful semantics
-//  on account of the inability to alias mutable pointers, thus requiring the more complicated `traverse_to_leaf_mut`
-//  and `traverse_to_leaf_static_result` functions below
-//
+// NOTE: the below function deuplicates the functionality of the WriteZipper, so it will be deleted.  It's kept
+// for now to re-enable the old code paths for benchmarking, or any other reason
+// use mutcursor::MutCursor;
 // #[inline]
-// fn traverse_to_leaf_mut<'a, 'k, V>(start_node: &'a mut dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a mut dyn TrieNode<V>, &'k [u8]) {
-//     let mut node = start_node;
+// fn traverse_to_leaf_mut<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> &'a mut R
+//     where
+//     NodeF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> Result<&'f mut R, TrieNodeODRc<V>>,
+//     RetryF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> &'f mut R,
+// {
+//     //TODO: Get rid of this `start_node_ptr` under polonius
+//     let start_node_ptr = start_node as *mut TrieNodeODRc<V>;
+//     let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
 
-//     let mut node_ptr = node as *mut dyn TrieNode<V>;
-//     while let Some((consumed, next_node)) = node.node_get_child_mut(key) {
-//         if key.len() > consumed {
-//             key = &key[consumed..];
-//             node = next_node;
-//             node_ptr = node as *mut dyn TrieNode<V>;
-//         } else {
+//     //Traverse until we find a leaf
+//     let mut parent_key: &[u8] = &[];
+//     loop {
+//         if !node.advance(|node| {
+//             match node.node_get_child_mut(key) {
+//                 Some((consumed, next_node)) => {
+//                     if key.len() > consumed {
+//                         parent_key = &key[..consumed];
+//                         key = &key[consumed..];
+//                         Some(next_node.make_mut())
+//                     } else {
+//                         None
+//                     }
+//                 },
+//                 None => None
+//             }
+//         }) {
 //             break;
 //         }
 //     }
 
-//     //SAFETY: node_ptr is a work-around for lack of Polonius.  Remove node_ptr and just use node itself in Rust 2024
-//     let node = unsafe{ &mut *node_ptr }; 
-//     (node, key)
+//     match node.try_map_into_mut(|top_ref| {
+//         node_f(top_ref, key)
+//     }) {
+//         Ok(result) => result,
+//         Err((mut node, err_node)) => {
+//             if node.depth() > 0 {
+//                 node.backtrack();
+//                 let leaf_node = node.into_mut().node_replace_child(parent_key, err_node);
+//                 retry_f(leaf_node, key)
+//             } else {
+//                 //Safety: Under Polonius, this is fine.
+//                 let start_node = unsafe{ &mut *start_node_ptr };
+//                 *start_node = err_node;
+//                 retry_f(start_node.make_mut(), key)
+//             }
+//         }
+//     }
 // }
 
-#[inline]
-fn traverse_to_leaf_mut<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> &'a mut R
-    where
-    NodeF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> Result<&'f mut R, TrieNodeODRc<V>>,
-    RetryF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> &'f mut R,
-{
-    //TODO: Get rid of this `start_node_ptr` under polonius
-    let start_node_ptr = start_node as *mut TrieNodeODRc<V>;
-    let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
+// /// This is an ugly duplication of the logic in [Self::traverse_to_leaf_mut].  The reason is a limitation in
+// /// the generic system's inability to differentiate a mutable lifetime from a borrowed lifetime.  Duplicating
+// /// the logic is the least-bad option for now.  See response from Quinedot in thread: https://users.rust-lang.org/t/lifetimes-on-closure-bounds-to-end-mutable-borrow/113575/3
+// #[inline]
+// fn traverse_to_leaf_static_result<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> R
+//     where
+//     NodeF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> Result<R, TrieNodeODRc<V>>,
+//     RetryF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> R,
+// {
+//     let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
 
-    //Traverse until we find a leaf
-    let mut parent_key: &[u8] = &[];
-    loop {
-        if !node.advance(|node| {
-            match node.node_get_child_mut(key) {
-                Some((consumed, next_node)) => {
-                    if key.len() > consumed {
-                        parent_key = &key[..consumed];
-                        key = &key[consumed..];
-                        Some(next_node.make_mut())
-                    } else {
-                        None
-                    }
-                },
-                None => None
-            }
-        }) {
-            break;
-        }
-    }
+//     //Traverse until we find a leaf
+//     let mut parent_key: &[u8] = &[];
+//     loop {
+//         if !node.advance(|node| {
+//             match node.node_get_child_mut(key) {
+//                 Some((consumed, next_node)) => {
+//                     if key.len() > consumed {
+//                         parent_key = &key[..consumed];
+//                         key = &key[consumed..];
+//                         Some(next_node.make_mut())
+//                     } else {
+//                         None
+//                     }
+//                 },
+//                 None => None
+//             }
+//         }) {
+//             break;
+//         }
+//     }
 
-    match node.try_map_into_mut(|top_ref| {
-        node_f(top_ref, key)
-    }) {
-        Ok(result) => result,
-        Err((mut node, err_node)) => {
-            if node.depth() > 0 {
-                node.backtrack();
-                let leaf_node = node.into_mut().node_replace_child(parent_key, err_node);
-                retry_f(leaf_node, key)
-            } else {
-                //Safety: Under Polonius, this is fine.
-                let start_node = unsafe{ &mut *start_node_ptr };
-                *start_node = err_node;
-                retry_f(start_node.make_mut(), key)
-            }
-        }
-    }
-}
-
-/// This is an ugly duplication of the logic in [Self::traverse_to_leaf_mut].  The reason is a limitation in
-/// the generic system's inability to differentiate a mutable lifetime from a borrowed lifetime.  Duplicating
-/// the logic is the least-bad option for now.  See response from Quinedot in thread: https://users.rust-lang.org/t/lifetimes-on-closure-bounds-to-end-mutable-borrow/113575/3
-#[inline]
-fn traverse_to_leaf_static_result<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> R
-    where
-    NodeF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> Result<R, TrieNodeODRc<V>>,
-    RetryF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> R,
-{
-    let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
-
-    //Traverse until we find a leaf
-    let mut parent_key: &[u8] = &[];
-    loop {
-        if !node.advance(|node| {
-            match node.node_get_child_mut(key) {
-                Some((consumed, next_node)) => {
-                    if key.len() > consumed {
-                        parent_key = &key[..consumed];
-                        key = &key[consumed..];
-                        Some(next_node.make_mut())
-                    } else {
-                        None
-                    }
-                },
-                None => None
-            }
-        }) {
-            break;
-        }
-    }
-
-    match node_f(node.top_mut(), key) {
-        Ok(result) => result,
-        Err(err_node) => {
-            if node.depth() > 0 {
-                node.backtrack();
-                let leaf_node = node.top_mut().node_replace_child(parent_key, err_node);
-                retry_f(leaf_node, key)
-            } else {
-                *start_node = err_node;
-                retry_f(start_node.make_mut(), key)
-            }
-        }
-    }
-}
+//     match node_f(node.top_mut(), key) {
+//         Ok(result) => result,
+//         Err(err_node) => {
+//             if node.depth() > 0 {
+//                 node.backtrack();
+//                 let leaf_node = node.top_mut().node_replace_child(parent_key, err_node);
+//                 retry_f(leaf_node, key)
+//             } else {
+//                 *start_node = err_node;
+//                 retry_f(start_node.make_mut(), key)
+//             }
+//         }
+//     }
+// }
 
 impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
     fn from_iter<I: IntoIterator<Item=(K, V)>>(iter: I) -> Self {
