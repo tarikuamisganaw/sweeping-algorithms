@@ -7,13 +7,6 @@ use crate::zipper::*;
 /// A [Zipper] for editing and adding paths and values in the trie
 pub struct WriteZipper<'a, 'k, V> {
     key: KeyFields<'k>,
-    /// A special-case to access a value at the root node, because that value would be otherwise inaccessible
-//UGH!!! GOAT.  This special case has a fatal problem!  Some nodes above the zipper don't have a place to
-// store the root value.  And also they don't store it as an Option<V> even if there is a place allocated.
-// But we want the zipper to be able to set the value at its root.  I think the solution here is that we relax
-// the prohibition against zero-length keys for values in the abstract node interface, and then remove this
-// root_val field altogether.  This means we can probably also remove the `node_get_child_and_val_mut` interface
-    root_val: Option<&'a mut V>,
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
     focus_stack: MutCursorRootedVec<'a, TrieNodeODRc<V>, dyn TrieNode<V>>,
 }
@@ -104,14 +97,11 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> Self {
         let mut key = path;
         let mut node = root_node;
-        let mut val = None;
 
         //Step until we get to the end of the key or find a leaf node
         let mut node_ptr: *mut TrieNodeODRc<V> = node; //Work-around for lack of polonius
         if key.len() > 0 {
-            //GOAT, if we continue with the path to remove the `root_val` field from the WriteZipper, then
-            // we can get away with calling node_get_child() instead of node_get_child_and_val_mut()
-            while let Some((consumed_byte_cnt, node_val, Some(next_node))) = node.make_mut().node_get_child_and_val_mut(key) {
+            while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_get_child_mut(key) {
                 if consumed_byte_cnt < key.len() {
                     node = next_node;
                     node_ptr = node;
@@ -123,11 +113,6 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
                     //     break;
                     // }
                 } else {
-                    //GOAT, stop before we get to the end.  Delete this when we remove the root_val field from the WriteZipper
-                    // val = node_val;
-                    // node = next_node;
-                    // node_ptr = node;
-                    // key = &[];
                     break;
                 };
             }
@@ -136,19 +121,18 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         //SAFETY: Pononius is ok with this code.  All mutable borrows of the current version of the
         //  `node` &mut ref have ended by this point
         node = unsafe{ &mut *node_ptr };
-        Self::new_with_node_and_path_internal(node, key, val)
+        Self::new_with_node_and_path_internal(node, key)
     }
     /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
     /// the node
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], root_val: Option<&'a mut V>) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(root_node);
         focus_stack.advance_from_root(|root| Some(root.make_mut()));
         Self {
             key: KeyFields::new(path),
-            root_val,
             focus_stack,
         }
     }

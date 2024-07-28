@@ -77,7 +77,7 @@ impl <V : Clone> BytesTrieMap<V> {
 
     /// Creates a new [WriteZipper](zipper::WriteZipper) starting at the root of a BytesTrieMap
     pub fn write_zipper(&mut self) -> WriteZipper<V> {
-        WriteZipper::new_with_node_and_path_internal(&mut self.root, &[], None)
+        WriteZipper::new_with_node_and_path_internal(&mut self.root, &[])
     }
 
     /// Creates a new [WriteZipper](zipper::WriteZipper) with the specified path from the root of the map
@@ -309,8 +309,8 @@ fn traverse_to_leaf_mut<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieN
     let mut parent_key: &[u8] = &[];
     loop {
         if !node.advance(|node| {
-            match node.node_get_child_and_val_mut(key) {
-                Some((consumed, _, Some(next_node))) => {
+            match node.node_get_child_mut(key) {
+                Some((consumed, next_node)) => {
                     if key.len() > consumed {
                         parent_key = &key[..consumed];
                         key = &key[consumed..];
@@ -319,7 +319,6 @@ fn traverse_to_leaf_mut<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieN
                         None
                     }
                 },
-                Some((_, _, None)) => None,
                 None => None
             }
         }) {
@@ -361,8 +360,8 @@ fn traverse_to_leaf_static_result<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a
     let mut parent_key: &[u8] = &[];
     loop {
         if !node.advance(|node| {
-            match node.node_get_child_and_val_mut(key) {
-                Some((consumed, _, Some(next_node))) => {
+            match node.node_get_child_mut(key) {
+                Some((consumed, next_node)) => {
                     if key.len() > consumed {
                         parent_key = &key[..consumed];
                         key = &key[consumed..];
@@ -371,7 +370,6 @@ fn traverse_to_leaf_static_result<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a
                         None
                     }
                 },
-                Some((_, _, None)) => None,
                 None => None
             }
         }) {
