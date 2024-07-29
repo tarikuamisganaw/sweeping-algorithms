@@ -699,9 +699,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         Some(self)
     }
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        Some(self)
-    }
     fn as_list(&self) -> Option<&LineListNode<V>> {
         None
     }

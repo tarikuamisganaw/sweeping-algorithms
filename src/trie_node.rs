@@ -196,9 +196,6 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// makes sense to define a type enum
     fn as_dense(&self) -> Option<&DenseByteNode<V>>;
 
-    /// Returns a mutable reference to the node as a specific concrete type or None if it is not that type
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
-
     /// Returns a reference to the node as a specific concrete type or None if it is not that type
     fn as_list(&self) -> Option<&LineListNode<V>>;
 
