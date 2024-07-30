@@ -95,6 +95,7 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// Returns the total number of leaves contained within the whole subtree defined by the node
     fn node_subtree_len(&self) -> usize;
 
+    #[cfg(feature = "counters")]
     /// Returns the number of internal paths within the node.  That includes child nodes descending from
     /// the node as well as values; in the case where a child node and a value have the same internal path
     /// it will be counted as one item

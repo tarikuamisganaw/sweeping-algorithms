@@ -574,12 +574,20 @@ impl<V> LineListNode<V> {
         }
         (key0, key1)
     }
+    #[cfg(feature = "counters")]
     #[inline]
     fn count(&self) -> usize {
         match (self.is_used::<0>(), self.is_used::<1>()) {
             (true, false) => 1,
             (false, false) => 0,
-            (true, true) => 2,
+            (true, true) => {
+                let (key0, key1) = self.get_both_keys();
+                if key0 == key1 {
+                    1
+                } else {
+                    2
+                }
+            },
             (false, true) => unreachable!(),
         }
     }
@@ -924,11 +932,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_subtree_len(&self) -> usize {
         panic!()
     }
-
+    #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
         self.count()
     }
-
     fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
 
         //If `n==1` we know the only way we will find a valid result is if it's in slot_1.  On the other
@@ -1058,41 +1065,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
         //Case 6
         (None, None)
-
-
-        //GOAT Old buggy implementation.  Will delete soon
-        // if self.is_used::<0>() {
-        //     let key0 = unsafe{ self.key_unchecked::<0>() };
-        //     if key0.starts_with(key) {
-        //         if self.is_child_ptr::<0>() {
-        //             return (Some(remaining_key(key0, key.len())), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
-        //         } else {
-        //             let key1 = unsafe{ self.key_unchecked::<1>() };
-        //             if is_key_subset(key0, key1) {
-        //                 let remaining_key = remaining_key(key1, key.len());
-        //                 if self.is_child_ptr::<1>() {
-        //                     return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
-        //                 } else {
-        //                     return (Some(remaining_key), None)
-        //                 }
-        //             } else {
-        //                 return (Some(remaining_key(key0, key.len())), None)
-        //             }
-        //         }
-        //     }
-        //     if self.is_used::<1>() {
-        //         let key1 = unsafe{ self.key_unchecked::<1>() };
-        //         if key1.starts_with(key) {
-        //             let remaining_key = remaining_key(key1, key.len());
-        //             if self.is_child_ptr::<1>() {
-        //                 return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
-        //             } else {
-        //                 return (Some(remaining_key), None)
-        //             }
-        //         }
-        //     }
-        // }
-        // (None, None)
     }
 
     fn child_count_at_key(&self, key: &[u8]) -> usize {

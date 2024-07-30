@@ -540,6 +540,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
         });
     }
+    #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
         self.values.len()
     }

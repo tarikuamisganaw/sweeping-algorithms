@@ -64,6 +64,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn node_subtree_len(&self) -> usize {
         panic!()
     }
+    #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
         0
     }
