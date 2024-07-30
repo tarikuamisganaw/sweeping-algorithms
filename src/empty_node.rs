@@ -107,8 +107,11 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
         panic!()
     }
-
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
+        None
+    }
+    #[cfg(feature = "all_dense_nodes")]
+    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         None
     }
     fn as_list(&self) -> Option<&LineListNode<V>> {

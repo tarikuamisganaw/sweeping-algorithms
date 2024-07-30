@@ -105,8 +105,8 @@ pub trait Zipper<'a> {
     /// `child_idx` must within the range `0..child_count()` or this method will do nothing and return `false`
     ///
     /// WARNING: The branch represented by a given index is not guaranteed to be stable across modifications
-    /// to the trie or successive runs of the program.  This method should only be used as part of a directed
-    /// traversal operation, but not index-based paths may not be stored as locations within the trie.
+    /// to the trie.  This method should only be used as part of a directed traversal operation, but
+    /// index-based paths may not be stored as locations within the trie.
     fn descend_indexed_child(&mut self, child_idx: usize) -> bool;
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
@@ -130,10 +130,6 @@ pub trait Zipper<'a> {
     /// where the index passed is 1 more or less than the index of the current focus position.
     ///
     /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
-    ///
-    /// WARNING: The sibling ordinality may not be relied upon across across modifications to the trie or
-    /// successive runs of the program.  This method should only be used as part of a directed traversal
-    /// operation, but the relative relationship between siblings is not stable and should not be stored.
     fn to_sibling(&mut self, next: bool) -> bool;
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
@@ -407,9 +403,6 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
 
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
-    ///
-    /// WARNING: sibling order may not be relied upon across across modifications to the trie or successive
-    /// runs of the program.
     pub fn to_next_val(&mut self) -> Option<&'a V> {
         loop {
             //If we're at a leaf ascend and jump to the next sibling
@@ -489,8 +482,8 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
 //     ///
 //     /// The zipper's root will always have return 0, even if it has siblings within a larger tree.
 //     ///
-//     /// WARNING: This value is not guaranteed to be stable across modifications of the tree or successive
-//     /// runs of the program.  This value should only be used as part of a directed traversal operation.
+//     /// WARNING: This value is not guaranteed to be stable across modifications of the tree.  This value
+//     /// should only be used as part of a directed traversal operation.
 //     pub fn sibling_idx(&self) -> usize {
 // //GOAT, this is idiotic.  What we really want is a way to ascend all the way up to the nearest branch point,
 // // and this method should just give the sibling_idx with 1 ascent.

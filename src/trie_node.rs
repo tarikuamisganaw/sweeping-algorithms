@@ -6,7 +6,14 @@ use crate::line_list_node::LineListNode;
 use crate::empty_node::EmptyNode;
 use crate::ring::*;
 
-
+/// The abstract interface to all nodes, from which tries are built
+///
+/// TrieNodes are small tries that can be stitched together into larger tries.  Within a TrieNode, value
+/// and onward link locations are defined by key paths.  There are a few conventions and caveats to this
+/// iterface:
+///
+/// 1. A TrieNode will never have a value or an onward link at a zero-length key.  A value associated with
+/// the path to the root of a TrieNode must be stored in the parent node.
 pub(crate) trait TrieNode<V>: DynClone {
 
     // /// Returns `true` if the node contains a child node for the key path, otherwise returns `false`
@@ -195,6 +202,10 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// NOTE: If we end up checking more than one concrete type in the same implementation, it probably
     /// makes sense to define a type enum
     fn as_dense(&self) -> Option<&DenseByteNode<V>>;
+
+    /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
+    #[cfg(feature = "all_dense_nodes")]
+    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
 
     /// Returns a reference to the node as a specific concrete type or None if it is not that type
     fn as_list(&self) -> Option<&LineListNode<V>>;
