@@ -589,7 +589,7 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             self.ascend_across_nodes();
         }
         let branch_key = self.focus_node.prior_branch_key(self.node_key());
-        let new_len = self.root_key.len().max(self.node_key_start() + branch_key.len() + 1);
+        let new_len = self.root_key.len().max(self.node_key_start() + branch_key.len().max(1));
         self.prefix_buf.truncate(new_len);
         true
     }
