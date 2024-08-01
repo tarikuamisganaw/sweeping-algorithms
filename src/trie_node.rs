@@ -49,6 +49,8 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// Unlike [node_get_child], this method requires an exact key and not just a prefix, in order to
     /// maintain tree integrity.  This method is not intended as a general-purpose "set" operation, and
     /// may panic if the node does not already contain a child node at the specified key.
+    ///
+    /// QUESTION: Does this method have a strong purpose, or can it be superseded by node_set_branch?
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V>;
 
     /// Returns `true` if the node contains a value at the specified key, otherwise returns `false`
@@ -83,6 +85,15 @@ pub(crate) trait TrieNode<V>: DynClone {
     // //GOAT, consider a boxless version of this that takes a regular &dyn Fn() instead of FnOnce
     // //Or maybe two versions, one that takes an &dyn Fn, and another that takes a V
     // fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>>;
+
+    /// Sets the downstream branch from the specified `key`.  Does not affect the value at the `key`
+    ///
+    /// Returns `Ok(false)` is a new branch was added where there was no prior branch.  returns `Ok(true)`
+    /// if one or more existing nodes in the tree were replaced.
+    ///
+    /// If this method returns Err(node), then the `self` node was upgraded, and the new node must be
+    /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
+    fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>>;
 
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;
@@ -181,13 +192,19 @@ pub(crate) trait TrieNode<V>: DynClone {
     /// NOTE: This method will never be called with a zero-length key
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>);
 
+    /// Returns a new node which is a clone of the portion of the node rooted at `key`, or `None` if `key`
+    /// does not specify a path within the node
+    ///
+    /// If `key.len() == 0` this method will return a clone of the node.
+    fn clone_node_at_key(&self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
+
     /// Allows for the implementation of the Lattice trait on different node implementations, and
-    /// the logic to promote nodes to other node types.
+    /// the logic to promote nodes to other node types
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
 
     // //GOAT-Deprecated-JoinInto
     // /// Allows for the implementation of the Lattice trait on different node implementations, and
-    // /// the logic to promote nodes to other node types.
+    // /// the logic to promote nodes to other node types
     // fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
@@ -195,13 +212,13 @@ pub(crate) trait TrieNode<V>: DynClone {
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
 
     /// Allows for the implementation of the PartialDistributiveLattice trait on different node
-    /// implementations, and the logic to promote nodes to other node types.
+    /// implementations, and the logic to promote nodes to other node types
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice;
 
     /// Returns a reference to the node as a specific concrete type or None if it is not that type
     ///
     /// NOTE: If we end up checking more than one concrete type in the same implementation, it probably
-    /// makes sense to define a type enum
+    /// makes sense to define a type enum.
     fn as_dense(&self) -> Option<&DenseByteNode<V>>;
 
     /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe

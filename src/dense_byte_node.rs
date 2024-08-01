@@ -529,6 +529,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     //     //This implementation will never return Err, because the DenseByteNode can hold any possible value
     //     Ok(cur.update_val(key[key.len()-1], default_f))
     // }
+    fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
+        panic!()
+    }
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
     }
@@ -647,6 +650,14 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         (Some(sibling_key_char), cf.rec.as_ref().map(|node| &*node.borrow()))
     }
 
+    fn clone_node_at_key(&self, key: &[u8]) -> Option<TrieNodeODRc<V>> {
+        debug_assert!(key.len() < 2);
+        if key.len() == 0 {
+            Some(TrieNodeODRc::new(self.clone()))
+        } else {
+            self.get(key[0]).and_then(|cf| cf.rec.as_ref()).cloned()
+        }
+    }
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         if let Some(other_dense_node) = other.as_dense() {
             let new_node = self.join(other_dense_node);

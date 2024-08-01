@@ -55,6 +55,11 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     //     replacement_node.node_update_val(key, default_f).unwrap_or_else(|_| panic!());
     //     Err(TrieNodeODRc::new(replacement_node))
     // }
+    fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
+        let mut replacement_node = LineListNode::new();
+        replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
+        Err(TrieNodeODRc::new(replacement_node))
+    }
     fn node_is_empty(&self) -> bool {
         true
     }
@@ -71,15 +76,12 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
-
     fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
-
     fn child_count_at_key(&self, _key: &[u8]) -> usize {
         0
     }
-
     fn is_leaf(&self, _key: &[u8]) -> bool {
         true
     }
@@ -91,7 +93,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
-
+    fn clone_node_at_key(&self, _key: &[u8]) -> Option<TrieNodeODRc<V>> {
+        None
+    }
     fn join_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!()
     }

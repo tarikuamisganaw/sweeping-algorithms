@@ -357,3 +357,23 @@ impl<'k> KeyFields<'k> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::trie_map::*;
+
+    #[test]
+    fn write_zipper_get_or_insert_value_test() {
+        let mut map = BytesTrieMap::<u64>::new();
+        map.write_zipper_at_path(b"Drenths").get_value_or_insert(42);
+        assert_eq!(map.get(b"Drenths"), Some(&42));
+
+        *map.write_zipper_at_path(b"Drenths").get_value_or_insert(42) = 24;
+        assert_eq!(map.get(b"Drenths"), Some(&24));
+
+        let mut zipper = map.write_zipper_at_path(b"Drenths");
+        *zipper.get_value_or_insert(42) = 0;
+        assert_eq!(zipper.get_value(), Some(&0))
+    }
+
+}
