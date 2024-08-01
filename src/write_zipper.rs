@@ -50,7 +50,11 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
-        panic!()
+        let key = k.as_ref();
+        self.key.prepare_buffers();
+        self.key.prefix_buf.extend(key);
+        self.descend_to_internal();
+        self.focus_stack.top().unwrap().node_contains_partial_key(key)
     }
 
     fn descend_indexed_child(&mut self, child_idx: usize) -> bool {
@@ -95,32 +99,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
 impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> Self {
-        let mut key = path;
-        let mut node = root_node;
-
-        //Step until we get to the end of the key or find a leaf node
-        let mut node_ptr: *mut TrieNodeODRc<V> = node; //Work-around for lack of polonius
-        if key.len() > 0 {
-            while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_get_child_mut(key) {
-                if consumed_byte_cnt < key.len() {
-                    node = next_node;
-                    node_ptr = node;
-                    key = &key[consumed_byte_cnt..];
-                    //NOTE: we could early-out here, except, at most, it saves one step, but introduces a pipeline stall
-                    // at every step.  It's a win when the number of steps is about 6 or fewer, but otherwise a cost.
-                    // We won't shorten the key anymore, so we can finish here.
-                    // if key.len() == 1 {
-                    //     break;
-                    // }
-                } else {
-                    break;
-                };
-            }
-        }
-
-        //SAFETY: Pononius is ok with this code.  All mutable borrows of the current version of the
-        //  `node` &mut ref have ended by this point
-        node = unsafe{ &mut *node_ptr };
+        let (key, node) = node_along_path_mut(root_node, path);
         Self::new_with_node_and_path_internal(node, key)
     }
     /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
@@ -143,9 +122,12 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     ///
     /// Panics if the zipper's focus is unable to hold a value
     pub fn set_value(&mut self, val: V) -> Option<V> {
-        self.in_zipper_mut_static_result(
+        let old_val = self.in_zipper_mut_static_result(
             |node, remaining_key| node.node_set_val(remaining_key, val),
-            |_new_leaf_node, _remaining_key| None)
+            |_new_leaf_node, _remaining_key| None);
+        self.mend_root();
+        self.descend_to_internal();
+        old_val
     }
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     pub fn get_value(&mut self) -> Option<&V> {
@@ -155,17 +137,41 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     pub fn get_value_mut(&mut self) -> Option<&mut V> {
         self.focus_stack.top_mut().unwrap().node_get_val_mut(self.key.node_key())
     }
-    /// Returns a reference to the value at the zipper's focus, inserting `default` if no value exists
-    pub fn get_or_insert_value_mut(&mut self, default: V) -> &mut V {
-        self.in_zipper_mut_static_result(
+    /// Returns a mutable reference to the value at the zipper's focus, inserting `default` if no value exists
+    pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
+        let val_added = self.in_zipper_mut_static_result(
             |node, key| {
                 if !node.node_contains_val(key) {
-                    node.node_set_val(key, default).map(|_| ())
+                    node.node_set_val(key, default).map(|_| true)
                 } else {
-                    Ok(())
+                    Ok(false)
                 }
             },
-            |_, _| ());
+            |_, _| true);
+        if val_added {
+            self.mend_root();
+            self.descend_to_internal();
+        }
+        self.get_value_mut().unwrap()
+    }
+    /// Returns a mutable reference to the value at the zipper's focus, inserting the result of `func` if no
+    /// value exists
+    pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
+        where F: FnOnce() -> V
+    {
+        let val_added = self.in_zipper_mut_static_result(
+            |node, key| {
+                if !node.node_contains_val(key) {
+                    node.node_set_val(key, func()).map(|_| true)
+                } else {
+                    Ok(false)
+                }
+            },
+            |_, _| true);
+        if val_added {
+            self.mend_root();
+            self.descend_to_internal();
+        }
         self.get_value_mut().unwrap()
     }
 
@@ -226,7 +232,82 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     //         }
     //     }
     // }
+
+    /// Internal method that regularizes the `focus_stack` if nodes were created above the root
+    #[inline]
+    fn mend_root(&mut self) {
+        if self.key.prefix_idx.len() == 0 && self.key.root_key.len() > 1 {
+            let (key, node) = node_along_path_mut(self.focus_stack.take_root().unwrap(), &self.key.root_key);
+            self.key.root_key = key;
+            self.focus_stack.replace_root(node);
+            self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+        }
+    }
+
+    /// Internal method to perform the part of `descend_to` that moves the focus node
+    #[inline]
+    fn descend_to_internal(&mut self) {
+
+        let mut key_start = self.key.node_key_start();
+        //NOTE: this is a copy of the self.key.node_key() function, but we can't borrow the whole key structure in this code
+        let mut key = if self.key.prefix_buf.len() > 0 {
+            &self.key.prefix_buf[key_start..]
+        } else {
+            &self.key.root_key
+        };
+        if key.len() < 2 {
+            return;
+        }
+
+        //Step until we get to the end of the key or find a leaf node
+        while self.focus_stack.advance(|node| {
+            if let Some((consumed_byte_cnt, next_node)) = node.node_get_child_mut(key) {
+                key_start += consumed_byte_cnt;
+                self.key.prefix_idx.push(key_start);
+                if consumed_byte_cnt < key.len() {
+                    key = &key[consumed_byte_cnt..];
+                    Some(next_node.make_mut())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }) { }
+    }
 }
+
+/// Internal function to walk a mut TrieNodeODRc<V> ref along a path
+fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> (&'k [u8], &'a mut TrieNodeODRc<V>) {
+    let mut key = path;
+    let mut node = start_node;
+
+    //Step until we get to the end of the key or find a leaf node
+    let mut node_ptr: *mut TrieNodeODRc<V> = node; //Work-around for lack of polonius
+    if key.len() > 0 {
+        while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_get_child_mut(key) {
+            if consumed_byte_cnt < key.len() {
+                node = next_node;
+                node_ptr = node;
+                key = &key[consumed_byte_cnt..];
+                //NOTE: we could early-out here, except, at most, it saves one step, but introduces a pipeline stall
+                // at every step.  It's a win when the number of steps is about 6 or fewer, but otherwise a cost.
+                // We won't shorten the key anymore, so we can finish here.
+                // if key.len() == 1 {
+                //     break;
+                // }
+            } else {
+                break;
+            };
+        }
+    }
+
+    //SAFETY: Pononius is ok with this code.  All mutable borrows of the current version of the
+    //  `node` &mut ref have ended by this point
+    node = unsafe{ &mut *node_ptr };
+    (key, node)
+}
+
 
 impl<'k> KeyFields<'k> {
     #[inline]
@@ -235,6 +316,15 @@ impl<'k> KeyFields<'k> {
             root_key: path,
             prefix_buf: vec![],
             prefix_idx: vec![],
+        }
+    }
+    /// Internal method to ensure buffers to facilitate movement of zipper are allocated and initialized
+    #[inline]
+    fn prepare_buffers(&mut self) {
+        if self.prefix_buf.capacity() == 0 {
+            self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
+            self.prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
+            self.prefix_buf.extend(self.root_key);
         }
     }
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`

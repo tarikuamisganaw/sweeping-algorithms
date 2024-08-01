@@ -10,7 +10,7 @@ edition = "2021"
 #roaring = "0.10.3"
 dyn-clone = "1.0.17"
 local-or-heap = "0.1.0"
-mutcursor = {version = "0.1.5"}
+mutcursor = {version = "0.1.6"}
 
 [features]
 all_dense_nodes = [] # Exclusively use the DenseNode type, which generally performs worse but is useful for compatibility and perf comparisons
