@@ -934,7 +934,22 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn node_subtree_len(&self) -> usize {
-        panic!()
+        let mut result = 0;
+        if self.is_used_value_0() {
+            result += 1;
+        }
+        if self.is_used_value_1() {
+            result += 1;
+        }
+        if self.is_used_child_0() {
+            let child_node = unsafe{ self.child_in_slot::<0>() };
+            result += child_node.borrow().node_subtree_len();
+        }
+        if self.is_used_child_1() {
+            let child_node = unsafe{ self.child_in_slot::<1>() };
+            result += child_node.borrow().node_subtree_len();
+        }
+        result
     }
     #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {

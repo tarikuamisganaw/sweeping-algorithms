@@ -179,10 +179,10 @@ impl <V : Clone> BytesTrieMap<V> {
         zipper.get_value()
     }
 
-    /// Returns the total number of items contained within the map
+    /// Returns the total number of values contained within the map
     ///
     /// WARNING: This is not a cheap method. It may have an order-N cost
-    pub fn len(&self) -> usize {
+    pub fn val_count(&self) -> usize {
         return self.root.borrow().node_subtree_len()
     }
 }

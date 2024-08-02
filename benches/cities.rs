@@ -118,3 +118,22 @@ fn cities_get(bencher: Bencher) {
         }
     });
 }
+
+#[divan::bench()]
+fn cities_val_count(bencher: Bencher) {
+
+    let pairs = read_data();
+    let mut map = BytesTrieMap::new();
+    let mut unique_count = 0;
+    for (k, v) in pairs.iter() {
+        if map.insert(k, *v).is_none() {
+            unique_count += 1;
+        }
+    }
+
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = map.val_count();
+    });
+    assert_eq!(sink, unique_count);
+}

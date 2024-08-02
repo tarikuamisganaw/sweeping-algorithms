@@ -90,6 +90,25 @@ fn shakespeare_words_get(bencher: Bencher) {
 }
 
 #[divan::bench()]
+fn shakespeare_words_val_count(bencher: Bencher) {
+
+    let strings = read_data(true);
+    let mut map = BytesTrieMap::new();
+    let mut unique_count = 0;
+    for (v, k) in strings.iter().enumerate() {
+        if map.insert(k, v).is_none() {
+            unique_count += 1;
+        }
+    }
+
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = map.val_count();
+    });
+    assert_eq!(sink, unique_count);
+}
+
+#[divan::bench()]
 fn shakespeare_sentences_insert(bencher: Bencher) {
 
     let strings = read_data(false);
@@ -125,3 +144,21 @@ fn shakespeare_sentences_get(bencher: Bencher) {
     });
 }
 
+#[divan::bench()]
+fn shakespeare_sentences_val_count(bencher: Bencher) {
+
+    let strings = read_data(false);
+    let mut map = BytesTrieMap::new();
+    let mut unique_count = 0;
+    for (v, k) in strings.iter().enumerate() {
+        if map.insert(k, v).is_none() {
+            unique_count += 1;
+        }
+    }
+
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = map.val_count();
+    });
+    assert_eq!(sink, unique_count);
+}

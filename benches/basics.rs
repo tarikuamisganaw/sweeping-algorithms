@@ -126,7 +126,7 @@ fn superdense_subtract_after_join(bencher: Bencher, n: u64) {
     bencher.bench_local(|| {
         *black_box(&mut remaining) = joined.subtract(black_box(&r));
     });
-    assert_eq!(remaining.len(), l.len())
+    assert_eq!(remaining.val_count(), l.val_count())
 }
 
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
@@ -184,4 +184,18 @@ fn from_prefix_key(k: Vec<u8>) -> u64 {
     let kp =  k.as_ptr() as *const u64;
     let shift = 64usize.saturating_sub(k.len()*8);
     unsafe { (*kp) & (!0u64 >> shift) }
+}
+
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+fn superdense_val_count_bench(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the time taken to count the number of values in the map
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = map.val_count()
+    });
+    assert_eq!(sink, n as usize);
 }

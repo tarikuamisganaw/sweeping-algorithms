@@ -72,6 +72,26 @@ fn sparse_get(bencher: Bencher, n: u64) {
     });
 }
 
+#[divan::bench(args = [125, 250, 500, 1000, 2000, 4000])]
+fn sparse_val_count_bench(bencher: Bencher, n: u64) {
+
+    let mut r = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+    }).collect();
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(&keys[i as usize], i); }
+
+    //Benchmark the time taken to count the number of values in the map
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = map.val_count()
+    });
+    assert_eq!(sink, n as usize);
+}
+
 #[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_meet(bencher: Bencher, n: u64) {
     let overlap = 0.5;
@@ -136,7 +156,7 @@ fn sparse_subtract_after_join(bencher: Bencher, n: u64) {
     bencher.bench_local(|| {
         *black_box(&mut remaining) = joined.subtract(black_box(&r));
     });
-    assert_eq!(remaining.len(), l.len())
+    assert_eq!(remaining.val_count(), l.val_count())
 }
 
 #[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
