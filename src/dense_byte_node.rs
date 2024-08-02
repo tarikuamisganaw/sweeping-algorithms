@@ -50,7 +50,7 @@ impl<V> Default for DenseByteNode<V> {
     }
 }
 
-impl <V : Debug> Debug for DenseByteNode<V> {
+impl <V> Debug for DenseByteNode<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.

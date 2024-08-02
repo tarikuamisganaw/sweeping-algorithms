@@ -14,7 +14,7 @@ use crate::ring::*;
 ///
 /// 1. A TrieNode will never have a value or an onward link at a zero-length key.  A value associated with
 /// the path to the root of a TrieNode must be stored in the parent node.
-pub(crate) trait TrieNode<V>: DynClone {
+pub(crate) trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     // /// Returns `true` if the node contains a child node for the key path, otherwise returns `false`
     //GOAT what would you do with a child node except for traverse it?

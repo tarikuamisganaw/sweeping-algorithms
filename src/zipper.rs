@@ -453,6 +453,11 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 self.prefix_idx.push(self.prefix_buf.len());
                 self.ancestors.push(self.focus_node);
                 self.focus_node = child_node;
+
+                //If we're at the root of the new node, descend to the first child
+                if prefix.len() == 0 {
+                    self.descend_first()
+                }
             },
             (Some(prefix), None) => {
                 //Stay within the same node

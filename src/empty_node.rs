@@ -1,5 +1,6 @@
 
 use core::marker::PhantomData;
+use core::fmt::{Debug, Formatter};
 
 use crate::trie_node::*;
 use crate::ring::*;
@@ -9,6 +10,12 @@ use crate::dense_byte_node::DenseByteNode;
 #[derive(Clone, Default)]
 pub struct EmptyNode<V> {
     phantom: PhantomData<V>
+}
+
+impl<V> Debug for EmptyNode<V> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EmptyNode")
+    }
 }
 
 impl<V> EmptyNode<V> {
