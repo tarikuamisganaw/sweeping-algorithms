@@ -921,11 +921,14 @@ mod tests {
         let mut zipper = btm.read_zipper();
 
         //Test iteration of the whole tree
+        let mut count = 0;
         assert_eq!(zipper.is_value(), false);
         while let Some(&val) = zipper.to_next_val() {
             // println!("{val}  {} = {}", std::str::from_utf8(zipper.path()).unwrap(), zipper.get_value().unwrap());
             assert_eq!(rs[val].as_bytes(), zipper.path());
+            count += 1;
         }
+        assert_eq!(count, rs.len());
 
         //Fork a sub-zipper, and test iteration of that subtree
         zipper.reset();

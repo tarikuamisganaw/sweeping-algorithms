@@ -379,99 +379,128 @@ impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
     }
 }
 
-#[test]
-fn map_test() {
-    let mut map = BytesTrieMap::new();
-    //NOW: map contains an empty ListNode
+#[cfg(test)]
+mod tests {
+    use crate::trie_map::*;
+    use crate::ring::Lattice;
 
-    map.insert("aaaaa", "aaaaa");
-    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
-    //NOW: map contains a ListNode with slot_0 filled by a value
+    #[test]
+    fn map_test() {
+        let mut map = BytesTrieMap::new();
+        //NOW: map contains an empty ListNode
 
-    map.insert("bbbbb", "bbbbb");
-    assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
-    //NOW: map contains a ListNode with slot_0 and slot_1 filled by values
+        map.insert("aaaaa", "aaaaa");
+        assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+        //NOW: map contains a ListNode with slot_0 filled by a value
 
-    map.insert("ccccc", "ccccc");
-    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
-    assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
-    assert_eq!(map.get("ccccc").unwrap(), &"ccccc");
-    //NOW: map contains a DenseByteNode, with 3 separate ListNodes, each containing one value
+        map.insert("bbbbb", "bbbbb");
+        assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
+        //NOW: map contains a ListNode with slot_0 and slot_1 filled by values
 
-    map.insert("ddddd", "ddddd");
-    assert_eq!(map.get("ddddd").unwrap(), &"ddddd");
-    //NOW: map contains a DenseByteNode, with 4 separate ListNodes, each containing one value
+        map.insert("ccccc", "ccccc");
+        assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+        assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
+        assert_eq!(map.get("ccccc").unwrap(), &"ccccc");
+        //NOW: map contains a DenseByteNode, with 3 separate ListNodes, each containing one value
 
-    map.insert("abbbb", "abbbb");
-    assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
-    //NOW: Dense("a"..) -> List("aaaa", "bbbb")
+        map.insert("ddddd", "ddddd");
+        assert_eq!(map.get("ddddd").unwrap(), &"ddddd");
+        //NOW: map contains a DenseByteNode, with 4 separate ListNodes, each containing one value
 
-    map.insert("aaaab", "aaaab");
-    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
-    assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
-    assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
-    assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
-    //NOW: Dense("a"..) -> List("aaa", "bbbb") -> List("a", "b")
+        map.insert("abbbb", "abbbb");
+        assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
+        //NOW: Dense("a"..) -> List("aaaa", "bbbb")
 
-    map.insert("aaaac", "aaaac");
-    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
-    assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
-    assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
-    //NOW: Dense("a"..) -> List("aaa", "bbbb") -> Dense("a", "b", "c")
+        map.insert("aaaab", "aaaab");
+        assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+        assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
+        assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
+        assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
+        //NOW: Dense("a"..) -> List("aaa", "bbbb") -> List("a", "b")
 
-    map.insert("acaaa", "acaaa");
-    assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
-    assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
-    assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
-    assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
-    assert_eq!(map.get("acaaa").unwrap(), &"acaaa");
-    //NOW: Dense("a"..) -> Dense("a", "b", "c") a-> List("aa") -> Dense("a", "b", "c")
-    //                                          b-> List("bbb")
-    //                                          c-> List("aaa")
-}
+        map.insert("aaaac", "aaaac");
+        assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+        assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
+        assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
+        //NOW: Dense("a"..) -> List("aaa", "bbbb") -> Dense("a", "b", "c")
 
-#[test]
-fn long_key_map_test() {
-    let mut map = BytesTrieMap::new();
+        map.insert("acaaa", "acaaa");
+        assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
+        assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
+        assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
+        assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
+        assert_eq!(map.get("acaaa").unwrap(), &"acaaa");
+        //NOW: Dense("a"..) -> Dense("a", "b", "c") a-> List("aa") -> Dense("a", "b", "c")
+        //                                          b-> List("bbb")
+        //                                          c-> List("aaa")
+    }
 
-    map.insert("aaaaaaaaaa01234567890123456789", 30);
-    assert_eq!(map.get("aaaaaaaaaa01234567890123456789").unwrap(), &30);
+    #[test]
+    fn long_key_map_test() {
+        let mut map = BytesTrieMap::new();
 
-    map.insert("bbbbbbbbbb012345678901234567891", 31);
-    assert_eq!(map.get("bbbbbbbbbb012345678901234567891").unwrap(), &31);
+        map.insert("aaaaaaaaaa01234567890123456789", 30);
+        assert_eq!(map.get("aaaaaaaaaa01234567890123456789").unwrap(), &30);
 
-    map.insert("cccccccccc012345678901234567890123456789", 40);
-    assert_eq!(map.get("cccccccccc012345678901234567890123456789").unwrap(), &40);
+        map.insert("bbbbbbbbbb012345678901234567891", 31);
+        assert_eq!(map.get("bbbbbbbbbb012345678901234567891").unwrap(), &31);
 
-    map.insert("dddddddddd01234567890123456789012345678901234", 45);
-    assert_eq!(map.get("dddddddddd01234567890123456789012345678901234").unwrap(), &45);
+        map.insert("cccccccccc012345678901234567890123456789", 40);
+        assert_eq!(map.get("cccccccccc012345678901234567890123456789").unwrap(), &40);
 
-    map.insert("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789", 90);
-    assert_eq!(map.get("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789").unwrap(), &90);
-}
+        map.insert("dddddddddd01234567890123456789012345678901234", 45);
+        assert_eq!(map.get("dddddddddd01234567890123456789012345678901234").unwrap(), &45);
 
-#[test]
-fn map_contains_path_test() {
-    let mut btm = BytesTrieMap::new();
-    let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        map.insert("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789", 90);
+        assert_eq!(map.get("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789").unwrap(), &90);
+    }
 
-    assert_eq!(btm.contains_path(b"can"), true);
-    assert_eq!(btm.contains_path(b"cannon"), true);
-    assert_eq!(btm.contains_path(b"cannonade"), false);
-    assert_eq!(btm.contains_path(b""), true);
-}
+    #[test]
+    fn map_contains_path_test() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
-#[test]
-fn map_update_test() {
-    let mut btm = BytesTrieMap::new();
-    let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        assert_eq!(btm.contains_path(b"can"), true);
+        assert_eq!(btm.contains_path(b"cannon"), true);
+        assert_eq!(btm.contains_path(b"cannonade"), false);
+        assert_eq!(btm.contains_path(b""), true);
+    }
 
-    // let zipper = btm.write_zipper_at_path(b"cannon");
-    //GOAT, need the `path_exists`, `get_mut`, and `insert` calls and an `get_mut_with_default` convenience
+    #[test]
+    fn map_update_test() {
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let mut btm: BytesTrieMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut zipper = btm.write_zipper_at_path(b"cannon");
+        assert_eq!(zipper.get_value_or_insert(42), &2);
+        let mut zipper = btm.write_zipper_at_path(b"dagger");
+        assert_eq!(zipper.get_value_or_insert(42), &42);
+    }
+
+    #[test]
+    fn map_join_test() {
+        let mut a = BytesTrieMap::<usize>::new();
+        let mut b = BytesTrieMap::<usize>::new();
+        let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz"];
+        for (i, path) in rs.into_iter().enumerate() {
+            if i % 2 == 0 {
+                a.insert(path, i);
+            } else {
+                b.insert(path, i);
+            }
+        }
+
+        let joined = a.join(&b);
+        for (path, i) in joined.iter() {
+            println!("GOAT {} {}", std::str::from_utf8(&path).unwrap(), i);
+            assert_eq!(rs[*i].as_bytes(), &path);
+        }
+        assert_eq!(joined.val_count(), rs.len());
+    }
 }
 
 //GOAT TODO LIST:
 // 3. Re-enable "at_path" API
 // 4. Other ops: "join_all"??, "restrict"??, ??
+

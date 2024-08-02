@@ -176,6 +176,18 @@ impl Lattice for &() {
     fn bottom() -> Self { &() }
 }
 
+impl Lattice for usize {
+    fn join(&self, _other: &usize) -> usize { *self }
+    fn meet(&self, _other: &usize) -> usize { *self }
+    fn bottom() -> Self { 0 }
+}
+
+impl Lattice for &usize {
+    fn join(&self, _other: &Self) -> Self { self }
+    fn meet(&self, _other: &Self) -> Self { self }
+    fn bottom() -> Self { &0 }
+}
+
 impl Lattice for u64 {
     fn join(&self, _other: &u64) -> u64 { *self }
     fn meet(&self, _other: &u64) -> u64 { *self }
