@@ -539,21 +539,28 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         Box::new(DenseByteNodeIter::new(self))
     }
     fn node_subtree_len(&self) -> usize {
-        let mut result = 0;
-        for cf in self.values.iter() {
-            if cf.value.is_some() {
-                result += 1;
-            }
-            match &cf.rec {
-                Some(rec) => result += rec.borrow().node_subtree_len(),
-                None => {}
-            }
-        }
-        result
-        //GOAT: Original code.  For some reason that I haven't investigated yet, the code above is about 5% faster.
-        // return self.values.iter().rfold(0, |t, cf| {
-        //     t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
-        // });
+        //Discussion: These two implementations do the same thing but with a slightly different ordering of
+        // the operations.  In `all_dense_nodes`, the "Branchy" impl wins.  But in a mixed-node setting, the
+        // IMPL B is the winner.  My suspicion is that the ListNode's heavily branching structure leads to
+        // underutilization elsewhere in the CPU so we get better instruction parallelism with IMPL B.
+
+        //IMPL A "Branchy"
+        // let mut result = 0;
+        // for cf in self.values.iter() {
+        //     if cf.value.is_some() {
+        //         result += 1;
+        //     }
+        //     match &cf.rec {
+        //         Some(rec) => result += rec.borrow().node_subtree_len(),
+        //         None => {}
+        //     }
+        // }
+        // result
+
+        //IMPL B "Arithmetic"
+        return self.values.iter().rfold(0, |t, cf| {
+            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
+        });
     }
     #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
