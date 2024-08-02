@@ -539,9 +539,21 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         Box::new(DenseByteNodeIter::new(self))
     }
     fn node_subtree_len(&self) -> usize {
-        return self.values.iter().rfold(0, |t, cf| {
-            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
-        });
+        let mut result = 0;
+        for cf in self.values.iter() {
+            if cf.value.is_some() {
+                result += 1;
+            }
+            match &cf.rec {
+                Some(rec) => result += rec.borrow().node_subtree_len(),
+                None => {}
+            }
+        }
+        result
+        //GOAT: Original code.  For some reason that I haven't investigated yet, the code above is about 5% faster.
+        // return self.values.iter().rfold(0, |t, cf| {
+        //     t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
+        // });
     }
     #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
