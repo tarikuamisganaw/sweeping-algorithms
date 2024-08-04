@@ -152,13 +152,16 @@ pub(crate) const EXPECTED_PATH_LEN: usize = 64;
 /// A [Zipper] that is unable to modify the trie
 #[derive(Clone)]
 pub struct ReadZipper<'a, 'k, V> {
-    /// A reference to the part of the key within the root node that represents the zipper root
-    root_key: &'k [u8],
+    /// A reference to the entire origin path, of which `root_key` is the final subset, or None for a relative zipper
+    origin_path: &'k [u8],
+    /// The byte offset in `origin_path` from the root node to the zipper's root.
+    /// `root_key = origin_path[root_key_offset..]`
+    root_key_offset: Option<usize>,
     /// A special-case to access a value at the root node, because that value would be otherwise inaccessible
     root_val: Option<&'a V>,
     /// A reference to the root node
     focus_node: &'a dyn TrieNode<V>,
-    /// Stores the entire path from the root node, including the bytes from root_key
+    /// Stores the entire path from the root node, including the bytes from `root_key`
     prefix_buf: Vec<u8>,
     /// Stores the lengths for each successive node's key
     prefix_idx: Vec<usize>,
@@ -170,7 +173,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     type V = V;
 
     fn at_root(&self) -> bool {
-        self.prefix_buf.len() <= self.root_key.len()
+        self.prefix_buf.len() <= self.origin_path.len()
     }
 
     fn reset(&mut self) {
@@ -179,13 +182,13 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
             Some(node) => self.focus_node = node,
             None => {}
         }
-        self.prefix_buf.clear();
+        self.prefix_buf.truncate(self.origin_path.len());
         self.prefix_idx.clear();
     }
 
     fn path(&self) -> &[u8] {
         if self.prefix_buf.len() > 0 {
-            &self.prefix_buf[self.root_key.len()..]
+            &self.prefix_buf[self.origin_path.len()..]
         } else {
             &[]
         }
@@ -330,7 +333,15 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn fork_zipper(&self) -> ReadZipper<V> {
         let new_root_val = self.get_value();
-        ReadZipper::new_with_node_and_path_internal(self.focus_node, self.node_key(), new_root_val)
+        let (new_root_path, new_root_key_offset) = match &self.root_key_offset {
+            Some(_) => {
+                let new_root_path = self.origin_path().unwrap();
+                let new_root_key_offset = new_root_path.len() - self.node_key().len();
+                (new_root_path, Some(new_root_key_offset))
+            },
+            None => (self.origin_path, None)
+        };
+        ReadZipper::new_with_node_and_path_internal(self.focus_node, new_root_path, new_root_key_offset, new_root_val)
     }
 
     fn path_exists(&self) -> bool {
@@ -349,7 +360,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
 impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
-    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8]) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8], mut root_key_offset: Option<usize>) -> Self {
         let mut key = path;
         let mut node = root_node;
         let mut val = None;
@@ -369,16 +380,25 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             }
         }
 
-        Self::new_with_node_and_path_internal(node, key, val)
+        let zipper_path = match root_key_offset.as_mut() {
+            Some(root_key_offset) => {
+                *root_key_offset -= key.len();
+                path
+            },
+            None => key
+        };
+
+        Self::new_with_node_and_path_internal(node, zipper_path, root_key_offset, val)
     }
     /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
     /// the node
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a dyn TrieNode<V>, path: &'k [u8], root_val: Option<&'a V>) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a dyn TrieNode<V>, path: &'k [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
         Self {
-            root_key: path,
+            origin_path: path,
+            root_key_offset,
             root_val,
             focus_node: root_node,
             prefix_buf: vec![],
@@ -401,9 +421,24 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
+    /// Returns the path beginning from the origin to the current focus.  Returns `None` if the zipper
+    /// is relative and does not have an origin path
+    pub fn origin_path(&self) -> Option<&[u8]> {
+        if self.root_key_offset.is_some() {
+            if self.prefix_buf.len() > 0 {
+                Some(&self.prefix_buf)
+            } else {
+                Some(&self.origin_path)
+            }
+        } else {
+            None
+        }
+    }
+
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
     pub fn to_next_val(&mut self) -> Option<&'a V> {
+        self.prepare_buffers();
         loop {
             //If we're at a leaf ascend and jump to the next sibling
             if self.focus_node.is_leaf(self.node_key()) {
@@ -474,7 +509,7 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
             self.prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
             self.ancestors = Vec::with_capacity(EXPECTED_DEPTH);
-            self.prefix_buf.extend(self.root_key);
+            self.prefix_buf.extend(self.origin_path);
         }
     }
 
@@ -524,16 +559,17 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
     #[inline]
     fn node_key_start(&self) -> usize {
-        self.prefix_idx.last().map(|i| *i).unwrap_or(0)
+        self.prefix_idx.last().map(|i| *i)
+            .unwrap_or_else(|| self.root_key_offset.unwrap_or(0))
     }
     /// Internal method returning the key within the focus node
     #[inline]
     fn node_key(&self) -> &[u8] {
+        let key_start = self.node_key_start();
         if self.prefix_buf.len() > 0 {
-            let key_start = self.node_key_start();
             &self.prefix_buf[key_start..]
         } else {
-            self.root_key
+            &self.origin_path[key_start..]
         }
     }
     /// Internal method returning the key that leads to `self.focus_node` within the parent
@@ -545,7 +581,7 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             let key_start = if self.prefix_idx.len() > 1 {
                 unsafe{ *self.prefix_idx.get_unchecked(self.prefix_idx.len()-2) }
             } else {
-                0
+                self.root_key_offset.unwrap_or(0)
             };
             &self.prefix_buf[key_start..]
         } else {
@@ -556,7 +592,7 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// legally ascended within the node, taking into account the root_key
     #[inline]
     fn excess_key_len(&self) -> usize {
-        self.prefix_buf.len() - self.prefix_idx.last().map(|i| *i).unwrap_or(self.root_key.len())
+        self.prefix_buf.len() - self.prefix_idx.last().map(|i| *i).unwrap_or(self.origin_path.len())
     }
     /// Internal method which doesn't actually move the zipper, but ensures `self.node_key().len() > 0`
     /// WARNING, must never be called if `self.node_key().len() != 0`
@@ -570,7 +606,7 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     #[inline]
     fn ascend_within_node(&mut self) {
         let branch_key = self.focus_node.prior_branch_key(self.node_key());
-        let new_len = self.root_key.len().max(self.node_key_start() + branch_key.len());
+        let new_len = self.origin_path.len().max(self.node_key_start() + branch_key.len());
         self.prefix_buf.truncate(new_len);
     }
 
@@ -586,7 +622,7 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             self.ascend_across_nodes();
         }
         if self.node_key().len() == 1 {
-            let new_len = self.root_key.len().max(self.node_key_start());
+            let new_len = self.origin_path.len().max(self.node_key_start());
             self.prefix_buf.truncate(new_len);
             if self.at_root() {
                 return false;
@@ -594,7 +630,7 @@ impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             self.ascend_across_nodes();
         }
         let branch_key = self.focus_node.prior_branch_key(self.node_key());
-        let new_len = self.root_key.len().max(self.node_key_start() + branch_key.len().max(1));
+        let new_len = self.origin_path.len().max(self.node_key_start() + branch_key.len().max(1));
         self.prefix_buf.truncate(new_len);
         true
     }
@@ -796,7 +832,8 @@ mod tests {
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
         //Test `descend_to` and `ascend_until`
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"ro");
+        let root_key = b"ro";
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), root_key, Some(root_key.len()));
         assert_eq!(zipper.path(), b"");
         assert_eq!(zipper.child_count(), 1);
         zipper.descend_to(b"m");
@@ -892,13 +929,15 @@ mod tests {
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().for_each(|r| { btm.insert(r.as_bytes(), *r); });
 
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"ro");
+        let root_key = b"ro";
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), root_key, Some(root_key.len()));
         assert_eq!(zipper.is_value(), false);
         zipper.descend_to(b"mulus");
         assert_eq!(zipper.is_value(), true);
         assert_eq!(zipper.get_value(), Some(&"romulus"));
 
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), b"roman");
+        let root_key = b"roman";
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), root_key, Some(root_key.len()));
         assert_eq!(zipper.is_value(), true);
         assert_eq!(zipper.get_value(), Some(&"roman"));
         zipper.descend_to(b"e");
@@ -943,5 +982,57 @@ mod tests {
             // println!("{val}  {} = {}", std::str::from_utf8(&path).unwrap(), std::str::from_utf8(rs[val].as_bytes()).unwrap());
             assert_eq!(rs[val].as_bytes(), path);
         }
+    }
+
+    #[test]
+    fn path_concat_test() {
+        let parent_path = "�parent";
+        let exprs = [
+            "�parent�Tom�Bob",
+            "�parent�Pam�Bob",
+            "�parent�Tom�Liz",
+            "�parent�Bob�Ann",
+            "�parent�Bob�Pat",
+            "�parent�Pat�Jim",
+            "�female�Pam",
+            "�male�Tom",
+            "�male�Bob",
+            "�female�Liz",
+            "�female�Pat",
+            "�female�Ann",
+            "�male�Jim",
+        ];
+        let family: BytesTrieMap<i32> = exprs.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+
+        let mut parent_zipper = family.read_zipper_at_path(parent_path.as_bytes());
+
+        assert!(family.contains_path(parent_path));
+
+        let mut full_parent_path = parent_path.as_bytes().to_vec();
+        full_parent_path.extend(parent_zipper.path());
+        assert!(family.contains_path(&full_parent_path));
+
+        while let Some(_val) = parent_zipper.to_next_val() {
+            let mut full_parent_path = parent_path.as_bytes().to_vec();
+            full_parent_path.extend(parent_zipper.path());
+            assert!(family.contains(full_parent_path.clone()));
+        }
+    }
+
+    #[test]
+    fn full_path_test() {
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let btm: BytesTrieMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut zipper = btm.read_zipper_at_path(b"roma");
+        assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "roma");
+        zipper.descend_to(b"n");
+        assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "roman");
+        zipper.to_next_val();
+        assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "romane");
+        zipper.to_next_val();
+        assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "romanus");
+        zipper.to_next_val();
+        assert_eq!(zipper.path().len(), 0);
     }
 }

@@ -65,12 +65,12 @@ impl <V : Clone> BytesTrieMap<V> {
 
     /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
     pub fn read_zipper(&self) -> ReadZipper<V> {
-        ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], None)
+        ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], Some(0), None)
     }
 
     /// Creates a new [ReadZipper] with the specified path from the root of the map
     pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
-        ReadZipper::new_with_node_and_path(self.root.borrow(), path.as_ref())
+        ReadZipper::new_with_node_and_path(self.root.borrow(), path.as_ref(), Some(path.len()))
     }
 
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap

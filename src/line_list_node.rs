@@ -1358,6 +1358,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                     },
                     _ => unreachable!()
                 }
+//GOAT, we run afoul of the "no onward link and a longer node"
                 debug_assert!(validate_node(&joined_node));
                 return TrieNodeODRc::new(joined_node)
             }
