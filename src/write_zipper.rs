@@ -3,6 +3,8 @@ use mutcursor::MutCursorRootedVec;
 
 use crate::trie_node::{TrieNode, TrieNodeODRc};
 use crate::zipper::*;
+use crate::zipper::zipper_priv::*;
+use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice};
 
 /// A [Zipper] for editing and adding paths and values in the trie
 pub struct WriteZipper<'a, 'k, V> {
@@ -99,7 +101,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
     type V = V;
 
     fn clone_focus(&self) -> Option<TrieNodeODRc<V>> {
-        panic!()
+        self.focus_stack.top().unwrap().clone_node_at_key(self.key.node_key())
     }
 }
 
@@ -187,21 +189,53 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// If there is a value at the zipper's focus, it will not be affected.  If the `read_zipper` is not on
     /// an existing path (according to [Zipper::path_exists]) then the trie will be pruned below the graft location.
     pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) {
-        match read_zipper.clone_focus() {
-            Some(src) => {
-                debug_assert!(!src.borrow().node_is_empty());
-                match self.focus_stack.top_mut().unwrap().node_set_branch(self.key.node_key(), src) {
-                    Ok(_) => {},
-                    Err(_replacement_node) => {
-                        panic!(); //TODO
-                    }
-                }
+        self.graft_internal(read_zipper.clone_focus())
+    }
+
+    /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
+    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) where V: Lattice {
+        let src = match read_zipper.clone_focus() {
+            Some(src) => src,
+            None => return
+        };
+        match self.clone_focus() {
+            Some(self_node) => {
+                let joined = self_node.join(&src);
+                self.graft_internal(Some(joined))
             },
-            None => { self.remove_branch(); }
+            None => { self.graft_internal(Some(src)) }
         }
     }
 
-//GOAT, next add join method, building on top of graft
+    /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
+    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) where V: Lattice {
+        let src = match read_zipper.clone_focus() {
+            Some(src) => src,
+            None => return
+        };
+        match self.clone_focus() {
+            Some(self_node) => {
+                let joined = self_node.meet(&src);
+                self.graft_internal(Some(joined))
+            },
+            None => { self.graft_internal(Some(src)) }
+        }
+    }
+
+    /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's focus
+    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) where V: PartialDistributiveLattice {
+        let src = match read_zipper.clone_focus() {
+            Some(src) => src,
+            None => return
+        };
+        match self.clone_focus() {
+            Some(self_node) => {
+                let joined = self_node.subtract(&src);
+                self.graft_internal(Some(joined))
+            },
+            None => { self.graft_internal(Some(src)) }
+        }
+    }
 
     /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
     /// if a branch was removed, otherwise returns `false`
@@ -221,6 +255,23 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     }
 
 //GOAT, also implement remove_val
+
+    /// Internal implementation of graft, and other methods that do the same thing
+    #[inline]
+    fn graft_internal(&mut self, src: Option<TrieNodeODRc<V>>) {
+        match src {
+            Some(src) => {
+                debug_assert!(!src.borrow().node_is_empty());
+                match self.focus_stack.top_mut().unwrap().node_set_branch(self.key.node_key(), src) {
+                    Ok(_) => {},
+                    Err(_replacement_node) => {
+                        panic!(); //TODO
+                    }
+                }
+            },
+            None => { self.remove_branch(); }
+        }
+    }
 
     /// An internal function to attempt a mutable operation on a node, and replace the node if the node needed
     /// to be upgraded
@@ -454,6 +505,45 @@ mod tests {
         assert_eq!(a.get(b"roman"), None);
         assert_eq!(a.get(b"romulus"), None);
         assert_eq!(a.get(b"rom'i"), None);
+
+        //More keys after but above the graft point weren't harmed
+        assert_eq!(a.get(b"rubens").unwrap(), &7);
+        assert_eq!(a.get(b"ruber").unwrap(), &8);
+        assert_eq!(a.get(b"rubicundus").unwrap(), &10);
+
+        //And test that the new keys were grafted into place
+        assert_eq!(a.get(b"road").unwrap(), &1000);
+        assert_eq!(a.get(b"rod").unwrap(), &1001);
+        assert_eq!(a.get(b"roll").unwrap(), &1002);
+        assert_eq!(a.get(b"roof").unwrap(), &1003);
+        assert_eq!(a.get(b"room").unwrap(), &1004);
+        assert_eq!(a.get(b"root").unwrap(), &1005);
+        assert_eq!(a.get(b"rough").unwrap(), &1006);
+        assert_eq!(a.get(b"round").unwrap(), &1007);
+    }
+
+    #[test]
+    fn write_zipper_join_test() {
+        let a_keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let mut a: BytesTrieMap<u64> = a_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let b_keys = ["road", "rod", "roll", "roof", "room", "root", "rough", "round"];
+        let b: BytesTrieMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, (i + 1000) as u64)).collect();
+
+        let mut wz = a.write_zipper_at_path(b"ro");
+        let mut rz = b.read_zipper();
+        rz.descend_to(b"ro");
+        wz.join(rz);
+
+        //Test that the original keys were left alone, above the graft point
+        assert_eq!(a.get(b"arrow").unwrap(), &0);
+        assert_eq!(a.get(b"bow").unwrap(), &1);
+        assert_eq!(a.get(b"cannon").unwrap(), &2);
+
+        //Test that the blended downstream keys are still there
+        assert_eq!(a.get(b"roman").unwrap(), &3);
+        assert_eq!(a.get(b"romulus").unwrap(), &6);
+        assert_eq!(a.get(b"rom'i").unwrap(), &11);
 
         //More keys after but above the graft point weren't harmed
         assert_eq!(a.get(b"rubens").unwrap(), &7);
