@@ -156,6 +156,7 @@ pub(crate) mod zipper_priv {
         fn clone_focus(&self) -> Option<TrieNodeODRc<Self::V>>;
     }
 }
+use zipper_priv::*;
 
 /// Size of node stack to preallocate in the zipper
 pub(crate) const EXPECTED_DEPTH: usize = 16;
@@ -371,7 +372,16 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn val_count(&self) -> usize {
-        return self.focus_node.node_subtree_len() + (self.is_value() as usize)
+        if self.node_key().len() == 0 {
+            self.focus_node.node_subtree_len() + (self.is_value() as usize)
+        } else {
+            match self.clone_focus() {
+                Some(temp_root) => {
+                    temp_root.borrow().node_subtree_len() + (self.is_value() as usize)
+                },
+                None => 0
+            }
+        }
     }
 }
 
