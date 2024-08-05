@@ -191,12 +191,12 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     ///
     /// If there is a value at the zipper's focus, it will not be affected.  If the `read_zipper` is not on
     /// an existing path (according to [Zipper::path_exists]) then the trie will be pruned below the graft location.
-    pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) {
+    pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
         self.graft_internal(read_zipper.clone_focus())
     }
 
     /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
-    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) where V: Lattice {
+    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) where V: Lattice {
         let src = match read_zipper.clone_focus() {
             Some(src) => src,
             None => return
@@ -211,7 +211,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     }
 
     /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
-    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) where V: Lattice {
+    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) where V: Lattice {
         let src = match read_zipper.clone_focus() {
             Some(src) => src,
             None => return
@@ -226,7 +226,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     }
 
     /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's focus
-    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) where V: PartialDistributiveLattice {
+    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) where V: PartialDistributiveLattice {
         let src = match read_zipper.clone_focus() {
             Some(src) => src,
             None => return
@@ -265,11 +265,19 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         match src {
             Some(src) => {
                 debug_assert!(!src.borrow().node_is_empty());
-                match self.focus_stack.top_mut().unwrap().node_set_branch(self.key.node_key(), src) {
-                    Ok(_) => {},
-                    Err(_replacement_node) => {
-                        panic!(); //TODO
+                let node_key = self.key.node_key();
+                if node_key.len() > 0 {
+                    match self.focus_stack.top_mut().unwrap().node_set_branch(node_key, src) {
+                        Ok(_) => {},
+                        Err(_replacement_node) => {
+                            panic!(); //TODO
+                        }
                     }
+                } else {
+                    debug_assert_eq!(self.focus_stack.depth(), 1);
+                    self.focus_stack.to_root();
+                    *self.focus_stack.root_mut().unwrap() = src;
+                    self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
                 }
             },
             None => { self.remove_branch(); }
@@ -497,7 +505,7 @@ mod tests {
 
         let mut wz = a.write_zipper_at_path(b"ro");
         let rz = b.read_zipper();
-        wz.graft(rz);
+        wz.graft(&rz);
 
         //Test that the original keys were left alone, above the graft point
         assert_eq!(a.get(b"arrow").unwrap(), &0);
@@ -538,7 +546,7 @@ mod tests {
         let mut wz = a.write_zipper_at_path(b"ro");
         let mut rz = b.read_zipper();
         rz.descend_to(b"ro");
-        wz.join(rz);
+        wz.join(&rz);
 
         //Test that the original keys were left alone, above the graft point
         assert_eq!(a.val_count(), 20);
@@ -565,6 +573,23 @@ mod tests {
         assert_eq!(a.get(b"root").unwrap(), &1005);
         assert_eq!(a.get(b"rough").unwrap(), &1006);
         assert_eq!(a.get(b"round").unwrap(), &1007);
+    }
+
+    #[test]
+    fn write_zipper_compound_join_test() {
+        let mut map = BytesTrieMap::<u64>::new();
+
+        let b_keys = ["alligator", "goat", "gadfly"];
+        let b: BytesTrieMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut wz = map.write_zipper();
+        let mut rz = b.read_zipper();
+        rz.descend_to(b"alli");
+        wz.graft(&rz);
+        rz.reset();
+        wz.join(&rz);
+
+        assert_eq!(map.val_count(), 4);
     }
 
     #[test]

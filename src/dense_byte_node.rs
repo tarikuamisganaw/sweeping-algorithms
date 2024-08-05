@@ -546,6 +546,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     //     Ok(cur.update_val(key[key.len()-1], default_f))
     // }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
+        debug_assert!(key.len() > 0);
         #[cfg(not(feature = "all_dense_nodes"))]
         {
             //Make a new ListNode to hold everything after the first byte of the key
