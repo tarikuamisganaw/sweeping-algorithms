@@ -529,9 +529,11 @@ mod tests {
     fn write_zipper_join_test() {
         let a_keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         let mut a: BytesTrieMap<u64> = a_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        assert_eq!(a.val_count(), 12);
 
         let b_keys = ["road", "rod", "roll", "roof", "room", "root", "rough", "round"];
         let b: BytesTrieMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, (i + 1000) as u64)).collect();
+        assert_eq!(b.val_count(), 8);
 
         let mut wz = a.write_zipper_at_path(b"ro");
         let mut rz = b.read_zipper();
@@ -539,6 +541,7 @@ mod tests {
         wz.join(rz);
 
         //Test that the original keys were left alone, above the graft point
+        assert_eq!(a.val_count(), 20);
         assert_eq!(a.get(b"arrow").unwrap(), &0);
         assert_eq!(a.get(b"bow").unwrap(), &1);
         assert_eq!(a.get(b"cannon").unwrap(), &2);
