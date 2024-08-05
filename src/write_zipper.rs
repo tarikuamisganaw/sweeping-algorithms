@@ -246,6 +246,23 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
     }
 
+    /// Restricts `self` to paths prefixed by a path in `read_zipper`
+    pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+        let src = match read_zipper.clone_focus() {
+            Some(src) => src,
+            None => return false
+        };
+        match self.clone_focus() {
+            Some(self_node) => {
+                let joined = self_node.prestrict(&src);
+                // println!("restricted! {}", joined.is_some());
+                self.graft_internal(joined);
+                true
+            },
+            None => { self.graft_internal(Some(src)); false }
+        }
+    }
+
     /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
     /// if a branch was removed, otherwise returns `false`
     ///

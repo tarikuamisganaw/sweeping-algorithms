@@ -798,6 +798,14 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
+        if let Some(other_dense_node) = other.as_dense() {
+            self.prestrict(other_dense_node).map(|node| TrieNodeODRc::new(node))
+        } else {
+            panic!();
+        }
+    }
+
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         Some(self)
     }
@@ -829,7 +837,7 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 struct CoFree<V> {
     pub(crate) rec: Option<TrieNodeODRc<V>>,
     pub(crate) value: Option<V>
@@ -880,6 +888,19 @@ impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFre
         match r {
             None => { if v.is_none() { None } else { Some(CoFree{ rec: None, value: v }) } }
             Some(sr) => { Some(CoFree{ rec: sr, value: v }) }
+        }
+    }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        // unsafe { println!("prestrict cofree {:?} {:?}", std::mem::transmute::<&CoFree<V>, &CoFree<u64>>(self), std::mem::transmute::<&CoFree<V>, &CoFree<u64>>(other)); }
+        if other.value.is_some() { Some(self.clone()) } // assumes self can not be CoFree{None, None}
+        else {
+            match (&self.rec, &other.rec) {
+                (Some(l), Some(r)) => {
+                    l.prestrict(r).map(|n| CoFree { rec: Some(n), value: None })
+                }
+                _ => { None }
+            }
         }
     }
 }
@@ -1127,6 +1148,63 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
         let r = self.subtract(other);
         if r.len() == 0 { return None }
         else { return Some(r) }
+    }
+
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        // TODO this technically doesn't need to calculate and iterate over jm
+        // iterating over mm and calculating m such that the following suffices
+        // c_{self,other} += popcnt(m & {self,other})
+        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
+            self.mask[1] | other.mask[1],
+            self.mask[2] | other.mask[2],
+            self.mask[3] | other.mask[3]];
+        let mut mm: [u64; 4] = [self.mask[0] & other.mask[0],
+            self.mask[1] & other.mask[1],
+            self.mask[2] & other.mask[2],
+            self.mask[3] & other.mask[3]];
+
+        let mmc = [mm[0].count_ones(), mm[1].count_ones(), mm[2].count_ones(), mm[3].count_ones()];
+
+        let len = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
+        let mut v = Vec::with_capacity(len);
+        let new_v = v.spare_capacity_mut();
+
+        let mut l = 0;
+        let mut r = 0;
+        let mut c = 0;
+
+        for i in 0..4 {
+            let mut lm = jm[i];
+            while lm != 0 {
+                let index = lm.trailing_zeros();
+
+                if ((1u64 << index) & mm[i]) != 0 {
+                    let lv = unsafe { self.values.get_unchecked(l) };
+                    let rv = unsafe { other.values.get_unchecked(r) };
+                    // println!("dense prestrict {}", index as usize + i*64);
+                    if let Some(jv) = lv.prestrict(rv) {
+                        unsafe { new_v.get_unchecked_mut(c).write(jv) };
+                        c += 1;
+                    } else {
+                        mm[i] ^= (1u64 << index);
+                    }
+                    l += 1;
+                    r += 1;
+                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                    l += 1;
+                } else {
+                    r += 1;
+                }
+                lm ^= 1u64 << index;
+            }
+        }
+
+        if c == 0 { None }
+        else {
+            unsafe{ v.set_len(c); }
+            return Some(DenseByteNode::<V>{ mask: mm, values: v });
+        }
     }
 }
 

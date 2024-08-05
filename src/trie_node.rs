@@ -224,6 +224,10 @@ pub(crate) trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// implementations, and the logic to promote nodes to other node types
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice;
 
+    /// Allows for the implementation of the PartialDistributiveLattice trait on different node
+    /// implementations, and the logic to promote nodes to other node types
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice;
+
     /// Returns a reference to the node as a specific concrete type or None if it is not that type
     ///
     /// NOTE: If we end up checking more than one concrete type in the same implementation, it probably
@@ -258,7 +262,7 @@ mod opaque_dyn_rc_trie_node{
     //TODO_FUTURE: make a type alias within the trait to refer to this type, as soon as
     // https://github.com/rust-lang/rust/issues/29661 is addressed
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     #[repr(transparent)]
     pub struct TrieNodeODRc<V>(std::rc::Rc<dyn TrieNode<V> + 'static>);
 
@@ -348,6 +352,10 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for TrieN
         } else {
             self.borrow().psubtract_dyn(other.borrow())
         }
+    }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        self.borrow().prestrict_dyn(other.borrow())
     }
 }
 

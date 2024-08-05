@@ -1407,6 +1407,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         panic!();
     }
 
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
+        panic!();
+    }
+
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         None
     }

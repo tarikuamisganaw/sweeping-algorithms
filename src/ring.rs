@@ -28,6 +28,7 @@ pub trait DistributiveLattice: Lattice {
 
 pub trait PartialDistributiveLattice: Lattice {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized;
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 
 
@@ -82,6 +83,10 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Opt
                 Some(o) => { Some(s.psubtract(o)) }
             } }
         }
+    }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        panic!()
     }
 }
 
@@ -162,6 +167,10 @@ impl PartialDistributiveLattice for &str {
         if self == other { None }
         else { Some(*self) }
     }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        Some(*self)
+    }
 }
 
 impl Lattice for () {
@@ -205,6 +214,10 @@ impl PartialDistributiveLattice for u64 {
         if self == other { None }
         else { Some(*self) }
     }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        Some(*self)
+    }
 }
 
 impl Lattice for u32 {
@@ -235,6 +248,10 @@ impl PartialDistributiveLattice for u16 {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         if self == other { None }
         else { Some(*self) }
+    }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        Some(*self)
     }
 }
 
@@ -372,5 +389,9 @@ impl<V : Clone + PartialDistributiveLattice> PartialDistributiveLattice for Byte
         let s = self.root.subtract(&other.root);
         if s.borrow().node_is_empty() { None }
         else { Some(Self { root: s }) }
+    }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        self.root.psubtract(&other.root).map(|r| Self{ root: r } )
     }
 }
