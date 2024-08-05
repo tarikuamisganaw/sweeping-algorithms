@@ -573,6 +573,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
     fn node_remove_branch(&mut self, key: &[u8]) -> bool {
+        if key.len() > 1 {
+            return false;
+        }
         debug_assert_eq!(key.len(), 1);
         let k = key[0];
         if self.contains(k) {
@@ -735,11 +738,14 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
 
     fn clone_node_at_key(&self, key: &[u8]) -> Option<TrieNodeODRc<V>> {
-        debug_assert!(key.len() < 2);
-        if key.len() == 0 {
-            Some(TrieNodeODRc::new(self.clone()))
+        if key.len() < 2 {
+            if key.len() == 0 {
+                Some(TrieNodeODRc::new(self.clone()))
+            } else {
+                self.get(key[0]).and_then(|cf| cf.rec.as_ref()).cloned()
+            }
         } else {
-            self.get(key[0]).and_then(|cf| cf.rec.as_ref()).cloned()
+            None
         }
     }
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
