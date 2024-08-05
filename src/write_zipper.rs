@@ -95,6 +95,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         self.focus_stack.top().unwrap().node_contains_val(self.key.node_key())
     }
 
+    fn val_count(&self) -> usize {
+        return self.focus_stack.top().unwrap().node_subtree_len() + (self.is_value() as usize)
+    }
 }
 
 impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {

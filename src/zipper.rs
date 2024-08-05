@@ -140,6 +140,11 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
     fn is_value(&self) -> bool;
 
+    /// Returns the total number of values contained at and below the zipper's focus, including the focus itself
+    ///
+    /// WARNING: This is not a cheap method. It may have an order-N cost
+    fn val_count(&self) -> usize;
+
 }
 
 pub(crate) mod zipper_priv {
@@ -363,6 +368,10 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn is_value(&self) -> bool {
         self.is_value_internal()
+    }
+
+    fn val_count(&self) -> usize {
+        return self.focus_node.node_subtree_len() + (self.is_value() as usize)
     }
 }
 
