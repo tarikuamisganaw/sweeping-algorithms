@@ -22,7 +22,6 @@ struct KeyFields<'k> {
 }
 
 impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
-    type V = V;
 
     fn at_root(&self) -> bool {
         self.key.prefix_buf.len() <= self.key.root_key.len()
@@ -94,6 +93,14 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         self.focus_stack.top().unwrap().node_contains_val(self.key.node_key())
     }
 
+}
+
+impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
+    type V = V;
+
+    fn clone_focus(&self) -> Option<TrieNodeODRc<V>> {
+        panic!()
+    }
 }
 
 impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
@@ -173,6 +180,23 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             self.descend_to_internal();
         }
         self.get_value_mut().unwrap()
+    }
+
+    /// Replaces the trie below the zipepr's focus with the subtrie downstream from the focus of `read_zipper`
+    ///
+    /// If there is a value at the zipper's focus, it will not be affected
+    pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) {
+        let src = read_zipper.clone_focus();
+
+        //GOAT, if src is None or is an empty node, I need to recursively prune the tree up to this point, instead of adding the new branch
+        let src = src.unwrap();
+
+        match self.focus_stack.top_mut().unwrap().node_set_branch(self.key.node_key(), src) {
+            Ok(_) => {},
+            Err(_replacement_node) => {
+                panic!(); //TODO
+            }
+        }
     }
 
     /// An internal function to attempt a mutable operation on a node, and replace the node if the node needed
@@ -374,6 +398,40 @@ mod tests {
         let mut zipper = map.write_zipper_at_path(b"Drenths");
         *zipper.get_value_or_insert(42) = 0;
         assert_eq!(zipper.get_value(), Some(&0))
+    }
+
+    #[test]
+    fn write_zipper_graft_test() {
+        let a_keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let mut a: BytesTrieMap<i32> = a_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+
+        let b_keys = ["ad", "d", "ll", "of", "om", "ot", "ugh", "und"];
+        let b: BytesTrieMap<i32> = b_keys.iter().enumerate().map(|(i, k)| (k, (i + 1000) as i32)).collect();
+
+        let mut wz = a.write_zipper_at_path(b"ro");
+        let rz = b.read_zipper();
+        wz.graft(rz);
+
+        assert_eq!(a.get(b"arrow").unwrap(), &0);
+        assert_eq!(a.get(b"bow").unwrap(), &1);
+        assert_eq!(a.get(b"cannon").unwrap(), &2);
+
+        assert_eq!(a.get(b"roman"), None);
+        assert_eq!(a.get(b"romulus"), None);
+        assert_eq!(a.get(b"rom'i"), None);
+
+        assert_eq!(a.get(b"rubens").unwrap(), &7);
+        assert_eq!(a.get(b"ruber").unwrap(), &8);
+        assert_eq!(a.get(b"rubicundus").unwrap(), &10);
+
+        assert_eq!(a.get(b"road").unwrap(), &1000);
+        assert_eq!(a.get(b"rod").unwrap(), &1001);
+        assert_eq!(a.get(b"roll").unwrap(), &1002);
+        assert_eq!(a.get(b"roof").unwrap(), &1003);
+        assert_eq!(a.get(b"room").unwrap(), &1004);
+        assert_eq!(a.get(b"root").unwrap(), &1005);
+        assert_eq!(a.get(b"rough").unwrap(), &1006);
+        assert_eq!(a.get(b"round").unwrap(), &1007);
     }
 
 }

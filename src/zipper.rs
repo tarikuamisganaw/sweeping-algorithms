@@ -21,7 +21,7 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::trie_node::TrieNode;
+use crate::trie_node::{TrieNode, TrieNodeODRc};
 
 pub use crate::write_zipper::*;
 
@@ -77,8 +77,7 @@ pub use crate::write_zipper::*;
 
 /// An interface common to all zippers, to support moving the zipper, reading elements, iterating across
 /// the trie
-pub trait Zipper<'a> {
-    type V;
+pub trait Zipper<'a>: zipper_priv::ZipperPriv {
 
     /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
     fn at_root(&self) -> bool;
@@ -143,6 +142,16 @@ pub trait Zipper<'a> {
 
 }
 
+pub(crate) mod zipper_priv {
+    use crate::trie_node::*;
+
+    pub trait ZipperPriv {
+        type V;
+
+        fn clone_focus(&self) -> Option<TrieNodeODRc<Self::V>>;
+    }
+}
+
 /// Size of node stack to preallocate in the zipper
 pub(crate) const EXPECTED_DEPTH: usize = 16;
 
@@ -170,7 +179,6 @@ pub struct ReadZipper<'a, 'k, V> {
 }
 
 impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
-    type V = V;
 
     fn at_root(&self) -> bool {
         self.prefix_buf.len() <= self.origin_path.len()
@@ -358,7 +366,15 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 }
 
-impl <'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
+impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
+    type V = V;
+
+    fn clone_focus(&self) -> Option<TrieNodeODRc<V>> {
+        self.focus_node.clone_node_at_key(self.node_key())
+    }
+}
+
+impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8], mut root_key_offset: Option<usize>) -> Self {
         let mut key = path;
