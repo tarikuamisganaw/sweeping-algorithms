@@ -96,15 +96,12 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn val_count(&self) -> usize {
-        if self.key.node_key().len() == 0 {
-            self.focus_stack.top().unwrap().node_subtree_len() + (self.is_value() as usize)
-        } else {
-            match self.clone_focus() {
-                Some(temp_root) => {
-                    temp_root.borrow().node_subtree_len() + (self.is_value() as usize)
-                },
-                None => 0
-            }
+        debug_assert!(self.key.node_key().len() > 0);
+        match self.clone_focus() {
+            Some(temp_root) => {
+                temp_root.borrow().node_subtree_len() + (self.is_value() as usize)
+            },
+            None => 0
         }
     }
 }
