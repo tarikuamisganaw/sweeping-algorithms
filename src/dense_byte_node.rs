@@ -106,6 +106,8 @@ impl<V> DenseByteNode<V> {
         self.mask[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
     }
 
+    /// Internal method to clear the bit associated with a given key.  This should be accompanied by removing the
+    /// cofree entry from the values Vec
     #[inline]
     fn clear(&mut self, k: u8) -> () {
         // println!("setting k {} : {} {:b}", k, ((k & 0b11000000) >> 6) as usize, 1u64 << (k & 0b00111111));
@@ -246,6 +248,7 @@ impl<V> DenseByteNode<V> {
     //     unsafe { self.values.get_unchecked_mut(ix) }
     // }
 
+    /// Internal method to remove a CoFree from the node
     #[inline]
     fn remove(&mut self, k: u8) -> Option<CoFree<V>> {
         if self.contains(k) {
@@ -568,6 +571,31 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             Ok(replaced_existing)
         }
     }
+    fn node_remove_branch(&mut self, key: &[u8]) -> bool {
+        debug_assert_eq!(key.len(), 1);
+        let k = key[0];
+        if self.contains(k) {
+            let ix = self.left(k) as usize;
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            match (cf.rec.is_some(), cf.value.is_some()) {
+                (true, true) => {
+                    cf.rec = None;
+                    true
+                },
+                (true, false) => {
+                    self.values.remove(ix);
+                    self.clear(k);
+                    true
+                },
+                (false, _) => {
+                    false
+                },
+            }
+        } else {
+            false
+        }
+    }
+
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
     }

@@ -67,6 +67,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
         Err(TrieNodeODRc::new(replacement_node))
     }
+    fn node_remove_branch(&mut self, _key: &[u8]) -> bool {
+        unreachable!()
+    }
     fn node_is_empty(&self) -> bool {
         true
     }

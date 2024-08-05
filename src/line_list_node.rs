@@ -925,6 +925,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         panic!()
     }
 
+    fn node_remove_branch(&mut self, key: &[u8]) -> bool {
+        panic!()
+    }
+
     fn node_is_empty(&self) -> bool {
         !self.is_used::<0>()
     }

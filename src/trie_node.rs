@@ -95,7 +95,14 @@ pub(crate) trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>>;
 
-//GOAT, need a node_remove_branch
+    /// Removes the downstream branch from the specified `key`.  Does not affect the value at the `key`
+    ///
+    /// Returns `true` if a value was sucessfully removed from the node; returns `false` if the node did not
+    /// contain a branch at the specified key
+    ///
+    /// WARNING: This method may leave the node empty.  If eager pruning of branches is desired then the
+    /// node should subsequently be checked to see if it is empty
+    fn node_remove_branch(&mut self, key: &[u8]) -> bool;
 
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;

@@ -53,7 +53,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         self.key.prepare_buffers();
         self.key.prefix_buf.extend(key);
         self.descend_to_internal();
-        self.focus_stack.top().unwrap().node_contains_partial_key(key)
+        self.focus_stack.top().unwrap().node_contains_partial_key(self.key.node_key())
     }
 
     fn descend_indexed_child(&mut self, child_idx: usize) -> bool {
@@ -182,22 +182,45 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         self.get_value_mut().unwrap()
     }
 
-    /// Replaces the trie below the zipepr's focus with the subtrie downstream from the focus of `read_zipper`
+    /// Replaces the trie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
     ///
-    /// If there is a value at the zipper's focus, it will not be affected
+    /// If there is a value at the zipper's focus, it will not be affected.  If the `read_zipper` is not on
+    /// an existing path (according to [Zipper::path_exists]) then the trie will be pruned below the graft location.
     pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: Z) {
-        let src = read_zipper.clone_focus();
-
-        //GOAT, if src is None or is an empty node, I need to recursively prune the tree up to this point, instead of adding the new branch
-        let src = src.unwrap();
-
-        match self.focus_stack.top_mut().unwrap().node_set_branch(self.key.node_key(), src) {
-            Ok(_) => {},
-            Err(_replacement_node) => {
-                panic!(); //TODO
-            }
+        match read_zipper.clone_focus() {
+            Some(src) => {
+                debug_assert!(!src.borrow().node_is_empty());
+                match self.focus_stack.top_mut().unwrap().node_set_branch(self.key.node_key(), src) {
+                    Ok(_) => {},
+                    Err(_replacement_node) => {
+                        panic!(); //TODO
+                    }
+                }
+            },
+            None => { self.remove_branch(); }
         }
     }
+
+//GOAT, next add join method, building on top of graft
+
+    /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
+    /// if a branch was removed, otherwise returns `false`
+    ///
+    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
+    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    pub fn remove_branch(&mut self) -> bool {
+        let focus_node = self.focus_stack.top_mut().unwrap();
+        if focus_node.node_remove_branch(self.key.node_key()) {
+            if focus_node.node_is_empty() {
+                self.prune_path();
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+//GOAT, also implement remove_val
 
     /// An internal function to attempt a mutable operation on a node, and replace the node if the node needed
     /// to be upgraded
@@ -257,6 +280,15 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     //     }
     // }
 
+    /// Internal method to recursively prune empty nodes from the trie, starting at the focus, and working
+    /// upward until a value or branch is encountered.
+    ///
+    /// This method does not move the zipper, but may cause [Self::path_exists] to return `false`
+    #[inline]
+    fn prune_path(&mut self) {
+        println!("GOAT prune path");
+    }
+
     /// Internal method that regularizes the `focus_stack` if nodes were created above the root
     #[inline]
     fn mend_root(&mut self) {
@@ -286,9 +318,9 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         //Step until we get to the end of the key or find a leaf node
         while self.focus_stack.advance(|node| {
             if let Some((consumed_byte_cnt, next_node)) = node.node_get_child_mut(key) {
-                key_start += consumed_byte_cnt;
-                self.key.prefix_idx.push(key_start);
                 if consumed_byte_cnt < key.len() {
+                    key_start += consumed_byte_cnt;
+                    self.key.prefix_idx.push(key_start);
                     key = &key[consumed_byte_cnt..];
                     Some(next_node.make_mut())
                 } else {
@@ -385,6 +417,7 @@ impl<'k> KeyFields<'k> {
 #[cfg(test)]
 mod tests {
     use crate::trie_map::*;
+    use crate::zipper::*;
 
     #[test]
     fn write_zipper_get_or_insert_value_test() {
@@ -412,18 +445,22 @@ mod tests {
         let rz = b.read_zipper();
         wz.graft(rz);
 
+        //Test that the original keys were left alone, above the graft point
         assert_eq!(a.get(b"arrow").unwrap(), &0);
         assert_eq!(a.get(b"bow").unwrap(), &1);
         assert_eq!(a.get(b"cannon").unwrap(), &2);
 
+        //Test that the pruned keys are gone
         assert_eq!(a.get(b"roman"), None);
         assert_eq!(a.get(b"romulus"), None);
         assert_eq!(a.get(b"rom'i"), None);
 
+        //More keys after but above the graft point weren't harmed
         assert_eq!(a.get(b"rubens").unwrap(), &7);
         assert_eq!(a.get(b"ruber").unwrap(), &8);
         assert_eq!(a.get(b"rubicundus").unwrap(), &10);
 
+        //And test that the new keys were grafted into place
         assert_eq!(a.get(b"road").unwrap(), &1000);
         assert_eq!(a.get(b"rod").unwrap(), &1001);
         assert_eq!(a.get(b"roll").unwrap(), &1002);
@@ -434,4 +471,40 @@ mod tests {
         assert_eq!(a.get(b"round").unwrap(), &1007);
     }
 
+    #[test]
+    fn write_zipper_remove_branch_test() {
+        let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i",
+            "abcdefghijklmnopqrstuvwxyz"];
+        let mut map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+
+        let mut wz = map.write_zipper_at_path(b"roman");
+        wz.remove_branch();
+
+        //Test that the original keys were left alone, above the graft point
+        assert_eq!(map.get(b"arrow").unwrap(), &0);
+        assert_eq!(map.get(b"bow").unwrap(), &1);
+        assert_eq!(map.get(b"cannon").unwrap(), &2);
+        assert_eq!(map.get(b"rom'i").unwrap(), &11);
+
+        //Test that the value is ok
+        assert_eq!(map.get(b"roman").unwrap(), &3);
+
+        //Test that the pruned keys are gone
+        assert_eq!(map.get(b"romane"), None);
+        assert_eq!(map.get(b"romanus"), None);
+
+        let mut wz = map.write_zipper();
+        wz.descend_to(b"ro");
+        assert!(wz.path_exists());
+        wz.remove_branch();
+        assert!(!wz.path_exists());
+
+        let mut wz = map.write_zipper();
+        wz.descend_to(b"abcdefghijklmnopq");
+        assert!(wz.path_exists());
+        wz.remove_branch();
+        assert!(!wz.path_exists());
+        assert!(!map.contains_path(b"abcdefghijklmnopq"));
+        assert!(!map.contains_path(b"abc"));
+    }
 }
