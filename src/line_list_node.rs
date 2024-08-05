@@ -872,11 +872,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         if key_0.len() > 1 {
             let mut child_node = Self::new();
             unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr::<0>(), slot_0_payload); }
-            replacement_node.add_child(key_0[0], TrieNodeODRc::new(child_node));
+            replacement_node.set_child(key_0[0], TrieNodeODRc::new(child_node));
         } else {
             if self.is_child_ptr::<0>() {
                 let child_node = unsafe{ ManuallyDrop::into_inner(slot_0_payload.child) };
-                replacement_node.add_child(key_0[0], child_node);
+                replacement_node.set_child(key_0[0], child_node);
             } else {
                 let val_0 = unsafe{ ManuallyDrop::into_inner(slot_0_payload.val) };
                 replacement_node.set_val(key_0[0], LocalOrHeap::into_inner(val_0));
@@ -890,11 +890,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         if key_1.len() > 1 {
             let mut child_node = Self::new();
             unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr::<1>(), slot_1_payload); }
-            replacement_node.add_child(key_1[0], TrieNodeODRc::new(child_node));
+            replacement_node.set_child(key_1[0], TrieNodeODRc::new(child_node));
         } else {
             if self.is_child_ptr::<1>() {
                 let child_node = unsafe{ ManuallyDrop::into_inner(slot_1_payload.child) };
-                replacement_node.add_child(key_1[0], child_node);
+                replacement_node.set_child(key_1[0], child_node);
             } else {
                 let val_1 = unsafe{ ManuallyDrop::into_inner(slot_1_payload.val) };
                 replacement_node.set_val(key_1[0], LocalOrHeap::into_inner(val_1));
@@ -905,7 +905,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         if key.len() > 1 {
             let mut child_node = Self::new();
             child_node.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
-            replacement_node.add_child(key[0], TrieNodeODRc::new(child_node));
+            replacement_node.set_child(key[0], TrieNodeODRc::new(child_node));
         } else {
             replacement_node.set_val(key[0], val);
         }

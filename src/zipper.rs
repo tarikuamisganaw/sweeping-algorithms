@@ -1016,6 +1016,7 @@ mod tests {
             let mut full_parent_path = parent_path.as_bytes().to_vec();
             full_parent_path.extend(parent_zipper.path());
             assert!(family.contains(full_parent_path.clone()));
+            assert_eq!(full_parent_path, parent_zipper.origin_path().unwrap());
         }
     }
 
@@ -1026,12 +1027,16 @@ mod tests {
 
         let mut zipper = btm.read_zipper_at_path(b"roma");
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "roma");
+        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "roma");
         zipper.descend_to(b"n");
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "roman");
+        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "roman");
         zipper.to_next_val();
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "romane");
+        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "romane");
         zipper.to_next_val();
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "romanus");
+        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "romanus");
         zipper.to_next_val();
         assert_eq!(zipper.path().len(), 0);
     }

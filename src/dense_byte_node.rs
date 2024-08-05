@@ -61,7 +61,7 @@ impl <V> Debug for DenseByteNode<V> {
     }
 }
 
-impl <V> DenseByteNode<V> {
+impl<V> DenseByteNode<V> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -112,26 +112,25 @@ impl <V> DenseByteNode<V> {
         self.mask[((k & 0b11000000) >> 6) as usize] &= !(1u64 << (k & 0b00111111));
     }
 
-    /// Adds a new child at the specified key byte.  Use [join_child_into] if there is a possibility that
-    /// there is already a child node at the key byte
+    /// Adds a new child at the specified key byte.  Replaces and returns an existing branch.
+    /// Use [join_child_into] to join with the existing branch
     #[inline]
-    pub fn add_child(&mut self, k: u8, node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
+    pub fn set_child(&mut self, k: u8, node: TrieNodeODRc<V>) -> Option<TrieNodeODRc<V>> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            debug_assert!(cf.rec.is_none()); //add_child should not be called unless there is no child for a given key
-            cf.rec = Some(node);
-            TrieNodeODRc::make_mut(cf.rec.as_mut().unwrap())
+            let mut old_child = Some(node);
+            core::mem::swap(&mut old_child, &mut cf.rec);
+            old_child
         } else {
             self.set(k);
             let new_cf = CoFree {rec: Some(node), value: None };
             self.values.insert(ix, new_cf);
-            let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            TrieNodeODRc::make_mut(cf.rec.as_mut().unwrap())
+            None
         }
     }
 
-    /// The same as [add_child] if no child exists in the node at the key.  Otherwise joins the two nodes
+    /// The same as [set_child] if no child exists in the node at the key.  Otherwise joins the two nodes
     /// together
     #[inline]
     pub fn join_child_into(&mut self, k: u8, node: TrieNodeODRc<V>) where V: Clone + Lattice {
@@ -194,7 +193,7 @@ impl <V> DenseByteNode<V> {
     pub fn set_payload_owned(&mut self, k: u8, payload: ValOrChild<V>) {
         match payload {
             ValOrChild::Child(child) => {
-                let _ = self.add_child(k, child);
+                let _ = self.set_child(k, child);
             },
             ValOrChild::Val(val) => {
                 let result = self.set_val(k, val);
@@ -280,6 +279,11 @@ impl <V> DenseByteNode<V> {
     }
 
     #[inline]
+    fn get_child_mut(&mut self, k: u8) -> Option<&mut TrieNodeODRc<V>> {
+        self.get_mut(k).and_then(|cf| cf.rec.as_mut())
+    }
+
+    #[inline]
     unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
         let ix = self.left(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
@@ -342,6 +346,21 @@ impl <V> DenseByteNode<V> {
         debug_assert!(self.contains(prefix as u8));
 
         Some(prefix as u8)
+    }
+}
+
+impl <V: Clone> DenseByteNode<V> {
+    /// Internal method to recursively create all parents to support a value or branch at a given path
+    #[cfg(feature = "all_dense_nodes")]
+    #[inline]
+    fn create_parent_path(&mut self, path: &[u8]) -> &mut Self {
+        let mut cur = self;
+        for i in 0..path.len() - 1 {
+            let new_node = Self::new();
+            cur.set_child(path[i], TrieNodeODRc::new(new_node));
+            cur = cur.get_child_mut(path[i]).unwrap().make_mut().as_dense_mut().unwrap();
+        }
+        cur
     }
 }
 
@@ -453,11 +472,10 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         )
     }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
-        self.get_mut(key[0]).and_then(|cf|
-            cf.rec.as_mut().map(|child_node_ptr| {
-                (1, child_node_ptr)
-            })
-        )
+        debug_assert!(key.len() > 0);
+        self.get_child_mut(key[0]).map(|child_node_ptr| {
+            (1, child_node_ptr)
+        })
     }
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         debug_assert!(key.len() == 1);
@@ -490,14 +508,14 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
-
         #[cfg(not(feature = "all_dense_nodes"))]
         {
             //Split a ListNode to hold everything after the first byte of the key
             if key.len() > 1 {
+                debug_assert!(!self.contains(key[0]));
                 let mut child = LineListNode::new();
                 child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
-                self.add_child(key[0], TrieNodeODRc::new(child));
+                self.set_child(key[0], TrieNodeODRc::new(child));
                 Ok(None)
             } else {
                 Ok(self.set_val(key[0], val))
@@ -506,13 +524,8 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
 
         #[cfg(feature = "all_dense_nodes")]
         {
-            //Recursively create DenseByteNodes to the end
-            let mut cur = self;
-            for i in 0..key.len() - 1 {
-                let new_node = Self::new();
-                cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
-            }
-            Ok(cur.set_val(key[key.len()-1], val))
+            let last_node = self.create_parent_path(key);
+            Ok(last_node.set_val(key[key.len()-1], val))
         }
     }
     //GOAT-Deprecated-Update, delete this once we have the WriteZipper doing everything `Update` did
@@ -530,7 +543,30 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     //     Ok(cur.update_val(key[key.len()-1], default_f))
     // }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
-        panic!()
+        #[cfg(not(feature = "all_dense_nodes"))]
+        {
+            //Make a new ListNode to hold everything after the first byte of the key
+            debug_assert!(!self.contains(key[0]));
+            if key.len() > 1 {
+                let mut child = LineListNode::new();
+                child.node_set_branch(&key[1..], new_node).unwrap_or_else(|_| panic!());
+                self.set_child(key[0], TrieNodeODRc::new(child));
+            } else {
+                self.set_child(key[0], new_node);
+            }
+            Ok(false)
+        }
+
+        #[cfg(feature = "all_dense_nodes")]
+        {
+            let last_node = if key.len() > 1 {
+                self.create_parent_path(key)
+            } else {
+                self
+            };
+            let replaced_existing = last_node.set_child(key[key.len()-1], new_node).is_some();
+            Ok(replaced_existing)
+        }
     }
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
@@ -792,7 +828,7 @@ impl<V : Clone + Lattice> Lattice for CoFree<V> {
     }
 }
 
-//NOTE: this impl doesn't seem to be used
+//GOAT: this impl doesn't seem to be used
 // impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
 //     fn subtract(&self, other: &Self) -> Self {
 //         CoFree {
@@ -802,7 +838,7 @@ impl<V : Clone + Lattice> Lattice for CoFree<V> {
 //     }
 // }
 
-impl<V : Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
+impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         let r = self.rec.psubtract(&other.rec);
         let v = self.value.subtract(&other.value);
@@ -813,7 +849,7 @@ impl<V : Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFr
     }
 }
 
-impl<V : Lattice + Clone> Lattice for DenseByteNode<V> {
+impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
     // #[inline(never)]
     fn join(&self, other: &Self) -> Self {
         let jm: [u64; 4] = [self.mask[0] | other.mask[0],
@@ -1080,13 +1116,3 @@ fn bit_siblings() {
     assert_eq!(63, bit_sibling(63, 1u64 << 63, false));
     assert_eq!(63, bit_sibling(63, 1u64 << 63, true));
 }
-
-// //GOAT, this is total trash
-// impl<V> DenseByteNode<V> {
-//     pub fn borrow(&self) -> &Self {
-//         self
-//     }
-//     pub fn make_mut(&mut self) -> &mut Self {
-//         self
-//     }
-// }
