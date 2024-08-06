@@ -255,8 +255,10 @@ pub(crate) enum ValOrChild<V> {
 }
 
 //TODO: Make a Macro to generate OpaqueDynBoxes and ODRc (OpaqueDynRc) and an Arc version
+//GOAT: the `pub(crate)` visibility inside the `opaque_dyn_rc_trie_node` module come from the visibility of
+// the trait it is derived on.  In this case, `TrieNode`
 pub(crate) use opaque_dyn_rc_trie_node::TrieNodeODRc;
-mod opaque_dyn_rc_trie_node{
+mod opaque_dyn_rc_trie_node {
     use super::TrieNode;
 
     //TODO_FUTURE: make a type alias within the trait to refer to this type, as soon as
@@ -268,7 +270,7 @@ mod opaque_dyn_rc_trie_node{
 
     impl<V> TrieNodeODRc<V> {
         #[inline]
-        pub fn new<'odb, T>(obj: T) -> Self
+        pub(crate) fn new<'odb, T>(obj: T) -> Self
             where T: 'odb + TrieNode<V>,
             V: 'odb
         {
@@ -279,7 +281,7 @@ mod opaque_dyn_rc_trie_node{
             unsafe { Self(core::mem::transmute(inner)) }
         }
         #[inline]
-        pub fn new_from_rc<'odb>(rc: std::rc::Rc<dyn TrieNode<V> + 'odb>) -> Self
+        pub(crate) fn new_from_rc<'odb>(rc: std::rc::Rc<dyn TrieNode<V> + 'odb>) -> Self
             where V: 'odb
         {
             let inner = rc as std::rc::Rc<dyn TrieNode<V>>;
@@ -289,11 +291,11 @@ mod opaque_dyn_rc_trie_node{
             unsafe { Self(core::mem::transmute(inner)) }
         }
         #[inline]
-        pub fn as_rc(&self) -> &std::rc::Rc<dyn TrieNode<V>> {
+        pub(crate) fn as_rc(&self) -> &std::rc::Rc<dyn TrieNode<V>> {
             &self.0
         }
         #[inline]
-        pub fn borrow(&self) -> &dyn TrieNode<V> {
+        pub(crate) fn borrow(&self) -> &dyn TrieNode<V> {
             &*self.0
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
@@ -303,7 +305,7 @@ mod opaque_dyn_rc_trie_node{
         }
         //GOAT, make this contingent on a dyn_clone compile-time feature
         #[inline]
-        pub fn make_mut(&mut self) -> &mut dyn TrieNode<V> {
+        pub(crate) fn make_mut(&mut self) -> &mut dyn TrieNode<V> {
             dyn_clone::rc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
         }
     }
