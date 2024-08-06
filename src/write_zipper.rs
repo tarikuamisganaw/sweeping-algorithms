@@ -92,7 +92,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
             if self.key.node_key().len() == 0 {
                 self.ascend_across_nodes();
             }
-            if self.child_count() != 1 || self.at_root() {
+            if self.child_count() > 1 || self.at_root() {
                 break;
             }
         }
@@ -414,9 +414,31 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// upward until a value or branch is encountered.
     ///
     /// This method does not move the zipper, but may cause [Self::path_exists] to return `false`
+    ///
+    /// WARNING: this is one of the few zipper methods that allocs a temp buffer and doesn't try and uphold
+    /// the "constant-time" property, but it should still be cheaper, on average, compared with other methods
+    /// to do the same thing.
     #[inline]
     fn prune_path(&mut self) {
-        println!("GOAT prune path");
+        debug_assert!(self.focus_stack.top().unwrap().node_is_empty());
+        if self.at_root() {
+            return
+        }
+
+        let old_path = self.key.prefix_buf.clone();
+        self.ascend_until();
+
+        let focus_node = self.focus_stack.top_mut().unwrap();
+        let onward_path = &old_path[self.key.prefix_buf.len()-1..];
+        let (consumed_bytes, _) = focus_node.node_get_child(onward_path).unwrap();
+        let child_path = &onward_path[..consumed_bytes];
+
+        let removed = focus_node.node_remove_branch(child_path);
+        debug_assert!(removed);
+        debug_assert!(!focus_node.node_is_empty());
+
+        //Move back to the original location, although it will now be non-existent
+        self.key.prefix_buf = old_path;
     }
 
     /// Internal method that regularizes the `focus_stack` if nodes were created above the root
@@ -749,8 +771,10 @@ mod tests {
         let mut wz = map.write_zipper();
         wz.descend_to(b"abcdefghijklmnopq");
         assert!(wz.path_exists());
+        assert_eq!(wz.path(), b"abcdefghijklmnopq");
         wz.remove_branch();
         assert!(!wz.path_exists());
+        assert_eq!(wz.path(), b"abcdefghijklmnopq");
         assert!(!map.contains_path(b"abcdefghijklmnopq"));
         assert!(!map.contains_path(b"abc"));
     }
