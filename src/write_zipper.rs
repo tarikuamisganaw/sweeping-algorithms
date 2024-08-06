@@ -92,7 +92,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
             if self.key.node_key().len() == 0 {
                 self.ascend_across_nodes();
             }
-            if self.child_count() != 1 {
+            if self.child_count() != 1 || self.at_root() {
                 break;
             }
         }
@@ -678,6 +678,11 @@ mod tests {
         assert!(wz.ascend_until());
         assert_eq!(wz.path(), b"m");
         assert_eq!(wz.child_count(), 3);
+
+        //Make sure we can't ascend above the zipper's root with ascend_until
+        assert!(wz.ascend_until());
+        assert_eq!(wz.path(), b"");
+        assert!(!wz.ascend_until());
 
         //GOAT, test the rest of the movement operations (step-wise ops)
 
