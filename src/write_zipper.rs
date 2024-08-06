@@ -32,7 +32,10 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn reset(&mut self) {
         self.focus_stack.to_root();
         self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
-        self.key.prefix_buf.truncate(self.key.root_key.len());
+        match self.key.prefix_idx.first() {
+            Some(idx) => self.key.prefix_buf.truncate(*idx),
+            None => self.key.prefix_buf.truncate(self.key.root_key.len())
+        }
         self.key.prefix_idx.clear();
     }
 
