@@ -45,9 +45,18 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn child_count(&self) -> usize {
-//GOAT, this might be wrong because we may need to descend
-        panic!()
-        //self.focus_stack.top().unwrap().child_count_at_key(self.key.node_key())
+        let focus_node = self.focus_stack.top().unwrap();
+        let node_key = self.key.node_key();
+        match focus_node.node_get_child(node_key) {
+            Some((consumed_bytes, child_node)) => {
+                if node_key.len() >= consumed_bytes {
+                    child_node.child_count_at_key(&node_key[consumed_bytes..])
+                } else {
+                    0
+                }
+            },
+            None => focus_node.child_count_at_key(node_key)
+        }
     }
 
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
@@ -75,7 +84,20 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn ascend_until(&mut self) -> bool {
-        panic!()
+        if self.at_root() {
+            return false;
+        }
+        loop {
+            self.ascend_within_node();
+            if self.key.node_key().len() == 0 {
+                self.ascend_across_nodes();
+            }
+            if self.child_count() != 1 {
+                break;
+            }
+        }
+        debug_assert!(self.key.node_key().len() > 0); //We should never finish with a zero-length node-key
+        true
     }
 
     fn fork_zipper(&self) -> ReadZipper<V> {
@@ -439,6 +461,22 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             }
         }) { }
     }
+    /// Internal method which doesn't actually move the zipper, but ensures `self.node_key().len() > 0`
+    /// WARNING, must never be called if `self.node_key().len() != 0`
+    #[inline]
+    fn ascend_across_nodes(&mut self) {
+        debug_assert!(self.key.node_key().len() == 0);
+        self.focus_stack.backtrack();
+        self.key.prefix_idx.pop();
+    }
+    /// Internal method used to impement `ascend_until` when ascending within a node
+    #[inline]
+    fn ascend_within_node(&mut self) {
+        let branch_key = self.focus_stack.top().unwrap().prior_branch_key(self.key.node_key());
+        let new_len = self.key.root_key.len().max(self.key.node_key_start() + branch_key.len());
+        self.key.prefix_buf.truncate(new_len);
+    }
+
 }
 
 /// Internal function to walk a mut TrieNodeODRc<V> ref along a path
@@ -627,14 +665,35 @@ mod tests {
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wz = map.write_zipper_at_path(b"ro");
-        wz.descend_to(b"manus");
+        assert_eq!(wz.child_count(), 1);
+        assert!(wz.descend_to(b"manus"));
         assert_eq!(wz.path(), b"manus");
+        assert_eq!(wz.child_count(), 0);
         wz.reset();
         assert_eq!(wz.path(), b"");
-        wz.descend_to(b"mulus");
+        assert_eq!(wz.child_count(), 1);
+        assert!(wz.descend_to(b"mulus"));
         assert_eq!(wz.path(), b"mulus");
+        assert_eq!(wz.child_count(), 0);
+        assert!(wz.ascend_until());
+        assert_eq!(wz.path(), b"m");
+        assert_eq!(wz.child_count(), 3);
 
-        //GOAT, test the rest of the movement operations
+        //GOAT, test the rest of the movement operations (step-wise ops)
+
+        // //Test `ascend`
+        // zipper.descend_to(b"manus");
+        // assert_eq!(zipper.path(), b"manus");
+        // assert_eq!(zipper.ascend(1), true);
+        // assert_eq!(zipper.path(), b"manu");
+        // assert_eq!(zipper.ascend(5), false);
+        // assert_eq!(zipper.path(), b"");
+        // assert_eq!(zipper.at_root(), true);
+        // zipper.descend_to(b"mane");
+        // assert_eq!(zipper.path(), b"mane");
+        // assert_eq!(zipper.ascend(3), true);
+        // assert_eq!(zipper.path(), b"m");
+        // assert_eq!(zipper.child_count(), 3);
     }
 
     #[test]

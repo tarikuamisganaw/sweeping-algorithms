@@ -4,7 +4,6 @@ use divan::{Divan, Bencher, black_box};
 
 use ringmap::ring::*;
 use ringmap::trie_map::BytesTrieMap;
-use ringmap::zipper::Zipper;
 
 fn main() {
     // Run registered benchmarks.

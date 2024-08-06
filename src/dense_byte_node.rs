@@ -1240,9 +1240,3 @@ fn bit_siblings() {
     assert_eq!(63, bit_sibling(63, 1u64 << 63, false));
     assert_eq!(63, bit_sibling(63, 1u64 << 63, true));
 }
-
-#[test]
-fn goat() {
-    println!("GOAT NODE {}", core::mem::size_of::<DenseByteNode<u64>>());
-    println!("GOAT CF {}", core::mem::size_of::<CoFree<u64>>());
-}
