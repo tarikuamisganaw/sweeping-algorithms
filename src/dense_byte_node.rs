@@ -1187,7 +1187,7 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
                         unsafe { new_v.get_unchecked_mut(c).write(jv) };
                         c += 1;
                     } else {
-                        mm[i] ^= (1u64 << index);
+                        mm[i] ^= 1u64 << index;
                     }
                     l += 1;
                     r += 1;
