@@ -31,6 +31,9 @@ use std::fmt::{Debug, Formatter};
 //Conclusion: Need a massively multi-threaded benchmark to decide what to do with Rc / RcLite
 //
 
+#[cfg(feature = "smallvec")]
+use smallvec::SmallVec;
+
 use crate::ring::*;
 use crate::trie_node::*;
 use crate::line_list_node::{LineListNode, merge_into_dense_node};
@@ -41,7 +44,12 @@ const ALL_BYTES: [u8; 256] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 
 #[derive(Clone)]
 pub struct DenseByteNode<V> {
     mask: [u64; 4],
-    values: Vec<CoFree<V>>
+    #[cfg(all(feature = "all_dense_nodes", feature = "smallvec"))]
+    values: SmallVec<[CoFree<V>; 2]>,
+    #[cfg(all(not(feature = "all_dense_nodes"), feature = "smallvec"))]
+    values: SmallVec<[CoFree<V>; 4]>,
+    #[cfg(not(feature = "smallvec"))]
+    values: Vec<CoFree<V>>,
 }
 
 impl<V> Default for DenseByteNode<V> {
@@ -66,14 +74,17 @@ impl<V> DenseByteNode<V> {
     pub fn new() -> Self {
         Self {
             mask: [0u64; 4],
-            values: Vec::new()
+            values: <_>::default()
         }
     }
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             mask: [0u64; 4],
-            values: Vec::with_capacity(capacity)
+            #[cfg(feature = "smallvec")]
+            values: SmallVec::with_capacity(capacity),
+            #[cfg(not(feature = "smallvec"))]
+            values: Vec::with_capacity(capacity),
         }
     }
     #[inline]
@@ -958,7 +969,7 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
         }
 
         unsafe{ v.set_len(c); }
-        return DenseByteNode::<V>{ mask: jm, values: v };
+        return DenseByteNode::<V>{ mask: jm, values: <_>::from(v) };
     }
 
     fn join_into(&mut self, mut other: Self) {
@@ -1012,7 +1023,7 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
         unsafe { other.values.set_len(0) }
         unsafe { v.set_len(c) }
         self.mask = jm;
-        self.values = v;
+        self.values = <_>::from(v);
     }
 
     fn meet(&self, other: &Self) -> Self {
@@ -1061,7 +1072,7 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
         }
 
         unsafe{ v.set_len(c); }
-        return DenseByteNode::<V>{ mask: mm, values: v };
+        return DenseByteNode::<V>{ mask: mm, values: <_>::from(v) };
     }
 
     fn bottom() -> Self {
@@ -1101,7 +1112,7 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
         }
 
         unsafe{ v.set_len(c); }
-        return DenseByteNode::<V>{ mask: jm, values: v };
+        return DenseByteNode::<V>{ mask: jm, values: <_>::from(v) };
     }
 }
 
@@ -1203,7 +1214,7 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
         if c == 0 { None }
         else {
             unsafe{ v.set_len(c); }
-            return Some(DenseByteNode::<V>{ mask: mm, values: v });
+            return Some(DenseByteNode::<V>{ mask: mm, values: <_>::from(v) });
         }
     }
 }
@@ -1228,4 +1239,10 @@ fn bit_siblings() {
     assert_eq!(0, bit_sibling(0, 1, true));
     assert_eq!(63, bit_sibling(63, 1u64 << 63, false));
     assert_eq!(63, bit_sibling(63, 1u64 << 63, true));
+}
+
+#[test]
+fn goat() {
+    println!("GOAT NODE {}", core::mem::size_of::<DenseByteNode<u64>>());
+    println!("GOAT CF {}", core::mem::size_of::<CoFree<u64>>());
 }

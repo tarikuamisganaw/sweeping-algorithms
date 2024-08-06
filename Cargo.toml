@@ -10,11 +10,13 @@ edition = "2021"
 #roaring = "0.10.3"
 dyn-clone = "1.0.17"
 local-or-heap = "0.1.0"
+smallvec = {version = "1.13.0", optional = true}
 mutcursor = {version = "0.1.6"}
 
 [features]
 all_dense_nodes = [] # Exclusively use the DenseNode type, which generally performs worse but is useful for compatibility and perf comparisons
 counters = [] # Enable features to inspect performance properties of trees
+smallvec = ["dep:smallvec"] # Use SmallVec inside the DenseByteNode. Seems to help on very large trees and hurt on small ones
 
 [build]
 rustflags = "-C opt-level=3 -C target-cpu=native"
