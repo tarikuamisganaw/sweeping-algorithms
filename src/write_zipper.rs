@@ -32,10 +32,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn reset(&mut self) {
         self.focus_stack.to_root();
         self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
-        match self.key.prefix_idx.first() {
-            Some(idx) => self.key.prefix_buf.truncate(*idx),
-            None => self.key.prefix_buf.truncate(self.key.root_key.len())
-        }
+        self.key.prefix_buf.truncate(self.key.root_key.len());
         self.key.prefix_idx.clear();
     }
 
@@ -343,6 +340,13 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
                         Err(_replacement_node) => {
                             panic!(); //TODO
                         }
+                    }
+                    if self.at_root() {
+                        debug_assert_eq!(self.focus_stack.depth(), 1);
+                        let (key, node) = node_along_path_mut(self.focus_stack.take_root().unwrap(), &self.key.root_key);
+                        self.focus_stack.replace_root(node);
+                        self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+                        self.key.root_key = key;
                     }
                 } else {
                     debug_assert_eq!(self.focus_stack.depth(), 1);
