@@ -16,11 +16,12 @@ pub trait Lattice: Sized {
     }
 }
 
-pub trait MapRing<V> {
-    fn join_with(&self, other: &Self, op: fn(&V, &V) -> V) -> Self;
-    // fn meet_with<F: Copy + Fn(&V, &V) -> V>(&self, other: &Self, op: F) -> Self;
-    // fn subtract_with<F: Copy + Fn(&V, &V) -> Option<V>>(&self, other: &Self, op: F) -> Self;
-}
+//GOAT, this looks like dead code
+// pub trait MapRing<V> {
+//     fn join_with(&self, other: &Self, op: fn(&V, &V) -> V) -> Self;
+//     // fn meet_with<F: Copy + Fn(&V, &V) -> V>(&self, other: &Self, op: F) -> Self;
+//     // fn subtract_with<F: Copy + Fn(&V, &V) -> Option<V>>(&self, other: &Self, op: F) -> Self;
+// }
 
 pub trait DistributiveLattice: Lattice {
     fn subtract(&self, other: &Self) -> Self;
@@ -102,44 +103,46 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for Option<V> 
     }
 }
 
-impl <V : Clone> MapRing<V> for Option<V> {
-    fn join_with(&self, other: &Self, op: fn(&V, &V) -> V) -> Self {
-        match self {
-            None => { match other {
-                None => { None }
-                Some(r) => { Some(r.clone()) }
-            } }
-            Some(l) => match other {
-                None => { Some(l.clone()) }
-                Some(r) => { Some(op(l, r)) }
-            }
-        }
-    }
+//GOAT, this looks like dead code
+// impl <V : Clone> MapRing<V> for Option<V> {
+//     fn join_with(&self, other: &Self, op: fn(&V, &V) -> V) -> Self {
+//         match self {
+//             None => { match other {
+//                 None => { None }
+//                 Some(r) => { Some(r.clone()) }
+//             } }
+//             Some(l) => match other {
+//                 None => { Some(l.clone()) }
+//                 Some(r) => { Some(op(l, r)) }
+//             }
+//         }
+//     }
 
-    // fn meet_with<F: Copy + Fn(&V, &V) -> V>(&self, other: &Self, op: F) -> Self {
-    //     match self {
-    //         None => { None }
-    //         Some(l) => {
-    //             match other {
-    //                 None => { None }
-    //                 Some(r) => Some(op(l, r))
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    // fn subtract_with<F: Copy + Fn(&V, &V) -> Option<V>>(&self, other: &Self, op: F) -> Self {
-    //     match self {
-    //         None => { None }
-    //         Some(l) => {
-    //             match other {
-    //                 None => { Some(l.clone()) }
-    //                 Some(r) => op(l, r)
-    //             }
-    //         }
-    //     }
-    // }
-}
+//     // fn meet_with<F: Copy + Fn(&V, &V) -> V>(&self, other: &Self, op: F) -> Self {
+//     //     match self {
+//     //         None => { None }
+//     //         Some(l) => {
+//     //             match other {
+//     //                 None => { None }
+//     //                 Some(r) => Some(op(l, r))
+//     //             }
+//     //         }
+//     //     }
+//     // }
+//     //
+//     // fn subtract_with<F: Copy + Fn(&V, &V) -> Option<V>>(&self, other: &Self, op: F) -> Self {
+//     //     match self {
+//     //         None => { None }
+//     //         Some(l) => {
+//     //             match other {
+//     //                 None => { Some(l.clone()) }
+//     //                 Some(r) => op(l, r)
+//     //             }
+//     //         }
+//     //     }
+//     // }
+// }
+
 impl <V : Lattice> Lattice for Box<V> {
     fn join(&self, other: &Self) -> Self {
         Box::new(self.as_ref().join(other.as_ref()))

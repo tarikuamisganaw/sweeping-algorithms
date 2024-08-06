@@ -32,7 +32,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn reset(&mut self) {
         self.focus_stack.to_root();
         self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
-        self.key.prefix_buf.clear();
+        self.key.prefix_buf.truncate(self.key.root_key.len());
         self.key.prefix_idx.clear();
     }
 
@@ -195,58 +195,82 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
 
     /// Replaces the trie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
     ///
-    /// If there is a value at the zipper's focus, it will not be affected.  If the `read_zipper` is not on
-    /// an existing path (according to [Zipper::path_exists]) then the trie will be pruned below the graft location.
+    /// If there is a value at the zipper's focus, it will not be affected.
+    ///
+    /// WARNING: If the `read_zipper` is not on an existing path (according to [Zipper::path_exists]) then the
+    /// effect will be the same as [Self::remove_branch] causing the trie to be pruned below the graft location.
+    /// Since dangling paths aren't allowed, This method may cause the trie to be pruned above the zipper's focus,
+    /// and may lead to [Self::path_exists] returning `false`, where it previously returned `true`
     pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
         self.graft_internal(read_zipper.clone_focus())
     }
 
-    /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
-    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) where V: Lattice {
+    /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of
+    /// `read_zipper`
+    ///
+    /// Returns `true` if the join was sucessful, or `false` if `read_zipper` was at a nonexistent path.
+    ///
+    /// If the &self zipper is at a path that does not exist, this method behaves like graft.
+    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = match read_zipper.clone_focus() {
             Some(src) => src,
-            None => return
+            None => return false
         };
         match self.clone_focus() {
             Some(self_node) => {
                 let joined = self_node.join(&src);
-                self.graft_internal(Some(joined))
+                self.graft_internal(Some(joined));
+                true
             },
-            None => { self.graft_internal(Some(src)) }
+            None => { self.graft_internal(Some(src)); true }
         }
     }
 
-    /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
-    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) where V: Lattice {
+    /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream
+    /// from the focus of `read_zipper`
+    ///
+    /// Returns `true` if the meet was sucessful, or `false` if either `self` of `read_zipper` is at a
+    /// nonexistent path.
+    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = match read_zipper.clone_focus() {
             Some(src) => src,
-            None => return
+            None => return false
         };
         match self.clone_focus() {
             Some(self_node) => {
                 let joined = self_node.meet(&src);
-                self.graft_internal(Some(joined))
+                self.graft_internal(Some(joined));
+                true
             },
-            None => { self.graft_internal(Some(src)) }
+            None => false
         }
     }
 
-    /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's focus
-    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) where V: PartialDistributiveLattice {
+    /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's
+    /// focus
+    ///
+    /// Returns `true` if the subtraction was sucessful, or `false` if either `self` of `read_zipper` is at a
+    /// nonexistent path.
+    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
         let src = match read_zipper.clone_focus() {
             Some(src) => src,
-            None => return
+            None => return false
         };
         match self.clone_focus() {
             Some(self_node) => {
                 let joined = self_node.subtract(&src);
-                self.graft_internal(Some(joined))
+                self.graft_internal(Some(joined));
+                true
             },
-            None => { self.graft_internal(Some(src)) }
+            None => false
         }
     }
 
-    /// Restricts `self` to paths prefixed by a path in `read_zipper`
+    /// Restricts paths in the subtrie downstream of the `self` focus to paths prefixed by a path to a value in
+    /// `read_zipper`
+    ///
+    /// Returns `true` if the restriction was sucessful, or `false` if either `self` of `read_zipper` is at a
+    /// nonexistent path.
     pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
         let src = match read_zipper.clone_focus() {
             Some(src) => src,
@@ -254,12 +278,11 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         };
         match self.clone_focus() {
             Some(self_node) => {
-                let joined = self_node.prestrict(&src);
-                // println!("restricted! {}", joined.is_some());
-                self.graft_internal(joined);
+                let restricted = self_node.prestrict(&src);
+                self.graft_internal(restricted);
                 true
             },
-            None => { self.graft_internal(Some(src)); false }
+            None => false
         }
     }
 
@@ -443,7 +466,7 @@ fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>, path: &'k
         }
     }
 
-    //SAFETY: Pononius is ok with this code.  All mutable borrows of the current version of the
+    //SAFETY: Polonius is ok with this code.  All mutable borrows of the current version of the
     //  `node` &mut ref have ended by this point
     node = unsafe{ &mut *node_ptr };
     (key, node)
@@ -596,6 +619,22 @@ mod tests {
         assert_eq!(a.get(b"root").unwrap(), &1005);
         assert_eq!(a.get(b"rough").unwrap(), &1006);
         assert_eq!(a.get(b"round").unwrap(), &1007);
+    }
+
+    #[test]
+    fn write_zipper_movement_test() {
+        let keys = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut wz = map.write_zipper_at_path(b"ro");
+        wz.descend_to(b"manus");
+        assert_eq!(wz.path(), b"manus");
+        wz.reset();
+        assert_eq!(wz.path(), b"");
+        wz.descend_to(b"mulus");
+        assert_eq!(wz.path(), b"mulus");
+
+        //GOAT, test the rest of the movement operations
     }
 
     #[test]
