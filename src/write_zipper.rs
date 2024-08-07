@@ -342,6 +342,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
                         }
                     }
                     self.mend_root();
+                    self.descend_to_internal();
                 } else {
                     unreachable!();  //GOAT, make this a debug_assert!()
 
