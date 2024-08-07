@@ -157,6 +157,8 @@ pub(crate) mod zipper_priv {
     }
 }
 use zipper_priv::*;
+use crate::dense_byte_node::DenseByteNode;
+use crate::line_list_node::LineListNode;
 
 /// Size of node stack to preallocate in the zipper
 pub(crate) const EXPECTED_DEPTH: usize = 16;
@@ -394,6 +396,13 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
 }
 
 impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
+    pub fn direct_children(&self) -> [u64; 4] {
+        if let Some(d) = self.focus_node.as_dense() { return d.mask }
+        if let Some(l) = self.focus_node.as_list() { return l.mask() }
+        if self.focus_node.node_is_empty() { return [0; 4] }
+        else { panic!("unimplemented node type") }
+    }
+
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8], mut root_key_offset: Option<usize>) -> Self {
         let mut key = path;
