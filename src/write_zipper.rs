@@ -268,6 +268,21 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
     }
 
+    /// Experiment.  GOAT, document this
+    pub fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
+        let a = match rz_a.clone_focus() {
+            Some(src) => src,
+            None => return false
+        };
+        let b = match rz_b.clone_focus() {
+            Some(src) => src,
+            None => return false
+        };
+        let joined = a.meet(&b);
+        self.graft_internal(Some(joined));
+        true
+    }
+
     /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's
     /// focus
     ///
