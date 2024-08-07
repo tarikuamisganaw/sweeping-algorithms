@@ -344,12 +344,10 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
                     self.mend_root();
                     self.descend_to_internal();
                 } else {
-                    unreachable!();  //GOAT, make this a debug_assert!()
-
-                    // debug_assert_eq!(self.focus_stack.depth(), 1);
-                    // self.focus_stack.to_root();
-                    // *self.focus_stack.root_mut().unwrap() = src;
-                    // self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+                    debug_assert_eq!(self.focus_stack.depth(), 1);
+                    self.focus_stack.to_root();
+                    *self.focus_stack.root_mut().unwrap() = src;
+                    self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
                 }
             },
             None => { self.remove_branch(); }
