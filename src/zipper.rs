@@ -488,7 +488,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             if self.focus_node.is_leaf(self.node_key()) {
                 //We can stop ascending when we succeed in moving to a sibling
                 while !self.to_sibling(true) {
-                    if !self.ascend_jump() {
+                    if !self.ascend_jump(None) {
                         return None;
                     }
                 }
@@ -503,6 +503,85 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             let self_ptr: *const Self = self;
             if let Some(val) = unsafe{ &*self_ptr }.get_value() {
                 return Some(val);
+            }
+        }
+    }
+
+    //GOAT, this might be useful... But not sure.
+    // /// Systematically advances the zipper to the next position where the path contains `pattern` as a
+    // /// substring
+    // ///
+    // /// Traversal proceeds in a depth-first order.  When a match is encountered, the zipper will stop at the
+    // /// end of the matched substring.  The zipper will not descend past a path length of `depth_limit` bytes,
+    // /// from the zipper's root.
+    // ///
+    // /// Returns `true` if the zipper has arrived at a valid match, and `false` if no further matches could be
+    // /// found.
+    // pub fn to_next_match<K: AsRef<[u8]>>(&mut self, pattern: K, depth_limit: usize) -> bool {
+
+
+    /// Descends the zipper's focus 'k' bytes, following the first child at each branch, and continuing with
+    /// depth-first exploration until a path that is `k` bytes from the focus has been found
+    ///
+    /// Returns `true` if the zipper has sucessfully descended `k` steps, or `false` otherwise.  If this method
+    /// returns `false` then the zipper will be in its original position.
+    ///
+    /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
+    /// below the zipper's focus.  Although a typical cost is `order log n` or better.
+    ///
+    /// See: [Self::to_k_path_next]
+    pub fn descend_k_path_first(&mut self, k: usize) -> bool {
+        self.prepare_buffers();
+        self.k_path_internal(k, self.path().len())
+    }
+
+    /// Moves the zipper's focus to the next location with the same path length as the current focus, following
+    /// a depth-first exploration from a common root `k` steps above the current focus
+    ///
+    /// Returns `true` if the zipper has sucessfully moved to a new location at the same level, or `false` if
+    /// no further locations exist.  If this method returns `false` then the zipper will be ascended `k` stept
+    /// to the common root.
+    ///
+    /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
+    /// below the zipper's focus.  Although a typical cost is `order log n` or better.
+    ///
+    /// See: [Self::descend_k_path_first]
+    pub fn to_k_path_next(&mut self, k: usize) -> bool {
+        self.prepare_buffers();
+        let base_idx = if self.path().len() > k {
+            self.path().len() - k
+        } else {
+            0
+        };
+        self.k_path_internal(k, base_idx)
+    }
+
+    /// Internal method that implements both `k_path...` methods above
+    #[inline]
+    fn k_path_internal(&mut self, k: usize, base_idx: usize) -> bool {
+        let depth = |z: &Self| z.path().len() - base_idx;
+        loop {
+            //If we're at a leaf or `k` depth, then ascend and jump to the next sibling
+            if self.focus_node.is_leaf(self.node_key()) || depth(self) >= k {
+                //We can stop ascending when we succeed in moving to a sibling
+                while !self.to_sibling(true) {
+                    if !self.ascend_jump(Some(depth(self))) {
+                        return false;
+                    }
+                }
+            } else {
+                //We're at a branch, so descend
+                self.descend_first();
+            }
+
+            //Truncate the path if we over-shot
+            if depth(self) > k {
+                let overshoot = depth(self) - k;
+                self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
+            }
+
+            if depth(self) == k {
+                return true;
             }
         }
     }
@@ -658,8 +737,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// will stop one byte below the branch point, and also will not ascend recursively across multiple
     /// node boundaries.  Mainly this is useful in the implementation of [Self::to_next_val]
     #[inline]
-    fn ascend_jump(&mut self) -> bool {
-        if self.at_root() {
+    fn ascend_jump(&mut self, max_jump: Option<usize>) -> bool {
+        if self.at_root() || max_jump == Some(0) {
             return false;
         }
         if self.node_key().len() == 0 {
@@ -668,13 +747,16 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         if self.node_key().len() == 1 {
             let new_len = self.origin_path.len().max(self.node_key_start());
             self.prefix_buf.truncate(new_len);
-            if self.at_root() {
+            if self.at_root() || max_jump == Some(1) {
                 return false;
             }
             self.ascend_across_nodes();
         }
         let branch_key = self.focus_node.prior_branch_key(self.node_key());
-        let new_len = self.origin_path.len().max(self.node_key_start() + branch_key.len().max(1));
+        let mut new_len = self.origin_path.len().max(self.node_key_start() + branch_key.len().max(1));
+        if let Some(max_jump) = max_jump {
+            new_len = new_len.max(self.prefix_buf.len() - max_jump);
+        }
         self.prefix_buf.truncate(new_len);
         true
     }
@@ -1083,5 +1165,64 @@ mod tests {
         assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "romanus");
         zipper.to_next_val();
         assert_eq!(zipper.path().len(), 0);
+    }
+
+    #[test]
+    fn k_path_test() {
+        //This is a toy encoding where `:n:` precedes a symbol of `n` characters long
+        let keys = [
+            ":5:above:3:the:4:fray:",
+            ":5:err:",
+            ":5:erronious:6:potato:",
+            ":5:error:2:is:2:my:4:name:",
+            ":5:hello:5:world:",
+            ":5:mucky:4:muck:",
+            ":5:roger:6:rabbit:",
+            ":5:zebra:",
+            ":9:muckymuck:5:raker:",
+        ];
+        let map: BytesTrieMap<u64> = keys.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper_at_path(b":");
+
+        //This is a cheesy way to encode lengths, but it's is more readable than unprintable chars
+        assert!(zipper.descend_indexed_child(0));
+        let sym_len = usize::from_str_radix(std::str::from_utf8(&[zipper.path()[0]]).unwrap(), 10).unwrap();
+        assert_eq!(sym_len, 5);
+
+        //Step over the ':' character
+        assert!(zipper.descend_indexed_child(0));
+        assert_eq!(zipper.child_count(), 6);
+
+        //Start iterating over all the symbols of length=sym_len
+        assert_eq!(zipper.descend_k_path_first(sym_len+1), true);
+
+        //This should have taken us to "above:"
+        assert_eq!(zipper.path(), b"5:above:");
+
+        //Go to the next symbol.
+        // Two interesting things will happen.  First, we blow past "err" because its path length is
+        // shorter than `k`.  Second, we will stop in the middle of "erronious".
+        // These situations would be caused by an encode bug.  Which hopefully we won't have in real
+        // paths. But the parser should recognize the last digit of the path isn't ':'
+        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.path(), b"5:erroni");
+        assert_ne!(zipper.path().last(), Some(&b':'));
+
+        //Now we'll move on to some correctly formed symbols
+        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.path(), b"5:error:");
+        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.path(), b"5:hello:");
+        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.path(), b"5:mucky:");
+        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.path(), b"5:roger:");
+        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.path(), b"5:zebra:");
+
+        //The last step should return false, and put us back to where we began
+        assert_eq!(zipper.to_k_path_next(sym_len+1), false);
+        assert_eq!(zipper.path(), b"5:");
+        assert_eq!(zipper.child_count(), 6);
     }
 }
