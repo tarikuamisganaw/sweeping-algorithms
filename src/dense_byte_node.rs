@@ -203,7 +203,7 @@ impl<V> DenseByteNode<V> {
     /// Sets the payload (child node or V) at the specified key.  Should not be used in situations where
     /// a the child or value may already exist at the key
     #[inline]
-    pub fn set_payload_owned(&mut self, k: u8, payload: ValOrChild<V>) {
+    pub(crate) fn set_payload_owned(&mut self, k: u8, payload: ValOrChild<V>) {
         match payload {
             ValOrChild::Child(child) => {
                 let _ = self.set_child(k, child);
@@ -218,7 +218,7 @@ impl<V> DenseByteNode<V> {
     /// Behavior is the same as [set_payload_owned], if the child or value doens't already exist, otherwise
     /// joins the existing entry with the supplied payload
     #[inline]
-    pub fn join_payload_into(&mut self, k: u8, payload: ValOrChild<V>) where V: Clone + Lattice {
+    pub(crate) fn join_payload_into(&mut self, k: u8, payload: ValOrChild<V>) where V: Clone + Lattice {
         match payload {
             ValOrChild::Child(child) => {
                 self.join_child_into(k, child);
@@ -748,15 +748,18 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         (Some(sibling_key_char), cf.rec.as_ref().map(|node| &*node.borrow()))
     }
 
-    fn clone_node_at_key(&self, key: &[u8]) -> Option<TrieNodeODRc<V>> {
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
         if key.len() < 2 {
             if key.len() == 0 {
-                Some(TrieNodeODRc::new(self.clone()))
+                AbstractNodeRef::BorrowedDyn(self)
             } else {
-                self.get(key[0]).and_then(|cf| cf.rec.as_ref()).cloned()
+                match self.get(key[0]).and_then(|cf| cf.rec.as_ref()) {
+                    Some(link) => AbstractNodeRef::BorrowedRc(link),
+                    None => AbstractNodeRef::None
+                }
             }
         } else {
-            None
+            AbstractNodeRef::None
         }
     }
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
@@ -826,6 +829,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
     fn as_list(&self) -> Option<&LineListNode<V>> {
         None
+    }
+    fn clone_self(&self) -> TrieNodeODRc<V> {
+        TrieNodeODRc::new(self.clone())
     }
 }
 

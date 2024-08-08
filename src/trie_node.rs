@@ -14,7 +14,7 @@ use crate::ring::*;
 ///
 /// 1. A TrieNode will never have a value or an onward link at a zero-length key.  A value associated with
 /// the path to the root of a TrieNode must be stored in the parent node.
-pub(crate) trait TrieNode<V>: DynClone + core::fmt::Debug {
+pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     // /// Returns `true` if the node contains a child node for the key path, otherwise returns `false`
     //GOAT what would you do with a child node except for traverse it?
@@ -201,11 +201,11 @@ pub(crate) trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// NOTE: This method will never be called with a zero-length key
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>);
 
-    /// Returns a new node which is a clone of the portion of the node rooted at `key`, or `None` if `key`
-    /// does not specify a path within the node
+    /// Returns a new node which is a clone or reference to the portion of the node rooted at `key`, or
+    /// `None` if `key` does not specify a path within the node
     ///
-    /// If `key.len() == 0` this method will return a clone of the node.
-    fn clone_node_at_key(&self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
+    /// If `key.len() == 0` this method will return a reference to or a clone of the node.
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V>;
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types
@@ -241,9 +241,11 @@ pub(crate) trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns a reference to the node as a specific concrete type or None if it is not that type
     fn as_list(&self) -> Option<&LineListNode<V>>;
 
+    /// Returns a clone of the node in its own Rc
+    fn clone_self(&self) -> TrieNodeODRc<V>;
 }
 
-pub(crate) enum ValOrChildRef<'a, V> {
+pub enum ValOrChildRef<'a, V> {
     Val(&'a V),
     Child(&'a dyn TrieNode<V>)
 }
@@ -252,6 +254,43 @@ pub(crate) enum ValOrChildRef<'a, V> {
 pub(crate) enum ValOrChild<V> {
     Val(V),
     Child(TrieNodeODRc<V>)
+}
+
+pub enum AbstractNodeRef<'a, V> {
+    None,
+    BorrowedDyn(&'a dyn TrieNode<V>),
+    BorrowedRc(&'a TrieNodeODRc<V>),
+    OwnedRc(TrieNodeODRc<V>)
+}
+
+impl<'a, V: Clone> AbstractNodeRef<'a, V> {
+    pub fn is_none(&self) -> bool {
+        matches!(self, AbstractNodeRef::None)
+    }
+    pub fn borrow(&self) -> &dyn TrieNode<V> {
+        match self {
+            AbstractNodeRef::None => panic!(),
+            AbstractNodeRef::BorrowedDyn(node) => *node,
+            AbstractNodeRef::BorrowedRc(rc) => rc.borrow(),
+            AbstractNodeRef::OwnedRc(rc) => rc.borrow()
+        }
+    }
+    pub fn borrow_option(&self) -> Option<&dyn TrieNode<V>> {
+        match self {
+            AbstractNodeRef::None => None,
+            AbstractNodeRef::BorrowedDyn(node) => Some(*node),
+            AbstractNodeRef::BorrowedRc(rc) => Some(rc.borrow()),
+            AbstractNodeRef::OwnedRc(rc) => Some(rc.borrow())
+        }
+    }
+    pub fn into_option(self) -> Option<TrieNodeODRc<V>> {
+        match self {
+            AbstractNodeRef::None => None,
+            AbstractNodeRef::BorrowedDyn(node) => Some(node.clone_self()),
+            AbstractNodeRef::BorrowedRc(rc) => Some(rc.clone()),
+            AbstractNodeRef::OwnedRc(rc) => Some(rc)
+        }
+    }
 }
 
 //TODO: Make a Macro to generate OpaqueDynBoxes and ODRc (OpaqueDynRc) and an Arc version

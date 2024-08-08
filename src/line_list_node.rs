@@ -1226,20 +1226,20 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
-    fn clone_node_at_key(&self, key: &[u8]) -> Option<TrieNodeODRc<V>> {
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
         debug_assert!(validate_node(self));
 
         //Zero-length key means clone this node
         if key.len() == 0 {
-            return Some(TrieNodeODRc::new(self.clone()))
+            return AbstractNodeRef::BorrowedDyn(self)
         }
         //Exact match with a path to a child node means return that node
         let (key0, key1) = self.get_both_keys();
         if self.is_used_child_0() && key0 == key {
-            return Some(unsafe{ self.child_in_slot::<0>() }.clone())
+            return AbstractNodeRef::BorrowedRc(unsafe{ self.child_in_slot::<0>() })
         }
         if self.is_used_child_1() && key1 == key {
-            return Some(unsafe{ self.child_in_slot::<1>() }.clone())
+            return AbstractNodeRef::BorrowedRc(unsafe{ self.child_in_slot::<1>() })
         }
         //Otherwise check to see if we need to make a sub-node.  If we do,
         // We know the new node will have only 1 slot filled
@@ -1247,16 +1247,16 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             let mut new_node = Self::new();
             let payload = self.clone_payload::<0>().unwrap();
             unsafe{ new_node.set_payload_owned::<0>(&key0[key.len()..], payload); }
-            return Some(TrieNodeODRc::new(new_node));
+            return AbstractNodeRef::OwnedRc(TrieNodeODRc::new(new_node));
         }
         if key1.len() > key.len() && key1.starts_with(key) {
             let mut new_node = Self::new();
             let payload = self.clone_payload::<1>().unwrap();
             unsafe{ new_node.set_payload_owned::<0>(&key1[key.len()..], payload); }
-            return Some(TrieNodeODRc::new(new_node));
+            return AbstractNodeRef::OwnedRc(TrieNodeODRc::new(new_node));
         }
         //The key must specify a path the node doesn't contains
-        None
+        AbstractNodeRef::None
     }
 
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
@@ -1435,6 +1435,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
     fn as_list(&self) -> Option<&Self> {
         Some(self)
+    }
+
+    fn clone_self(&self) -> TrieNodeODRc<V> {
+        TrieNodeODRc::new(self.clone())
     }
 }
 
@@ -1972,35 +1976,37 @@ mod tests {
 
     #[test]
     fn test_line_list_clone_at_key() {
-        let mut node = LineListNode::<u64>::new();
-        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        node.node_set_val(b"almond", 1).unwrap_or_else(|_| panic!());
-        node.node_set_val(b"a", 2).unwrap_or_else(|_| panic!());
-        let cloned = node.clone_node_at_key(b"a").unwrap();
-        assert_eq!(cloned.borrow().node_get_val(b"pple"), Some(&0));
-        assert_eq!(cloned.borrow().node_get_val(b"lmond"), Some(&1));
+        panic!(); //GOAT, port this test to the new API
 
-        let mut node = LineListNode::<u64>::new();
-        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        node.node_set_val(b"apricot", 1).unwrap_or_else(|_| panic!());
-        let cloned = node.clone_node_at_key(b"a").unwrap();
-        assert!(cloned.borrow().node_get_child(b"p").is_some());
-        let cloned = node.clone_node_at_key(b"ap").unwrap();
-        assert_eq!(cloned.borrow().node_get_val(b"ple"), Some(&0));
+        // let mut node = LineListNode::<u64>::new();
+        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        // node.node_set_val(b"almond", 1).unwrap_or_else(|_| panic!());
+        // node.node_set_val(b"a", 2).unwrap_or_else(|_| panic!());
+        // let cloned = node.clone_node_at_key(b"a").unwrap();
+        // assert_eq!(cloned.borrow().node_get_val(b"pple"), Some(&0));
+        // assert_eq!(cloned.borrow().node_get_val(b"lmond"), Some(&1));
 
-        let mut node = LineListNode::<u64>::new();
-        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        node.node_set_val(b"a", 1).unwrap_or_else(|_| panic!());
-        let cloned = node.clone_node_at_key(b"a").unwrap();
-        assert_eq!(cloned.borrow().node_get_val(b"pple"), Some(&0));
+        // let mut node = LineListNode::<u64>::new();
+        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        // node.node_set_val(b"apricot", 1).unwrap_or_else(|_| panic!());
+        // let cloned = node.clone_node_at_key(b"a").unwrap();
+        // assert!(cloned.borrow().node_get_child(b"p").is_some());
+        // let cloned = node.clone_node_at_key(b"ap").unwrap();
+        // assert_eq!(cloned.borrow().node_get_val(b"ple"), Some(&0));
 
-        let mut node = LineListNode::<u64>::new();
-        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        node.node_set_val(b"banana", 1).unwrap_or_else(|_| panic!());
-        let cloned = node.clone_node_at_key(b"ap").unwrap();
-        assert_eq!(cloned.borrow().node_get_val(b"ple"), Some(&0));
-        let cloned = node.clone_node_at_key(b"b").unwrap();
-        assert_eq!(cloned.borrow().node_get_val(b"anana"), Some(&1));
+        // let mut node = LineListNode::<u64>::new();
+        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        // node.node_set_val(b"a", 1).unwrap_or_else(|_| panic!());
+        // let cloned = node.clone_node_at_key(b"a").unwrap();
+        // assert_eq!(cloned.borrow().node_get_val(b"pple"), Some(&0));
+
+        // let mut node = LineListNode::<u64>::new();
+        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        // node.node_set_val(b"banana", 1).unwrap_or_else(|_| panic!());
+        // let cloned = node.clone_node_at_key(b"ap").unwrap();
+        // assert_eq!(cloned.borrow().node_get_val(b"ple"), Some(&0));
+        // let cloned = node.clone_node_at_key(b"b").unwrap();
+        // assert_eq!(cloned.borrow().node_get_val(b"anana"), Some(&1));
     }
 
 }

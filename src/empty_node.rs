@@ -103,8 +103,8 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
-    fn clone_node_at_key(&self, _key: &[u8]) -> Option<TrieNodeODRc<V>> {
-        None
+    fn get_node_at_key(&self, _key: &[u8]) -> AbstractNodeRef<V> {
+        AbstractNodeRef::None
     }
     fn join_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!()
@@ -136,5 +136,8 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
     fn as_list(&self) -> Option<&LineListNode<V>> {
         None
+    }
+    fn clone_self(&self) -> TrieNodeODRc<V> {
+        TrieNodeODRc::new(self.clone())
     }
 }

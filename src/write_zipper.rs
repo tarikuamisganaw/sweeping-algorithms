@@ -1,7 +1,7 @@
 
 use mutcursor::MutCursorRootedVec;
 
-use crate::trie_node::{TrieNode, TrieNodeODRc};
+use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef};
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice};
@@ -119,11 +119,11 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
 
     fn val_count(&self) -> usize {
         debug_assert!(self.key.node_key().len() > 0);
-        match self.clone_focus() {
-            Some(temp_root) => {
-                temp_root.borrow().node_subtree_len() + (self.is_value() as usize)
-            },
-            None => 0
+        let focus = self.get_focus();
+        if focus.is_none() {
+            0
+        } else {
+            focus.borrow().node_subtree_len() + (self.is_value() as usize)
         }
     }
 }
@@ -131,8 +131,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
 impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
     type V = V;
 
-    fn clone_focus(&self) -> Option<TrieNodeODRc<V>> {
-        self.focus_stack.top().unwrap().clone_node_at_key(self.key.node_key())
+    fn get_focus(&self) -> AbstractNodeRef<Self::V> {
+        self.focus_stack.top().unwrap().get_node_at_key(self.key.node_key())
     }
 }
 
@@ -224,7 +224,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Since dangling paths aren't allowed, This method may cause the trie to be pruned above the zipper's focus,
     /// and may lead to [Self::path_exists] returning `false`, where it previously returned `true`
     pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
-        self.graft_internal(read_zipper.clone_focus())
+        self.graft_internal(read_zipper.get_focus().into_option())
     }
 
     /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of
@@ -234,17 +234,17 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     ///
     /// If the &self zipper is at a path that does not exist, this method behaves like graft.
     pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
-        let src = match read_zipper.clone_focus() {
-            Some(src) => src,
-            None => return false
-        };
-        match self.clone_focus() {
+        let src = read_zipper.get_focus();
+        if src.is_none() {
+            return false
+        }
+        match self.get_focus().borrow_option() {
             Some(self_node) => {
-                let joined = self_node.join(&src);
+                let joined = self_node.join_dyn(src.borrow());
                 self.graft_internal(Some(joined));
                 true
             },
-            None => { self.graft_internal(Some(src)); true }
+            None => { self.graft_internal(src.into_option()); true }
         }
     }
 
@@ -254,13 +254,13 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Returns `true` if the meet was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
     pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
-        let src = match read_zipper.clone_focus() {
-            Some(src) => src,
-            None => return false
-        };
-        match self.clone_focus() {
+        let src = read_zipper.get_focus();
+        if src.is_none() {
+            return false
+        }
+        match self.get_focus().borrow_option() {
             Some(self_node) => {
-                let joined = self_node.meet(&src);
+                let joined = self_node.meet_dyn(src.borrow());
                 self.graft_internal(Some(joined));
                 true
             },
@@ -270,15 +270,17 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
 
     /// Experiment.  GOAT, document this
     pub fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
-        let a = match rz_a.clone_focus() {
+        let a_focus = rz_a.get_focus();
+        let a = match a_focus.borrow_option() {
             Some(src) => src,
             None => return false
         };
-        let b = match rz_b.clone_focus() {
+        let b_focus = rz_b.get_focus();
+        let b = match b_focus.borrow_option() {
             Some(src) => src,
             None => return false
         };
-        let joined = a.meet(&b);
+        let joined = a.meet_dyn(b);
         self.graft_internal(Some(joined));
         true
     }
@@ -289,14 +291,14 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Returns `true` if the subtraction was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
     pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
-        let src = match read_zipper.clone_focus() {
-            Some(src) => src,
-            None => return false
-        };
-        match self.clone_focus() {
+        let src = read_zipper.get_focus();
+        if src.is_none() {
+            return false
+        }
+        match self.get_focus().borrow_option() {
             Some(self_node) => {
-                let joined = self_node.subtract(&src);
-                self.graft_internal(Some(joined));
+                let joined = self_node.psubtract_dyn(src.borrow());
+                self.graft_internal(joined);
                 true
             },
             None => false
@@ -309,13 +311,13 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Returns `true` if the restriction was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
     pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
-        let src = match read_zipper.clone_focus() {
-            Some(src) => src,
-            None => return false
-        };
-        match self.clone_focus() {
+        let src = read_zipper.get_focus();
+        if src.is_none() {
+            return false
+        }
+        match self.get_focus().borrow_option() {
             Some(self_node) => {
-                let restricted = self_node.prestrict(&src);
+                let restricted = self_node.prestrict_dyn(src.borrow());
                 self.graft_internal(restricted);
                 true
             },

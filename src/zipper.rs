@@ -21,7 +21,7 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::trie_node::{TrieNode, TrieNodeODRc};
+use crate::trie_node::{TrieNode, AbstractNodeRef};
 
 pub use crate::write_zipper::*;
 
@@ -153,7 +153,7 @@ pub(crate) mod zipper_priv {
     pub trait ZipperPriv {
         type V;
 
-        fn clone_focus(&self) -> Option<TrieNodeODRc<Self::V>>;
+        fn get_focus(&self) -> AbstractNodeRef<Self::V>;
     }
 }
 use zipper_priv::*;
@@ -377,11 +377,11 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         if self.node_key().len() == 0 {
             self.focus_node.node_subtree_len() + (self.is_value() as usize)
         } else {
-            match self.clone_focus() {
-                Some(temp_root) => {
-                    temp_root.borrow().node_subtree_len() + (self.is_value() as usize)
-                },
-                None => 0
+            let focus = self.get_focus();
+            if focus.is_none() {
+                0
+            } else {
+                focus.borrow().node_subtree_len() + (self.is_value() as usize)
             }
         }
     }
@@ -390,8 +390,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
     type V = V;
 
-    fn clone_focus(&self) -> Option<TrieNodeODRc<V>> {
-        self.focus_node.clone_node_at_key(self.node_key())
+    fn get_focus(&self) -> AbstractNodeRef<Self::V> {
+        self.focus_node.get_node_at_key(self.node_key())
     }
 }
 
