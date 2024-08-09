@@ -396,11 +396,12 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
 }
 
 impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
-    pub fn direct_children(&self) -> [u64; 4] {
-        if let Some(d) = self.focus_node.as_dense() { return d.mask }
-        if let Some(l) = self.focus_node.as_list() { return l.mask() }
-        if self.focus_node.node_is_empty() { return [0; 4] }
-        else { panic!("unimplemented node type") }
+
+    /// Returns 256-bit mask indicating which children exist from the branch at the focus
+    ///
+    /// Returns an empty mask if the focus is on a leaf or non-existent path
+    pub fn child_mask(&self) -> [u64; 4] {
+        self.focus_node.child_mask_at_key(self.node_key())
     }
 
     /// Creates a new zipper, with a path relative to a node
@@ -530,7 +531,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [Self::to_k_path_next]
-    pub fn descend_k_path_first(&mut self, k: usize) -> bool {
+    pub fn descend_first_k_path(&mut self, k: usize) -> bool {
         self.prepare_buffers();
         self.k_path_internal(k, self.path().len())
     }
@@ -546,7 +547,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [Self::descend_k_path_first]
-    pub fn to_k_path_next(&mut self, k: usize) -> bool {
+    pub fn to_next_k_path(&mut self, k: usize) -> bool {
         self.prepare_buffers();
         let base_idx = if self.path().len() > k {
             self.path().len() - k
@@ -1194,7 +1195,7 @@ mod tests {
         assert_eq!(zipper.child_count(), 6);
 
         //Start iterating over all the symbols of length=sym_len
-        assert_eq!(zipper.descend_k_path_first(sym_len+1), true);
+        assert_eq!(zipper.descend_first_k_path(sym_len+1), true);
 
         //This should have taken us to "above:"
         assert_eq!(zipper.path(), b"5:above:");
@@ -1204,24 +1205,24 @@ mod tests {
         // shorter than `k`.  Second, we will stop in the middle of "erronious".
         // These situations would be caused by an encode bug.  Which hopefully we won't have in real
         // paths. But the parser should recognize the last digit of the path isn't ':'
-        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.to_next_k_path(sym_len+1), true);
         assert_eq!(zipper.path(), b"5:erroni");
         assert_ne!(zipper.path().last(), Some(&b':'));
 
         //Now we'll move on to some correctly formed symbols
-        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.to_next_k_path(sym_len+1), true);
         assert_eq!(zipper.path(), b"5:error:");
-        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.to_next_k_path(sym_len+1), true);
         assert_eq!(zipper.path(), b"5:hello:");
-        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.to_next_k_path(sym_len+1), true);
         assert_eq!(zipper.path(), b"5:mucky:");
-        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.to_next_k_path(sym_len+1), true);
         assert_eq!(zipper.path(), b"5:roger:");
-        assert_eq!(zipper.to_k_path_next(sym_len+1), true);
+        assert_eq!(zipper.to_next_k_path(sym_len+1), true);
         assert_eq!(zipper.path(), b"5:zebra:");
 
         //The last step should return false, and put us back to where we began
-        assert_eq!(zipper.to_k_path_next(sym_len+1), false);
+        assert_eq!(zipper.to_next_k_path(sym_len+1), false);
         assert_eq!(zipper.path(), b"5:");
         assert_eq!(zipper.child_count(), 6);
     }

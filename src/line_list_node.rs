@@ -215,19 +215,6 @@ impl<V> LineListNode<V> {
         }
     }
     #[inline]
-    pub fn mask(&self) -> [u64; 4] {
-        let mut m = [0u64; 4];
-        if self.is_used::<0>() {
-            let k = unsafe{ *self.key_unchecked::<0>().as_ptr() };
-            m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
-        }
-        if self.is_used::<1>() {
-            let k = unsafe{ *self.key_unchecked::<1>().as_ptr() };
-            m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
-        }
-        m
-    }
-    #[inline]
     unsafe fn child_in_slot<const SLOT: usize>(&self) -> &TrieNodeODRc<V> {
         match SLOT {
             0 => &*self.val_or_child0.child,
@@ -1138,6 +1125,22 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                 }
             }
         }
+    }
+
+    fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4] {
+        panic!() //todo
+
+//Here is some code, but it doesn't take key into account
+//     let mut m = [0u64; 4];
+//     if self.is_used::<0>() {
+//         let k = unsafe{ *self.key_unchecked::<0>().as_ptr() };
+//         m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
+//     }
+//     if self.is_used::<1>() {
+//         let k = unsafe{ *self.key_unchecked::<1>().as_ptr() };
+//         m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
+//     }
+//     m
     }
 
     fn is_leaf(&self, key: &[u8]) -> bool {

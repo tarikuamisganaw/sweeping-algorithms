@@ -43,7 +43,7 @@ const ALL_BYTES: [u8; 256] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 
 
 #[derive(Clone)]
 pub struct DenseByteNode<V> {
-    pub(crate) mask: [u64; 4],
+    mask: [u64; 4],
     #[cfg(all(feature = "all_dense_nodes", feature = "smallvec"))]
     values: SmallVec<[CoFree<V>; 2]>,
     #[cfg(all(not(feature = "all_dense_nodes"), feature = "smallvec"))]
@@ -687,6 +687,18 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         let cf = unsafe{ self.values.get_unchecked(0) };
         let prefix = self.item_idx_to_prefix::<true>(0).unwrap() as usize;
         (Some(&ALL_BYTES[prefix..=prefix]), cf.rec.as_ref().map(|cf| &*cf.borrow()))
+    }
+
+    fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4] {
+        match key.len() {
+            0 => self.mask,
+            1 => {
+                //There are two ways we could get a length 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
+                debug_assert!(self.get(key[0]).and_then(|cf| cf.rec.as_ref()).is_none());
+                [0; 4]
+            },
+            _ => unreachable!() //The calling code should have advanced to the next node
+        }
     }
 
     fn child_count_at_key(&self, key: &[u8]) -> usize {

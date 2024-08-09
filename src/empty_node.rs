@@ -92,6 +92,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn child_count_at_key(&self, _key: &[u8]) -> usize {
         0
     }
+    fn child_mask_at_key(&self, _key: &[u8]) -> [u64; 4] {
+        [0; 4]
+    }
     fn is_leaf(&self, _key: &[u8]) -> bool {
         true
     }

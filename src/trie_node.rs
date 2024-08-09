@@ -161,6 +161,9 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
     fn child_count_at_key(&self, key: &[u8]) -> usize;
 
+    /// Returns 256-bit mask, indicating which children exist from the branch specified by `key`
+    fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4];
+
     /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
     /// descend further, otherwise returns `false`
     ///
