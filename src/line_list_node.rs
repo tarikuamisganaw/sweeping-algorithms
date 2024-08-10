@@ -1420,7 +1420,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
-    //GOAT-Deprecated-JoinInto
     fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice {
         panic!()
     }
@@ -1441,7 +1440,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         None
     }
 
-    #[cfg(feature = "all_dense_nodes")]
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         None
     }

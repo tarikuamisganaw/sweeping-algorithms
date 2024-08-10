@@ -218,7 +218,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// the logic to promote nodes to other node types
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
 
-    //GOAT-Deprecated-JoinInto
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types
     fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
@@ -242,7 +241,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     fn as_dense(&self) -> Option<&DenseByteNode<V>>;
 
     /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
-    #[cfg(feature = "all_dense_nodes")]
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
 
     /// Returns a reference to the node as a specific concrete type or None if it is not that type

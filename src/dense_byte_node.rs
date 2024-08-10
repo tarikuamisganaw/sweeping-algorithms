@@ -794,7 +794,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
-    //GOAT-Deprecated-JoinInto
     fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V>) where V: Lattice {
         let other_node = other.make_mut();
         if let Some(other_dense_node) = other_node.as_dense_mut() {
@@ -840,7 +839,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         Some(self)
     }
-    #[cfg(feature = "all_dense_nodes")]
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         Some(self)
     }
