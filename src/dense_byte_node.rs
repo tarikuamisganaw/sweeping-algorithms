@@ -521,7 +521,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             None
         }
     }
-    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         #[cfg(not(feature = "all_dense_nodes"))]
         {
             //Split a ListNode to hold everything after the first byte of the key
@@ -530,16 +530,20 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 let mut child = LineListNode::new();
                 child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
                 self.set_child(key[0], TrieNodeODRc::new(child));
-                Ok(None)
+                Ok((None, true))
             } else {
-                Ok(self.set_val(key[0], val))
+                Ok((self.set_val(key[0], val), false))
             }
         }
 
         #[cfg(feature = "all_dense_nodes")]
         {
-            let last_node = self.create_parent_path(key);
-            Ok(last_node.set_val(key[key.len()-1], val))
+            let (last_node, sub_branch_added) = if key.len() > 1 {
+                (self.create_parent_path(key), true)
+            } else {
+                (self, false)
+            };
+            Ok((last_node.set_val(key[key.len()-1], val), sub_branch_added))
         }
     }
     //GOAT-Deprecated-Update, delete this once we have the WriteZipper doing everything `Update` did
@@ -566,21 +570,22 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 let mut child = LineListNode::new();
                 child.node_set_branch(&key[1..], new_node).unwrap_or_else(|_| panic!());
                 self.set_child(key[0], TrieNodeODRc::new(child));
+                Ok(true)
             } else {
                 self.set_child(key[0], new_node);
+                Ok(false)
             }
-            Ok(false)
         }
 
         #[cfg(feature = "all_dense_nodes")]
         {
-            let last_node = if key.len() > 1 {
-                self.create_parent_path(key)
+            let (last_node, sub_branch_added) = if key.len() > 1 {
+                (self.create_parent_path(key), true)
             } else {
-                self
+                (self, false)
             };
-            let replaced_existing = last_node.set_child(key[key.len()-1], new_node).is_some();
-            Ok(replaced_existing)
+            last_node.set_child(key[key.len()-1], new_node);
+            Ok(sub_branch_added)
         }
     }
     fn node_remove_branch(&mut self, key: &[u8]) -> bool {

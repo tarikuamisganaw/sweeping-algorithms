@@ -162,11 +162,13 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     ///
     /// Panics if the zipper's focus is unable to hold a value
     pub fn set_value(&mut self, val: V) -> Option<V> {
-        let old_val = self.in_zipper_mut_static_result(
+        let (old_val, created_subnode) = self.in_zipper_mut_static_result(
             |node, remaining_key| node.node_set_val(remaining_key, val),
-            |_new_leaf_node, _remaining_key| None);
-        self.mend_root();
-        self.descend_to_internal();
+            |_new_leaf_node, _remaining_key| (None, false));
+        if created_subnode {
+            self.mend_root();
+            self.descend_to_internal();
+        }
         old_val
     }
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
@@ -179,16 +181,16 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     }
     /// Returns a mutable reference to the value at the zipper's focus, inserting `default` if no value exists
     pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
-        let val_added = self.in_zipper_mut_static_result(
+        let created_subnode = self.in_zipper_mut_static_result(
             |node, key| {
                 if !node.node_contains_val(key) {
-                    node.node_set_val(key, default).map(|_| true)
+                    node.node_set_val(key, default).map(|(_old_val, created_subnode)| created_subnode)
                 } else {
                     Ok(false)
                 }
             },
             |_, _| true);
-        if val_added {
+        if created_subnode {
             self.mend_root();
             self.descend_to_internal();
         }
@@ -199,16 +201,16 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
         where F: FnOnce() -> V
     {
-        let val_added = self.in_zipper_mut_static_result(
+        let created_subnode = self.in_zipper_mut_static_result(
             |node, key| {
                 if !node.node_contains_val(key) {
-                    node.node_set_val(key, func()).map(|_| true)
+                    node.node_set_val(key, func()).map(|(_old_val, created_subnode)| created_subnode)
                 } else {
                     Ok(false)
                 }
             },
             |_, _| true);
-        if val_added {
+        if created_subnode {
             self.mend_root();
             self.descend_to_internal();
         }
@@ -352,14 +354,16 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
                 debug_assert!(!src.borrow().node_is_empty());
                 let node_key = self.key.node_key();
                 if node_key.len() > 0 {
-                    match self.focus_stack.top_mut().unwrap().node_set_branch(node_key, src) {
-                        Ok(_) => {},
+                    let sub_branch_added = match self.focus_stack.top_mut().unwrap().node_set_branch(node_key, src) {
+                        Ok(sub_branch_added) => sub_branch_added,
                         Err(_replacement_node) => {
                             panic!(); //TODO
                         }
+                    };
+                    if sub_branch_added {
+                        self.mend_root();
+                        self.descend_to_internal();
                     }
-                    self.mend_root();
-                    self.descend_to_internal();
                 } else {
                     debug_assert_eq!(self.focus_stack.depth(), 1);
                     self.focus_stack.to_root();
@@ -475,7 +479,6 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     }
 
     /// Internal method to perform the part of `descend_to` that moves the focus node
-    #[inline]
     fn descend_to_internal(&mut self) {
 
         let mut key_start = self.key.node_key_start();

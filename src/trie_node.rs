@@ -68,12 +68,16 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Mutable version of [node_get_val]
     fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
 
-    /// Sets the value specified by `key` to the object V.  Returns Ok(None) if a new value was added,
-    /// returns Ok(Some(v)) with the old value if the value was replaced
+    /// Sets the value specified by `key` to the object V
+    ///
+    /// Returns `Ok((None, _))` if a new value was added where there was no previous value, returns
+    /// `Ok((Some(v), false))` with the old value if the value was replaced.  The returned `bool` is a
+    /// "sub_node_created" flag that will be `true` if `key` now specifies a different subnode; `false`
+    /// if key still specifies a branch within the node.
     ///
     /// If this method returns Err(node), then the node was upgraded, and the new node must be
     /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
-    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>>;
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>>;
 
     //GOAT-Deprecated-Update  deprecating `update` interface in favor of WriteZipper
     // /// Returns a mutable reference to the value, creating it using `default_f` if it doesn't already
@@ -88,8 +92,8 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     /// Sets the downstream branch from the specified `key`.  Does not affect the value at the `key`
     ///
-    /// Returns `Ok(false)` is a new branch was added where there was no prior branch.  returns `Ok(true)`
-    /// if one or more existing nodes in the tree were replaced.
+    /// Returns `Ok(sub_node_created)`, which will be `true` if `key` now specifies a different subnode;
+    /// and `false` if key still specifies a branch within the node.
     ///
     /// If this method returns Err(node), then the `self` node was upgraded, and the new node must be
     /// substituted into the context formerly ocupied by this this node, and this node must be dropped.

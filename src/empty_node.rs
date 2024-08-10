@@ -51,7 +51,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn node_get_val_mut(&mut self, _key: &[u8]) -> Option<&mut V> {
         None
     }
-    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         let mut replacement_node = LineListNode::new();
         replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
         Err(TrieNodeODRc::new(replacement_node))

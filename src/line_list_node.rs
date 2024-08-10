@@ -293,28 +293,32 @@ impl<V> LineListNode<V> {
                 ValOrChild::Val(val) => self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) })
             },
             1 => match payload {
-                ValOrChild::Child(child) => self.set_payload_1_no_overflow(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }),
-                ValOrChild::Val(val) => self.set_payload_1_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) })
+                ValOrChild::Child(child) => { self.set_payload_1_no_overflow(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }); },
+                ValOrChild::Val(val) => { self.set_payload_1_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }); }
             },
             _ => unreachable!()
         }
     }
-    /// Creates continuation nodes rather than overflowing the key
+    /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
+    /// created, or false if everything fit within self
     #[inline]
-    unsafe fn set_payload_0_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) where V: Clone {
+    unsafe fn set_payload_0_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
         if key.len() <= KEY_BYTES_CNT {
             //The entire key fits within the node
             unsafe{ self.set_payload_0(key, is_child_ptr, payload); }
+            false
         } else {
             //We need to recursively create a new node to hold the remaining part of the key
             let mut child_node = Self::new();
             child_node.set_payload_0_no_overflow(&key[KEY_BYTES_CNT..], is_child_ptr, payload);
             unsafe{ self.set_child_0(&key[..KEY_BYTES_CNT], TrieNodeODRc::new(child_node)); }
+            true
         }
     }
-    /// Creates continuation nodes rather than overflowing the key
+    /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
+    /// created, or false if everything fit within self
     #[inline]
-    unsafe fn set_payload_1_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) where V: Clone {
+    unsafe fn set_payload_1_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
         debug_assert!(!self.is_used::<1>());
 
         //See if we are able to insert any of the key into slot_1
@@ -323,11 +327,13 @@ impl<V> LineListNode<V> {
             if key.len() <= remaining_key_bytes {
                 //The entire key fits within the node
                 unsafe{ self.set_payload_1(key, is_child_ptr, payload); }
+                false
             } else {
                 //We need to recursively create a new node to hold the remaining part of the key
                 let mut child_node = Self::new();
                 child_node.set_payload_0_no_overflow(&key[remaining_key_bytes..], is_child_ptr, payload);
                 unsafe{ self.set_child_1(&key[..remaining_key_bytes], TrieNodeODRc::new(child_node)); }
+                true
             }
         } else {
             //If there is a single slot that is occupied but the key consumes the full node, then arbitrarily
@@ -335,13 +341,14 @@ impl<V> LineListNode<V> {
             self.split_0(KEY_BYTES_CNT / 2);
 
             //Try again to add the new value to self, now that we've cleared some space
-            self.set_payload_1_no_overflow(key, is_child_ptr, payload)
+            self.set_payload_1_no_overflow(key, is_child_ptr, payload);
+            true
         }
     }
-    /// Shifts the contents of slot_0 to slot_1, and puts the supplied payload into slot_0.  Will
-    /// create additional nodes if necessary
+    /// Shifts the contents of slot_0 to slot_1, and puts the supplied payload into slot_0.  Returns `true`
+    /// if a continuation node was created, or false if everything fit within self
     #[inline]
-    unsafe fn set_payload_0_shift_existing(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) where V: Clone {
+    unsafe fn set_payload_0_shift_existing(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
         debug_assert!(self.is_used::<0>());
         debug_assert!(!self.is_used::<1>());
 
@@ -350,14 +357,14 @@ impl<V> LineListNode<V> {
             let old_key_len = self.key_len_0();
             let old_is_child_ptr = self.is_child_ptr::<0>();
             let remaining_key_bytes = KEY_BYTES_CNT - old_key_len;
-            let (new_key, new_is_child_ptr, new_payload) = if key.len() <= remaining_key_bytes {
+            let (new_key, new_is_child_ptr, new_payload, created_sub_branch) = if key.len() <= remaining_key_bytes {
                 //The entire key fits within the node
-                (key, is_child_ptr, payload)
+                (key, is_child_ptr, payload, false)
             } else {
                 //We need to recursively create at least one new node to hold the remaining part of the key
                 let mut child_node = Self::new();
                 child_node.set_payload_0_no_overflow(&key[remaining_key_bytes..], is_child_ptr, payload);
-                (&key[..remaining_key_bytes], true, ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) })
+                (&key[..remaining_key_bytes], true, ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) }, true)
             };
             let new_key_len = new_key.len();
             debug_assert!(new_key_len + old_key_len <= KEY_BYTES_CNT);
@@ -392,11 +399,14 @@ impl<V> LineListNode<V> {
                 new_header |= 0x4000 | old_key_len;
             };
             self.header = new_header as u16;
+
+            created_sub_branch
         } else {
             //If there is a single slot that is occupied but the key consumes the full node, then arbitrarily
             // chop the existing key in half to make room, and then try again
             self.split_0(KEY_BYTES_CNT / 2);
-            self.set_payload_0_shift_existing(key, is_child_ptr, payload)
+            self.set_payload_0_shift_existing(key, is_child_ptr, payload);
+            true
         }
     }
     /// Returns the clone of the value or child in the slot
@@ -805,19 +815,19 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
         self.get_val_mut(key)
     }
-    fn node_set_val(&mut self, key: &[u8], mut val: V) -> Result<Option<V>, TrieNodeODRc<V>> {
+    fn node_set_val(&mut self, key: &[u8], mut val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
 
         //If we already have a value at the key, then replace it
         if self.contains_val(key) {
             let node_val = self.get_val_mut(key).unwrap();
             core::mem::swap(&mut val, node_val);
-            return Ok(Some(val));
+            return Ok((Some(val), false));
         }
 
         //If this node is empty, insert the new key-value into slot_0
         if !self.is_used::<0>() {
-            unsafe{ self.set_payload_0_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }) };
-            return Ok(None)
+            let created_subnode = unsafe{ self.set_payload_0_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }) };
+            return Ok((None, created_subnode))
         }
 
         //If the key has overlap with slot_0, split the key, and add the value to the child
@@ -830,19 +840,19 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             if overlap > 0 {
                 self.split_0(overlap);
                 let child = unsafe{ self.child_in_slot_mut::<0>() }.make_mut();
-                return child.node_set_val(&key[overlap..], val);
+                return child.node_set_val(&key[overlap..], val).map(|(ret_val, _)| (ret_val, true))
             }
         }
 
         //See if we are able to fill slot_1, either by inserting directly or shifting from slot_0
         if !self.is_used::<1>() {
             let payload = ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) };
-            if should_swap_keys(node_key_0, key) {
-                unsafe{ self.set_payload_0_shift_existing(key, false, payload) };
+            let created_subnode = if should_swap_keys(node_key_0, key) {
+                unsafe{ self.set_payload_0_shift_existing(key, false, payload) }
             } else {
-                unsafe{ self.set_payload_1_no_overflow(key, false, payload) };
-            }
-            return Ok(None)
+                unsafe{ self.set_payload_1_no_overflow(key, false, payload) }
+            };
+            return Ok((None, created_subnode))
         }
 
         //If the key has overlap with slot_1, split that key
@@ -855,7 +865,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             if overlap > 0 {
                 self.split_1(overlap);
                 let child = unsafe{ self.child_in_slot_mut::<1>() }.make_mut();
-                return child.node_set_val(&key[overlap..], val);
+                return child.node_set_val(&key[overlap..], val).map(|(ret_val, _)| (ret_val, true))
             }
         }
 
@@ -1555,16 +1565,16 @@ mod tests {
 
         //A simple test with a V that fits inside 16 bytes, only testing slot_0
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
         *new_node.node_get_val_mut("hello".as_bytes()).unwrap() = 123;
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&123));
-        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(Some(123)));
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok((Some(123), false)));
         assert_eq!(new_node.node_contains_val("test".as_bytes()), false);
 
         //A simple test with a V that exceeds 16 bytes, only testing slot_0
         let mut new_node = LineListNode::<[u128; 4]>::new();
-        assert_eq!(new_node.node_set_val("hello".as_bytes(), [0, 1, 2, 3]).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), [0, 1, 2, 3]).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&[0, 1, 2, 3]));
         *new_node.node_get_val_mut("hello".as_bytes()).unwrap() = [3, 2, 1, 0];
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&[3, 2, 1, 0]));
@@ -1572,8 +1582,8 @@ mod tests {
 
         //A test using both slots for values, where the keys are different, but both fit inside the key space
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("goodbye".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("goodbye".as_bytes(), 24).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
         assert_eq!(new_node.node_get_val("goodbye".as_bytes()), Some(&24));
     }
@@ -1582,11 +1592,11 @@ mod tests {
     fn test_line_list_node_key_and_value_collision() {
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
 
         let mut child_node = LineListNode::<usize>::new();
-        assert_eq!(child_node.node_set_val("hello".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(child_node.node_set_val("hello".as_bytes(), 24).map_err(|_| 0), Ok((None, false)));
         //We are manufacturing this case.  Otherwise it would be a lot more indirect to achieve the
         // conditions for this test using the APIs available outside this module
         unsafe{ new_node.set_child_1("a".as_bytes(), TrieNodeODRc::new(child_node)); }
@@ -1602,8 +1612,8 @@ mod tests {
     fn test_line_list_node_shared_prefixes_empty() {
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
         assert_eq!(bytes_used, 9);
         assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
@@ -1618,8 +1628,8 @@ mod tests {
         // are created
         const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok((None, true)));
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
 
         let (remaining_key, child_node, _) = get_recursive(LONG_KEY, &new_node);
@@ -1634,13 +1644,13 @@ mod tests {
         //A test using only one slot, where the key exceeds the available space, make sure recursive nodes
         // are created
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok((None, true)));
         let (remaining_key, child_node, levels) = get_recursive(LONG_KEY, &new_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
         assert_eq!(levels, (LONG_KEY.len()-1) / KEY_BYTES_CNT);
 
         //Now make sure that adding a second key is still ok because of in-place splitting
-        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("hello".as_bytes(), 42).map_err(|_| 0), Ok((None, true)));
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
     }
 
@@ -1649,9 +1659,9 @@ mod tests {
     fn test_line_list_node_shared_prefixes_slot_0() {
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
@@ -1664,9 +1674,9 @@ mod tests {
     fn test_line_list_node_shared_prefixes_slot_1() {
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("slot0".as_bytes(), 123).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("slot0".as_bytes(), 123).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
@@ -1678,8 +1688,8 @@ mod tests {
     fn test_line_list_node_replacement() {
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok((None, false)));
         let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
         assert!(replacement_node.borrow().as_dense().is_some());
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
@@ -1884,8 +1894,8 @@ mod tests {
 
         //Test two separate keys
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val(b"albatross", 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val(b"brubru", 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val(b"albatross", 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val(b"brubru", 42).map_err(|_| 0), Ok((None, true)));
         debug_assert!(validate_node(&new_node));
         assert_eq!(new_node.child_count_at_key(b""), 2);
         assert_eq!(new_node.child_count_at_key(b"a"), 1);
@@ -1900,8 +1910,8 @@ mod tests {
 
         //This leads to a node that holds both keys, although one is semantically a prefix to the other
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val(b"a", 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val(b"albatross", 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val(b"a", 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val(b"albatross", 24).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
         assert_eq!(new_node.child_count_at_key(b""), 1);
         assert_eq!(new_node.child_count_at_key(b"a"), 1);
@@ -1912,27 +1922,27 @@ mod tests {
         assert_eq!(new_node.get_sibling_of_child(b"al", true).0, None);
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("al".as_bytes(), 24).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("al".as_bytes(), 24).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok((None, true)));
         debug_assert!(validate_node(&new_node));
-        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
         assert_eq!(new_node.child_count_at_key(b""), 1);
         // assert_eq!(new_node.child_count_at_key(b"a"), 1); NOTE: This looks like it should be return 1, but this is not a valid argument for `child_count_at_key`
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("al".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("al".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         debug_assert!(validate_node(&new_node));
-        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
         assert_eq!(new_node.child_count_at_key(b""), 1);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
 
         let mut new_node = LineListNode::<usize>::new();
-        assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok(None));
-        assert_eq!(new_node.node_set_val("a".as_bytes(), 24).map_err(|_| 0), Ok(None));
+        assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
+        assert_eq!(new_node.node_set_val("a".as_bytes(), 24).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
         assert_eq!(new_node.child_count_at_key(b""), 1);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
