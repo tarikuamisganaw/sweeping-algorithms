@@ -1421,9 +1421,9 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     //GOAT-Deprecated-JoinInto
-    // fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice {
-    //     panic!()
-    // }
+    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice {
+        panic!()
+    }
 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!()

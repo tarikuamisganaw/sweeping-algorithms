@@ -114,9 +114,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
 
     //GOAT-Deprecated-JoinInto
-    // fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice {
-    //     panic!()
-    // }
+    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice {
+        panic!()
+    }
 
     fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!()

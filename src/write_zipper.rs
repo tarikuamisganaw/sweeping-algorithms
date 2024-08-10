@@ -250,6 +250,22 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
     }
 
+    pub fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+        let src = read_zipper.get_focus();
+        if src.is_none() {
+            return false
+        }
+        match self.get_focus().into_option() {
+            Some(mut self_node) => {
+                match src.into_option() {
+                    Some(other_node) => { self_node.make_mut().join_into_dyn(other_node); true }
+                    None => { true }
+                }
+            },
+            None => { self.graft_internal(src.into_option()); true }
+        }
+    }
+
     /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream
     /// from the focus of `read_zipper`
     ///

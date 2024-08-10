@@ -795,15 +795,15 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
 
     //GOAT-Deprecated-JoinInto
-    // fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V>) where V: Lattice {
-    //     let other_node = other.make_mut();
-    //     if let Some(other_dense_node) = other_node.as_dense_mut() {
-    //         self.join_into(core::mem::take(other_dense_node));
-    //     } else {
-    //         //GOAT, need to iterate other, grow self, and merge each item in other into self
-    //         panic!();
-    //     }
-    // }
+    fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V>) where V: Lattice {
+        let other_node = other.make_mut();
+        if let Some(other_dense_node) = other_node.as_dense_mut() {
+            self.join_into(core::mem::take(other_dense_node));
+        } else {
+            //GOAT, need to iterate other, grow self, and merge each item in other into self
+            panic!();
+        }
+    }
 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         if let Some(other_dense_node) = other.as_dense() {
