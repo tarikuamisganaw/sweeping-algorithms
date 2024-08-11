@@ -884,4 +884,32 @@ mod tests {
         assert!(!map.contains_path(b"abcdefghijklmnopq"));
         assert!(!map.contains_path(b"abc"));
     }
+
+    #[test]
+    fn write_zipper_drop_head_test() {
+        let keys = [
+            "123:abc:Bob",
+            "123:def:Jim",
+            "123:ghi:Pam",
+            "123:jkl:Sue",
+            "123:dog:Bob:Fido",
+            "123:cat:Jim:Felix",
+            "123:dog:Pam:Bandit",
+            "123:owl:Sue:Cornelius"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wz = map.write_zipper_at_path(b"123:");
+
+        wz.drop_head(4);
+
+        let ref_keys: Vec<&[u8]> = vec![
+            b"123:Bob",
+            b"123:Bob:Fido",
+            b"123:Jim",
+            b"123:Jim:Felix",
+            b"123:Pam",
+            b"123:Pam:Bandit",
+            b"123:Sue",
+            b"123:Sue:Cornelius"];
+        assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
+    }
 }
