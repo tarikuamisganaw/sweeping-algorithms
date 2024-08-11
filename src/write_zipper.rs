@@ -134,7 +134,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn fork_zipper(&self) -> ReadZipper<V> {
-        panic!()
+        let new_root_val = self.get_value();
+        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap(), &self.key.root_key, None, new_root_val)
     }
 
     fn path_exists(&self) -> bool {
@@ -151,7 +152,6 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn val_count(&self) -> usize {
-        debug_assert!(self.key.node_key().len() > 0);
         let focus = self.get_focus();
         if focus.is_none() {
             0
@@ -205,7 +205,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         old_val
     }
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
-    pub fn get_value(&mut self) -> Option<&V> {
+    pub fn get_value(&self) -> Option<&V> {
         self.focus_stack.top().unwrap().node_get_val(self.key.node_key())
     }
     /// Returns a mutable reference to a value at the zipper's focus, or None if no value exists
