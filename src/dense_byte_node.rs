@@ -813,7 +813,11 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 // hold an Rc to itself.
                 match self.values.pop().unwrap().rec {
                     Some(mut child) => {
-                        child.make_mut().drop_head_dyn(byte_cnt-1)
+                        if byte_cnt > 1 {
+                            child.make_mut().drop_head_dyn(byte_cnt-1)
+                        } else {
+                            Some(child)
+                        }
                     },
                     None => None
                 }

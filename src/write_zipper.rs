@@ -101,17 +101,13 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn ascend(&mut self, mut steps: usize) -> bool {
-
-println!("GOAT entrance ");
         while steps > 0 {
-println!("GOATmm {}", String::from_utf8_lossy(self.key.node_key()));
             if self.key.excess_key_len() == 0 {
                 if self.at_root() {
                     return false;
                 }
                 self.ascend_across_nodes();
             }
-println!("GOATzz {}", String::from_utf8_lossy(self.key.node_key()));
             debug_assert!(self.key.node_key().len() > 0);
             let cur_jump = steps.min(self.key.excess_key_len());
             self.key.prefix_buf.truncate(self.key.prefix_buf.len() - cur_jump);
