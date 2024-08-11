@@ -176,6 +176,16 @@ impl PartialDistributiveLattice for &str {
     }
 }
 
+impl PartialDistributiveLattice for () {
+    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
+        None
+    }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        Some(())
+    }
+}
+
 impl Lattice for () {
     fn join(&self, _other: &Self) -> Self { () }
     fn meet(&self, _other: &Self) -> Self { () }
