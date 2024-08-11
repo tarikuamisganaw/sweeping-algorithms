@@ -804,6 +804,40 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
+        match self.values.len() {
+            0 => { None },
+            1 => {
+                //WARNING: Don't be tempted to swap the node itself with its first child.  This feels like it
+                // might be an optimization, but it would be a memory leak because the other node will now
+                // hold an Rc to itself.
+                match self.values.pop().unwrap().rec {
+                    Some(mut child) => {
+                        child.make_mut().drop_head_dyn(byte_cnt-1)
+                    },
+                    None => None
+                }
+            },
+            _ => {
+                let mut new_node = Self::new();
+                while let Some(cf) = self.values.pop() {
+                    match cf.rec.and_then(|mut child| child.make_mut().drop_head_dyn(byte_cnt-1)) {
+                        Some(child) => {
+                            new_node.join_into_dyn(child);
+                        },
+                        None => {}
+                    }
+                }
+
+                if !new_node.is_empty() {
+                    Some(TrieNodeODRc::new(new_node))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         if let Some(other_dense_node) = other.as_dense() {
             let new_node = self.meet(other_dense_node);

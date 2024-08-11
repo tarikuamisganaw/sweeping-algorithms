@@ -117,6 +117,10 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         panic!()
     }
 
+    fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
+        None
+    }
+
     fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!()
     }

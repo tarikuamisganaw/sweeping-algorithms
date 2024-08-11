@@ -4,7 +4,7 @@ use mutcursor::MutCursorRootedVec;
 use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef};
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
-use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice};
+use crate::ring::{Lattice, PartialDistributiveLattice};
 
 /// A [Zipper] for editing and adding paths and values in the trie
 pub struct WriteZipper<'a, 'k, V> {
@@ -268,6 +268,30 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             },
             None => { self.graft_internal(src.into_option()); true }
         }
+        //GOAT!!!!!  We should prune the path at the source zipper, since we're effectively leaving behind an empty node
+    }
+
+    /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
+    /// each path and joining together all of the downstream sub-paths
+    ///
+    /// Returns `true` if the focus has at least one downstream continuation, otherwise returns `false`.
+    ///
+    /// NOTE: This method may prune the path upstream of the focus of the operation resulted in removing all
+    /// downstream paths.  This means that [Zipper::path_exists] may return `false` after this operation.
+    pub fn drop_head<'z, Z: Zipper<'z, V=V>>(&mut self, byte_cnt: usize) -> bool where V: Lattice {
+        match self.get_focus().into_option() {
+            Some(mut self_node) => {
+                match self_node.make_mut().drop_head_dyn(byte_cnt) {
+                    Some(new_node) => {
+                        self.graft_internal(Some(new_node));
+                        true
+                    },
+                    None => { false }
+                }
+            },
+            None => { false }
+        }
+        //GOAT!!!!!  We should prune the path upstream, if we ended up removing all downstream paths
     }
 
     /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream

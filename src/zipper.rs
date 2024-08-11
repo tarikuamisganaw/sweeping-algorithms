@@ -21,7 +21,8 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::trie_node::{TrieNode, AbstractNodeRef};
+use crate::trie_node::{TrieNode, AbstractNodeRef, TrieNodeODRc};
+use crate::ring::Lattice;
 
 pub use crate::write_zipper::*;
 
@@ -761,6 +762,58 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         self.prefix_buf.truncate(new_len);
         true
     }
+
+    //GOAT, this is trash.  Delete this
+    // /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
+    // /// each path and joining together all of the downstream sub-paths
+    // ///
+    // /// Returns `true` if the focus has at least one downstream continuation, otherwise returns `false`.
+    // ///
+    // /// NOTE: This method may prune the path upstream of the focus of the operation resulted in removing all
+    // /// downstream paths.  This means that [Zipper::path_exists] may return `false` after this operation.
+    // ///
+    // /// GOAT!! This method belongs on a WriteZipper.  This is on the ReadZipper just for the demo!!!
+    // /// GOAT... Should drop_head be called "collapse" or "consolidate"?  That feels more serious than "drop_head"
+    // pub fn drop_head<'z, Z: Zipper<'z, V=V>>(&mut self, byte_cnt: usize) -> bool where V: Lattice {
+    //     match self.get_focus().into_option() {
+    //         Some(mut self_node) => {
+    //             match self_node.make_mut().drop_head_dyn(byte_cnt) {
+    //                 Some(new_node) => {
+    //                     self.graft_internal(new_node);
+    //                     true
+    //                 },
+    //                 None => { false }
+    //             }
+    //         },
+    //         None => { false }
+    //     }
+    //     //GOAT!!!!!  We should prune the path upstream, if we ended up removing all downstream paths
+    // }
+
+    // //GOAT THis has no business being in a ReadZipper!!!!!!!!
+    // //GOAT, this implementation doesn't handle some cases that a proper "graft" needs to handle.  for example
+    // // it doesn't handle pruning if an empty path is added, and it doesn't handle re-regularizing the zipper if
+    // // a parent path is added where none existed.  Basically this is a special-case hack to enable drop_head
+    // // on a ReadZipper
+    // #[inline]
+    // fn graft_internal(&mut self, src: TrieNodeODRc<V>) {
+    //     debug_assert!(!src.borrow().node_is_empty());
+    //     let node_key = self.node_key();
+    //     if node_key.len() > 0 {
+    //         match self.focus_node.node_set_branch(node_key, src) {
+    //             Ok(sub_branch_added) => sub_branch_added,
+    //             Err(_replacement_node) => {
+    //                 panic!(); //TODO
+    //             }
+    //         };
+    //     } else {
+    //         if let Some(parent) = self.ancestors.last() {
+    //             parent.make_mut().node_set_branch(self.parent_key(), src);
+    //         } else {
+    //             panic!() //GOAT
+    //         }
+    //     }
+    // }
 }
 
 impl<'a, 'k, V: Clone> std::iter::IntoIterator for ReadZipper<'a, 'k, V> {

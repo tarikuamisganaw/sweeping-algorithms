@@ -222,6 +222,26 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// the logic to promote nodes to other node types
     fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
 
+    /// Returns a node composed of the children of `self`, `byte_cnt` bytes downstream, all joined together,
+    /// or `None` if the node has no children at that depth
+    ///
+    /// After this method, `self` will be invalid and/ or empty, and should be replaced with the result.
+    ///
+    /// QUESTION: Is there a value to a "copying" version of drop_head?  It has higher overheads but could
+    /// be safely implemented by the [crate::zipper::ReadZipper].
+    fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
+
+//GOAT this is trash comments
+    /// Replaces the contents of the `self` node with a node composed of the children of `self`,
+    /// `byte_cnt` steps downstream, all joined together.
+    ///
+    /// Returns `Ok(())` if the operation completed sucessfully, or `Err(replacement_node)` if the `self`
+    /// node must be replaced with the returned `replacement_node`
+    ///
+    /// QUESTION: Is there a value to a "copying" version of drop_head?  It has much higher overheads
+    /// but could be safely implemented by the [crate::zipper::ReadZipper].
+
+
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types.
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
