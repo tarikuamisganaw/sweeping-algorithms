@@ -821,7 +821,12 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             _ => {
                 let mut new_node = Self::new();
                 while let Some(cf) = self.values.pop() {
-                    match cf.rec.and_then(|mut child| child.make_mut().drop_head_dyn(byte_cnt-1)) {
+                    let child = if byte_cnt > 1 {
+                        cf.rec.and_then(|mut child| child.make_mut().drop_head_dyn(byte_cnt-1))
+                    } else {
+                        cf.rec
+                    };
+                    match child {
                         Some(child) => {
                             new_node.join_into_dyn(child);
                         },

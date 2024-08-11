@@ -94,6 +94,11 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// Returns 0 if the focus is on a leaf
     fn child_count(&self) -> usize;
 
+    /// Returns 256-bit mask indicating which children exist from the branch at the zipper's focus
+    ///
+    /// Returns an empty mask if the focus is on a leaf or non-existent path
+    fn child_mask(&self) -> [u64; 4];
+
     /// Moves the zipper deeper into the tree, to the `key` specified relative to the current zipper focus
     ///
     /// Returns `true` if the zipper points to an existing path within the tree, otherwise `false`.  The
@@ -158,8 +163,6 @@ pub(crate) mod zipper_priv {
     }
 }
 use zipper_priv::*;
-use crate::dense_byte_node::DenseByteNode;
-use crate::line_list_node::LineListNode;
 
 /// Size of node stack to preallocate in the zipper
 pub(crate) const EXPECTED_DEPTH: usize = 16;
@@ -213,6 +216,10 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn child_count(&self) -> usize {
         self.focus_node.child_count_at_key(self.node_key())
+    }
+
+    fn child_mask(&self) -> [u64; 4] {
+        self.focus_node.child_mask_at_key(self.node_key())
     }
 
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
@@ -397,13 +404,6 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
 }
 
 impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
-
-    /// Returns 256-bit mask indicating which children exist from the branch at the focus
-    ///
-    /// Returns an empty mask if the focus is on a leaf or non-existent path
-    pub fn child_mask(&self) -> [u64; 4] {
-        self.focus_node.child_mask_at_key(self.node_key())
-    }
 
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8], mut root_key_offset: Option<usize>) -> Self {

@@ -47,6 +47,12 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn child_count(&self) -> usize {
         let focus_node = self.focus_stack.top().unwrap();
         let node_key = self.key.node_key();
+
+        //Special case for the root
+        if node_key.len() == 0 {
+            return focus_node.child_count_at_key(b"");
+        }
+
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
                 if node_key.len() >= consumed_bytes {
@@ -56,6 +62,21 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
                 }
             },
             None => focus_node.child_count_at_key(node_key)
+        }
+    }
+
+    fn child_mask(&self) -> [u64; 4] {
+        let focus_node = self.focus_stack.top().unwrap();
+        let node_key = self.key.node_key();
+        match focus_node.node_get_child(node_key) {
+            Some((consumed_bytes, child_node)) => {
+                if node_key.len() >= consumed_bytes {
+                    child_node.child_mask_at_key(&node_key[consumed_bytes..])
+                } else {
+                    [0; 4]
+                }
+            },
+            None => focus_node.child_mask_at_key(node_key)
         }
     }
 
@@ -80,7 +101,23 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn ascend(&mut self, mut steps: usize) -> bool {
-        panic!()
+
+println!("GOAT entrance ");
+        while steps > 0 {
+println!("GOATmm {}", String::from_utf8_lossy(self.key.node_key()));
+            if self.key.excess_key_len() == 0 {
+                if self.at_root() {
+                    return false;
+                }
+                self.ascend_across_nodes();
+            }
+println!("GOATzz {}", String::from_utf8_lossy(self.key.node_key()));
+            debug_assert!(self.key.node_key().len() > 0);
+            let cur_jump = steps.min(self.key.excess_key_len());
+            self.key.prefix_buf.truncate(self.key.prefix_buf.len() - cur_jump);
+            steps -= cur_jump;
+        }
+        true
     }
 
     fn ascend_until(&mut self) -> bool {
@@ -278,7 +315,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     ///
     /// NOTE: This method may prune the path upstream of the focus of the operation resulted in removing all
     /// downstream paths.  This means that [Zipper::path_exists] may return `false` after this operation.
-    pub fn drop_head<'z, Z: Zipper<'z, V=V>>(&mut self, byte_cnt: usize) -> bool where V: Lattice {
+    pub fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice {
         match self.get_focus().into_option() {
             Some(mut self_node) => {
                 match self_node.make_mut().drop_head_dyn(byte_cnt) {
@@ -635,6 +672,12 @@ impl<'k> KeyFields<'k> {
             self.root_key
         }
     }
+    /// Internal method similar to `self.node_key().len()`, but returns the number of chars that can be
+    /// legally ascended within the node, taking into account the root_key
+    #[inline]
+    fn excess_key_len(&self) -> usize {
+        self.prefix_buf.len() - self.prefix_idx.last().map(|i| *i).unwrap_or(self.root_key.len())
+    }
     /// Internal method returning the key that leads to `self.focus_node` within the parent
     #[inline]
     fn parent_key(&self) -> &[u8] {
@@ -775,21 +818,19 @@ mod tests {
         assert_eq!(wz.path(), b"");
         assert!(!wz.ascend_until());
 
-        //GOAT, test the rest of the movement operations (step-wise ops)
-
-        // //Test `ascend`
-        // zipper.descend_to(b"manus");
-        // assert_eq!(zipper.path(), b"manus");
-        // assert_eq!(zipper.ascend(1), true);
-        // assert_eq!(zipper.path(), b"manu");
-        // assert_eq!(zipper.ascend(5), false);
-        // assert_eq!(zipper.path(), b"");
-        // assert_eq!(zipper.at_root(), true);
-        // zipper.descend_to(b"mane");
-        // assert_eq!(zipper.path(), b"mane");
-        // assert_eq!(zipper.ascend(3), true);
-        // assert_eq!(zipper.path(), b"m");
-        // assert_eq!(zipper.child_count(), 3);
+        //Test step-wise `ascend`
+        wz.descend_to(b"manus");
+        assert_eq!(wz.path(), b"manus");
+        assert_eq!(wz.ascend(1), true);
+        assert_eq!(wz.path(), b"manu");
+        assert_eq!(wz.ascend(5), false);
+        assert_eq!(wz.path(), b"");
+        assert_eq!(wz.at_root(), true);
+        wz.descend_to(b"mane");
+        assert_eq!(wz.path(), b"mane");
+        assert_eq!(wz.ascend(3), true);
+        assert_eq!(wz.path(), b"m");
+        assert_eq!(wz.child_count(), 3);
     }
 
     #[test]
