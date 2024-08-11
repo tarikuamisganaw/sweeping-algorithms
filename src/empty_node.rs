@@ -109,6 +109,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn get_node_at_key(&self, _key: &[u8]) -> AbstractNodeRef<V> {
         AbstractNodeRef::None
     }
+    fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V>> {
+        None
+    }
     fn join_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!()
     }

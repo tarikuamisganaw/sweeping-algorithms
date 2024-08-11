@@ -22,6 +22,7 @@
 //!
 
 use crate::trie_node::{TrieNode, AbstractNodeRef};
+use crate::trie_map::BytesTrieMap;
 
 pub use crate::write_zipper::*;
 
@@ -88,6 +89,17 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// Returns the path from the zipper's root to the current focus
     fn path(&self) -> &[u8];
 
+    /// Returns `true` if the zipper's focus is on a path within the trie, otherwise `false`
+    fn path_exists(&self) -> bool;
+
+    /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
+    fn is_value(&self) -> bool;
+
+    /// Returns the total number of values contained at and below the zipper's focus, including the focus itself
+    ///
+    /// WARNING: This is not a cheap method. It may have an order-N cost
+    fn val_count(&self) -> usize;
+
     /// Returns the number of child branches from the focus node
     ///
     /// Returns 0 if the focus is on a leaf
@@ -139,16 +151,8 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     fn fork_zipper(&self) -> ReadZipper<Self::V>;
 
-    /// Returns `true` if the zipper's focus is on a path within the trie, otherwise `false`
-    fn path_exists(&self) -> bool;
-
-    /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
-    fn is_value(&self) -> bool;
-
-    /// Returns the total number of values contained at and below the zipper's focus, including the focus itself
-    ///
-    /// WARNING: This is not a cheap method. It may have an order-N cost
-    fn val_count(&self) -> usize;
+    /// Returns a new [BytesTrieMap] containing everything below the zipper's focus
+    fn make_map(&self) -> Option<BytesTrieMap<Self::V>>;
 
 }
 
@@ -210,6 +214,32 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
             &self.prefix_buf[self.origin_path.len()..]
         } else {
             &[]
+        }
+    }
+
+    fn path_exists(&self) -> bool {
+        let key = self.node_key();
+        if key.len() > 0 {
+            self.focus_node.node_contains_partial_key(key)
+        } else {
+            true
+        }
+    }
+
+    fn is_value(&self) -> bool {
+        self.is_value_internal()
+    }
+
+    fn val_count(&self) -> usize {
+        if self.node_key().len() == 0 {
+            self.focus_node.node_subtree_len() + (self.is_value() as usize)
+        } else {
+            let focus = self.get_focus();
+            if focus.is_none() {
+                0
+            } else {
+                focus.borrow().node_subtree_len() + (self.is_value() as usize)
+            }
         }
     }
 
@@ -367,30 +397,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         ReadZipper::new_with_node_and_path_internal(self.focus_node, new_root_path, new_root_key_offset, new_root_val)
     }
 
-    fn path_exists(&self) -> bool {
-        let key = self.node_key();
-        if key.len() > 0 {
-            self.focus_node.node_contains_partial_key(key)
-        } else {
-            true
-        }
-    }
-
-    fn is_value(&self) -> bool {
-        self.is_value_internal()
-    }
-
-    fn val_count(&self) -> usize {
-        if self.node_key().len() == 0 {
-            self.focus_node.node_subtree_len() + (self.is_value() as usize)
-        } else {
-            let focus = self.get_focus();
-            if focus.is_none() {
-                0
-            } else {
-                focus.borrow().node_subtree_len() + (self.is_value() as usize)
-            }
-        }
+    fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
+        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(node))
     }
 }
 

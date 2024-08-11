@@ -214,6 +214,12 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// If `key.len() == 0` this method will return a reference to or a clone of the node.
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V>;
 
+    /// Returns a node which is the the portion of the node rooted at `key`, or `None` if `key` does
+    /// not specify a path within the node
+    ///
+    /// This method should never be called with `key.len() == 0`
+    fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
+
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;

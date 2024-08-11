@@ -30,7 +30,23 @@ impl <V : Clone> BytesTrieMap<V> {
         let root = TrieNodeODRc::new(crate::dense_byte_node::DenseByteNode::new());
         #[cfg(not(feature = "all_dense_nodes"))]
         let root = TrieNodeODRc::new(crate::line_list_node::LineListNode::new());
+        Self::new_with_root(root)
+    }
+
+    /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
+    #[inline]
+    pub(crate) fn new_with_root(root: TrieNodeODRc<V>) -> Self {
         Self { root }
+    }
+
+    /// Internal Method.  Removes and returns the root from a BytesTrieMap
+    #[inline]
+    pub(crate) fn into_root(self) -> Option<TrieNodeODRc<V>> {
+        if !self.root.borrow().node_is_empty() {
+            Some(self.root)
+        } else {
+            None
+        }
     }
 
     //GOAT, redo this as "at_path"

@@ -2,6 +2,8 @@
 use mutcursor::MutCursorRootedVec;
 
 use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef};
+use crate::trie_map::BytesTrieMap;
+use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::ring::{Lattice, PartialDistributiveLattice};
@@ -41,6 +43,28 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
             &self.key.prefix_buf[self.key.root_key.len()..]
         } else {
             &[]
+        }
+    }
+
+    fn path_exists(&self) -> bool {
+        let key = self.key.node_key();
+        if key.len() > 0 {
+            self.focus_stack.top().unwrap().node_contains_partial_key(key)
+        } else {
+            true
+        }
+    }
+
+    fn is_value(&self) -> bool {
+        self.focus_stack.top().unwrap().node_contains_val(self.key.node_key())
+    }
+
+    fn val_count(&self) -> usize {
+        let focus = self.get_focus();
+        if focus.is_none() {
+            0
+        } else {
+            focus.borrow().node_subtree_len() + (self.is_value() as usize)
         }
     }
 
@@ -138,26 +162,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap(), &self.key.root_key, None, new_root_val)
     }
 
-    fn path_exists(&self) -> bool {
-        let key = self.key.node_key();
-        if key.len() > 0 {
-            self.focus_stack.top().unwrap().node_contains_partial_key(key)
-        } else {
-            true
-        }
-    }
-
-    fn is_value(&self) -> bool {
-        self.focus_stack.top().unwrap().node_contains_val(self.key.node_key())
-    }
-
-    fn val_count(&self) -> usize {
-        let focus = self.get_focus();
-        if focus.is_none() {
-            0
-        } else {
-            focus.borrow().node_subtree_len() + (self.is_value() as usize)
-        }
+    fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
+        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(node))
     }
 }
 
@@ -260,6 +266,18 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// and may lead to [Self::path_exists] returning `false`, where it previously returned `true`
     pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
         self.graft_internal(read_zipper.get_focus().into_option())
+    }
+
+    /// Replaces the trie below the zipper's focus with the contents of a [BytesTrieMap], consuming the map
+    ///
+    /// If there is a value at the zipper's focus, it will not be affected.
+    ///
+    /// WARNING: If the `map` is empty then the effect will be the same as [Self::remove_branch] causing the
+    /// trie to be pruned below the graft location.  Since dangling paths aren't allowed, This method may cause
+    /// the trie to be pruned above the zipper's focus, and may lead to [Self::path_exists] returning `false`,
+    /// where it previously returned `true`
+    pub fn graft_map(&mut self, map: BytesTrieMap<V>) {
+        self.graft_internal(map.into_root());
     }
 
     /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of
@@ -422,6 +440,39 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     }
 
 //GOAT, also implement remove_val
+
+    /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
+    pub fn take_map(&mut self) -> Option<BytesTrieMap<V>> {
+        self.take_focus().map(|node| BytesTrieMap::new_with_root(node))
+    }
+
+    /// Internal method, Removes and returns the node at the zipper's focus
+    #[inline]
+    fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> {
+        let focus_node = self.focus_stack.top_mut().unwrap();
+        let node_key = self.key.node_key();
+        if node_key.len() == 0 {
+            debug_assert!(self.at_root());
+            let mut replacement_node = TrieNodeODRc::new(EmptyNode::new());
+            self.focus_stack.backtrack();
+            core::mem::swap(self.focus_stack.root_mut().unwrap(), &mut replacement_node);
+            if !replacement_node.borrow().node_is_empty() {
+                Some(replacement_node)
+            } else {
+                None
+            }
+        } else {
+            debug_assert!(node_key.len() > 0);
+            if let Some(new_node) = focus_node.take_node_at_key(node_key) {
+                if focus_node.node_is_empty() {
+                    self.prune_path();
+                }
+                Some(new_node)
+            } else {
+                None
+            }
+        }
+    }
 
     /// Internal implementation of graft, and other methods that do the same thing
     #[inline]

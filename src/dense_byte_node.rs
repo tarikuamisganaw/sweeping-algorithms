@@ -779,6 +779,23 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             AbstractNodeRef::None
         }
     }
+
+    fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>> {
+        if key.len() < 2 {
+            debug_assert!(key.len() == 1);
+            match self.get_mut(key[0]) {
+                Some(cf) => {
+                    let mut result = None;
+                    core::mem::swap(&mut result, &mut cf.rec);
+                    result
+                },
+                None => None
+            }
+        } else {
+            None
+        }
+    }
+
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         if let Some(other_dense_node) = other.as_dense() {
             let new_node = self.join(other_dense_node);

@@ -1272,6 +1272,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         AbstractNodeRef::None
     }
 
+    fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V>> {
+        panic!()
+    }
+
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         if let Some(other_list_node) = other.as_list() {
             let (self_key0, self_key1) = self.get_both_keys();
