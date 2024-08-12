@@ -422,6 +422,21 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
     }
 
+    pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+        let src = read_zipper.get_focus();
+        if src.is_none() {
+            return false
+        }
+        match self.get_focus().borrow_option() {
+            Some(self_node) => {
+                let restricted = src.borrow().prestrict_dyn(self_node);
+                self.graft_internal(restricted);
+                true
+            },
+            None => false
+        }
+    }
+
     /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
     /// if a branch was removed, otherwise returns `false`
     ///
@@ -431,7 +446,8 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         let focus_node = self.focus_stack.top_mut().unwrap();
         if focus_node.node_remove_branch(self.key.node_key()) {
             if focus_node.node_is_empty() {
-                self.prune_path();
+                // FIXME
+                // self.prune_path();
             }
             true
         } else {
