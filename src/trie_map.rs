@@ -105,6 +105,8 @@ impl <V : Clone> BytesTrieMap<V> {
         zipper.path_exists()
     }
 
+//GOAT, in light of PathMap's behavior holistically an a potential collision with WriteZipper::insert_prefix,
+// `insert` really should be called set_value
     /// Inserts `v` into the map at `k`.  Panics if `k` has a zero length
     ///
     /// Returns `Some(replaced_val)` if an existing value was replaced, otherwise returns `None` if

@@ -7,9 +7,20 @@ use crate::ring::*;
 use crate::line_list_node::LineListNode;
 use crate::dense_byte_node::DenseByteNode;
 
-#[derive(Clone, Default)]
 pub struct EmptyNode<V> {
     phantom: PhantomData<V>
+}
+
+impl<V> Clone for EmptyNode<V> {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl<V> Default for EmptyNode<V> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<V> Debug for EmptyNode<V> {

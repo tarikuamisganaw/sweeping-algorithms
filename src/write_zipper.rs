@@ -7,6 +7,10 @@ use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::ring::{Lattice, PartialDistributiveLattice};
+#[cfg(feature = "all_dense_nodes")]
+use crate::dense_byte_node::DenseByteNode;
+#[cfg(not(feature = "all_dense_nodes"))]
+use crate::line_list_node::LineListNode;
 
 /// A [Zipper] for editing and adding paths and values in the trie
 pub struct WriteZipper<'a, 'k, V> {
@@ -385,6 +389,30 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         //GOAT!!!!!  We should prune the path upstream, if we ended up removing all downstream paths
     }
 
+// GOAT, should we rename `drop_head` to `drop_prefix`?  Or rename `insert_prefix` to `insert_head`?
+// GOAT QUESTION: Do we want to change the behavior to move the value as well?  Or do we want a variant
+//  of this method that moves the value?  The main guiding idea behind not shifting the value was the desire
+//  to preserve the property of being the inverse of drop_head.
+    /// Inserts `prefix` in front of every downstream path at the focus
+    ///
+    /// This method does not affect a value at the focus.
+    ///
+    /// NOTE: This is the inverse of [Self::drop_head], although it cannot perfectly undo `drop_head` because
+    /// `drop_head` loses information about the prior nested structure.  However, `drop_head` will undo this
+    /// operation.
+    pub fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool {
+        let prefix = prefix.as_ref();
+        match self.get_focus().into_option() {
+            Some(mut focus_node) => {
+                let focus_node = core::mem::take(&mut focus_node);
+                let prefixed = make_parents(prefix, focus_node);
+                self.graft_internal(Some(prefixed));
+                true
+            },
+            None => { false }
+        }
+    }
+
     /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream
     /// from the focus of `read_zipper`
     ///
@@ -742,6 +770,28 @@ fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>, path: &'k
     (key, node)
 }
 
+/// Internal function to create a parent path leading up to the supplied `child_node`
+#[inline]
+fn make_parents<V: Clone>(path: &[u8], child_node: TrieNodeODRc<V>) -> TrieNodeODRc<V> {
+
+    #[cfg(not(feature = "all_dense_nodes"))]
+    {
+        let mut new_node = LineListNode::new();
+        new_node.node_set_branch(path, child_node).unwrap_or_else(|_| panic!());
+        TrieNodeODRc::new(new_node)
+    }
+
+    #[cfg(feature = "all_dense_nodes")]
+    {
+        let mut end = child_node;
+        for i in (0..path.len()).rev() {
+            let mut new_node = DenseByteNode::new();
+            new_node.set_child(path[i], end);
+            end = TrieNodeODRc::new(new_node);
+        }
+        end
+    }
+}
 
 impl<'k> KeyFields<'k> {
     #[inline]
@@ -1018,6 +1068,33 @@ mod tests {
             b"123:Pam:Bandit",
             b"123:Sue",
             b"123:Sue:Cornelius"];
+        assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
+    }
+
+    #[test]
+    fn write_zipper_insert_prefix_test() {
+        let keys = [
+            "123:Bob:Fido",
+            "123:Jim:Felix",
+            "123:Pam:Bandit",
+            "123:Sue:Cornelius"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wz = map.write_zipper_at_path(b"123:");
+
+        wz.insert_prefix(b"pet:");
+        // let paths: Vec<String> = map.iter().map(|(k, _)| String::from_utf8_lossy(&k[..]).to_string()).collect();
+        let ref_keys: Vec<&[u8]> = vec![
+            b"123:pet:Bob:Fido",
+            b"123:pet:Jim:Felix",
+            b"123:pet:Pam:Bandit",
+            b"123:pet:Sue:Cornelius"];
+        assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
+
+        // Test that drop_head undoes insert_prefix
+        let mut wz = map.write_zipper();
+        wz.insert_prefix(b"people:");
+        //let paths: Vec<String> = map.iter().map(|(k, _)| String::from_utf8_lossy(&k[..]).to_string()).collect();
+        wz.drop_head(b"people:".len());
         assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
     }
 

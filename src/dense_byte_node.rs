@@ -382,7 +382,7 @@ impl <V: Clone> DenseByteNode<V> {
     /// Internal method to recursively create all parents to support a value or branch at a given path
     #[cfg(feature = "all_dense_nodes")]
     #[inline]
-    fn create_parent_path(&mut self, path: &[u8]) -> &mut Self {
+    pub(crate) fn create_parent_path(&mut self, path: &[u8]) -> &mut Self {
         let mut cur = self;
         for i in 0..path.len() - 1 {
             let new_node = Self::new();

@@ -387,6 +387,14 @@ mod opaque_dyn_rc_trie_node {
         }
     }
 
+    //GOAT, make this impl contingent on a "DefaultT" argument to the macro
+    type DefaultT<V> = super::EmptyNode<V>;
+    impl<V> Default for TrieNodeODRc<V> where DefaultT<V>: Default + TrieNode<V> {
+        fn default() -> Self {
+            Self::new(DefaultT::<V>::default())
+        }
+    }
+
     impl<'odb, V> From<std::rc::Rc<dyn TrieNode<V> + 'odb>> for TrieNodeODRc<V>
         where V: 'odb
     {
