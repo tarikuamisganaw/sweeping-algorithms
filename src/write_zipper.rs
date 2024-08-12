@@ -301,6 +301,25 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
     }
 
+    /// Joins (union of) the trie below the zipper's focus with the contents of a [BytesTrieMap],
+    /// consuming the map
+    ///
+    /// Returns `true` if the join was sucessful, or `false` if `map` was empty.
+    pub fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice {
+        let src = match map.into_root() {
+            Some(src) => src,
+            None => return false
+        };
+        match self.get_focus().borrow_option() {
+            Some(self_node) => {
+                let joined = self_node.join_dyn(src.borrow());
+                self.graft_internal(Some(joined));
+                true
+            },
+            None => { self.graft_internal(Some(src)); true }
+        }
+    }
+
     /// GOAT!! This method needs to take a WriteZipper.  Taking a ReadZipper should not be allowed...
     /// The ReadZipper should not have the ability to modify the paths its reading from.
     /// This ends up being safe in a Rust sense (memory integrity is preserved), because exclusivity on
@@ -422,6 +441,14 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
     }
 
+    /// Populates the "stem" paths in `self` with the corresponding subtries in `read_zipper`
+    ///
+    /// NOTE: Any stem path without a corresponding path in `read_zipper` will be removed from `self`.
+    ///
+    /// GOAT, I feel like `restricting` might not be a very evocative name here.  The way I think of this
+    /// operation is as a bunch of "stems" in the WriteZipper, that get their downstream contents populated
+    /// by the corresponding paths in the ReadZipper.  Ideas for names are: "blossom", "fill_in", "expound",
+    /// "populate", etc.  I avoided "bloom" and "expand" because those both have other connotations.
     pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
@@ -446,8 +473,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         let focus_node = self.focus_stack.top_mut().unwrap();
         if focus_node.node_remove_branch(self.key.node_key()) {
             if focus_node.node_is_empty() {
-                // FIXME
-                // self.prune_path();
+                self.prune_path();
             }
             true
         } else {
@@ -472,6 +498,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             let mut replacement_node = TrieNodeODRc::new(EmptyNode::new());
             self.focus_stack.backtrack();
             core::mem::swap(self.focus_stack.root_mut().unwrap(), &mut replacement_node);
+            self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
             if !replacement_node.borrow().node_is_empty() {
                 Some(replacement_node)
             } else {
@@ -595,14 +622,10 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         let old_path = self.key.prefix_buf.clone();
         self.ascend_until();
 
-        let focus_node = self.focus_stack.top_mut().unwrap();
-        let onward_path = &old_path[self.key.prefix_buf.len()-1..];
-        let (consumed_bytes, _) = focus_node.node_get_child(onward_path).unwrap();
-        let child_path = &onward_path[..consumed_bytes];
-
-        let removed = focus_node.node_remove_branch(child_path);
-        debug_assert!(removed);
-        debug_assert!(!focus_node.node_is_empty());
+        let onward_path = &old_path[self.key.prefix_buf.len()..];
+        self.descend_to(&onward_path[0..1]);
+        self.remove_branch();
+        debug_assert!(!self.focus_stack.top().unwrap().node_is_empty() || self.at_root());
 
         //Move back to the original location, although it will now be non-existent
         self.key.prefix_buf = old_path;
@@ -978,5 +1001,25 @@ mod tests {
             b"123:Sue",
             b"123:Sue:Cornelius"];
         assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
+    }
+
+    #[test]
+    fn write_zipper_map_test() {
+        let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut wr = map.write_zipper();
+        wr.descend_to(b"rom");
+        let sub_map = wr.take_map().unwrap();
+        let sub_map_keys: Vec<String> = sub_map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect();
+        assert_eq!(sub_map_keys, ["'i", "an", "ane", "anus", "ulus"]);
+        let map_keys: Vec<String> = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect();
+        assert_eq!(map_keys, ["arrow", "bow", "cannon", "rubens", "ruber", "rubicon", "rubicundus"]);
+
+        let mut wr = map.write_zipper();
+        wr.descend_to(b"c");
+        wr.join_map(sub_map);
+        let map_keys: Vec<String> = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect();
+        assert_eq!(map_keys, ["arrow", "bow", "c'i", "can", "cane", "cannon", "canus", "culus", "rubens", "ruber", "rubicon", "rubicundus"]);
     }
 }

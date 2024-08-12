@@ -697,31 +697,22 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4] {
         match key.len() {
             0 => self.mask,
-            1 => {
-                //There are two ways we could get a length 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
+            _ => {
+                //There are two ways we could get a length >= 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
                 debug_assert!(self.get(key[0]).and_then(|cf| cf.rec.as_ref()).is_none());
                 [0; 4]
             },
-            _ => unreachable!() //The calling code should have advanced to the next node
         }
     }
 
     fn child_count_at_key(&self, key: &[u8]) -> usize {
         match key.len() {
             0 => self.values.len(),
-            1 => {
-                //There are two ways we could get a length 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
+            _ => {
+                //There are two ways we could get a length >=1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
                 debug_assert!(self.get(key[0]).and_then(|cf| cf.rec.as_ref()).is_none());
                 0
-            },
-            // GOAT The below recursive version is unneeded, because the caller should advance to a child node, so we only need to concern ourself with values
-            // 1 => {
-            //     self.get(key[0]).and_then(|cf|
-            //         cf.rec.as_ref().map(|child|
-            //             child.borrow().child_count_at_key(&[]))
-            //     ).unwrap_or(0)
-            // },
-            _ => unreachable!() //The calling code should have advanced to the next node
+            }
         }
     }
 
