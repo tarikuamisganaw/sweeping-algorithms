@@ -49,36 +49,6 @@ impl <V : Clone> BytesTrieMap<V> {
         }
     }
 
-    //GOAT, redo this as "at_path"
-    // //QUESTION: who is the intended user of this method?  This interface is fundamentally unsafe
-    // // because it exposes a mutable reference inside an immutable structure
-    // #[allow(invalid_reference_casting)] //TODO: Take this away when the QUESTION is answered
-    // pub(crate) fn at<K: AsRef<[u8]>>(&self, k: K) -> Option<&mut BytesTrieMap<V>> {
-    //     let k = k.as_ref();
-    //     let mut node = &self.root;
-
-    //     if k.len() > 1 {
-    //         for i in 0..k.len() - 1 {
-    //             match node.get(k[i]) {
-    //                 Some(cf) => {
-    //                     match cf.rec.as_ref() {
-    //                         Some(r) => { node = r }
-    //                         None => { return None }
-    //                     }
-    //                 }
-    //                 None => { return None }
-    //             }
-    //         }
-    //     }
-
-    //     node.get(k[k.len() - 1]).and_then(|cf| cf.rec.as_ref()).map(|subnode| 
-    //         //SAFETY: the type-cast should be ok, because BytesTrieMap<V> is a #[repr(transparent)]
-    //         // wrapper around ByteTrieNode<CoFree<V>>.
-    //         //WARNING.  The cast_mut() is actually UNSAFE!!  See QUESTION above
-    //         unsafe{ &mut *((&**subnode) as *const ByteTrieNode<CoFree<V>>).cast_mut().cast()  }
-    //     )
-    // }
-
     /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
     pub fn read_zipper(&self) -> ReadZipper<V> {
         ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], Some(0), None)
@@ -155,24 +125,19 @@ impl <V : Clone> BytesTrieMap<V> {
     //GOAT, make a separate `join_with` that is similar to `insert` except replaces V with a merged V rather
     // than replacing it
 
-    // pub fn remove(&mut self, k: u16) -> Option<V> {
-    //     let k1 = k as u8;
-    //     let k2 = (k >> 8) as u8;
-    //     match self.root.get(k1) {
-    //         Some(btn) => {
-    //             let btnr = unsafe { &mut **btn };
-    //             let r = btnr.remove(k2);
-    //             if btnr.len() == 0 {
-    //                 self.root.remove(k1);
-    //                 unsafe { dealloc(ptr::from_mut(btnr).cast(), Layout::new::<ByteTrieNode<V>>()); }
-    //             }
-    //             r
-    //         }
-    //         None => None
-    //     }
-    // }
+    /// Removes the value at `k` from the map and returns it, or returns None if there was no value at `k`
+    pub fn remove<K: AsRef<[u8]>>(&mut self, k: K) -> Option<V> {
+        let k = k.as_ref();
+        //NOTE: we're descending the zipper rather than creating it at the path so it will be allowed to
+        // prune the branches.  A WriteZipper can't move above its root, so it couldn't prune otherwise
+        let mut zipper = self.write_zipper();
+        zipper.descend_to(k);
+        zipper.remove_value()
+    }
 
-    //GOAT-Deprecated-Update
+    //GOAT-redo this with the WriteZipper::get_value_or_insert, although I may need an alternate function
+    // that consumes the zipper in order to be allowed to return the correct lifetime
+    //
     // pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
     //     let k = k.as_ref();
 
@@ -180,6 +145,11 @@ impl <V : Clone> BytesTrieMap<V> {
     //     |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
     //     |new_leaf_node, remaining_key| new_leaf_node.node_get_val_mut(remaining_key).unwrap())
     // }
+
+    /// Returns `true` if the map is empty, otherwise returns `false`
+    pub fn is_empty(&self) -> bool {
+        self.root.borrow().node_is_empty()
+    }
 
     /// Returns a reference to the value at the specified path
     pub fn get<K: AsRef<[u8]>>(&self, k: K) -> Option<&V> {
@@ -267,123 +237,6 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
         }
     }
 }
-
-// NOTE: The below function duplicates the functionality of the zipper, so it's deprecated and will be deleted
-// however it's kept for now to re-enable the old code path if that's needed for any reason.
-// #[inline]
-// pub(crate) fn traverse_to_leaf<'a, 'k, V>(start_node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (&'a dyn TrieNode<V>, &'k [u8]) {
-//     let mut node = start_node;
-
-//     while let Some((consumed, next_node)) = node.node_get_child(key) {
-//         if key.len() > consumed {
-//             key = &key[consumed..];
-//             node = next_node;
-//         } else {
-//             break;
-//         }
-//     }
-//     (node, key)
-// }
-
-// NOTE: the below function deuplicates the functionality of the WriteZipper, so it will be deleted.  It's kept
-// for now to re-enable the old code paths for benchmarking, or any other reason
-// use mutcursor::MutCursor;
-// #[inline]
-// fn traverse_to_leaf_mut<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> &'a mut R
-//     where
-//     NodeF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> Result<&'f mut R, TrieNodeODRc<V>>,
-//     RetryF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> &'f mut R,
-// {
-//     //TODO: Get rid of this `start_node_ptr` under polonius
-//     let start_node_ptr = start_node as *mut TrieNodeODRc<V>;
-//     let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
-
-//     //Traverse until we find a leaf
-//     let mut parent_key: &[u8] = &[];
-//     loop {
-//         if !node.advance(|node| {
-//             match node.node_get_child_mut(key) {
-//                 Some((consumed, next_node)) => {
-//                     if key.len() > consumed {
-//                         parent_key = &key[..consumed];
-//                         key = &key[consumed..];
-//                         Some(next_node.make_mut())
-//                     } else {
-//                         None
-//                     }
-//                 },
-//                 None => None
-//             }
-//         }) {
-//             break;
-//         }
-//     }
-
-//     match node.try_map_into_mut(|top_ref| {
-//         node_f(top_ref, key)
-//     }) {
-//         Ok(result) => result,
-//         Err((mut node, err_node)) => {
-//             if node.depth() > 0 {
-//                 node.backtrack();
-//                 let leaf_node = node.into_mut().node_replace_child(parent_key, err_node);
-//                 retry_f(leaf_node, key)
-//             } else {
-//                 //Safety: Under Polonius, this is fine.
-//                 let start_node = unsafe{ &mut *start_node_ptr };
-//                 *start_node = err_node;
-//                 retry_f(start_node.make_mut(), key)
-//             }
-//         }
-//     }
-// }
-
-// /// This is an ugly duplication of the logic in [Self::traverse_to_leaf_mut].  The reason is a limitation in
-// /// the generic system's inability to differentiate a mutable lifetime from a borrowed lifetime.  Duplicating
-// /// the logic is the least-bad option for now.  See response from Quinedot in thread: https://users.rust-lang.org/t/lifetimes-on-closure-bounds-to-end-mutable-borrow/113575/3
-// #[inline]
-// fn traverse_to_leaf_static_result<'a, V:Clone, NodeF, RetryF, R>(start_node: &'a mut TrieNodeODRc<V>, mut key: &[u8], node_f: NodeF, retry_f: RetryF) -> R
-//     where
-//     NodeF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> Result<R, TrieNodeODRc<V>>,
-//     RetryF: FnOnce(&mut dyn TrieNode<V>, &[u8]) -> R,
-// {
-//     let mut node = MutCursor::<dyn TrieNode<V>, 2>::new(start_node.make_mut());
-
-//     //Traverse until we find a leaf
-//     let mut parent_key: &[u8] = &[];
-//     loop {
-//         if !node.advance(|node| {
-//             match node.node_get_child_mut(key) {
-//                 Some((consumed, next_node)) => {
-//                     if key.len() > consumed {
-//                         parent_key = &key[..consumed];
-//                         key = &key[consumed..];
-//                         Some(next_node.make_mut())
-//                     } else {
-//                         None
-//                     }
-//                 },
-//                 None => None
-//             }
-//         }) {
-//             break;
-//         }
-//     }
-
-//     match node_f(node.top_mut(), key) {
-//         Ok(result) => result,
-//         Err(err_node) => {
-//             if node.depth() > 0 {
-//                 node.backtrack();
-//                 let leaf_node = node.top_mut().node_replace_child(parent_key, err_node);
-//                 retry_f(leaf_node, key)
-//             } else {
-//                 *start_node = err_node;
-//                 retry_f(start_node.make_mut(), key)
-//             }
-//         }
-//     }
-// }
 
 impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
     fn from_iter<I: IntoIterator<Item=(K, V)>>(iter: I) -> Self {
@@ -481,6 +334,40 @@ mod tests {
         assert_eq!(btm.contains_path(b"cannon"), true);
         assert_eq!(btm.contains_path(b"cannonade"), false);
         assert_eq!(btm.contains_path(b""), true);
+    }
+
+    #[test]
+    fn map_remove_test() {
+        let mut map = BytesTrieMap::new();
+        map.insert("aaaaa", "aaaaa");
+        map.insert("bbbbb", "bbbbb");
+        map.insert("ccccc", "ccccc");
+        map.insert("ddddd", "ddddd");
+        map.insert("abbbb", "abbbb");
+        map.insert("aaaab", "aaaab");
+        map.insert("aaaac", "aaaac");
+        map.insert("acaaa", "acaaa");
+        assert_eq!(map.val_count(), 8);
+
+        assert_eq!(map.remove(b"aaaaa"), Some("aaaaa"));
+        assert_eq!(map.val_count(), 7);
+        assert_eq!(map.remove(b"acaaa"), Some("acaaa"));
+        assert_eq!(map.val_count(), 6);
+        assert_eq!(map.remove(b"cccccnot-a-real-key"), None);
+        assert_eq!(map.val_count(), 6);
+        assert_eq!(map.remove(b"aaaac"), Some("aaaac"));
+        assert_eq!(map.val_count(), 5);
+        assert_eq!(map.remove(b"aaaab"), Some("aaaab"));
+        assert_eq!(map.val_count(), 4);
+        assert_eq!(map.remove(b"abbbb"), Some("abbbb"));
+        assert_eq!(map.val_count(), 3);
+        assert_eq!(map.remove(b"ddddd"), Some("ddddd"));
+        assert_eq!(map.val_count(), 2);
+        assert_eq!(map.remove(b"ccccc"), Some("ccccc"));
+        assert_eq!(map.val_count(), 1);
+        assert_eq!(map.remove(b"bbbbb"), Some("bbbbb"));
+        assert_eq!(map.val_count(), 0);
+        assert!(map.is_empty());
     }
 
     #[test]

@@ -146,10 +146,13 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         }
         loop {
             self.ascend_within_node();
+            if self.at_root() {
+                return true;
+            }
             if self.key.node_key().len() == 0 {
                 self.ascend_across_nodes();
             }
-            if self.child_count() > 1 || self.at_root() {
+            if self.child_count() > 1 {
                 break;
             }
         }
@@ -273,7 +276,6 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             None
         }
     }
-
 
     /// Replaces the trie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
     ///
@@ -642,7 +644,6 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         let onward_path = &old_path[self.key.prefix_buf.len()..];
         self.descend_to(&onward_path[0..1]);
         self.remove_branch();
-        debug_assert!(!self.focus_stack.top().unwrap().node_is_empty() || self.at_root());
 
         //Move back to the original location, although it will now be non-existent
         self.key.prefix_buf = old_path;
