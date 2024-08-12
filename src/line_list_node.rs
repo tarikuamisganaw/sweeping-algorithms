@@ -926,6 +926,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         Err(TrieNodeODRc::new(replacement_node))
     }
 
+    fn node_remove_val(&mut self, key: &[u8]) -> Option<V> {
+        panic!()
+    }
+
     //GOAT-Deprecated-Update
     // fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>> {
     //     panic!()

@@ -180,6 +180,21 @@ impl<V> DenseByteNode<V> {
         }
     }
 
+    #[inline]
+    pub fn remove_val(&mut self, k: u8) -> Option<V> {
+        let ix = self.left(k) as usize;
+        debug_assert!(self.contains(k));
+
+        let cf = unsafe { self.values.get_unchecked_mut(ix) };
+        let result = core::mem::take(&mut cf.value);
+
+        if cf.rec.is_none() {
+            self.clear(k);
+            self.values.remove(ix);
+        }
+        result
+    }
+
     /// Similar in behavior to [set_val], but will join v with the existing value instead of replacing it
     #[inline]
     pub fn join_val_into(&mut self, k: u8, val: V) where V: Lattice {
@@ -544,6 +559,13 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 (self, false)
             };
             Ok((last_node.set_val(key[key.len()-1], val), sub_branch_added))
+        }
+    }
+    fn node_remove_val(&mut self, key: &[u8]) -> Option<V> {
+        if key.len() == 1 {
+            self.remove_val(key[0])
+        } else {
+            None
         }
     }
     //GOAT-Deprecated-Update, delete this once we have the WriteZipper doing everything `Update` did

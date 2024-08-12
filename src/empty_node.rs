@@ -48,6 +48,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn node_get_val(&self, _key: &[u8]) -> Option<&V> {
         None
     }
+    fn node_remove_val(&mut self, _key: &[u8]) -> Option<V> {
+        None
+    }
     fn node_get_val_mut(&mut self, _key: &[u8]) -> Option<&mut V> {
         None
     }

@@ -194,22 +194,6 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             focus_stack,
         }
     }
-    /// Sets the value at the zipper's focus
-    ///
-    /// Returns `Some(replaced_val)` if an existing value was replaced, otherwise returns `None` if
-    /// the value was added without replacing anything.
-    ///
-    /// Panics if the zipper's focus is unable to hold a value
-    pub fn set_value(&mut self, val: V) -> Option<V> {
-        let (old_val, created_subnode) = self.in_zipper_mut_static_result(
-            |node, remaining_key| node.node_set_val(remaining_key, val),
-            |_new_leaf_node, _remaining_key| (None, false));
-        if created_subnode {
-            self.mend_root();
-            self.descend_to_internal();
-        }
-        old_val
-    }
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     pub fn get_value(&self) -> Option<&V> {
         self.focus_stack.top().unwrap().node_get_val(self.key.node_key())
@@ -255,6 +239,41 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
         self.get_value_mut().unwrap()
     }
+
+    /// Sets the value at the zipper's focus
+    ///
+    /// Returns `Some(replaced_val)` if an existing value was replaced, otherwise returns `None` if
+    /// the value was added without replacing anything.
+    ///
+    /// Panics if the zipper's focus is unable to hold a value
+    pub fn set_value(&mut self, val: V) -> Option<V> {
+        let (old_val, created_subnode) = self.in_zipper_mut_static_result(
+            |node, remaining_key| node.node_set_val(remaining_key, val),
+            |_new_leaf_node, _remaining_key| (None, false));
+        if created_subnode {
+            self.mend_root();
+            self.descend_to_internal();
+        }
+        old_val
+    }
+
+    /// Removes the value at the zipper's focus.  Does not affect any onward branches.  Returns `Some(val)`
+    /// with the value that was removed, otherwise returns `None`
+    ///
+    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
+    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    pub fn remove_value(&mut self) -> Option<V> {
+        let focus_node = self.focus_stack.top_mut().unwrap();
+        if let Some(result) = focus_node.node_remove_val(self.key.node_key()) {
+            if focus_node.node_is_empty() {
+                self.prune_path();
+            }
+            Some(result)
+        } else {
+            None
+        }
+    }
+
 
     /// Replaces the trie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
     ///
@@ -480,8 +499,6 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             false
         }
     }
-
-//GOAT, also implement remove_val
 
     /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
     pub fn take_map(&mut self) -> Option<BytesTrieMap<V>> {

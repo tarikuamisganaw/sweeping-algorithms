@@ -79,6 +79,13 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>>;
 
+    /// Deletes the value specified by `key`
+    ///
+    /// Returns `Some(val)` with the value that was removed, otherwise returns `None`
+    ///
+    /// WARNING: This method may leave the node empty
+    fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
+
     //GOAT-Deprecated-Update  deprecating `update` interface in favor of WriteZipper
     // /// Returns a mutable reference to the value, creating it using `default_f` if it doesn't already
     // /// exist
