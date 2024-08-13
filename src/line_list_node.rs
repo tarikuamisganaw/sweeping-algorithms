@@ -1999,37 +1999,35 @@ mod tests {
 
     #[test]
     fn test_line_list_clone_at_key() {
-        panic!(); //GOAT, port this test to the new API
+        let mut node = LineListNode::<u64>::new();
+        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        node.node_set_val(b"almond", 1).unwrap_or_else(|_| panic!());
+        node.node_set_val(b"a", 2).unwrap_or_else(|_| panic!());
+        let inner_node = node.get_node_at_key(b"a");
+        assert_eq!(inner_node.borrow().node_get_val(b"pple"), Some(&0));
+        assert_eq!(inner_node.borrow().node_get_val(b"lmond"), Some(&1));
 
-        // let mut node = LineListNode::<u64>::new();
-        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        // node.node_set_val(b"almond", 1).unwrap_or_else(|_| panic!());
-        // node.node_set_val(b"a", 2).unwrap_or_else(|_| panic!());
-        // let cloned = node.clone_node_at_key(b"a").unwrap();
-        // assert_eq!(cloned.borrow().node_get_val(b"pple"), Some(&0));
-        // assert_eq!(cloned.borrow().node_get_val(b"lmond"), Some(&1));
+        let mut node = LineListNode::<u64>::new();
+        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        node.node_set_val(b"apricot", 1).unwrap_or_else(|_| panic!());
+        let inner_node = node.get_node_at_key(b"a");
+        assert!(inner_node.borrow().node_get_child(b"p").is_some());
+        let inner_node = node.get_node_at_key(b"ap");
+        assert_eq!(inner_node.borrow().node_get_val(b"ple"), Some(&0));
 
-        // let mut node = LineListNode::<u64>::new();
-        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        // node.node_set_val(b"apricot", 1).unwrap_or_else(|_| panic!());
-        // let cloned = node.clone_node_at_key(b"a").unwrap();
-        // assert!(cloned.borrow().node_get_child(b"p").is_some());
-        // let cloned = node.clone_node_at_key(b"ap").unwrap();
-        // assert_eq!(cloned.borrow().node_get_val(b"ple"), Some(&0));
+        let mut node = LineListNode::<u64>::new();
+        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        node.node_set_val(b"a", 1).unwrap_or_else(|_| panic!());
+        let inner_node = node.get_node_at_key(b"a");
+        assert_eq!(inner_node.borrow().node_get_val(b"pple"), Some(&0));
 
-        // let mut node = LineListNode::<u64>::new();
-        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        // node.node_set_val(b"a", 1).unwrap_or_else(|_| panic!());
-        // let cloned = node.clone_node_at_key(b"a").unwrap();
-        // assert_eq!(cloned.borrow().node_get_val(b"pple"), Some(&0));
-
-        // let mut node = LineListNode::<u64>::new();
-        // node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
-        // node.node_set_val(b"banana", 1).unwrap_or_else(|_| panic!());
-        // let cloned = node.clone_node_at_key(b"ap").unwrap();
-        // assert_eq!(cloned.borrow().node_get_val(b"ple"), Some(&0));
-        // let cloned = node.clone_node_at_key(b"b").unwrap();
-        // assert_eq!(cloned.borrow().node_get_val(b"anana"), Some(&1));
+        let mut node = LineListNode::<u64>::new();
+        node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
+        node.node_set_val(b"banana", 1).unwrap_or_else(|_| panic!());
+        let inner_node = node.get_node_at_key(b"ap");
+        assert_eq!(inner_node.borrow().node_get_val(b"ple"), Some(&0));
+        let inner_node = node.get_node_at_key(b"b");
+        assert_eq!(inner_node.borrow().node_get_val(b"anana"), Some(&1));
     }
 
 }
