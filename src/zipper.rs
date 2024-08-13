@@ -585,6 +585,10 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
 
             //Truncate the path if we over-shot
             if depth(self) > k {
+                if self.node_key().len() == 0 {
+                    self.ascend_across_nodes();
+                }
+
                 let overshoot = depth(self) - k;
                 self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
             }
