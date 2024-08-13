@@ -1082,7 +1082,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
         //Case 4
         if key0.starts_with(key) {
-            let remaining_key = remaining_key(key0, 1);
+            let remaining_key = remaining_key(key0, key.len());
             if self.is_child_ptr::<0>() {
                 return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
             } else {
@@ -1092,7 +1092,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
         //Case 5
         if key1.starts_with(key) {
-            let remaining_key = remaining_key(key1, 1);
+            let remaining_key = remaining_key(key1, key.len());
             if self.is_child_ptr::<1>() {
                 return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
             } else {
