@@ -991,7 +991,7 @@ mod tests {
     fn write_zipper_compound_join_test() {
         let mut map = BytesTrieMap::<u64>::new();
 
-        let b_keys = ["alligator", "goat", "gadfly"];
+        let b_keys = ["alligator", "giraffe", "gazelle", "gadfly"];
         let b: BytesTrieMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wz = map.write_zipper();
@@ -999,9 +999,11 @@ mod tests {
         rz.descend_to(b"alli");
         wz.graft(&rz);
         rz.reset();
-        wz.join(&rz);
+        assert!(wz.join(&rz));
 
-        assert_eq!(map.val_count(), 4);
+        assert_eq!(map.val_count(), 5);
+        let values: Vec<String> = map.iter().map(|(path, _)| String::from_utf8_lossy(&path[..]).to_string()).collect();
+        assert_eq!(values, vec!["alligator", "gadfly", "gator", "gazelle", "giraffe"]);
     }
 
     #[test]
