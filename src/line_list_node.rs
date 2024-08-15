@@ -646,7 +646,7 @@ fn try_merge<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(a_k
 }
 
 /// The part of `try_merge` that we probably shouldn't inline
-fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> (&'a[u8], ValOrChild<V>) {
+fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> (&'a[u8], ValOrChild<V>) {
     debug_assert!(overlap > 0);
     let a_key_len = a_key.len();
     let b_key_len = b_key.len();
@@ -656,9 +656,8 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(ov
     // of cases to handle
     // - if identical keys, and both are a child or both are a value, then join the key or value and return
     //      a 1-entry node
-    // - if the longer remaining key is a value, and the shorter is a child, then:
-    //       chop the value key, make a new node containing just the value, and join the new node with the
-    //       other child
+    // - if the shorter remaining key is a child, then chop the longer key, make a new node containing just
+    //      the long value, and join the new node with the other child
     // - otherwise build a node with the shorter val/child in slot0 and longer val/child in slot1
 
     //Check for identical keys
@@ -680,38 +679,57 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(ov
         }
     }
 
-    //We're never allowed to have a value with a longer key length than a child, so if that's the case
-    // we need to split the value key
-    if a_key_len > b_key_len && !a.is_child_ptr::<ASLOT>() && b.is_child_ptr::<BSLOT>() {
-        let a_val = unsafe{ a.val_in_slot::<ASLOT>() };
+    //We're never allowed to have an onward child key that is shorter than another key, so if that's
+    // the case we need to split the longer key
+    if a_key_len > b_key_len && b.is_child_ptr::<BSLOT>() {
+        let a_payload = a.clone_payload::<ASLOT>().unwrap();
         let b_child = unsafe{ b.child_in_slot::<BSLOT>() };
         let mut intermediate_node = LineListNode::new();
-        unsafe{ intermediate_node.set_val_0(&a_key[overlap..], LocalOrHeap::new(a_val.clone())); }
+        unsafe{ intermediate_node.set_payload_owned::<0>(&a_key[overlap..], a_payload); }
         debug_assert!(validate_node(&intermediate_node));
         let joined = b_child.join(&TrieNodeODRc::new(intermediate_node));
         return (&a_key[0..overlap], ValOrChild::Child(joined))
     }
-    if b_key_len > a_key_len && a.is_child_ptr::<ASLOT>() && !b.is_child_ptr::<BSLOT>() {
+    if b_key_len > a_key_len && a.is_child_ptr::<ASLOT>() {
         let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
-        let b_val = unsafe{ b.val_in_slot::<BSLOT>() };
+        let b_payload = b.clone_payload::<BSLOT>().unwrap();
         let mut intermediate_node = LineListNode::new();
-        unsafe{ intermediate_node.set_val_0(&b_key[overlap..], LocalOrHeap::new(b_val.clone())); }
+        unsafe{ intermediate_node.set_payload_owned::<0>(&b_key[overlap..], b_payload); }
         debug_assert!(validate_node(&intermediate_node));
         let joined = a_child.join(&TrieNodeODRc::new(intermediate_node));
         return (&a_key[0..overlap], ValOrChild::Child(joined))
     }
 
-    //Make a new node and put the shorter key in slot0 and the longer in slot1
+    //Make a new node and put the keys into the right slots based on their first bytes or
+    // lengths if the initial bytes are equal
     let mut new_node = LineListNode::new();
     let a_payload = a.clone_payload::<ASLOT>().unwrap();
     let b_payload = b.clone_payload::<BSLOT>().unwrap();
-    if a_key_len < b_key_len {
-        unsafe{ new_node.set_payload_owned::<0>(&a_key[overlap..], a_payload); }
-        unsafe{ new_node.set_payload_owned::<1>(&b_key[overlap..], b_payload); }
-    } else {
-        unsafe{ new_node.set_payload_owned::<0>(&b_key[overlap..], b_payload); }
-        unsafe{ new_node.set_payload_owned::<1>(&a_key[overlap..], a_payload); }
+
+    if overlap == a_key_len || overlap == b_key_len {
+        overlap -= 1;
     }
+
+    let new_a_key = &a_key[overlap..];
+    let new_b_key = &b_key[overlap..];
+    if new_a_key[0] == new_b_key[0] {
+        if a_key_len < b_key_len {
+            unsafe{ new_node.set_payload_owned::<0>(new_a_key, a_payload); }
+            unsafe{ new_node.set_payload_owned::<1>(new_b_key, b_payload); }
+        } else {
+            unsafe{ new_node.set_payload_owned::<0>(new_b_key, b_payload); }
+            unsafe{ new_node.set_payload_owned::<1>(new_a_key, a_payload); }
+        }
+    } else {
+        if new_a_key[0] < new_b_key[0] {
+            unsafe{ new_node.set_payload_owned::<0>(new_a_key, a_payload); }
+            unsafe{ new_node.set_payload_owned::<1>(new_b_key, b_payload); }
+        } else {
+            unsafe{ new_node.set_payload_owned::<0>(new_b_key, b_payload); }
+            unsafe{ new_node.set_payload_owned::<1>(new_a_key, a_payload); }
+        }
+    }
+    debug_assert!(validate_node(&new_node));
     (&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node)))
 }
 

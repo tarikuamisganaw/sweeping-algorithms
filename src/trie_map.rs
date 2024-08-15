@@ -1,4 +1,3 @@
-use std::mem::size_of;
 use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -425,14 +424,9 @@ mod tests {
 
         let joined = a.join(&b);
         for (path, i) in joined.iter() {
-            println!("GOAT {} {}", std::str::from_utf8(&path).unwrap(), i);
+            // println!("{} {}", std::str::from_utf8(&path).unwrap(), i);
             assert_eq!(rs[*i].as_bytes(), &path);
         }
         assert_eq!(joined.val_count(), rs.len());
     }
 }
-
-//GOAT TODO LIST:
-// 3. Re-enable "at_path" API
-// 4. Other ops: "join_all"??, "restrict"??, ??
-
