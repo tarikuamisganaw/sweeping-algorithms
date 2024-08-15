@@ -301,6 +301,17 @@ pub enum AbstractNodeRef<'a, V> {
     OwnedRc(TrieNodeODRc<V>)
 }
 
+impl<'a, V> core::fmt::Debug for AbstractNodeRef<'a, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::None => write!(f, "AbstractNodeRef::None"),
+            Self::BorrowedDyn(_) => write!(f, "AbstractNodeRef::BorrowedDyn"),
+            Self::BorrowedRc(_) => write!(f, "AbstractNodeRef::BorrowedRc"),
+            Self::OwnedRc(_) => write!(f, "AbstractNodeRef::OwnedRc"),
+        }
+    }
+}
+
 impl<'a, V: Clone> AbstractNodeRef<'a, V> {
     pub fn is_none(&self) -> bool {
         matches!(self, AbstractNodeRef::None)
