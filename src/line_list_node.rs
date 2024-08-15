@@ -34,6 +34,12 @@ union ValOrChildUnion<V> {
     _unused: ()
 }
 
+impl<V> Default for ValOrChildUnion<V> {
+    fn default() -> Self {
+        Self { _unused: () }
+    }
+}
+
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
         if self.is_used::<0>() {
@@ -146,6 +152,31 @@ impl<V> LineListNode<V> {
         const LEN_MASK: usize = 0x3f; //bits 5 to 0, inclusive
         (self.header as usize) & ((1 << 14) | (1 << 12) | LEN_MASK)
     }
+    /// Constructs a header for slot0
+    #[inline]
+    fn header0(is_child_ptr: bool, key_len: usize) -> u16 {
+        let mask = if is_child_ptr {
+            0xa000 | (key_len << 6)
+        } else {
+            0x8000 | (key_len << 6)
+        };
+        mask as u16
+    }
+    /// Constructs a header for slot1
+    #[inline]
+    fn header1(is_child_ptr: bool, key_len: usize) -> u16 {
+        let mask = if is_child_ptr {
+            0x5000 | key_len
+        } else {
+            0x4000 | key_len
+        };
+        mask as u16
+    }
+    /// Constructs a header for slot0
+    #[inline]
+    fn header1_inverse() -> u16 {
+        0xafe0
+    }
     /// Returns `true` if slot_1 is available to be filled with an entry, otherwise `false`.  The reason
     /// `!is_used_1()` is insufficient is because `slot_1` may be empty but the key storage may be fully
     /// consumed by slot_0's key
@@ -252,12 +283,7 @@ impl<V> LineListNode<V> {
         debug_assert!(key.len() <= KEY_BYTES_CNT);
         core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
         self.val_or_child0 = payload;
-        let mask = if is_child_ptr {
-            0xa000 | (key.len() << 6)
-        } else {
-            0x8000 | (key.len() << 6)
-        };
-        self.header |= mask as u16;
+        self.header |= Self::header0(is_child_ptr, key.len());
         if key.len() == KEY_BYTES_CNT {
             self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
         }
@@ -269,12 +295,7 @@ impl<V> LineListNode<V> {
         let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
         core::ptr::copy_nonoverlapping(key.as_ptr(), base_ptr.as_mut_ptr().cast(), key.len());
         self.val_or_child1 = payload;
-        let mask = if is_child_ptr {
-            0x5000 | key.len()
-        } else {
-            0x4000 | key.len()
-        };
-        self.header |= mask as u16;
+        self.header |= Self::header1(is_child_ptr, key.len());
     }
     #[inline]
     unsafe fn set_payload_owned<const SLOT: usize>(&mut self, key: &[u8], payload: ValOrChild<V>) where V: Clone {
@@ -379,17 +400,7 @@ impl<V> LineListNode<V> {
             self.val_or_child0 = new_payload;
 
             //Construct the new header
-            let mut new_header = if new_is_child_ptr {
-                0xa000 | (new_key_len << 6)
-            } else {
-                0x8000 | (new_key_len << 6)
-            };
-            if old_is_child_ptr {
-                new_header |= 0x5000 | old_key_len;
-            } else {
-                new_header |= 0x4000 | old_key_len;
-            };
-            self.header = new_header as u16;
+            self.header = Self::header0(new_is_child_ptr, new_key_len) | Self::header1(old_is_child_ptr, old_key_len);
 
             created_sub_branch
         } else {
@@ -398,6 +409,61 @@ impl<V> LineListNode<V> {
             self.split_0(KEY_BYTES_CNT / 2);
             self.set_payload_0_shift_existing(key, is_child_ptr, payload);
             true
+        }
+    }
+    /// Takes the contents of SLOT.  If SLOT is 0 then it shifts the contents of slot_1 into slot_0
+    #[inline]
+    fn take_payload<const SLOT: usize>(&mut self) -> Option<ValOrChild<V>> {
+        if !self.is_used::<SLOT>() {
+            return None;
+        }
+        match SLOT {
+            0 => {
+                match self.is_child_ptr::<SLOT>() {
+                    true => {
+                        let child = unsafe{ ManuallyDrop::take(&mut self.val_or_child0.child) };
+                        self.shift_1_to_0();
+                        Some(ValOrChild::Child(child))
+                    },
+                    false => {
+                        let val = unsafe{ ManuallyDrop::take(&mut self.val_or_child0.val) };
+                        self.shift_1_to_0();
+                        Some(ValOrChild::Val(LocalOrHeap::into_inner(val)))
+                    }
+                }
+            },
+            1 => {
+                match self.is_child_ptr::<SLOT>() {
+                    true => {
+                        let child = unsafe{ ManuallyDrop::take(&mut self.val_or_child1.child) };
+                        self.header &= Self::header1_inverse();
+                        Some(ValOrChild::Child(child))
+                    },
+                    false => {
+                        let val = unsafe{ ManuallyDrop::take(&mut self.val_or_child1.val) };
+                        self.header &= Self::header1_inverse();
+                        Some(ValOrChild::Val(LocalOrHeap::into_inner(val)))
+                    }
+                }
+            },
+            _ => unreachable!()
+        }
+    }
+    /// Shifts the contents of slot1 into slot0, obliterating the contents of slot0
+    #[inline]
+    fn shift_1_to_0(&mut self) {
+        if self.is_used::<1>() {
+            self.val_or_child0 = core::mem::take(&mut self.val_or_child1);
+            let key_len_1 = self.key_len_1();
+            let is_child_1 = self.is_child_ptr::<1>();
+            unsafe {
+                let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
+                let dst_ptr = self.key_bytes.as_mut_ptr().cast();
+                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
+            }
+            self.header = Self::header0(is_child_1, key_len_1);
+        } else {
+            self.header = 0;
         }
     }
     /// Returns the clone of the value or child in the slot
@@ -954,7 +1020,25 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn node_remove_val(&mut self, key: &[u8]) -> Option<V> {
-        panic!()
+        if self.is_used_value_0() {
+            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+            if node_key_0 == key {
+                match self.take_payload::<0>().unwrap() {
+                    ValOrChild::Val(v) => return Some(v),
+                    ValOrChild::Child(_) => unreachable!()
+                }
+            }
+        }
+        if self.is_used_value_1() {
+            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+            if node_key_1 == key {
+                match self.take_payload::<1>().unwrap() {
+                    ValOrChild::Val(v) => return Some(v),
+                    ValOrChild::Child(_) => unreachable!()
+                }
+            }
+        }
+        None
     }
 
     //GOAT-Deprecated-Update
