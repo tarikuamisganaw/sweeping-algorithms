@@ -1,4 +1,5 @@
-
+use std::mem::size_of;
+use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;
 
@@ -37,6 +38,32 @@ impl <V : Clone> BytesTrieMap<V> {
     #[inline]
     pub(crate) fn new_with_root(root: TrieNodeODRc<V>) -> Self {
         Self { root }
+    }
+
+    pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
+        // #[cfg(feature = "all_dense_nodes")]
+        // we can extremely efficiently generate ranges, but currently we're limited to range(0, BASE**j, k < BASE)
+        // let root = crate::dense_byte_node::_so_range(step as u8, 4);
+        // BytesTrieMap::<()>::new_with_root(root)
+        //fallback
+        let mut root = TrieNodeODRc::new(crate::dense_byte_node::DenseByteNode::new());
+        let mut zipper = WriteZipper::new_with_node_and_path(&mut root, &[]);
+
+        let mut i = start;
+        let positive = step > zero();
+        loop {
+            if positive { if i >= stop { break } }
+            else { if i <= step { break } }
+            // println!("{}", i);
+            if BE { zipper.descend_to(i.to_be_bytes()); }
+            else { zipper.descend_to(i.to_le_bytes()); }
+            zipper.set_value(value.clone());
+            zipper.reset();
+
+            i += step;
+        }
+
+        BytesTrieMap::new_with_root(root)
     }
 
     /// Internal Method.  Removes and returns the root from a BytesTrieMap
