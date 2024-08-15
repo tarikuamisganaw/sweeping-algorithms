@@ -194,15 +194,6 @@ impl<V> LineListNode<V> {
     // pub fn max_key_len_1(&self) -> usize {
     //     KEY_BYTES_CNT - self.key_len_0()
     // }
-    //GOAT, Easier to construct the ranges as we need them
-    // #[inline]
-    // pub fn key_range_0(&self) -> core::ops::RangeTo<usize> {
-    //     core::ops::RangeTo{ end: self.key_len_0() }
-    // }
-    // #[inline]
-    // pub fn key_range_1(&self) -> core::ops::Range<usize> {
-    //     core::ops::Range{ start: self.key_len_0(), end: self.key_len_1() }
-    // }
     #[inline]
     unsafe fn key_unchecked<const SLOT: usize>(&self) -> &[u8] {
         match SLOT {
@@ -660,7 +651,17 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(ov
     let a_key_len = a_key.len();
     let b_key_len = b_key.len();
 
-    //If the keys are identical, we may need to merge the value or node
+    // Algorithm Overview:
+    // In order to create valid new node, we must adhere to a number of constraints, which means a handful
+    // of cases to handle
+    // - if identical keys, and both are a child or both are a value, then join the key or value and return
+    //      a 1-entry node
+    // - if the longer remaining key is a value, and the shorter is a child, then:
+    //       chop the value key, make a new node containing just the value, and join the new node with the
+    //       other child
+    // - otherwise build a node with the shorter val/child in slot0 and longer val/child in slot1
+
+    //Check for identical keys
     if overlap == a_key_len && overlap == b_key_len {
         match (a.is_child_ptr::<ASLOT>(), b.is_child_ptr::<BSLOT>()) {
             (true, true) => { //both are child nodes, so join them
@@ -679,31 +680,38 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(ov
         }
     }
 
-    //GOAT, This check is purely for debugging, to highlight the current bug
-    if overlap == a_key_len || overlap == b_key_len {
-        println!("GOAT hit {ASLOT} {BSLOT}");
-        println!("GOAT here \n{a:?}\n{b:?}");
-    //     overlap -= 1;
+    //We're never allowed to have a value with a longer key length than a child, so if that's the case
+    // we need to split the value key
+    if a_key_len > b_key_len && !a.is_child_ptr::<ASLOT>() && b.is_child_ptr::<BSLOT>() {
+        let a_val = unsafe{ a.val_in_slot::<ASLOT>() };
+        let b_child = unsafe{ b.child_in_slot::<BSLOT>() };
+        let mut intermediate_node = LineListNode::new();
+        unsafe{ intermediate_node.set_val_0(&a_key[overlap..], LocalOrHeap::new(a_val.clone())); }
+        debug_assert!(validate_node(&intermediate_node));
+        let joined = b_child.join(&TrieNodeODRc::new(intermediate_node));
+        return (&a_key[0..overlap], ValOrChild::Child(joined))
+    }
+    if b_key_len > a_key_len && a.is_child_ptr::<ASLOT>() && !b.is_child_ptr::<BSLOT>() {
+        let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
+        let b_val = unsafe{ b.val_in_slot::<BSLOT>() };
+        let mut intermediate_node = LineListNode::new();
+        unsafe{ intermediate_node.set_val_0(&b_key[overlap..], LocalOrHeap::new(b_val.clone())); }
+        debug_assert!(validate_node(&intermediate_node));
+        let joined = a_child.join(&TrieNodeODRc::new(intermediate_node));
+        return (&a_key[0..overlap], ValOrChild::Child(joined))
     }
 
-    //We have a common prefix but not identical keys, so make a new child node that contains both
+    //Make a new node and put the shorter key in slot0 and the longer in slot1
     let mut new_node = LineListNode::new();
-
-    if a.is_child_ptr::<ASLOT>() {
-        let a_child = unsafe{ a.child_in_slot::<ASLOT>() }.clone();
-        unsafe{ new_node.set_child_0(&a_key[overlap..], a_child); }
+    let a_payload = a.clone_payload::<ASLOT>().unwrap();
+    let b_payload = b.clone_payload::<BSLOT>().unwrap();
+    if a_key_len < b_key_len {
+        unsafe{ new_node.set_payload_owned::<0>(&a_key[overlap..], a_payload); }
+        unsafe{ new_node.set_payload_owned::<1>(&b_key[overlap..], b_payload); }
     } else {
-        let a_val = unsafe{ a.val_in_slot::<ASLOT>() }.clone();
-        unsafe{ new_node.set_val_0(&a_key[overlap..], LocalOrHeap::new(a_val)); }
+        unsafe{ new_node.set_payload_owned::<0>(&b_key[overlap..], b_payload); }
+        unsafe{ new_node.set_payload_owned::<1>(&a_key[overlap..], a_payload); }
     }
-    if b.is_child_ptr::<BSLOT>() {
-        let b_child = unsafe{ b.child_in_slot::<BSLOT>() }.clone();
-        unsafe{ new_node.set_payload_1_no_overflow(&b_key[(overlap)..], true, ValOrChildUnion{ child: ManuallyDrop::new(b_child)} ); }
-    } else {
-        let b_val = unsafe{ b.val_in_slot::<BSLOT>() }.clone();
-        unsafe{ new_node.set_payload_1_no_overflow(&b_key[(overlap)..], false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(b_val)) }); }
-    }
-
     (&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node)))
 }
 
@@ -1406,7 +1414,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                     },
                     _ => unreachable!()
                 }
-//GOAT, we run afoul of the "no onward link and a longer node"
                 debug_assert!(validate_node(&joined_node));
                 return TrieNodeODRc::new(joined_node)
             }
