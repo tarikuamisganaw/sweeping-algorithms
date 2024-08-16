@@ -39,6 +39,24 @@ impl<V> Default for ValOrChildUnion<V> {
         Self { _unused: () }
     }
 }
+impl<V> From<V> for ValOrChildUnion<V> {
+    fn from(val: V) -> Self {
+        Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
+    }
+}
+impl<V> From<TrieNodeODRc<V>> for ValOrChildUnion<V> {
+    fn from(child: TrieNodeODRc<V>) -> Self {
+        Self{ child: ManuallyDrop::new(child) }
+    }
+}
+impl<V> ValOrChildUnion<V> {
+    unsafe fn into_val(self) -> V {
+        LocalOrHeap::into_inner(ManuallyDrop::into_inner(self.val))
+    }
+    unsafe fn into_child(self) -> TrieNodeODRc<V> {
+        ManuallyDrop::into_inner(self.child)
+    }
+}
 
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
@@ -260,18 +278,20 @@ impl<V> LineListNode<V> {
             _ => unreachable!()
         }
     }
-    #[inline]
-    unsafe fn val_in_slot_mut<const SLOT: usize>(&mut self) -> &mut V {
-        match SLOT {
-            0 => &mut **self.val_or_child0.val,
-            1 => &mut **self.val_or_child1.val,
-            _ => unreachable!()
-        }
-    }
-    #[inline]
-    unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-        self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
-    }
+    //Currently unneeded.  May delete
+    // #[inline]
+    // unsafe fn val_in_slot_mut<const SLOT: usize>(&mut self) -> &mut V {
+    //     match SLOT {
+    //         0 => &mut **self.val_or_child0.val,
+    //         1 => &mut **self.val_or_child1.val,
+    //         _ => unreachable!()
+    //     }
+    // }
+    //Currently unneeded.  May delete
+    // #[inline]
+    // unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
+    //     self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
+    // }
     //Currently unneeded.  May delete
     // #[inline]
     // unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
@@ -589,21 +609,8 @@ impl<V> LineListNode<V> {
     }
     #[inline]
     fn get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
-        if self.is_used_value_0() {
-            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-            if node_key_0 == key {
-                let val = unsafe{ self.val_in_slot_mut::<0>() };
-                return Some(val);
-            }
-        }
-        if self.is_used_value_1() {
-            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-            if node_key_1 == key {
-                let val = unsafe{ self.val_in_slot_mut::<1>() };
-                return Some(val);
-            }
-        }
-        None
+        self.get_payload_exact_key_mut::<false>(key)
+            .map(|val_or_child| unsafe{ &mut **val_or_child.val })
     }
     #[inline]
     fn get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
@@ -625,6 +632,22 @@ impl<V> LineListNode<V> {
                     let child = unsafe{ self.child_in_slot_mut::<1>() };
                     return Some((key_len, child))
                 }
+            }
+        }
+        None
+    }
+    #[inline]
+    fn get_payload_exact_key_mut<const IS_CHILD: bool>(&mut self, key: &[u8]) -> Option<&mut ValOrChildUnion<V>> {
+        if self.is_used::<0>() && self.is_child_ptr::<0>() == IS_CHILD {
+            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+            if key == node_key_0 {
+                return Some(&mut self.val_or_child0)
+            }
+        }
+        if self.is_used::<1>() && self.is_child_ptr::<1>() == IS_CHILD {
+            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+            if key == node_key_1 {
+                return Some(&mut self.val_or_child1)
             }
         }
         None
@@ -657,6 +680,138 @@ impl<V> LineListNode<V> {
             },
             (false, true) => unreachable!(),
         }
+    }
+    /// Sets the payload on the node with the specified key, upgrading the node if necessary.
+    /// If `is_child_ptr == true`, this method always returns `(None, _)`, if it's false, will return the
+    /// replaced value if there was one.
+    ///
+    /// See [trie_node::TrieNode::node_set_val] for deeper explanation of behavior
+    #[inline]
+    fn set_payload_abstract<const IS_CHILD: bool>(&mut self, key: &[u8], mut payload: ValOrChildUnion<V>) -> Result<(Option<ValOrChildUnion<V>>, bool), TrieNodeODRc<V>> where V: Clone {
+
+        // A local function to either set a child or a branch on a downstream node
+        let set_payload_recursive = |child: &mut dyn TrieNode<V>, node_key, payload: ValOrChildUnion<V>| {
+            if IS_CHILD {
+                let onward_link = unsafe{ payload.into_child() };
+                return child.node_set_branch(node_key, onward_link).map(|_| (None, true))
+            } else {
+                let val = unsafe{ payload.into_val() };
+                return child.node_set_val(node_key, val).map(|(ret_val, _)| {
+                    let ret_val = ret_val.map(|val| val.into());
+                    (ret_val, true)
+                })
+            }
+        };
+
+        //If we already have a payload at the key, then replace it
+        if let Some(node_payload) = self.get_payload_exact_key_mut::<IS_CHILD>(key) {
+            core::mem::swap(&mut payload, node_payload);
+            return Ok((Some(payload), false));
+        }
+
+        //If this node is empty, insert the new key-payload into slot_0
+        if !self.is_used::<0>() {
+            let created_subnode = unsafe{ self.set_payload_0_no_overflow(key, IS_CHILD, payload) };
+            return Ok((None, created_subnode))
+        }
+
+        //If the key has overlap with slot_0, split the key, and add the payload to the child
+        let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+        let mut overlap = find_prefix_overlap(key, node_key_0);
+        if overlap > 0 {
+            if overlap == node_key_0.len() || overlap == key.len() {
+                overlap -= 1;
+            }
+            if overlap > 0 {
+                self.split_0(overlap);
+                let child = unsafe{ self.child_in_slot_mut::<0>() }.make_mut();
+                return set_payload_recursive(child, &key[overlap..], payload)
+            }
+        }
+
+        //See if we are able to fill slot_1, either by inserting directly or shifting from slot_0
+        if !self.is_used::<1>() {
+            let created_subnode = if should_swap_keys(node_key_0, key) {
+                unsafe{ self.set_payload_0_shift_existing(key, IS_CHILD, payload) }
+            } else {
+                unsafe{ self.set_payload_1_no_overflow(key, IS_CHILD, payload) }
+            };
+            return Ok((None, created_subnode))
+        }
+
+        //If the key has overlap with slot_1, split that key
+        let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+        let mut overlap = find_prefix_overlap(key, node_key_1);
+        if overlap > 0 {
+            if overlap == node_key_1.len() || overlap == key.len() {
+                overlap -= 1;
+            }
+            if overlap > 0 {
+                self.split_1(overlap);
+                let child = unsafe{ self.child_in_slot_mut::<1>() }.make_mut();
+                return set_payload_recursive(child, &key[overlap..], payload)
+            }
+        }
+
+        //We couldn't store the value in either of the slots, so upgrade the node
+        //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+        let mut replacement_node = DenseByteNode::<V>::with_capacity(3);
+
+        //1. Transplant the key / value from slot_1 to the new node
+        let mut slot_0_payload = ValOrChildUnion{ _unused: () };
+        core::mem::swap(&mut slot_0_payload, &mut self.val_or_child0);
+        let key_0 = unsafe{ self.key_unchecked::<0>() };
+        //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
+        // make an intermediate node to hold the rest of the key
+        if key_0.len() > 1 {
+            let mut child_node = Self::new();
+            unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr::<0>(), slot_0_payload); }
+            replacement_node.set_child(key_0[0], TrieNodeODRc::new(child_node));
+        } else {
+            if self.is_child_ptr::<0>() {
+                let child_node = unsafe{ ManuallyDrop::into_inner(slot_0_payload.child) };
+                replacement_node.set_child(key_0[0], child_node);
+            } else {
+                let val_0 = unsafe{ ManuallyDrop::into_inner(slot_0_payload.val) };
+                replacement_node.set_val(key_0[0], LocalOrHeap::into_inner(val_0));
+            }
+        }
+
+        //2. Transplant the key / value from slot_1 to the new node
+        let mut slot_1_payload = ValOrChildUnion{ _unused: () };
+        core::mem::swap(&mut slot_1_payload, &mut self.val_or_child1);
+        let key_1 = unsafe{ self.key_unchecked::<1>() };
+        if key_1.len() > 1 {
+            let mut child_node = Self::new();
+            unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr::<1>(), slot_1_payload); }
+            replacement_node.set_child(key_1[0], TrieNodeODRc::new(child_node));
+        } else {
+            if self.is_child_ptr::<1>() {
+                let child_node = unsafe{ ManuallyDrop::into_inner(slot_1_payload.child) };
+                replacement_node.set_child(key_1[0], child_node);
+            } else {
+                let val_1 = unsafe{ ManuallyDrop::into_inner(slot_1_payload.val) };
+                replacement_node.set_val(key_1[0], LocalOrHeap::into_inner(val_1));
+            }
+        }
+
+        //3. Add the new key-value pair to the new DenseByteNode
+        if key.len() > 1 {
+            let mut child_node = Self::new();
+            set_payload_recursive(&mut child_node, &key[1..], payload).unwrap_or_else(|_| panic!());
+            replacement_node.set_child(key[0], TrieNodeODRc::new(child_node));
+        } else {
+            if IS_CHILD {
+                replacement_node.set_child(key[0], unsafe{ payload.into_child() });
+            } else {
+                replacement_node.set_val(key[0], unsafe{ payload.into_val() });
+            }
+        }
+
+        //4. Clear self.header, so we don't double-free when this old node gets dropped
+        self.header = 0;
+
+        Err(TrieNodeODRc::new(replacement_node))
     }
 }
 
@@ -908,115 +1063,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
         self.get_val_mut(key)
     }
-    fn node_set_val(&mut self, key: &[u8], mut val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
-
-        //If we already have a value at the key, then replace it
-        if self.contains_val(key) {
-            let node_val = self.get_val_mut(key).unwrap();
-            core::mem::swap(&mut val, node_val);
-            return Ok((Some(val), false));
-        }
-
-        //If this node is empty, insert the new key-value into slot_0
-        if !self.is_used::<0>() {
-            let created_subnode = unsafe{ self.set_payload_0_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }) };
-            return Ok((None, created_subnode))
-        }
-
-        //If the key has overlap with slot_0, split the key, and add the value to the child
-        let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-        let mut overlap = find_prefix_overlap(key, node_key_0);
-        if overlap > 0 {
-            if overlap == node_key_0.len() || overlap == key.len() {
-                overlap -= 1;
-            }
-            if overlap > 0 {
-                self.split_0(overlap);
-                let child = unsafe{ self.child_in_slot_mut::<0>() }.make_mut();
-                return child.node_set_val(&key[overlap..], val).map(|(ret_val, _)| (ret_val, true))
-            }
-        }
-
-        //See if we are able to fill slot_1, either by inserting directly or shifting from slot_0
-        if !self.is_used::<1>() {
-            let payload = ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) };
-            let created_subnode = if should_swap_keys(node_key_0, key) {
-                unsafe{ self.set_payload_0_shift_existing(key, false, payload) }
-            } else {
-                unsafe{ self.set_payload_1_no_overflow(key, false, payload) }
-            };
-            return Ok((None, created_subnode))
-        }
-
-        //If the key has overlap with slot_1, split that key
-        let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-        let mut overlap = find_prefix_overlap(key, node_key_1);
-        if overlap > 0 {
-            if overlap == node_key_1.len() || overlap == key.len() {
-                overlap -= 1;
-            }
-            if overlap > 0 {
-                self.split_1(overlap);
-                let child = unsafe{ self.child_in_slot_mut::<1>() }.make_mut();
-                return child.node_set_val(&key[overlap..], val).map(|(ret_val, _)| (ret_val, true))
-            }
-        }
-
-        //We couldn't store the value in either of the slots, so upgrade the node
-        //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-        let mut replacement_node = DenseByteNode::<V>::with_capacity(3);
-
-        //1. Transplant the key / value from slot_1 to the new node
-        let mut slot_0_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut slot_0_payload, &mut self.val_or_child0);
-        let key_0 = unsafe{ self.key_unchecked::<0>() };
-        //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
-        // make an intermediate node to hold the rest of the key
-        if key_0.len() > 1 {
-            let mut child_node = Self::new();
-            unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr::<0>(), slot_0_payload); }
-            replacement_node.set_child(key_0[0], TrieNodeODRc::new(child_node));
-        } else {
-            if self.is_child_ptr::<0>() {
-                let child_node = unsafe{ ManuallyDrop::into_inner(slot_0_payload.child) };
-                replacement_node.set_child(key_0[0], child_node);
-            } else {
-                let val_0 = unsafe{ ManuallyDrop::into_inner(slot_0_payload.val) };
-                replacement_node.set_val(key_0[0], LocalOrHeap::into_inner(val_0));
-            }
-        }
-
-        //2. Transplant the key / value from slot_1 to the new node
-        let mut slot_1_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut slot_1_payload, &mut self.val_or_child1);
-        let key_1 = unsafe{ self.key_unchecked::<1>() };
-        if key_1.len() > 1 {
-            let mut child_node = Self::new();
-            unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr::<1>(), slot_1_payload); }
-            replacement_node.set_child(key_1[0], TrieNodeODRc::new(child_node));
-        } else {
-            if self.is_child_ptr::<1>() {
-                let child_node = unsafe{ ManuallyDrop::into_inner(slot_1_payload.child) };
-                replacement_node.set_child(key_1[0], child_node);
-            } else {
-                let val_1 = unsafe{ ManuallyDrop::into_inner(slot_1_payload.val) };
-                replacement_node.set_val(key_1[0], LocalOrHeap::into_inner(val_1));
-            }
-        }
-
-        //3. Add the new key-value pair to the new DenseByteNode
-        if key.len() > 1 {
-            let mut child_node = Self::new();
-            child_node.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
-            replacement_node.set_child(key[0], TrieNodeODRc::new(child_node));
-        } else {
-            replacement_node.set_val(key[0], val);
-        }
-
-        //4. Clear self.header, so we don't double-free when this old node gets dropped
-        self.header = 0;
-
-        Err(TrieNodeODRc::new(replacement_node))
+    fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
+        self.set_payload_abstract::<false>(key, val.into()).map(|(result, created_subnode)| {
+            (result.map(|payload| unsafe{ payload.into_val() }), created_subnode)
+        })
     }
 
     fn node_remove_val(&mut self, key: &[u8]) -> Option<V> {
@@ -1047,7 +1097,8 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     // }
 
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
-        panic!()
+        self.set_payload_abstract::<true>(key, new_node.into())
+            .map(|(_, created_subnode)| created_subnode)
     }
 
     fn node_remove_branch(&mut self, key: &[u8]) -> bool {
