@@ -570,14 +570,12 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         match src {
             Some(src) => {
                 debug_assert!(!src.borrow().node_is_empty());
-                let node_key = self.key.node_key();
-                if node_key.len() > 0 {
-                    let sub_branch_added = match self.focus_stack.top_mut().unwrap().node_set_branch(node_key, src) {
-                        Ok(sub_branch_added) => sub_branch_added,
-                        Err(_replacement_node) => {
-                            panic!(); //TODO
-                        }
-                    };
+                if self.key.node_key().len() > 0 {
+                    let sub_branch_added = self.in_zipper_mut_static_result(
+                        |node, key| {
+                            node.node_set_branch(key, src)
+                        },
+                        |_, _| true);
                     if sub_branch_added {
                         self.mend_root();
                         self.descend_to_internal();
