@@ -294,6 +294,21 @@ pub(crate) enum ValOrChild<V> {
     Child(TrieNodeODRc<V>)
 }
 
+impl<V> ValOrChild<V> {
+    pub fn into_child(self) -> TrieNodeODRc<V> {
+        match self {
+            Self::Child(child) => child,
+            _ => panic!()
+        }
+    }
+    pub fn into_val(self) -> V {
+        match self {
+            Self::Val(val) => val,
+            _ => panic!()
+        }
+    }
+}
+
 pub enum AbstractNodeRef<'a, V> {
     None,
     BorrowedDyn(&'a dyn TrieNode<V>),

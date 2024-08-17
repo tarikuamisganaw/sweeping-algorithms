@@ -49,6 +49,14 @@ impl<V> From<TrieNodeODRc<V>> for ValOrChildUnion<V> {
         Self{ child: ManuallyDrop::new(child) }
     }
 }
+impl<V> From<ValOrChild<V>> for ValOrChildUnion<V> {
+    fn from(voc: ValOrChild<V>) -> Self {
+        match voc {
+            ValOrChild::Child(child) => Self{ child: ManuallyDrop::new(child) },
+            ValOrChild::Val(val) => Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
+        }
+    }
+}
 impl<V> ValOrChildUnion<V> {
     unsafe fn into_val(self) -> V {
         LocalOrHeap::into_inner(ManuallyDrop::into_inner(self.val))
@@ -860,14 +868,14 @@ fn try_merge<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(a_k
     //Are there are any common paths between the nodes?
     let overlap = find_prefix_overlap(a_key, b_key);
     if overlap > 0 {
-        Some(merge_guts::<V, ASLOT, BSLOT>(overlap, a_key, a, b_key, b))
+        merge_guts::<V, ASLOT, BSLOT>(overlap, a_key, a, b_key, b)
     } else {
         None //No overlap between keys
     }
 }
 
 /// The part of `try_merge` that we probably shouldn't inline
-fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> (&'a[u8], ValOrChild<V>) {
+fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
     debug_assert!(overlap > 0);
     let a_key_len = a_key.len();
     let b_key_len = b_key.len();
@@ -879,7 +887,8 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
     //      a 1-entry node
     // - if the shorter remaining key is a child, then chop the longer key, make a new node containing just
     //      the long value, and join the new node with the other child
-    // - otherwise build a node with the shorter val/child in slot0 and longer val/child in slot1
+    // - otherwise see if we can build a node at the end of the common prefix, with the shorter val/child
+    //      in slot0 and longer val/child in slot1
 
     //Check for identical keys
     if overlap == a_key_len && overlap == b_key_len {
@@ -888,13 +897,13 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
                 let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
                 let b_child = unsafe{ b.child_in_slot::<BSLOT>() };
                 let new_child = a_child.join(b_child);
-                return (a_key, ValOrChild::Child(new_child))
+                return Some((a_key, ValOrChild::Child(new_child)))
             },
             (false, false) => { //both are values, so join them
                 let a_val = unsafe{ a.val_in_slot::<ASLOT>() };
                 let b_val = unsafe{ b.val_in_slot::<BSLOT>() };
                 let new_val = a_val.join(b_val);
-                return (a_key, ValOrChild::Val(new_val))
+                return Some((a_key, ValOrChild::Val(new_val)))
             },
             _ => {}
         }
@@ -909,7 +918,7 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
         unsafe{ intermediate_node.set_payload_owned::<0>(&a_key[overlap..], a_payload); }
         debug_assert!(validate_node(&intermediate_node));
         let joined = b_child.join(&TrieNodeODRc::new(intermediate_node));
-        return (&a_key[0..overlap], ValOrChild::Child(joined))
+        return Some((&a_key[0..overlap], ValOrChild::Child(joined)))
     }
     if b_key_len > a_key_len && a.is_child_ptr::<ASLOT>() {
         let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
@@ -918,40 +927,43 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
         unsafe{ intermediate_node.set_payload_owned::<0>(&b_key[overlap..], b_payload); }
         debug_assert!(validate_node(&intermediate_node));
         let joined = a_child.join(&TrieNodeODRc::new(intermediate_node));
-        return (&a_key[0..overlap], ValOrChild::Child(joined))
+        return Some((&a_key[0..overlap], ValOrChild::Child(joined)))
     }
 
-    //Make a new node and put the keys into the right slots based on their first bytes or
-    // lengths if the initial bytes are equal
-    let mut new_node = LineListNode::new();
-    let a_payload = a.clone_payload::<ASLOT>().unwrap();
-    let b_payload = b.clone_payload::<BSLOT>().unwrap();
-
+    //If we have overlapping initial bytes that can be joined together, make a new prefix node
     if overlap == a_key_len || overlap == b_key_len {
         overlap -= 1;
     }
+    if overlap > 0 {
+        let mut new_node = LineListNode::new();
+        let a_payload = a.clone_payload::<ASLOT>().unwrap();
+        let b_payload = b.clone_payload::<BSLOT>().unwrap();
 
-    let new_a_key = &a_key[overlap..];
-    let new_b_key = &b_key[overlap..];
-    if new_a_key[0] == new_b_key[0] {
-        if a_key_len < b_key_len {
-            unsafe{ new_node.set_payload_owned::<0>(new_a_key, a_payload); }
-            unsafe{ new_node.set_payload_owned::<1>(new_b_key, b_payload); }
+        // Put the keys into the right slots based on their first bytes or lengths if the initial bytes are equal
+        let new_a_key = &a_key[overlap..];
+        let new_b_key = &b_key[overlap..];
+        if new_a_key[0] == new_b_key[0] {
+            if a_key_len < b_key_len {
+                unsafe{ new_node.set_payload_owned::<0>(new_a_key, a_payload); }
+                unsafe{ new_node.set_payload_owned::<1>(new_b_key, b_payload); }
+            } else {
+                unsafe{ new_node.set_payload_owned::<0>(new_b_key, b_payload); }
+                unsafe{ new_node.set_payload_owned::<1>(new_a_key, a_payload); }
+            }
         } else {
-            unsafe{ new_node.set_payload_owned::<0>(new_b_key, b_payload); }
-            unsafe{ new_node.set_payload_owned::<1>(new_a_key, a_payload); }
+            if new_a_key[0] < new_b_key[0] {
+                unsafe{ new_node.set_payload_owned::<0>(new_a_key, a_payload); }
+                unsafe{ new_node.set_payload_owned::<1>(new_b_key, b_payload); }
+            } else {
+                unsafe{ new_node.set_payload_owned::<0>(new_b_key, b_payload); }
+                unsafe{ new_node.set_payload_owned::<1>(new_a_key, a_payload); }
+            }
         }
+        debug_assert!(validate_node(&new_node));
+        Some((&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node))))
     } else {
-        if new_a_key[0] < new_b_key[0] {
-            unsafe{ new_node.set_payload_owned::<0>(new_a_key, a_payload); }
-            unsafe{ new_node.set_payload_owned::<1>(new_b_key, b_payload); }
-        } else {
-            unsafe{ new_node.set_payload_owned::<0>(new_b_key, b_payload); }
-            unsafe{ new_node.set_payload_owned::<1>(new_a_key, a_payload); }
-        }
+        None
     }
-    debug_assert!(validate_node(&new_node));
-    (&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node)))
 }
 
 /// Merges the entries in the ListNode into the DenseByteNode
@@ -1073,19 +1085,13 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         if self.is_used_value_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
             if node_key_0 == key {
-                match self.take_payload::<0>().unwrap() {
-                    ValOrChild::Val(v) => return Some(v),
-                    ValOrChild::Child(_) => unreachable!()
-                }
+                return Some(self.take_payload::<0>().unwrap().into_val())
             }
         }
         if self.is_used_value_1() {
             let node_key_1 = unsafe{ self.key_unchecked::<1>() };
             if node_key_1 == key {
-                match self.take_payload::<1>().unwrap() {
-                    ValOrChild::Val(v) => return Some(v),
-                    ValOrChild::Child(_) => unreachable!()
-                }
+                return Some(self.take_payload::<1>().unwrap().into_val())
             }
         }
         None
@@ -1444,8 +1450,36 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         AbstractNodeRef::None
     }
 
-    fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V>> {
-        panic!()
+    fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>> {
+        debug_assert!(validate_node(self));
+        debug_assert!(key.len() > 0);
+
+        //Exact match with a path to a child node means take that node
+        let (key0, key1) = self.get_both_keys();
+        if self.is_used_child_0() && key0 == key {
+            return self.take_payload::<0>().map(|payload| payload.into_child())
+        }
+        if self.is_used_child_1() && key1 == key {
+            return self.take_payload::<1>().map(|payload| payload.into_child())
+        }
+
+        //Otherwise check to see if we need to make a sub-node.  If we do,
+        // We know the new node will have only 1 slot filled
+        if key0.len() > key.len() && key0.starts_with(key) {
+            let mut new_node = Self::new();
+            unsafe{ new_node.set_payload_0(&key0[key.len()..], self.is_child_ptr::<0>(), ValOrChildUnion{ _unused: () }) }
+            new_node.val_or_child0 = self.take_payload::<0>().unwrap().into();
+            debug_assert!(validate_node(&new_node));
+            return Some(TrieNodeODRc::new(new_node));
+        }
+        if key1.len() > key.len() && key1.starts_with(key) {
+            let mut new_node = Self::new();
+            unsafe{ new_node.set_payload_0(&key0[key.len()..], self.is_child_ptr::<0>(), ValOrChildUnion{ _unused: () }) }
+            new_node.val_or_child0 = self.take_payload::<1>().unwrap().into();
+            debug_assert!(validate_node(&new_node));
+            return Some(TrieNodeODRc::new(new_node));
+        }
+        None
     }
 
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
@@ -1581,6 +1615,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                 if key.len() > 1 {
                     let mut child_node = Self::new();
                     unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
+                    debug_assert!(validate_node(&child_node));
                     joined_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
                 } else {
                     joined_node.set_payload_owned(key[0], payload);

@@ -717,7 +717,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         #[cfg(not(feature = "all_dense_nodes"))]
         {
             //Make a new ListNode to hold everything after the first byte of the key
-            debug_assert!(!self.contains(key[0]));
             if key.len() > 1 {
                 let mut child = LineListNode::new();
                 child.node_set_branch(&key[1..], new_node).unwrap_or_else(|_| panic!());
