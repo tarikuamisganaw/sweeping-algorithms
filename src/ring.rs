@@ -16,20 +16,16 @@ pub trait Lattice: Sized {
     }
 }
 
-//GOAT, this looks like dead code
-// pub trait MapRing<V> {
-//     fn join_with(&self, other: &Self, op: fn(&V, &V) -> V) -> Self;
-//     // fn meet_with<F: Copy + Fn(&V, &V) -> V>(&self, other: &Self, op: F) -> Self;
-//     // fn subtract_with<F: Copy + Fn(&V, &V) -> Option<V>>(&self, other: &Self, op: F) -> Self;
-// }
-
 pub trait DistributiveLattice: Lattice {
     fn subtract(&self, other: &Self) -> Self;
 }
 
+pub(crate) trait PartialQuantale {
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
+}
+
 pub trait PartialDistributiveLattice: Lattice {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized;
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 
 
@@ -84,13 +80,15 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Opt
             } }
         }
     }
+}
 
+impl <V: Clone + Lattice> PartialQuantale for Option<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         panic!()
     }
 }
 
-impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for Option<V> {
+impl <V: PartialDistributiveLattice + Clone> DistributiveLattice for Option<V> {
     fn subtract(&self, other: &Self) -> Self {
         match self {
             None => { None }
@@ -102,7 +100,7 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for Option<V> 
     }
 }
 
-impl <V : Lattice> Lattice for Box<V> {
+impl <V: Lattice> Lattice for Box<V> {
     fn join(&self, other: &Self) -> Self {
         Box::new(self.as_ref().join(other.as_ref()))
     }
@@ -129,20 +127,13 @@ impl PartialDistributiveLattice for &str {
         if self == other { None }
         else { Some(*self) }
     }
-
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        Some(*self)
-    }
 }
 
 impl PartialDistributiveLattice for () {
-    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
+    fn psubtract(&self, _other: &Self) -> Option<Self> where Self: Sized {
         None
     }
 
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        Some(())
-    }
 }
 
 impl Lattice for () {
@@ -186,10 +177,6 @@ impl PartialDistributiveLattice for u64 {
         if self == other { None }
         else { Some(*self) }
     }
-
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        Some(*self)
-    }
 }
 
 impl Lattice for u32 {
@@ -221,10 +208,6 @@ impl PartialDistributiveLattice for u16 {
         if self == other { None }
         else { Some(*self) }
     }
-
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        Some(*self)
-    }
 }
 
 impl Lattice for u8 {
@@ -239,7 +222,7 @@ impl Lattice for &u8 {
     fn bottom() -> Self { &0 }
 }
 
-impl <K : Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
+impl <K: Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
     fn join(&self, other: &HashMap<K, V>) -> HashMap<K, V> {
         let mut res = HashMap::<K, V>::new();
         for (key, value) in self.iter() {
@@ -326,7 +309,7 @@ impl <K : Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
 //     }
 // }
 
-impl<V : Clone + Lattice> Lattice for BytesTrieMap<V> {
+impl<V: Clone + Lattice> Lattice for BytesTrieMap<V> {
     fn join(&self, other: &Self) -> Self {
         Self {
             root: self.root.join(&other.root),
@@ -349,7 +332,7 @@ impl<V : Clone + Lattice> Lattice for BytesTrieMap<V> {
     }
 }
 
-impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
+impl<V: Clone + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
     fn subtract(&self, other: &Self) -> Self {
         Self {
             root: self.root.subtract(&other.root),
@@ -357,14 +340,16 @@ impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for BytesTrieMa
     }
 }
 
-impl<V : Clone + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
+impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         let s = self.root.subtract(&other.root);
         if s.borrow().node_is_empty() { None }
         else { Some(Self { root: s }) }
     }
+}
 
+impl<V: Clone> PartialQuantale for BytesTrieMap<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        self.root.psubtract(&other.root).map(|r| Self{ root: r } )
+        self.root.prestrict(&other.root).map(|r| Self{ root: r } )
     }
 }

@@ -1659,7 +1659,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         panic!();
     }
 
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
         panic!();
     }
 

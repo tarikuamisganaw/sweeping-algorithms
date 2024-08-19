@@ -130,9 +130,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         panic!()
     }
 
-    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice {
-        panic!()
-    }
+    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice { }
 
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
         None
@@ -143,11 +141,11 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
 
     fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
-        panic!()
+        None
     }
 
-    fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
-        panic!()
+    fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
+        None
     }
 
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {

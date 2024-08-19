@@ -1034,7 +1034,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
         if let Some(other_dense_node) = other.as_dense() {
             self.prestrict(other_dense_node).map(|node| TrieNodeODRc::new(node))
         } else {
@@ -1128,7 +1128,9 @@ impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFre
             Some(sr) => { Some(CoFree{ rec: sr, value: v }) }
         }
     }
+}
 
+impl <V: Clone> PartialQuantale for CoFree<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         // unsafe { println!("prestrict cofree {:?} {:?}", std::mem::transmute::<&CoFree<V>, &CoFree<u64>>(self), std::mem::transmute::<&CoFree<V>, &CoFree<u64>>(other)); }
         if other.value.is_some() { Some(self.clone()) } // assumes self can not be CoFree{None, None}
@@ -1387,8 +1389,9 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Den
         if r.len() == 0 { return None }
         else { return Some(r) }
     }
+}
 
-
+impl <V: Clone> PartialQuantale for DenseByteNode<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         // TODO this technically doesn't need to calculate and iterate over jm
         // iterating over mm and calculating m such that the following suffices

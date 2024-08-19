@@ -265,7 +265,7 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     /// Allows for the implementation of the PartialDistributiveLattice trait on different node
     /// implementations, and the logic to promote nodes to other node types
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice;
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
 
     /// Returns a reference to the node as a specific concrete type or None if it is not that type
     ///
@@ -467,7 +467,10 @@ impl<V: PartialDistributiveLattice + Clone> TrieNodeODRc<V> {
         }
     }
 
-    pub fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+}
+
+impl <V: Clone> PartialQuantale for TrieNodeODRc<V> {
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         self.borrow().prestrict_dyn(other.borrow())
     }
 }
@@ -538,7 +541,9 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Opt
             } }
         }
     }
+}
 
+impl <V: Clone> PartialQuantale for Option<TrieNodeODRc<V>> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         panic!()
     }
