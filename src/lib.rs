@@ -124,6 +124,24 @@ mod tests {
     }
 
     #[test]
+    fn map_meet_after_join_test() {
+        const N: u64 = 1000;
+        let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in 0..(N/2) { l.insert(prefix_key(&i), i); }
+        let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in (N/2)..N { r.insert(prefix_key(&i), i); }
+
+        let joined = l.join(&r);
+        let met = joined.meet(&l);
+        for (met, l) in met.iter().zip(l.iter()) {
+            assert_eq!(met, l);
+        }
+
+        let met = met.meet(&r);
+        assert!(met.is_empty());
+    }
+
+    #[test]
     fn btm_ops_test() {
         for n in (0..5000).into_iter().step_by(97) {
             // println!("n={n}");

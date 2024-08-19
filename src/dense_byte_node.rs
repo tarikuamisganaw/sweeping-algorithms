@@ -671,7 +671,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         {
             //Split a ListNode to hold everything after the first byte of the key
             if key.len() > 1 {
-                debug_assert!(!self.contains(key[0]));
                 let mut child = LineListNode::new();
                 child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
                 self.set_child(key[0], TrieNodeODRc::new(child));
@@ -1015,8 +1014,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 None
             }
         } else {
-            //GOAT, need to iterate other, and perform intersection operation
-            panic!();
+            other.meet_dyn(self)
         }
     }
 

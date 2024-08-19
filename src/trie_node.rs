@@ -438,7 +438,12 @@ impl<V: Lattice + Clone> TrieNodeODRc<V> {
         if self.ptr_eq(other) {
             self.clone()
         } else {
-            self.borrow().join_dyn(other.borrow())
+            let node = self.borrow();
+            if !node.node_is_empty() {
+                node.join_dyn(other.borrow())
+            } else {
+                other.clone()
+            }
         }
     }
     #[inline]

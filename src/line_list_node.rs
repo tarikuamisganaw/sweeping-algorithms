@@ -821,6 +821,34 @@ impl<V> LineListNode<V> {
 
         Err(TrieNodeODRc::new(replacement_node))
     }
+
+    /// Internal method to meet the contents of `SLOT` with the contents of the `other` node
+    #[inline]
+    fn meet_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> Option<ValOrChildUnion<V>> where V: Clone + Lattice {
+        if self.is_used::<SLOT>() {
+            let path = unsafe{ self.key_unchecked::<SLOT>() };
+            if let Some((onward_key, onward_node)) = follow_path(other, path) {
+                if self.is_child_ptr::<SLOT>() {
+                    let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
+                    let meet_node = if onward_key.len() == 0 {
+                        self_onward_link.borrow().meet_dyn(onward_node)
+                    } else {
+                        self_onward_link.borrow().meet_dyn(onward_node.get_node_at_key(onward_key).borrow())
+                    };
+                    meet_node.map(|node| ValOrChildUnion::from(node))
+                } else {
+                    let self_val = unsafe{ self.val_in_slot::<SLOT>() };
+                    let other_val = onward_node.node_get_val(onward_key).unwrap();
+                    let meet_val = self_val.meet(other_val);
+                    Some(ValOrChildUnion::from(meet_val))
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
 }
 
 /// Returns the number of characters shared between two slices
@@ -993,6 +1021,23 @@ pub fn merge_into_dense_node<V>(dense_node: &mut DenseByteNode<V>, list_node: &L
         } else {
             dense_node.join_payload_into(key[0], payload);
         }
+    }
+}
+
+#[inline]
+fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V>)> {
+    while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
+        if consumed_byte_cnt < key.len() {
+            node = next_node;
+            key = &key[consumed_byte_cnt..]
+        } else {
+            return Some((key, node));
+        };
+    }
+    if node.node_contains_partial_key(key) {
+        Some((key, node))
+    } else {
+        None
     }
 }
 
@@ -1652,7 +1697,31 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
-        panic!()
+        debug_assert!(validate_node(self));
+        let slot0_payload = self.meet_slot_contents::<0>(other);
+        let slot1_payload = self.meet_slot_contents::<1>(other);
+        match (slot0_payload, slot1_payload) {
+            (Some(slot0_payload), Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let (key0, key1) = self.get_both_keys();
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                Some(TrieNodeODRc::new(new_node))
+            },
+            (Some(slot0_payload), None) => {
+                let mut new_node = Self::new();
+                let key0 = unsafe{ self.key_unchecked::<0>() };
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                Some(TrieNodeODRc::new(new_node))
+            },
+            (None, Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let key1 = unsafe{ self.key_unchecked::<1>() };
+                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                Some(TrieNodeODRc::new(new_node))
+            },
+            (None, None) => None,
+        }
     }
 
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
