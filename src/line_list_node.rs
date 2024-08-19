@@ -1651,7 +1651,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         panic!()
     }
 
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
         panic!()
     }
 

@@ -426,7 +426,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         match self.get_focus().borrow_option() {
             Some(self_node) => {
                 let joined = self_node.meet_dyn(src.borrow());
-                self.graft_internal(Some(joined));
+                self.graft_internal(joined);
                 true
             },
             None => false
@@ -446,7 +446,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             None => return false
         };
         let joined = a.meet_dyn(b);
-        self.graft_internal(Some(joined));
+        self.graft_internal(joined);
         true
     }
 

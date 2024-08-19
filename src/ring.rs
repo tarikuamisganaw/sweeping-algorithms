@@ -46,19 +46,18 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
             }
         }
     }
-    //GOAT-Deprecated-JoinInto
-    // fn join_into(&mut self, other: Self) {
-    //     match self {
-    //         None => { match other {
-    //             None => { }
-    //             Some(r) => { *self = Some(r) }
-    //         } }
-    //         Some(l) => match other {
-    //             None => { }
-    //             Some(r) => { l.join_into(r) }
-    //         }
-    //     }
-    // }
+    fn join_into(&mut self, other: Self) {
+        match self {
+            None => { match other {
+                None => { }
+                Some(r) => { *self = Some(r) }
+            } }
+            Some(l) => match other {
+                None => { }
+                Some(r) => { l.join_into(r) }
+            }
+        }
+    }
     fn meet(&self, other: &Option<V>) -> Option<V> {
         match self {
             None => { None }
@@ -102,46 +101,6 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for Option<V> 
         }
     }
 }
-
-//GOAT, this looks like dead code
-// impl <V : Clone> MapRing<V> for Option<V> {
-//     fn join_with(&self, other: &Self, op: fn(&V, &V) -> V) -> Self {
-//         match self {
-//             None => { match other {
-//                 None => { None }
-//                 Some(r) => { Some(r.clone()) }
-//             } }
-//             Some(l) => match other {
-//                 None => { Some(l.clone()) }
-//                 Some(r) => { Some(op(l, r)) }
-//             }
-//         }
-//     }
-
-//     // fn meet_with<F: Copy + Fn(&V, &V) -> V>(&self, other: &Self, op: F) -> Self {
-//     //     match self {
-//     //         None => { None }
-//     //         Some(l) => {
-//     //             match other {
-//     //                 None => { None }
-//     //                 Some(r) => Some(op(l, r))
-//     //             }
-//     //         }
-//     //     }
-//     // }
-//     //
-//     // fn subtract_with<F: Copy + Fn(&V, &V) -> Option<V>>(&self, other: &Self, op: F) -> Self {
-//     //     match self {
-//     //         None => { None }
-//     //         Some(l) => {
-//     //             match other {
-//     //                 None => { Some(l.clone()) }
-//     //                 Some(r) => op(l, r)
-//     //             }
-//     //         }
-//     //     }
-//     // }
-// }
 
 impl <V : Lattice> Lattice for Box<V> {
     fn join(&self, other: &Self) -> Self {
@@ -379,8 +338,9 @@ impl<V : Clone + Lattice> Lattice for BytesTrieMap<V> {
     }
 
     fn meet(&self, other: &Self) -> Self {
-        Self {
-            root: self.root.meet(&other.root),
+        match self.root.meet(&other.root) {
+            Some(new_root) => Self { root: new_root },
+            None => Self::new()
         }
     }
 

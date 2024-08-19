@@ -1006,10 +1006,14 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
         if let Some(other_dense_node) = other.as_dense() {
             let new_node = self.meet(other_dense_node);
-            TrieNodeODRc::new(new_node)
+            if !new_node.is_empty() {
+                Some(TrieNodeODRc::new(new_node))
+            } else {
+                None
+            }
         } else {
             //GOAT, need to iterate other, and perform intersection operation
             panic!();

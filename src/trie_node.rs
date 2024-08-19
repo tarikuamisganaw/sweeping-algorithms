@@ -257,7 +257,7 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types.
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
+    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
     /// Allows for the implementation of the PartialDistributiveLattice trait on different node
     /// implementations, and the logic to promote nodes to other node types
@@ -430,36 +430,36 @@ mod opaque_dyn_rc_trie_node {
     }
 }
 
-impl<V: Lattice + Clone> Lattice for TrieNodeODRc<V> {
-    fn join(&self, other: &Self) -> Self {
+//NOTE: This resembles the Lattice trait impl, but we want to return option instead of allocating a
+// an empty node to return a reference to
+impl<V: Lattice + Clone> TrieNodeODRc<V> {
+    #[inline]
+    pub fn join(&self, other: &Self) -> Self {
         if self.ptr_eq(other) {
             self.clone()
         } else {
             self.borrow().join_dyn(other.borrow())
         }
     }
-    //GOAT-Deprecated-JoinInto
-    // fn join_into(&mut self, other: Self) {
-    //     if !self.ptr_eq(&other) {
-    //         self.make_mut().join_into_dyn(other)
-    //     }
-    // }
-    fn meet(&self, other: &Self) -> Self {
+    #[inline]
+    pub fn join_into(&mut self, other: Self) {
+        if !self.ptr_eq(&other) {
+            self.make_mut().join_into_dyn(other)
+        }
+    }
+    #[inline]
+    pub fn meet(&self, other: &Self) -> Option<Self> {
         if self.ptr_eq(other) {
-            self.clone()
+            Some(self.clone())
         } else {
             self.borrow().meet_dyn(other.borrow())
         }
     }
-    fn bottom() -> Self {
-        //If we end up hitting this, we should add an "empty node" type that implements TrieNode,
-        // but is incapable of holding any values or children
-        panic!()
-    }
 }
 
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for TrieNodeODRc<V> {
-    fn psubtract(&self, other: &Self) -> Option<Self> {
+//See above, pseudo-impl for PartialDistributiveLattice trait
+impl<V: PartialDistributiveLattice + Clone> TrieNodeODRc<V> {
+    pub fn psubtract(&self, other: &Self) -> Option<Self> {
         if self.ptr_eq(other) {
             None
         } else {
@@ -467,13 +467,14 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for TrieN
         }
     }
 
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+    pub fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         self.borrow().prestrict_dyn(other.borrow())
     }
 }
 
-impl<V: PartialDistributiveLattice + Clone> DistributiveLattice for TrieNodeODRc<V> {
-    fn subtract(&self, other: &Self) -> Self {
+//See above, pseudo-impl for DistributiveLattice trait
+impl<V: PartialDistributiveLattice + Clone> TrieNodeODRc<V> {
+    pub fn subtract(&self, other: &Self) -> Self {
         if self.ptr_eq(other) {
             TrieNodeODRc::new(EmptyNode::new())
         } else {
@@ -481,6 +482,76 @@ impl<V: PartialDistributiveLattice + Clone> DistributiveLattice for TrieNodeODRc
                 Some(node) => node,
                 None => TrieNodeODRc::new(EmptyNode::new())
             }
+        }
+    }
+}
+
+impl <V : Lattice + Clone> Lattice for Option<TrieNodeODRc<V>> {
+    fn join(&self, other: &Option<TrieNodeODRc<V>>) -> Option<TrieNodeODRc<V>> {
+        match self {
+            None => { match other {
+                None => { None }
+                Some(r) => { Some(r.clone()) }
+            } }
+            Some(l) => match other {
+                None => { Some(l.clone()) }
+                Some(r) => { Some(l.join(r)) }
+            }
+        }
+    }
+    /// GOAT, maybe the default impl is fine
+    // fn join_into(&mut self, other: Self) {
+    //     match self {
+    //         None => { match other {
+    //             None => { }
+    //             Some(r) => { *self = Some(r) }
+    //         } }
+    //         Some(l) => match other {
+    //             None => { }
+    //             Some(r) => { l.join_into(r) }
+    //         }
+    //     }
+    // }
+    fn meet(&self, other: &Option<TrieNodeODRc<V>>) -> Option<TrieNodeODRc<V>> {
+        match self {
+            None => { None }
+            Some(l) => {
+                match other {
+                    None => { None }
+                    Some(r) => l.meet(r)
+                }
+            }
+        }
+    }
+    fn bottom() -> Self {
+        None
+    }
+}
+
+impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<TrieNodeODRc<V>> {
+    fn psubtract(&self, other: &Self) -> Option<Self> {
+        match self {
+            None => { None }
+            Some(s) => { match other {
+                None => { Some(Some(s.clone())) }
+                Some(o) => { Some(s.psubtract(o)) }
+            } }
+        }
+    }
+
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        panic!()
+    }
+}
+
+impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc<V>> {
+    fn subtract(&self, other: &Self) -> Self {
+        match self {
+            None => { None }
+            Some(s) => { match other {
+                None => { Some(s.clone()) }
+                Some(o) => { s.psubtract(o) }
+            } }
         }
     }
 }

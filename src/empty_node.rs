@@ -138,8 +138,8 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         None
     }
 
-    fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
-        panic!()
+    fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
+        None
     }
 
     fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
