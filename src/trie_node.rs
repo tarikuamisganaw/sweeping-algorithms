@@ -367,7 +367,7 @@ mod opaque_dyn_rc_trie_node {
     //TODO_FUTURE: make a type alias within the trait to refer to this type, as soon as
     // https://github.com/rust-lang/rust/issues/29661 is addressed
 
-    #[derive(Clone, Debug)]
+    #[derive(Clone)]
     #[repr(transparent)]
     pub struct TrieNodeODRc<V>(std::rc::Rc<dyn TrieNode<V> + 'static>);
 
@@ -410,6 +410,14 @@ mod opaque_dyn_rc_trie_node {
         #[inline]
         pub(crate) fn make_mut(&mut self) -> &mut dyn TrieNode<V> {
             dyn_clone::rc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
+        }
+    }
+
+    impl<V> core::fmt::Debug for TrieNodeODRc<V>
+        where for<'a> &'a dyn TrieNode<V>: core::fmt::Debug
+    {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            core::fmt::Debug::fmt(&self.0, f)
         }
     }
 

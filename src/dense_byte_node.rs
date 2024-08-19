@@ -1175,6 +1175,7 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.join(rv);
+                    debug_assert!(jv.rec.is_some() || jv.value.is_some());
                     // println!("pushing lv rv j {:?} {:?} {:?}", lv, rv, jv);
                     unsafe { new_v.get_unchecked_mut(c).write(jv) };
                     l += 1;
@@ -1285,10 +1286,12 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
                     let jv = lv.meet(rv);
-                    unsafe { new_v.get_unchecked_mut(c).write(jv) };
+                    if jv.rec.is_some() || jv.value.is_some() {
+                        unsafe { new_v.get_unchecked_mut(c).write(jv) };
+                        c += 1;
+                    }
                     l += 1;
                     r += 1;
-                    c += 1;
                 } else if ((1u64 << index) & self.mask[i]) != 0 {
                     l += 1;
                 } else {
