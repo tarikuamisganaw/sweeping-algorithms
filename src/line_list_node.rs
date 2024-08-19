@@ -1108,7 +1108,17 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn node_remove_branch(&mut self, key: &[u8]) -> bool {
-        panic!()
+        let key_len = key.len();
+        let (key0, key1) = self.get_both_keys();
+        let remove_0 = key0.starts_with(key) && (key0.len() > key_len || self.is_child_ptr::<0>());
+        let remove_1 = key1.starts_with(key) && (key1.len() > key_len || self.is_child_ptr::<1>());
+        if remove_1 {
+            self.take_payload::<1>().unwrap();
+        }
+        if remove_0 {
+            self.take_payload::<0>().unwrap();
+        }
+        remove_0 || remove_1
     }
 
     fn node_is_empty(&self) -> bool {
