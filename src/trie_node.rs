@@ -261,7 +261,12 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     /// Allows for the implementation of the PartialDistributiveLattice trait on different node
     /// implementations, and the logic to promote nodes to other node types
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice;
+    ///
+    /// If this method returns `(false, None)`, it means the original value should be "annihilated",
+    ///   e.g. complete subtraction, with nothing left behind
+    /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
+    /// If it returns `(false, Some(_))` then a new node was created
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice;
 
     /// Allows for the implementation of the PartialDistributiveLattice trait on different node
     /// implementations, and the logic to promote nodes to other node types
@@ -476,10 +481,13 @@ impl<V: PartialDistributiveLattice + Clone> TrieNodeODRc<V> {
         if self.ptr_eq(other) {
             None
         } else {
-            self.borrow().psubtract_dyn(other.borrow())
+            match self.borrow().psubtract_dyn(other.borrow()) {
+                (false, None) => None,
+                (false, Some(new_node)) => Some(new_node),
+                (true, _) => Some(self.clone()),
+            }
         }
     }
-
 }
 
 impl <V: Clone> PartialQuantale for TrieNodeODRc<V> {
@@ -495,8 +503,9 @@ impl<V: PartialDistributiveLattice + Clone> TrieNodeODRc<V> {
             TrieNodeODRc::new(EmptyNode::new())
         } else {
             match self.borrow().psubtract_dyn(other.borrow()) {
-                Some(node) => node,
-                None => TrieNodeODRc::new(EmptyNode::new())
+                (false, None) => TrieNodeODRc::new(EmptyNode::new()),
+                (false, Some(new_node)) => new_node,
+                (true, _) => self.clone(),
             }
         }
     }

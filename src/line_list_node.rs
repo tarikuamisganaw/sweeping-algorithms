@@ -849,6 +849,40 @@ impl<V> LineListNode<V> {
             None
         }
     }
+
+    /// Internal method to subtract the contents of `SLOT` with the contents of the `other` node
+    /// If this method returns `(false, None)`, it means the original value should be "annihilated", e.g. complete
+    ///   subtraction leaving nothing behind
+    /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
+    /// If it returns `(false, Some(_))` then a new payload was created
+    #[inline]
+    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone + PartialDistributiveLattice {
+        if !self.is_used::<SLOT>() {
+            return (false, None)
+        }
+        let path = unsafe{ self.key_unchecked::<SLOT>() };
+        if let Some((onward_key, onward_node)) = follow_path(other, path) {
+            if self.is_child_ptr::<SLOT>() {
+                let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
+                let difference = if onward_key.len() == 0 {
+                    self_onward_link.borrow().psubtract_dyn(onward_node)
+                } else {
+                    self_onward_link.borrow().psubtract_dyn(onward_node.get_node_at_key(onward_key).borrow())
+                };
+                (difference.0, difference.1.map(|node| ValOrChildUnion::from(node)))
+            } else {
+                debug_assert!(onward_key.len() > 0);
+                let self_val = unsafe{ self.val_in_slot::<SLOT>() };
+                let other_val = onward_node.node_get_val(onward_key).unwrap();
+                let difference_val = self_val.psubtract(other_val);
+                //GOAT!!!! Gotta return the "unmodified" flag from the value subtract, rather than assuming `false`
+                (false, difference_val.map(|val| ValOrChildUnion::from(val)))
+            }
+        } else {
+            //We subtracted nothing from the slot, so the source should be referenced, unmodified
+            (true, None)
+        }
+    }
 }
 
 /// Returns the number of characters shared between two slices
@@ -1724,8 +1758,36 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
-        panic!();
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+        debug_assert!(validate_node(self));
+        let (slot0_unmodified, slot0_payload) = self.subtract_from_slot_contents::<0>(other);
+        let (slot1_unmodified, slot1_payload) = self.subtract_from_slot_contents::<1>(other);
+        if slot0_unmodified && slot1_unmodified {
+            return (true, None)
+        }
+//GOAT, look at whether I can factor this out with meet_dyn
+        match (slot0_payload, slot1_payload) {
+            (Some(slot0_payload), Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let (key0, key1) = self.get_both_keys();
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                (false, Some(TrieNodeODRc::new(new_node)))
+            },
+            (Some(slot0_payload), None) => {
+                let mut new_node = Self::new();
+                let key0 = unsafe{ self.key_unchecked::<0>() };
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                (false, Some(TrieNodeODRc::new(new_node)))
+            },
+            (None, Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let key1 = unsafe{ self.key_unchecked::<1>() };
+                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                (false, Some(TrieNodeODRc::new(new_node)))
+            },
+            (None, None) => (false, None),
+        }
     }
 
     fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
@@ -2321,3 +2383,12 @@ mod tests {
 
 }
 
+
+//GOAT, need to make a "Value" trait with an equality checker.
+//
+//GOAT, want a tri-state or bi-state return flag for unmodified values.  For all lattice ops, incl join, meet, and subtract
+//
+//GOAT, want to promote the meet method to partial meet, to rreturn an "unmodified" flag
+
+//GOAT, BUG!!!!!!!  Set the largest number for sparse_meet benchmark (list-node variant) to 16000, and it
+// panics on an unwrap or None.  Need to make this into a stand-alone test

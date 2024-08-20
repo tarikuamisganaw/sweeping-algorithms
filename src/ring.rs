@@ -25,6 +25,8 @@ pub(crate) trait PartialQuantale {
 }
 
 pub trait PartialDistributiveLattice: Lattice {
+    /// GOAT, gotta document this.  `None` means complete subtraction, leaving an empty result
+    //GOAT, we are also going to want a way to communicate "perfect copy of self"
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 

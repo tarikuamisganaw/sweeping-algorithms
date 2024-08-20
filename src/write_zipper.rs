@@ -462,8 +462,10 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         }
         match self.get_focus().borrow_option() {
             Some(self_node) => {
-                let joined = self_node.psubtract_dyn(src.borrow());
-                self.graft_internal(joined);
+                match self_node.psubtract_dyn(src.borrow()) {
+                    (false, joined) => self.graft_internal(joined),
+                    (true, _) => {}, //nothing to do
+                }
                 true
             },
             None => false

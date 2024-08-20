@@ -91,7 +91,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         panic!()
     }
     fn node_subtree_len(&self) -> usize {
-        panic!()
+        0
     }
     #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
@@ -140,8 +140,8 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         None
     }
 
-    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
-        None
+    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+        (false, None)
     }
 
     fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {

@@ -1018,13 +1018,15 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: PartialDistributiveLattice {
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
         if let Some(other_dense_node) = other.as_dense() {
             let new_node = self.subtract(other_dense_node);
             if new_node.is_empty() {
-                None
+                (false, None)
             } else {
-                Some(TrieNodeODRc::new(new_node))
+                //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
+                // and return if nothing was subtracted!!!!!!!!!!!
+                (true, Some(TrieNodeODRc::new(new_node)))
             }
         } else {
             //GOAT, need to iterate other, and perform subtract operation
