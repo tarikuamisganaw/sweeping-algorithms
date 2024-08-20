@@ -1262,7 +1262,7 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
             self.mask[1] | other.mask[1],
             self.mask[2] | other.mask[2],
             self.mask[3] | other.mask[3]];
-        let mm: [u64; 4] = [self.mask[0] & other.mask[0],
+        let mut mm: [u64; 4] = [self.mask[0] & other.mask[0],
             self.mask[1] & other.mask[1],
             self.mask[2] & other.mask[2],
             self.mask[3] & other.mask[3]];
@@ -1289,6 +1289,8 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
                     if jv.rec.is_some() || jv.value.is_some() {
                         unsafe { new_v.get_unchecked_mut(c).write(jv) };
                         c += 1;
+                    } else {
+                        mm[i] ^= 1u64 << index;
                     }
                     l += 1;
                     r += 1;
