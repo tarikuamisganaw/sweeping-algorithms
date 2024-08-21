@@ -1025,8 +1025,8 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 (false, None)
             } else {
                 //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
-                // and return if nothing was subtracted!!!!!!!!!!!
-                (true, Some(TrieNodeODRc::new(new_node)))
+                // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
+                (false, Some(TrieNodeODRc::new(new_node)))
             }
         } else {
             //GOAT, need to iterate other, and perform subtract operation
