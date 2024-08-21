@@ -1239,3 +1239,7 @@ mod tests {
         assert_eq!(zipper.child_count(), 6);
     }
 }
+
+// GOAT, new zipper API.  "fork_zipper_at_path".  Cheap call to make a new zipper cheaper than descend_to
+//   for the current zipper.  The idea is that there is no need to save the intervening node pointers along the path
+//

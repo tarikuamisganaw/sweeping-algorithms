@@ -1760,10 +1760,13 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
         debug_assert!(validate_node(self));
-        let (slot0_unmodified, slot0_payload) = self.subtract_from_slot_contents::<0>(other);
-        let (slot1_unmodified, slot1_payload) = self.subtract_from_slot_contents::<1>(other);
-        if slot0_unmodified && slot1_unmodified {
-            return (true, None)
+        let (slot0_unmodified, mut slot0_payload) = self.subtract_from_slot_contents::<0>(other);
+        let (slot1_unmodified, mut slot1_payload) = self.subtract_from_slot_contents::<1>(other);
+        match (slot0_unmodified, slot1_unmodified) {
+            (true, true) => return (true, None),
+            (true, false) => slot0_payload = self.clone_payload::<0>().map(|payload| payload.into()),
+            (false, true) => slot1_payload = self.clone_payload::<1>().map(|payload| payload.into()),
+            (false, false) => {},
         }
 //GOAT, look at whether I can factor this out with meet_dyn
         match (slot0_payload, slot1_payload) {

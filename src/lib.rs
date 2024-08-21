@@ -68,6 +68,25 @@ mod tests {
     }
 
     #[test]
+    fn btm_simple_tree_subtract_test() {
+        let mut l: BytesTrieMap<&str> = BytesTrieMap::new();
+        l.insert(b"alligator", "alligator");
+        l.insert(b"allegedly", "allegedly");
+        l.insert(b"albatross", "albatross");
+        l.insert(b"albino", "albino");
+        let mut r: BytesTrieMap<&str> = BytesTrieMap::new();
+        r.insert(b"alligator", "alligator");
+        r.insert(b"albino", "albino");
+        let l_no_r = l.subtract(&r);
+
+        assert_eq!(l_no_r.val_count(), 2);
+        assert_eq!(l_no_r.get(b"alligator"), None);
+        assert_eq!(l_no_r.get(b"albino"), None);
+        assert_eq!(l_no_r.get(b"allegedly"), Some(&"allegedly"));
+        assert_eq!(l_no_r.get(b"albatross"), Some(&"albatross"));
+    }
+
+    #[test]
     fn btm_many_elements_subtract_test() {
         let n: u64 = 1000; //Arbitrary number of elements
         let overlap = 0.5;
