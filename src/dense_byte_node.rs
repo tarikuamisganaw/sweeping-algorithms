@@ -376,6 +376,81 @@ impl<V> DenseByteNode<V> {
 
         Some(prefix as u8)
     }
+
+    /// Iterates the entries in `self`, calling `func` for each entry
+    /// The arguments to `func` are: `func(self, key_byte, n)`, where `n` is the number of times
+    /// `func` has been called prior.  This corresponds to index of the `CoFree` in the `values` vec
+    #[inline]
+    fn for_each_item<F: FnMut(&Self, u8, usize)>(&self, mut func: F) {
+        let mut n = 0;
+        for i in 0..4 {
+            let mut lm = self.mask[i];
+            while lm != 0 {
+                let index = lm.trailing_zeros();
+
+                let key_byte = 64*(i as u8) + (index as u8);
+                func(self, key_byte, n);
+                n += 1;
+
+                lm ^= 1u64 << index;
+            }
+        }
+    }
+
+    /// Internal method to subtract nodes of an abstract type from the node
+    fn psubtract_abstract(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: Clone + PartialDistributiveLattice {
+        let mut new_node = Self::new();
+
+        //Go over each populated entry in the node
+        self.for_each_item(|self_node, key_byte, cf_idx| {
+            if other.node_contains_partial_key(&[key_byte]) {
+                let cf = unsafe{ self_node.values.get_unchecked(cf_idx) };
+                let mut new_cf = CoFree::new();
+
+                //If there is a value at this key_byte, and the other node contains a value, subtract them
+                if let Some(self_val) = &cf.value {
+                    if let Some(other_val) = other.node_get_val(&[key_byte]) {
+                        new_cf.value = self_val.psubtract(other_val);
+                    }
+                }
+
+                //If there is an onward link, see if there is a matching link in other, and subtract them
+                if let Some(self_child) = &cf.rec {
+                    if let Some((consumed_byte_cnt, next_node)) = other.node_get_child(&[key_byte]) {
+                        let difference = if consumed_byte_cnt > 0 {
+                            self_child.borrow().psubtract_dyn(next_node.get_node_at_key(&[key_byte]).borrow())
+                        } else {
+                            self_child.borrow().psubtract_dyn(next_node)
+                        };
+                        if difference.0 {
+                            new_cf.rec = Some(self_child.clone());
+                        } else {
+                            new_cf.rec = difference.1;
+                        }
+                    } else {
+                        new_cf.rec = Some(self_child.clone());
+                    }
+                }
+
+                //If we ended up with a value or a link in the CF, insert it into a new node
+                if new_cf.rec.is_some() || new_cf.value.is_some() {
+                    new_node.set(key_byte);
+                    new_node.values.push(new_cf);
+                }
+            } else {
+                new_node.set(key_byte);
+                let cf = unsafe{ self_node.values.get_unchecked(cf_idx) };
+                new_node.values.push(cf.clone());
+            }
+        });
+        if new_node.is_empty() {
+            (false, None)
+        } else {
+            //GOAT, OPTIMIZATION OPPORTUNITY. track whether any unique new nodes were created, or
+            // whether we can just past back the "unmodified" flag for self
+            (false, Some(TrieNodeODRc::new(new_node)))
+        }
+    }
 }
 
 /*
@@ -1029,8 +1104,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
                 (false, Some(TrieNodeODRc::new(new_node)))
             }
         } else {
-            //GOAT, need to iterate other, and perform subtract operation
-            panic!();
+            self.psubtract_abstract(other)
         }
     }
 
@@ -1081,6 +1155,12 @@ struct CoFree<V> {
     pub(crate) value: Option<V>
 }
 
+impl<V> CoFree<V> {
+    fn new() -> Self {
+        Self {rec: None, value: None}
+    }
+}
+
 impl<V : Clone + Lattice> Lattice for CoFree<V> {
     fn join(&self, other: &Self) -> Self {
         CoFree {
@@ -1102,22 +1182,9 @@ impl<V : Clone + Lattice> Lattice for CoFree<V> {
     }
 
     fn bottom() -> Self {
-        CoFree {
-            rec: None,
-            value: None
-        }
+        CoFree::new()
     }
 }
-
-//GOAT: this impl doesn't seem to be used
-// impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for CoFree<V> {
-//     fn subtract(&self, other: &Self) -> Self {
-//         CoFree {
-//             rec: self.rec.psubtract(&other.rec).unwrap_or(None),
-//             value: self.value.subtract(&other.value)
-//         }
-//     }
-// }
 
 impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
