@@ -299,6 +299,15 @@ pub(crate) enum ValOrChild<V> {
     Child(TrieNodeODRc<V>)
 }
 
+impl<V> core::fmt::Debug for ValOrChild<V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Val(_v) => write!(f, "ValOrChild::Val"), //Don't want to restrict the impl to V: Debug
+            Self::Child(c) => write!(f, "ValOrChild::Child{{ {c:?} }}"),
+        }
+    }
+}
+
 impl<V> ValOrChild<V> {
     pub fn into_child(self) -> TrieNodeODRc<V> {
         match self {
@@ -344,7 +353,7 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::OwnedRc(rc) => rc.borrow()
         }
     }
-    pub fn borrow_option(&self) -> Option<&dyn TrieNode<V>> {
+    pub fn try_borrow(&self) -> Option<&dyn TrieNode<V>> {
         match self {
             AbstractNodeRef::None => None,
             AbstractNodeRef::BorrowedDyn(node) => Some(*node),

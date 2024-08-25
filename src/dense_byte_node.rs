@@ -416,19 +416,19 @@ impl<V> DenseByteNode<V> {
 
                 //If there is an onward link, see if there is a matching link in other, and subtract them
                 if let Some(self_child) = &cf.rec {
-                    if let Some((consumed_byte_cnt, next_node)) = other.node_get_child(&[key_byte]) {
-                        let difference = if consumed_byte_cnt > 0 {
-                            self_child.borrow().psubtract_dyn(next_node.get_node_at_key(&[key_byte]).borrow())
-                        } else {
-                            self_child.borrow().psubtract_dyn(next_node)
-                        };
-                        if difference.0 {
+                    let other_child = other.get_node_at_key(&[key_byte]);
+                    match other_child.try_borrow() {
+                        Some(other_child) => {
+                            let difference = self_child.borrow().psubtract_dyn(other_child);
+                            if difference.0 {
+                                new_cf.rec = Some(self_child.clone());
+                            } else {
+                                new_cf.rec = difference.1;
+                            }
+                        },
+                        None => {
                             new_cf.rec = Some(self_child.clone());
-                        } else {
-                            new_cf.rec = difference.1;
                         }
-                    } else {
-                        new_cf.rec = Some(self_child.clone());
                     }
                 }
 

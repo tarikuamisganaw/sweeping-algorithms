@@ -131,14 +131,22 @@ impl<V> core::fmt::Debug for LineListNode<V> {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
         let key_0 = if self.is_used::<0>() {
-            std::str::from_utf8(unsafe{ self.key_unchecked::<0>() }).unwrap_or("")
+            let key = unsafe{ self.key_unchecked::<0>() };
+            match std::str::from_utf8(key) {
+                Ok(str) => str.to_string(),
+                Err(_) => format!("{key:?}")
+            }
         } else {
-            ""
+            "".to_string()
         };
         let key_1 = if self.is_used::<1>() {
-            std::str::from_utf8(unsafe{ self.key_unchecked::<1>() }).unwrap_or("")
+            let key = unsafe{ self.key_unchecked::<1>() };
+            match std::str::from_utf8(key) {
+                Ok(str) => str.to_string(),
+                Err(_) => format!("{key:?}")
+            }
         } else {
-            ""
+            "".to_string()
         };
         write!(f,
                "LineListNode (\nslot0: occupied={} is_child={} key=\"{}\"\nslot1: occupied={} is_child={} key=\"{}\")",
@@ -869,6 +877,7 @@ impl<V> LineListNode<V> {
                 } else {
                     self_onward_link.borrow().psubtract_dyn(onward_node.get_node_at_key(onward_key).borrow())
                 };
+                debug_assert!(difference.1.as_ref().map(|node| node.borrow().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true));
                 (difference.0, difference.1.map(|node| ValOrChildUnion::from(node)))
             } else {
                 debug_assert!(onward_key.len() > 0);
@@ -972,8 +981,9 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
     }
 
     //We're never allowed to have an onward child key that is shorter than another key, so if that's
-    // the case we need to split the longer key
-    if a_key_len > b_key_len && b.is_child_ptr::<BSLOT>() {
+    // the case we need to split the longer key, and try to join the resulting nodes
+    if b_key_len == overlap && b.is_child_ptr::<BSLOT>() {
+        debug_assert!(a_key_len > overlap);
         let a_payload = a.clone_payload::<ASLOT>().unwrap();
         let b_child = unsafe{ b.child_in_slot::<BSLOT>() };
         let mut intermediate_node = LineListNode::new();
@@ -982,7 +992,8 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
         let joined = b_child.join(&TrieNodeODRc::new(intermediate_node));
         return Some((&a_key[0..overlap], ValOrChild::Child(joined)))
     }
-    if b_key_len > a_key_len && a.is_child_ptr::<ASLOT>() {
+    if a_key_len == overlap && a.is_child_ptr::<ASLOT>() {
+        debug_assert!(b_key_len > overlap);
         let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
         let b_payload = b.clone_payload::<BSLOT>().unwrap();
         let mut intermediate_node = LineListNode::new();
@@ -1775,18 +1786,21 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                 let (key0, key1) = self.get_both_keys();
                 unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
                 unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
                 (false, Some(TrieNodeODRc::new(new_node)))
             },
             (Some(slot0_payload), None) => {
                 let mut new_node = Self::new();
                 let key0 = unsafe{ self.key_unchecked::<0>() };
                 unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                debug_assert!(validate_node(&new_node));
                 (false, Some(TrieNodeODRc::new(new_node)))
             },
             (None, Some(slot1_payload)) => {
                 let mut new_node = Self::new();
                 let key1 = unsafe{ self.key_unchecked::<1>() };
                 unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
                 (false, Some(TrieNodeODRc::new(new_node)))
             },
             (None, None) => (false, None),

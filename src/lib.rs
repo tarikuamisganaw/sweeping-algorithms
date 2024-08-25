@@ -21,6 +21,7 @@ mod empty_node;
 
 #[cfg(test)]
 mod tests {
+    use rand::{Rng, SeedableRng, rngs::StdRng};
     use crate::ring::*;
     use crate::trie_map::BytesTrieMap;
 
@@ -106,6 +107,74 @@ mod tests {
         l_no_r_set.sort();
         l_no_r_ref_set.sort();
         assert_eq!(l_no_r_set, l_no_r_ref_set);
+    }
+
+    #[test]
+    fn btm_subtract_after_join() {
+
+        //This entire operation works with only ListNodes
+        let r: Vec<Vec<u8>> = vec![
+            vec![61, 85, 161, 68, 245, 90, 129],
+            vec![70, 91, 37, 155, 181, 227, 100, 255, 66, 129, 158, 241, 183, 96, 59],
+        ];
+        let r: BytesTrieMap<u64> = r.into_iter().map(|v| (v, 0)).collect();
+
+        let l: Vec<Vec<u8>> = vec![
+            vec![70, 116, 109, 134, 122, 15, 78, 126, 240, 158, 42, 221],
+        ];
+        let l: BytesTrieMap<u64> = l.into_iter().map(|v| (v, 0)).collect();
+
+        let joined = l.join(&r);
+        let remaining = joined.subtract(&r);
+        let remaining_keys: Vec<Vec<u8>> = remaining.iter().map(|(k, _v)| k).collect();
+        let l_keys: Vec<Vec<u8>> = l.iter().map(|(k, _v)| k).collect();
+
+        assert_eq!(remaining.val_count(), l.val_count());
+        for (rem_k, l_k) in remaining_keys.iter().zip(l_keys.iter()) {
+            assert_eq!(rem_k, l_k);
+        }
+
+        //This ends up upgrading a node to a dense node, So we test those paths here
+        let r: Vec<Vec<u8>> = vec![
+            vec![61, 85, 161, 68, 245, 90, 129],
+            vec![70, 10, 122, 77, 171, 54, 32, 161, 24, 162, 112, 152],
+            vec![70, 91, 37, 155, 181, 227, 100, 255, 66, 129, 158, 241, 183, 96, 59],
+        ];
+        let r: BytesTrieMap<u64> = r.into_iter().map(|v| (v, 0)).collect();
+
+        let l: Vec<Vec<u8>> = vec![
+            vec![70, 116, 109, 134, 122, 15, 78, 126, 240, 158, 42, 221],
+        ];
+        let l: BytesTrieMap<u64> = l.into_iter().map(|v| (v, 0)).collect();
+
+        let joined = l.join(&r);
+        let remaining = joined.subtract(&r);
+        let remaining_keys: Vec<Vec<u8>> = remaining.iter().map(|(k, _v)| k).collect();
+        let l_keys: Vec<Vec<u8>> = l.iter().map(|(k, _v)| k).collect();
+
+        assert_eq!(remaining.val_count(), l.val_count());
+        for (rem_k, l_k) in remaining_keys.iter().zip(l_keys.iter()) {
+            assert_eq!(rem_k, l_k);
+        }
+    }
+
+    #[test]
+    fn btm_subtract_after_join_2() {
+        const N: u64 = 500;
+        let mut rng = StdRng::seed_from_u64(1);
+        let keys: Vec<Vec<u8>> = (0..N).into_iter().map(|_| {
+            let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+            (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+        }).collect();
+
+        let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in 0..(N/2) { l.insert(&keys[i as usize], i); }
+        let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in (N/2)..N { r.insert(&keys[i as usize], i); }
+
+        let joined = l.join(&r);
+        let remaining = joined.subtract(&r);
+        assert_eq!(remaining.val_count(), l.val_count())
     }
 
     /// Tests values that are attached along the paths to other keys, and also tests the absence of keys

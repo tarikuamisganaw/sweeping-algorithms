@@ -316,7 +316,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         if src.is_none() {
             return false
         }
-        match self.get_focus().borrow_option() {
+        match self.get_focus().try_borrow() {
             Some(self_node) => {
                 let joined = self_node.join_dyn(src.borrow());
                 self.graft_internal(Some(joined));
@@ -335,7 +335,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             Some(src) => src,
             None => return false
         };
-        match self.get_focus().borrow_option() {
+        match self.get_focus().try_borrow() {
             Some(self_node) => {
                 let joined = self_node.join_dyn(src.borrow());
                 self.graft_internal(Some(joined));
@@ -423,7 +423,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         if src.is_none() {
             return false
         }
-        match self.get_focus().borrow_option() {
+        match self.get_focus().try_borrow() {
             Some(self_node) => {
                 let joined = self_node.meet_dyn(src.borrow());
                 self.graft_internal(joined);
@@ -436,12 +436,12 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Experiment.  GOAT, document this
     pub fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
         let a_focus = rz_a.get_focus();
-        let a = match a_focus.borrow_option() {
+        let a = match a_focus.try_borrow() {
             Some(src) => src,
             None => return false
         };
         let b_focus = rz_b.get_focus();
-        let b = match b_focus.borrow_option() {
+        let b = match b_focus.try_borrow() {
             Some(src) => src,
             None => return false
         };
@@ -460,7 +460,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         if src.is_none() {
             return false
         }
-        match self.get_focus().borrow_option() {
+        match self.get_focus().try_borrow() {
             Some(self_node) => {
                 match self_node.psubtract_dyn(src.borrow()) {
                     (false, joined) => self.graft_internal(joined),
@@ -482,7 +482,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         if src.is_none() {
             return false
         }
-        match self.get_focus().borrow_option() {
+        match self.get_focus().try_borrow() {
             Some(self_node) => {
                 let restricted = self_node.prestrict_dyn(src.borrow());
                 self.graft_internal(restricted);
@@ -505,7 +505,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         if src.is_none() {
             return false
         }
-        match self.get_focus().borrow_option() {
+        match self.get_focus().try_borrow() {
             Some(self_node) => {
                 let restricted = src.borrow().prestrict_dyn(self_node);
                 self.graft_internal(restricted);
