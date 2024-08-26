@@ -230,6 +230,27 @@ mod tests {
     }
 
     #[test]
+    fn map_meet_big_test() {
+        const N: u64 = 16000;
+        let overlap = 0.5;
+        let o = ((1. - overlap) * N as f64) as u64;
+
+        let mut rng = StdRng::seed_from_u64(1);
+        let keys: Vec<Vec<u8>> = (0..N+o).into_iter().map(|_| {
+            let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+            (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+        }).collect();
+
+        let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in 0..N { l.insert(&keys[i as usize], i); }
+        let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in o..(N+o) { r.insert(&keys[i as usize], i); }
+
+        let intersection = l.meet(&r);
+        assert_eq!(intersection.val_count(), 8000);
+    }
+
+    #[test]
     fn btm_ops_test() {
         for n in (0..5000).into_iter().step_by(97) {
             // println!("n={n}");

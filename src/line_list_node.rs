@@ -846,9 +846,12 @@ impl<V> LineListNode<V> {
                     meet_node.map(|node| ValOrChildUnion::from(node))
                 } else {
                     let self_val = unsafe{ self.val_in_slot::<SLOT>() };
-                    let other_val = onward_node.node_get_val(onward_key).unwrap();
-                    let meet_val = self_val.meet(other_val);
-                    Some(ValOrChildUnion::from(meet_val))
+                    if let Some(other_val) = onward_node.node_get_val(onward_key) {
+                        let meet_val = self_val.meet(other_val);
+                        Some(ValOrChildUnion::from(meet_val))
+                    } else {
+                        None
+                    }
                 }
             } else {
                 None
