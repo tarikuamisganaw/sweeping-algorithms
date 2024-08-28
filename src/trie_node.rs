@@ -175,6 +175,9 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns 256-bit mask, indicating which children exist from the branch specified by `key`
     fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4];
 
+    /// Uses a 256-bit mask to filter down children and values at this node.
+    fn mask_children_and_values(&mut self, mask: [u64; 4]);
+
     /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
     /// descend further, otherwise returns `false`
     ///

@@ -1428,6 +1428,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 //     m
     }
 
+    fn mask_children_and_values(&mut self, mask: [u64; 4]) {
+        panic!(); // todo
+    }
+
     fn is_leaf(&self, key: &[u8]) -> bool {
         let key_len = key.len();
         let (key0, key1) = self.get_both_keys();

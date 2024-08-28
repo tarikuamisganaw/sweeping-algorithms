@@ -537,6 +537,29 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         self.take_focus().map(|node| BytesTrieMap::new_with_root(node))
     }
 
+    /// Uses a 256-bit mask to filter down children and values at the zipper's focus.
+    pub fn mask_children_and_values(&mut self, mask: [u64; 4]) {
+        let focus_node = self.focus_stack.top_mut().unwrap();
+        if false {
+            // works for the first test
+            focus_node.mask_children_and_values(mask);
+        } else {
+            // works for the second test
+            let node_key = self.key.node_key();
+            match focus_node.node_get_child_mut(node_key) {
+                Some((consumed_bytes, child_node)) => {
+                    if node_key.len() >= consumed_bytes {
+                        child_node.make_mut().mask_children_and_values(mask)
+                    } else {
+                        panic!() /* a) IDK what case this represents */
+                    }
+                },
+                None => { panic!() /* b) or this, very precisely */ }
+            }
+            // neither a nor b seem to be hit in this failing for the first test
+        }
+    }
+
     /// Internal method, Removes and returns the node at the zipper's focus
     #[inline]
     fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> {
@@ -1118,5 +1141,57 @@ mod tests {
         wr.join_map(sub_map);
         let map_keys: Vec<String> = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect();
         assert_eq!(map_keys, ["arrow", "bow", "c'i", "can", "cane", "cannon", "canus", "culus", "rubens", "ruber", "rubicon", "rubicundus"]);
+    }
+
+    #[test]
+    fn write_zipper_mask_children_and_values() {
+        // FIXME currently doesn't pass, but with the alternative implementation it does (but then the next test fails)
+        let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i",
+            "abcdefghijklmnopqrstuvwxyz"];
+        let mut map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+
+        let mut wr = map.write_zipper();
+
+        let mut m = [0, 0, 0, 0];
+        for b in "abc".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
+        wr.mask_children_and_values(m);
+
+        let result = map.iter().map(|(k, v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
+
+        assert_eq!(result, ["abcdefghijklmnopqrstuvwxyz", "arrow", "bow", "cannon"]);
+    }
+
+    #[test]
+    fn write_zipper_mask_children_and_values_at_path() {
+        let keys = [
+            "123:abc:Bob",
+            "123:def:Jim",
+            "123:ghi:Pam",
+            "123:jkl:Sue",
+            "123:dog:Bob:Fido",
+            "123:cat:Jim:Felix",
+            "123:dog:Pam:Bandit",
+            "123:owl:Sue:Cornelius"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut wr = map.write_zipper();
+        wr.descend_to("123:".as_bytes());
+        println!("{:?}", wr.child_mask());
+
+        let mut m = [0, 0, 0, 0];
+        for b in "dco".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
+        wr.mask_children_and_values(m);
+        m = [0, 0, 0, 0];
+        wr.descend_to("d".as_bytes());
+        for b in "o".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
+        wr.mask_children_and_values(m);
+
+        let result = map.iter().map(|(k, v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
+
+        assert_eq!(result, [
+            "123:cat:Jim:Felix",
+            "123:dog:Bob:Fido",
+            "123:dog:Pam:Bandit",
+            "123:owl:Sue:Cornelius"]);
     }
 }

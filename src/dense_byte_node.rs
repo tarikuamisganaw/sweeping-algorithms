@@ -1,5 +1,6 @@
 
 use std::fmt::{Debug, Formatter};
+use std::{mem, ptr};
 
 //OPTIMIZATION QUESTION 2, a note on Rc vs. rclite: Rc's payload bloat is 16 bytes, while rclite's is much smaller <8 Bytes.
 // That's a big deal on a DenseByteNode because it pushes it from a single cache line onto two.
@@ -917,6 +918,38 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         let cf = unsafe{ self.values.get_unchecked(0) };
         let prefix = self.item_idx_to_prefix::<true>(0).unwrap() as usize;
         (Some(&ALL_BYTES[prefix..=prefix]), cf.rec.as_ref().map(|cf| &*cf.borrow()))
+    }
+
+    fn mask_children_and_values(&mut self, mask: [u64; 4]) {
+        let mut it = CfIter::new(self);
+        let mut lead = 0;
+        let mut differs = false;
+        // in the future we can use `drain_filter`, but that's experimental
+        unsafe {
+        println!("cur dense node with {:?}", self);
+        // println!("cur dense node with {:?}", unsafe { mem::transmute::<Vec<CoFree<V>>, Vec<CoFree<i32>>>(self.values.clone()) });
+        // Safety: we're mutating the array we're iterating over, algorithmically we're just doing a filter
+        let mvalues = mem::transmute::<*const CoFree<V>, *mut CoFree<V>>(self.values.as_ptr());
+        while let Some((k, cf)) = it.next() {
+            // Safety: todo, implement a mutable CfIter
+            let mcf = mem::transmute::<*const CoFree<V>, *mut CoFree<V>>(cf as *const CoFree<V>);
+            // building the k to then destruct it again is a bit silly, maybe we need a ZipCfIter, or do the iteration manually
+            if 0 != (mask[((k & 0b11000000) >> 6) as usize] & (1u64 << (k & 0b00111111))) {
+                // Safety: we're just moving elements, we may not touch the refcounts in CoFree
+                if differs { ptr::copy_nonoverlapping(mcf, mvalues.add(lead), 1); }
+                lead += 1;
+            } else {
+                // Safety: we're mutating the array in which we're dropping, so we can't use mem::drop
+                ptr::drop_in_place(mcf);
+                differs = true;
+            }
+        }
+        // Safety: we've already dropped the elements in need of dropping, so we can't truncate
+        self.values.set_len(lead);
+        }
+        self.mask = [self.mask[0] & mask[0], self.mask[1] & mask[1], self.mask[2] & mask[2], self.mask[3] & mask[3]];
+        println!("cur dense node with {:?}", self);
+        // println!("cur dense node with {:?}", unsafe { mem::transmute::<Vec<CoFree<V>>, Vec<CoFree<i32>>>(self.values.clone()) });
     }
 
     fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4] {
