@@ -75,12 +75,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn child_count(&self) -> usize {
         let focus_node = self.focus_stack.top().unwrap();
         let node_key = self.key.node_key();
-
-        //Special case for the root
         if node_key.len() == 0 {
             return focus_node.child_count_at_key(b"");
         }
-
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
                 if node_key.len() >= consumed_bytes {
@@ -96,6 +93,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn child_mask(&self) -> [u64; 4] {
         let focus_node = self.focus_stack.top().unwrap();
         let node_key = self.key.node_key();
+        if node_key.len() == 0 {
+            return focus_node.child_mask_at_key(b"")
+        }
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
                 if node_key.len() >= consumed_bytes {
@@ -537,26 +537,34 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         self.take_focus().map(|node| BytesTrieMap::new_with_root(node))
     }
 
-    /// Uses a 256-bit mask to filter down children and values at the zipper's focus.
-    pub fn mask_children_and_values(&mut self, mask: [u64; 4]) {
+    /// Uses a 256-bit mask to remove multiple branches below the zipper's focus
+    ///
+    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
+    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    pub fn remove_masked_branches(&mut self, mask: [u64; 4]) {
         let focus_node = self.focus_stack.top_mut().unwrap();
-        if false {
-            // works for the first test
-            focus_node.mask_children_and_values(mask);
-        } else {
-            // works for the second test
-            let node_key = self.key.node_key();
+        let node_key = self.key.node_key();
+        if node_key.len() > 0 {
             match focus_node.node_get_child_mut(node_key) {
                 Some((consumed_bytes, child_node)) => {
                     if node_key.len() >= consumed_bytes {
-                        child_node.make_mut().mask_children_and_values(mask)
+                        child_node.make_mut().node_remove_masked_branches(&node_key[consumed_bytes..], mask);
+                        if child_node.borrow().node_is_empty() {
+                            focus_node.node_remove_branch(&node_key[..consumed_bytes]);
+                        }
                     } else {
-                        panic!() /* a) IDK what case this represents */
+                        //Zipper is positioned at non-existent node.  Removing anything from nothing is nothing
                     }
                 },
-                None => { panic!() /* b) or this, very precisely */ }
+                None => {
+                    focus_node.node_remove_masked_branches(node_key, mask);
+                }
             }
-            // neither a nor b seem to be hit in this failing for the first test
+        } else {
+            focus_node.node_remove_masked_branches(node_key, mask);
+        }
+        if focus_node.node_is_empty() {
+            self.prune_path();
         }
     }
 
@@ -1145,7 +1153,6 @@ mod tests {
 
     #[test]
     fn write_zipper_mask_children_and_values() {
-        // FIXME currently doesn't pass, but with the alternative implementation it does (but then the next test fails)
         let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i",
             "abcdefghijklmnopqrstuvwxyz"];
         let mut map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
@@ -1154,9 +1161,9 @@ mod tests {
 
         let mut m = [0, 0, 0, 0];
         for b in "abc".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.mask_children_and_values(m);
+        wr.remove_masked_branches(m);
 
-        let result = map.iter().map(|(k, v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
+        let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
 
         assert_eq!(result, ["abcdefghijklmnopqrstuvwxyz", "arrow", "bow", "cannon"]);
     }
@@ -1180,13 +1187,13 @@ mod tests {
 
         let mut m = [0, 0, 0, 0];
         for b in "dco".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.mask_children_and_values(m);
+        wr.remove_masked_branches(m);
         m = [0, 0, 0, 0];
         wr.descend_to("d".as_bytes());
         for b in "o".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.mask_children_and_values(m);
+        wr.remove_masked_branches(m);
 
-        let result = map.iter().map(|(k, v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
+        let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
 
         assert_eq!(result, [
             "123:cat:Jim:Felix",

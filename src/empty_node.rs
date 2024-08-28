@@ -84,6 +84,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn node_remove_branch(&mut self, _key: &[u8]) -> bool {
         unreachable!()
     }
+    fn node_remove_masked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
     fn node_is_empty(&self) -> bool {
         true
     }
@@ -109,7 +110,6 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn child_mask_at_key(&self, _key: &[u8]) -> [u64; 4] {
         [0; 4]
     }
-    fn mask_children_and_values(&mut self, _mask: [u64; 4]) { }
     fn is_leaf(&self, _key: &[u8]) -> bool {
         true
     }

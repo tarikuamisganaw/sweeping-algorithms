@@ -1214,6 +1214,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         remove_0 || remove_1
     }
 
+    fn node_remove_masked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
+        panic!(); // todo
+    }
+
     fn node_is_empty(&self) -> bool {
         !self.is_used::<0>()
     }
@@ -1426,10 +1430,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 //         m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
 //     }
 //     m
-    }
-
-    fn mask_children_and_values(&mut self, mask: [u64; 4]) {
-        panic!(); // todo
     }
 
     fn is_leaf(&self, key: &[u8]) -> bool {
