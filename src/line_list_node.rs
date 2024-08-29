@@ -1200,7 +1200,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             .map(|(_, created_subnode)| created_subnode)
     }
 
-    fn node_remove_branch(&mut self, key: &[u8]) -> bool {
+    fn node_remove_all_branches(&mut self, key: &[u8]) -> bool {
         let key_len = key.len();
         let (key0, key1) = self.get_both_keys();
         let remove_0 = key0.starts_with(key) && (key0.len() > key_len || self.is_child_ptr::<0>());
@@ -1214,7 +1214,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         remove_0 || remove_1
     }
 
-    fn node_remove_masked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
         panic!(); // todo
     }
 
@@ -1379,7 +1379,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         (None, None)
     }
 
-    fn child_count_at_key(&self, key: &[u8]) -> usize {
+    fn count_branches(&self, key: &[u8]) -> usize {
         let key_len = key.len();
         let (key0, key1) = self.get_both_keys();
 
@@ -1416,7 +1416,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
-    fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4] {
+    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
         panic!() //todo
 
 //Here is some code, but it doesn't take key into account
@@ -2260,9 +2260,9 @@ mod tests {
         node.node_set_val(b"h", 0).unwrap_or_else(|_| panic!());
         node.node_set_val(b"hi", 1).unwrap_or_else(|_| panic!());
         debug_assert!(validate_node(&node));
-        assert_eq!(node.child_count_at_key(b"h"), 1);
-        assert_eq!(node.child_count_at_key(b""), 1);
-        assert_eq!(node.child_count_at_key(b"hi"), 0);
+        assert_eq!(node.count_branches(b"h"), 1);
+        assert_eq!(node.count_branches(b""), 1);
+        assert_eq!(node.count_branches(b"hi"), 0);
 
         // k0="ahoy", k1="howdy", key="h", result = 1
         // k0="ahoy", k1="howdy", key="", result = 2
@@ -2270,8 +2270,8 @@ mod tests {
         node.node_set_val(b"ahoy", 0).unwrap_or_else(|_| panic!());
         node.node_set_val(b"howdy", 1).unwrap_or_else(|_| panic!());
         debug_assert!(validate_node(&node));
-        assert_eq!(node.child_count_at_key(b"h"), 1);
-        assert_eq!(node.child_count_at_key(b""), 2);
+        assert_eq!(node.count_branches(b"h"), 1);
+        assert_eq!(node.count_branches(b""), 2);
     }
 
     #[test]
@@ -2282,10 +2282,10 @@ mod tests {
         assert_eq!(new_node.node_set_val(b"albatross", 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val(b"brubru", 42).map_err(|_| 0), Ok((None, true)));
         debug_assert!(validate_node(&new_node));
-        assert_eq!(new_node.child_count_at_key(b""), 2);
-        assert_eq!(new_node.child_count_at_key(b"a"), 1);
-        assert_eq!(new_node.child_count_at_key(b"alb"), 1);
-        assert_eq!(new_node.child_count_at_key(b"albatross"), 0);
+        assert_eq!(new_node.count_branches(b""), 2);
+        assert_eq!(new_node.count_branches(b"a"), 1);
+        assert_eq!(new_node.count_branches(b"alb"), 1);
+        assert_eq!(new_node.count_branches(b"albatross"), 0);
         assert_eq!(new_node.get_sibling_of_child(b"albatross", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"brubru", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, Some(b'b'));
@@ -2298,10 +2298,10 @@ mod tests {
         assert_eq!(new_node.node_set_val(b"a", 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val(b"albatross", 24).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
-        assert_eq!(new_node.child_count_at_key(b""), 1);
-        assert_eq!(new_node.child_count_at_key(b"a"), 1);
-        assert_eq!(new_node.child_count_at_key(b"al"), 1);
-        assert_eq!(new_node.child_count_at_key(b"albatross"), 0);
+        assert_eq!(new_node.count_branches(b""), 1);
+        assert_eq!(new_node.count_branches(b"a"), 1);
+        assert_eq!(new_node.count_branches(b"al"), 1);
+        assert_eq!(new_node.count_branches(b"albatross"), 0);
         assert_eq!(new_node.get_sibling_of_child(b"albatross", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"al", true).0, None);
@@ -2312,7 +2312,7 @@ mod tests {
         debug_assert!(validate_node(&new_node));
         assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
-        assert_eq!(new_node.child_count_at_key(b""), 1);
+        assert_eq!(new_node.count_branches(b""), 1);
         // assert_eq!(new_node.child_count_at_key(b"a"), 1); NOTE: This looks like it should be return 1, but this is not a valid argument for `child_count_at_key`
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
 
@@ -2322,14 +2322,14 @@ mod tests {
         debug_assert!(validate_node(&new_node));
         assert_eq!(new_node.node_set_val("a".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
-        assert_eq!(new_node.child_count_at_key(b""), 1);
+        assert_eq!(new_node.count_branches(b""), 1);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
 
         let mut new_node = LineListNode::<usize>::new();
         assert_eq!(new_node.node_set_val("albatross".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("a".as_bytes(), 24).map_err(|_| 0), Ok((None, false)));
         debug_assert!(validate_node(&new_node));
-        assert_eq!(new_node.child_count_at_key(b""), 1);
+        assert_eq!(new_node.count_branches(b""), 1);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, None);
     }
 

@@ -814,7 +814,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             Ok(sub_branch_added)
         }
     }
-    fn node_remove_branch(&mut self, key: &[u8]) -> bool {
+    fn node_remove_all_branches(&mut self, key: &[u8]) -> bool {
         if key.len() > 1 {
             return false;
         }
@@ -920,38 +920,37 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         (Some(&ALL_BYTES[prefix..=prefix]), cf.rec.as_ref().map(|cf| &*cf.borrow()))
     }
 
-    fn node_remove_masked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
         debug_assert!(key.len() == 0);
-        let mut it = CfIter::new(self);
+        // in the future we can use `drain_filter`, but that's experimental
         let mut lead = 0;
         let mut differs = false;
-        // in the future we can use `drain_filter`, but that's experimental
+        let mut c = 0;
+        let mvalues = self.values.as_ptr().cast_mut();
+
         unsafe {
-            // println!("cur dense node with {:?}", self);
-            // println!("cur dense node with {:?}", unsafe { mem::transmute::<Vec<CoFree<V>>, Vec<CoFree<i32>>>(self.values.clone()) });
-            // Safety: we're mutating the array we're iterating over, algorithmically we're just doing a filter
-            let mvalues = self.values.as_ptr().cast_mut();
-            while let Some((k, cf)) = it.next() {
-                // building the k to then destruct it again is a bit silly, maybe we need a ZipCfIter, or do the iteration manually
-                if 0 != (mask[((k & 0b11000000) >> 6) as usize] & (1u64 << (k & 0b00111111))) {
-                    // Safety: we're just moving elements, we may not touch the refcounts in CoFree
-                    if differs { ptr::copy_nonoverlapping(cf, mvalues.add(lead), 1); }
-                    lead += 1;
-                } else {
-                    // Safety: we're mutating the array in which we're dropping, so we can't use mem::drop
-                    ptr::drop_in_place((cf as *const CoFree<V>).cast_mut());
-                    differs = true;
+            for i in 0..4 {
+                let mut lm = self.mask[i];
+                while lm != 0 {
+                    let index = lm.trailing_zeros();
+                    if ((1u64 << index) & mask[i]) != 0 {
+                        if differs { ptr::copy_nonoverlapping(mvalues.add(c), mvalues.add(lead), 1); }
+                        lead += 1;
+                    } else {
+                        ptr::drop_in_place(mvalues.add(c));
+                        differs = true;
+                    }
+                    lm ^= 1u64 << index;
+                    c += 1;
                 }
             }
-            // Safety: we've already dropped the elements in need of dropping, so we can't truncate
+
             self.values.set_len(lead);
         }
         self.mask = [self.mask[0] & mask[0], self.mask[1] & mask[1], self.mask[2] & mask[2], self.mask[3] & mask[3]];
-        // println!("cur dense node with {:?}", self);
-        // println!("cur dense node with {:?}", unsafe { mem::transmute::<Vec<CoFree<V>>, Vec<CoFree<i32>>>(self.values.clone()) });
     }
 
-    fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4] {
+    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
         match key.len() {
             0 => self.mask,
             _ => {
@@ -962,7 +961,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
-    fn child_count_at_key(&self, key: &[u8]) -> usize {
+    fn count_branches(&self, key: &[u8]) -> usize {
         match key.len() {
             0 => self.values.len(),
             _ => {

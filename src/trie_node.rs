@@ -113,14 +113,14 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     ///
     /// WARNING: This method may leave the node empty.  If eager pruning of branches is desired then the
     /// node should subsequently be checked to see if it is empty
-    fn node_remove_branch(&mut self, key: &[u8]) -> bool;
+    fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
 
     /// Uses a 256-bit mask to filter down children and values from the specified `key`.  Does not affect
     /// the value at the `key`
     ///
     /// WARNING: This method may leave the node empty.  If eager pruning of branches is desired then the
     /// node should subsequently be checked to see if it is empty
-    fn node_remove_masked_branches(&mut self, key: &[u8], mask: [u64; 4]);
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]);
 
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;
@@ -177,17 +177,17 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     ///   considered.  Therefore, it is necessary to call this method on the referenced node and
     ///   not the parent.
     /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
-    fn child_count_at_key(&self, key: &[u8]) -> usize;
+    fn count_branches(&self, key: &[u8]) -> usize;
 
     /// Returns 256-bit mask, indicating which children exist from the branch specified by `key`
-    fn child_mask_at_key(&self, key: &[u8]) -> [u64; 4];
+    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4];
 
     /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
     /// descend further, otherwise returns `false`
     ///
     /// NOTE: Returns `true` if the key specifies an invalid path, because an invalid path has no
     ///   onward paths branching from it.
-    /// NOTE: The reason this is not the same as `node.child_count_at_key() == 0` is because [Self::child_count_at_key]
+    /// NOTE: The reason this is not the same as `node.child_count_at_key() == 0` is because [Self::count_branches]
     ///   counts only internal children, and treats values and onward links equivalently.  Therefore
     ///   some keys that specify onward links will be reported as having a `child_count` of 0, but `is_leaf`
     ///   will be true.

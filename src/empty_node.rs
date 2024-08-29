@@ -81,10 +81,10 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
         Err(TrieNodeODRc::new(replacement_node))
     }
-    fn node_remove_branch(&mut self, _key: &[u8]) -> bool {
+    fn node_remove_all_branches(&mut self, _key: &[u8]) -> bool {
         unreachable!()
     }
-    fn node_remove_masked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
+    fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
     fn node_is_empty(&self) -> bool {
         true
     }
@@ -104,10 +104,10 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
-    fn child_count_at_key(&self, _key: &[u8]) -> usize {
+    fn count_branches(&self, _key: &[u8]) -> usize {
         0
     }
-    fn child_mask_at_key(&self, _key: &[u8]) -> [u64; 4] {
+    fn node_branches_mask(&self, _key: &[u8]) -> [u64; 4] {
         [0; 4]
     }
     fn is_leaf(&self, _key: &[u8]) -> bool {

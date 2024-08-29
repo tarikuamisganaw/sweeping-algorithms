@@ -76,17 +76,17 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         let focus_node = self.focus_stack.top().unwrap();
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
-            return focus_node.child_count_at_key(b"");
+            return focus_node.count_branches(b"");
         }
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
                 if node_key.len() >= consumed_bytes {
-                    child_node.child_count_at_key(&node_key[consumed_bytes..])
+                    child_node.count_branches(&node_key[consumed_bytes..])
                 } else {
                     0
                 }
             },
-            None => focus_node.child_count_at_key(node_key)
+            None => focus_node.count_branches(node_key)
         }
     }
 
@@ -94,17 +94,17 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         let focus_node = self.focus_stack.top().unwrap();
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
-            return focus_node.child_mask_at_key(b"")
+            return focus_node.node_branches_mask(b"")
         }
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
                 if node_key.len() >= consumed_bytes {
-                    child_node.child_mask_at_key(&node_key[consumed_bytes..])
+                    child_node.node_branches_mask(&node_key[consumed_bytes..])
                 } else {
                     [0; 4]
                 }
             },
-            None => focus_node.child_mask_at_key(node_key)
+            None => focus_node.node_branches_mask(node_key)
         }
     }
 
@@ -116,7 +116,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         self.focus_stack.top().unwrap().node_contains_partial_key(self.key.node_key())
     }
 
-    fn descend_indexed_child(&mut self, child_idx: usize) -> bool {
+    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
         panic!()
     }
 
@@ -522,7 +522,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// [Self::path_exists] returning `false`, where it previously returned `true`
     pub fn remove_branch(&mut self) -> bool {
         let focus_node = self.focus_stack.top_mut().unwrap();
-        if focus_node.node_remove_branch(self.key.node_key()) {
+        if focus_node.node_remove_all_branches(self.key.node_key()) {
             if focus_node.node_is_empty() {
                 self.prune_path();
             }
@@ -548,20 +548,20 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             match focus_node.node_get_child_mut(node_key) {
                 Some((consumed_bytes, child_node)) => {
                     if node_key.len() >= consumed_bytes {
-                        child_node.make_mut().node_remove_masked_branches(&node_key[consumed_bytes..], mask);
+                        child_node.make_mut().node_remove_unmasked_branches(&node_key[consumed_bytes..], mask);
                         if child_node.borrow().node_is_empty() {
-                            focus_node.node_remove_branch(&node_key[..consumed_bytes]);
+                            focus_node.node_remove_all_branches(&node_key[..consumed_bytes]);
                         }
                     } else {
                         //Zipper is positioned at non-existent node.  Removing anything from nothing is nothing
                     }
                 },
                 None => {
-                    focus_node.node_remove_masked_branches(node_key, mask);
+                    focus_node.node_remove_unmasked_branches(node_key, mask);
                 }
             }
         } else {
-            focus_node.node_remove_masked_branches(node_key, mask);
+            focus_node.node_remove_unmasked_branches(node_key, mask);
         }
         if focus_node.node_is_empty() {
             self.prune_path();

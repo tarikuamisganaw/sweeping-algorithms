@@ -123,7 +123,7 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// WARNING: The branch represented by a given index is not guaranteed to be stable across modifications
     /// to the trie.  This method should only be used as part of a directed traversal operation, but
     /// index-based paths may not be stored as locations within the trie.
-    fn descend_indexed_child(&mut self, child_idx: usize) -> bool;
+    fn descend_indexed_branch(&mut self, idx: usize) -> bool;
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
     /// moved otherwise returns `false`
@@ -142,7 +142,7 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
     /// otherwise returns `false`
     ///
-    /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_child]
+    /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
     /// where the index passed is 1 more or less than the index of the current focus position.
     ///
     /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
@@ -244,11 +244,11 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn child_count(&self) -> usize {
-        self.focus_node.child_count_at_key(self.node_key())
+        self.focus_node.count_branches(self.node_key())
     }
 
     fn child_mask(&self) -> [u64; 4] {
-        self.focus_node.child_mask_at_key(self.node_key())
+        self.focus_node.node_branches_mask(self.node_key())
     }
 
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
@@ -273,7 +273,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         self.focus_node.node_contains_partial_key(key)
     }
 
-    fn descend_indexed_child(&mut self, child_idx: usize) -> bool {
+    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
         self.prepare_buffers();
 
         match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
@@ -688,7 +688,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// NOTE: This is mainly a convenience to allow the use of `collect` and `for` loops, as the other
     /// zipper methods can do the same thing without consuming the iterator
     pub fn into_child_iter(mut self) -> ReadZipperChildIter<'a, 'k, V> {
-        self.descend_indexed_child(0);
+        self.descend_indexed_branch(0);
         ReadZipperChildIter::<'a, 'k, V>(Some(self))
     }
 
@@ -948,16 +948,16 @@ mod tests {
         assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
         assert!(rz.ascend(1)); // focus = rom
         assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'\'', b'a', b'u']); // all three options we visited
-        assert!(rz.descend_indexed_child(0)); // focus = rom'
+        assert!(rz.descend_indexed_branch(0)); // focus = rom'
         assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
         assert!(rz.ascend(1)); // focus = rom
-        assert!(rz.descend_indexed_child(1)); // focus = roma
+        assert!(rz.descend_indexed_branch(1)); // focus = roma
         assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
         assert!(rz.ascend(1));
-        assert!(rz.descend_indexed_child(2)); // focus = romu
+        assert!(rz.descend_indexed_branch(2)); // focus = romu
         assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']);
         assert!(rz.ascend(1));
-        assert!(rz.descend_indexed_child(1)); // focus = roma
+        assert!(rz.descend_indexed_branch(1)); // focus = roma
         assert_eq!(rz.fork_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
         assert!(rz.ascend(1));
         // ' < a < u
@@ -1025,7 +1025,7 @@ mod tests {
         //descends a single specific byte using `descend_indexed_child`. Just for testing. A real user would use `descend_towards`
         fn descend_byte(zipper: &mut ReadZipper<usize>, byte: u8) {
             for i in 0..zipper.child_count() {
-                assert_eq!(zipper.descend_indexed_child(i), true);
+                assert_eq!(zipper.descend_indexed_branch(i), true);
                 if *zipper.path().last().unwrap() == byte {
                     break
                 } else {
@@ -1198,12 +1198,12 @@ mod tests {
         let mut zipper = map.read_zipper_at_path(b":");
 
         //This is a cheesy way to encode lengths, but it's is more readable than unprintable chars
-        assert!(zipper.descend_indexed_child(0));
+        assert!(zipper.descend_indexed_branch(0));
         let sym_len = usize::from_str_radix(std::str::from_utf8(&[zipper.path()[0]]).unwrap(), 10).unwrap();
         assert_eq!(sym_len, 5);
 
         //Step over the ':' character
-        assert!(zipper.descend_indexed_child(0));
+        assert!(zipper.descend_indexed_branch(0));
         assert_eq!(zipper.child_count(), 6);
 
         //Start iterating over all the symbols of length=sym_len
