@@ -26,56 +26,6 @@ use crate::trie_map::BytesTrieMap;
 
 pub use crate::write_zipper::*;
 
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
-//GOAT, Adam's experiments.  Avoiding deletion in case they're still needed
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
-
-// // CZ2 uses a stack machine
-// // Store({a: 1}) // push
-
-// // CZ3 (incomplete) uses register machine
-
-// // Store({a: 1}, yym0)
-
-// // Content addressed abstract machine
-
-// // Store({a: 1}) // "you know what to do with this"
-
-// // ZAM (Warren Abstract Machine for triemaps)
-
-// // Store({a: 1}, [b, c])
-
-
-// enum Instruction {
-//     // == DESCEND ==
-//     Exact(u8),  // jumps to specific child
-//     Tail(u8),  // jumps to specific child and don't include
-
-//     Set([u64; 4]),  // jump to all children in mask
-//     Tails([u64; 4]),  // jump to all children in mask and don't include
-
-//     All(),  // jump to all
-//     Ignore(),  // jump to all and don't include
-
-//     Max(),  // Any
-//     Min(),  // Any
-
-//     // == ASCEND ==
-//     Head(u8),  // prefixes all with const
-
-//     // == SET OPS ==
-//     Union(),
-//     Intersection(),
-//     Subtraction(),
-
-//     // == CZ 2 OPS ==
-//     Restrict()
-// }
-
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
-//GOAT, End of Adam's experiments
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
-
 /// An interface common to all zippers, to support moving the zipper, reading elements, iterating across
 /// the trie
 pub trait Zipper<'a>: zipper_priv::ZipperPriv {
@@ -649,40 +599,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
-//GOAT, Unnecessary method.  It "feels" like a complete API needs a function to map from a key-based path
-// to an integer-based path but I can't actually come up with a real-world use case for this method
-//     /// Returns the index of the focus path, among its siblings at the nearest upstream branch point
-//     ///
-//     /// This method will return the `n` value that matches the argument that could have been passed to
-//     /// [Self::descend_nth_child] to arrive at or pass through the current focus.
-//     ///
-//     /// The zipper's root will always have return 0, even if it has siblings within a larger tree.
-//     ///
-//     /// WARNING: This value is not guaranteed to be stable across modifications of the tree.  This value
-//     /// should only be used as part of a directed traversal operation.
-//     pub fn sibling_idx(&self) -> usize {
-// //GOAT, this is idiotic.  What we really want is a way to ascend all the way up to the nearest branch point,
-// // and this method should just give the sibling_idx with 1 ascent.
-// //GOAT, no that would be annoying to use because it's the index at the last meaningful branch point you'd
-// // want anyway...  Come to think of it, why would you ever want the index at all?
-//         let key = self.node_key();
-//         if key.len() > 0 {
-//             let upstream = self.focus_node.prior_branch_key(key);
-//         }
-
-//         panic!()
-//     }
-
-    //GOAT, unnecessary function.  See comments around `sibling_count_at_key``
-    // /// Returns the number of sibling branches of the focus_node
-    // ///
-    // /// Returns 0 if the focus is on a leaf.  Returns 1 if the focus is on the root, regardless of the number
-    // /// of siblings the focus has within a larger tree
-    // pub fn sibling_count(&self) -> usize {
-    //     //GOAT, handle backing out to parent
-    //     self.focus_node.sibling_count_at_key(self.node_key())
-    // }
-
     /// Consumes the zipper and returns a Iterator over the downstream child bytes from the focus branch
     ///
     /// NOTE: This is mainly a convenience to allow the use of `collect` and `for` loops, as the other
@@ -843,69 +759,6 @@ impl<'a, 'k, V: Clone> Iterator for ReadZipperChildIter<'a, 'k, V> {
         }
     }
 }
-
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
-//GOAT, more of Adam's experiments
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
-
-// // pub struct WriteZipper<'a, V> {
-// //     pub root: *mut BytesTrieMap<V>,
-// //     pub focus: *mut ByteTrieNode<CoFree<V>>,
-// //     pub path: Vec<u8>,
-// //     pub ancestors: Vec<*mut ByteTrieNode<CoFree<V>>>,
-// // }
-// //
-// // impl <'a, V : Clone + Debug> WriteZipper<'a, V> {
-// //     pub fn remove_children(m: [u64; 4]) {}
-// //
-// //     pub fn remove_child(k: u8) {}
-// //     pub fn remove_nth_child(n: u8) {}
-// //
-// //     pub fn remove_value(k: u8) {}
-// //     pub fn remove_nth_value(n: u8) {}
-// //
-// //     pub fn add_child(k: u8) {}
-// //     pub fn add_nth_child(n: u8) {}
-// //
-// //     pub fn add_value(k: u8) {}
-// //     pub fn add_nth_value(n: u8) {}
-// // }
-
-// trait Engine {
-//     // fn execute<V>(inp: &BytesTrieMap<V>, k: &[Instruction]) -> BytesTrieMap<V> {
-//     //     let mut out = BytesTrieMap::new();
-//     //     let mut inp_loc = &inp.root;
-//     //     let mut out_loc = &out.root;
-//     //
-//     //     match k[0] {
-//     //         Instruction::Exact(k) => {
-//     //             node.get()
-//     //         }
-//     //         Instruction::Set(_) => {}
-//     //         Instruction::Ignore() => {}
-//     //         Instruction::Any() => {}
-//     //     }
-//     //     if k.len() > 1 {
-//     //         for i in 0..k.len() - 1 {
-//     //             match node.get(k[i]) {
-//     //                 Some(cf) => {
-//     //                     match unsafe { cf.rec.as_ref() } {
-//     //                         Some(r) => { node = r }
-//     //                         None => { return None }
-//     //                     }
-//     //                 }
-//     //                 None => { return None }
-//     //             }
-//     //         }
-//     //     }
-//     //
-//     //     out
-//     // }
-// }
-
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
-//GOAT, End of Adam's experiments
-//==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--==--
 
 #[cfg(test)]
 mod tests {

@@ -16,10 +16,6 @@ use crate::ring::*;
 /// the path to the root of a TrieNode must be stored in the parent node.
 pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
-    // /// Returns `true` if the node contains a child node for the key path, otherwise returns `false`
-    //GOAT what would you do with a child node except for traverse it?
-    // fn node_contains_child(&self, key: &[u8]) -> bool;
-
     /// Returns `true` if the node contains a key that begins with `key`, irrespective of whether the key
     /// specifies a child, value, or both
     ///
@@ -124,16 +120,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// node should subsequently be checked to see if it is empty
     fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]);
 
-    //GOAT, changed my mind about this approach
-    // /// Ensures the nodes is able to accept a branch or value at `key`.  This is used to create a parent
-    // /// path in in advance so that the node will be upgraded eagerly
-    // ///
-    // /// Returns `Ok(true)` if a new path was created; returns `Ok(false)` if the path already existed.
-    // ///
-    // /// If this method returns Err(node), then the node was upgraded, and the new node must be
-    // /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
-    // fn node_prepare_path(&mut self, key: &[u8]) -> Result<bool, TrieNodeODRc<V>>;
-
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;
 
@@ -150,19 +136,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// the node as well as values; in the case where a child node and a value have the same internal path
     /// it will be counted as one item
     fn item_count(&self) -> usize;
-
-//GOAT this looks like trash
-    // /// Returns the next key within the node that contains a value and/or a branch, from the 
-    // /// supplied key.  The iteration order is unspecified and implementation-dependent.  However,
-    // /// 
-    // /// 
-    // ///  according to an iteration
-    // /// order that is internal to the node.  The constraints of the iteration order are that:
-    // /// 1. Each key containing a value or branch must be visited exactly once
-    // /// 2. For a given node, the order must not change 
-    // //GOAT!!!! This won't work because the internal branching structure of the node matters because
-    // // iteration might start in the middle of the node!!!!
-    // fn next_within_node<'a>(&'a self, key: &[u8], key_or_val: bool) -> (&'a[u8], ValOrChildRef<'a, V>);
 
     /// Returns the nth child in the branch specified by `key` within this node, as the prefix leading to
     /// that child and optionally a new node
@@ -212,17 +185,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns &[] if `key` does not exist within the node.
     fn prior_branch_key(&self, key: &[u8]) -> &[u8];
 
-//GOAT, Current thinking is this method (and the upstread functionality enabled by it) are unneeded
-// This method itself has a number of conceptual issues - for example, is it the sibling count at the
-// nearest upstream fork, or just the nearest upstream byte.  Both implementations come with extra
-// complications, and neither provide functionality that isn't nearly as efficient to do another way.
-//     /// Returns the number of siblings of a focus specified by a key within a node
-//     ///
-//     /// This method will never be invoked with a zero-length key
-//     /// Returns 0 if the node doesn't contain the key
-//     /// 
-//     fn sibling_count_at_key(&self, key: &[u8]) -> usize;
-
     /// Returns the child of this node that is immediately before or after the child identified by `key`
     ///
     /// Returns None if the found child node is already the first or last child, or if `key` does not
@@ -262,17 +224,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// QUESTION: Is there a value to a "copying" version of drop_head?  It has higher overheads but could
     /// be safely implemented by the [crate::zipper::ReadZipper].
     fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
-
-//GOAT this is trash comments
-    /// Replaces the contents of the `self` node with a node composed of the children of `self`,
-    /// `byte_cnt` steps downstream, all joined together.
-    ///
-    /// Returns `Ok(())` if the operation completed sucessfully, or `Err(replacement_node)` if the `self`
-    /// node must be replaced with the returned `replacement_node`
-    ///
-    /// QUESTION: Is there a value to a "copying" version of drop_head?  It has much higher overheads
-    /// but could be safely implemented by the [crate::zipper::ReadZipper].
-
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types.

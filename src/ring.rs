@@ -2,8 +2,6 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-use crate::trie_map::BytesTrieMap;
-
 pub trait Lattice: Sized {
     fn join(&self, other: &Self) -> Self;
     fn join_into(&mut self, other: Self) {

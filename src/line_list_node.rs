@@ -1227,11 +1227,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         panic!(); // todo
     }
 
-    //GOAT, changed my mind about this approach
-    // fn node_prepare_path(&mut self, key: &[u8]) -> Result<bool, TrieNodeODRc<V>> {
-    //     panic!()
-    // }
-
     fn node_is_empty(&self) -> bool {
         !self.is_used::<0>()
     }

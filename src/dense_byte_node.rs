@@ -700,10 +700,6 @@ impl <'a, V : Clone> Iterator for CfIter<'a, V> {
 }
 
 impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
-    //GOAT what would you do with a child node except for traverse it?
-    // fn node_contains_child(&self, key: &[u8]) -> bool {
-    //     self.contains(key[0])
-    // }
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         debug_assert!(key.len() > 0);
         if key.len() == 1 {
@@ -863,39 +859,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             false
         }
     }
-
-//GOAT, changed my mind RE this method
-//     fn node_prepare_path(&mut self, key: &[u8]) -> Result<bool, TrieNodeODRc<V>> {
-//         debug_assert!(key.len() > 0);
-
-//         #[cfg(not(feature = "all_dense_nodes"))]
-//         {
-//             panic!()
-// //GOAT THIS IS WRONG!!  We don't necessarily want a branch node, and having a valid branch node doesn't
-// // guarantee we can set a value.
-// //
-// //One solution is to make a dense node one byte up in the path, because we know we will never fail to add
-// // a value or branch to a dense node.  However, if we are going to go that route, we don't really need a
-// // generic node method.
-
-
-// //             let new_node = TrieNodeODRc::new(LineListNode::new());
-// //             self.node_set_branch(key, new_node)
-//         }
-
-// //GOAT, I think this part is ok
-//         #[cfg(feature = "all_dense_nodes")]
-//         {
-//             let sub_branch_added = if key.len() > 1 {
-//                 self.create_parent_path(key);
-//                 true
-//             } else {
-//                 false
-//             };
-//             Ok(sub_branch_added)
-//         }
-//     }
-
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
     }
@@ -1515,13 +1478,6 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for DenseByteN
                 let index = lm.trailing_zeros();
 
                 if ((1u64 << index) & other.mask[i]) != 0 {
-// if (64*(i as u8) + (index as u8)) == 244 {
-//     println!("goat 1");
-// }
-// if (64*(i as u8) + (index as u8)) == 1 {
-//     println!("goat 2");
-// }
-
                     let lv = unsafe { self.get_unchecked(64*(i as u8) + (index as u8)) };
                     let rv = unsafe { other.get_unchecked(64*(i as u8) + (index as u8)) };
                     match lv.psubtract(rv) {
