@@ -63,10 +63,12 @@ impl <V> Debug for DenseByteNode<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
-        write!(f,
-               "DenseByteNode (mask: {:b} {:b} {:b} {:b}, count: {})",
-               self.mask[0], self.mask[1], self.mask[2], self.mask[3],
-               self.values.len())
+        write!(f, "DenseByteNode {{count={}", self.values.len())?;
+        self.for_each_item(|node, c, i| {
+            let cf = node.values.get(i).unwrap();
+            let _ = write!(f, ", {c}:(val={} child={})", cf.value.is_some(), cf.rec.is_some());
+        });
+        write!(f, "}}")
     }
 }
 
@@ -124,6 +126,26 @@ impl<V> DenseByteNode<V> {
     fn clear(&mut self, k: u8) -> () {
         // println!("setting k {} : {} {:b}", k, ((k & 0b11000000) >> 6) as usize, 1u64 << (k & 0b00111111));
         self.mask[((k & 0b11000000) >> 6) as usize] &= !(1u64 << (k & 0b00111111));
+    }
+
+    /// Ensures that a CoFree exists for the specified key
+    ///
+    /// Returns `true` if a new CoFree was created, and `false` if one already existed
+    ///
+    /// This enables a WriteZipper to modify a specific CoFree without touching the DenseByteNode
+    /// that contains it, and therefore multiple WriteZippers can be rooted at the same parent, so
+    /// long as the first byte of each path is unique
+    #[inline]
+    pub(crate) fn prepare_cf(&mut self, k: u8) -> bool {
+        if self.get(k).is_some() {
+            false
+        } else {
+            let ix = self.left(k) as usize;
+            self.set(k);
+            let new_cf = CoFree {rec: None, value: None };
+            self.values.insert(ix, new_cf);
+            true
+        }
     }
 
     /// Adds a new child at the specified key byte.  Replaces and returns an existing branch.
@@ -842,6 +864,38 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+//GOAT, changed my mind RE this method
+//     fn node_prepare_path(&mut self, key: &[u8]) -> Result<bool, TrieNodeODRc<V>> {
+//         debug_assert!(key.len() > 0);
+
+//         #[cfg(not(feature = "all_dense_nodes"))]
+//         {
+//             panic!()
+// //GOAT THIS IS WRONG!!  We don't necessarily want a branch node, and having a valid branch node doesn't
+// // guarantee we can set a value.
+// //
+// //One solution is to make a dense node one byte up in the path, because we know we will never fail to add
+// // a value or branch to a dense node.  However, if we are going to go that route, we don't really need a
+// // generic node method.
+
+
+// //             let new_node = TrieNodeODRc::new(LineListNode::new());
+// //             self.node_set_branch(key, new_node)
+//         }
+
+// //GOAT, I think this part is ok
+//         #[cfg(feature = "all_dense_nodes")]
+//         {
+//             let sub_branch_added = if key.len() > 1 {
+//                 self.create_parent_path(key);
+//                 true
+//             } else {
+//                 false
+//             };
+//             Ok(sub_branch_added)
+//         }
+//     }
+
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
     }
@@ -1154,6 +1208,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         Some(self)
     }
     fn as_list(&self) -> Option<&LineListNode<V>> {
+        None
+    }
+    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         None
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {

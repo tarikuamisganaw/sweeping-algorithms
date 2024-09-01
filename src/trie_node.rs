@@ -31,6 +31,10 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns `None` if no child node matches the key, even if there is a value with that prefix
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)>;
 
+    //GOAT, Do we actually need this method?  Originally the thinking was that needed to borrow both the
+    // value and the onward link from a node at the same path.  This is needed because it's impossible to
+    // split the borrows to different parts of the same node.  However, the Zippers are implemented to keep a
+    // key path rather than a node and value pointer at the focus, and therefore this method is never used.
     /// Similar behavior to `node_get_child`, but operates across a mutable reference and returns both the 
     /// value and onward link associated with a given path
     ///
@@ -38,8 +42,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// `Some(byte_cnt, Some(val), None)`
     fn node_get_child_and_val_mut<'a>(&'a mut self, key: &[u8]) -> Option<(usize, Option<&'a mut V>, Option<&'a mut TrieNodeODRc<V>>)>;
 
-    //GOAT, I don't think we need this function below since it's used to walk a mutable ref into the tree,
-    // but we almost always want a value at the same time, hence node_get_child_and_val_mut
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
 
@@ -121,6 +123,16 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// WARNING: This method may leave the node empty.  If eager pruning of branches is desired then the
     /// node should subsequently be checked to see if it is empty
     fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]);
+
+    //GOAT, changed my mind about this approach
+    // /// Ensures the nodes is able to accept a branch or value at `key`.  This is used to create a parent
+    // /// path in in advance so that the node will be upgraded eagerly
+    // ///
+    // /// Returns `Ok(true)` if a new path was created; returns `Ok(false)` if the path already existed.
+    // ///
+    // /// If this method returns Err(node), then the node was upgraded, and the new node must be
+    // /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
+    // fn node_prepare_path(&mut self, key: &[u8]) -> Result<bool, TrieNodeODRc<V>>;
 
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;
@@ -291,6 +303,9 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns a reference to the node as a specific concrete type or None if it is not that type
     fn as_list(&self) -> Option<&LineListNode<V>>;
 
+    /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
+    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
+
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V>;
 }
@@ -375,6 +390,86 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::BorrowedRc(rc) => Some(rc.clone()),
             AbstractNodeRef::OwnedRc(rc) => Some(rc)
         }
+    }
+}
+
+/// Ensures that the node at the specified path exists, and is a [DenseByteNode]
+///
+/// Returns `(false, node)` if the node already existed (regardless of whether or not it was upgraded),
+/// and returns `(true, node)` if the node was created.
+pub(crate) fn prepare_exclusive_write_path<'a, V: Clone>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> (bool, &'a mut TrieNodeODRc<V>) {
+    let (remaining_key, parent_node) = node_along_path_mut(root_node, path);
+
+    //See below.  Temporary work-around for lack of pononius
+    let parent_node_ptr: *mut TrieNodeODRc<V> = parent_node;
+    let (remaining_key, node) = match parent_node.make_mut().node_get_child_mut(remaining_key) {
+        Some((consumed_byte_cnt, node)) => (&remaining_key[consumed_byte_cnt..], node),
+        None => {
+            //SAFETY: The borrow of `parent_node` above is dropped in the case where `node_get_child_mut`
+            // returns `None`. Polonius is ok with this.
+            let parent_node = unsafe{ &mut *parent_node_ptr };
+            (remaining_key, parent_node)
+        }
+    };
+
+    if remaining_key.len() == 0 {
+        let upgraded = make_dense(node);
+        return (upgraded, node)
+    } else {
+        let new_node = DenseByteNode::new();
+        let result = node.make_mut().node_set_branch(remaining_key, TrieNodeODRc::new(new_node));
+        match result {
+            Ok(_) => { },
+            Err(replacement_node) => { *node = replacement_node; }
+        }
+        let (remaining_key, node) = node_along_path_mut(node, remaining_key);
+        let (consumed_byte_cnt, new_node) = node.make_mut().node_get_child_mut(remaining_key).unwrap();
+        debug_assert_eq!(consumed_byte_cnt, remaining_key.len());
+        (true, new_node)
+    }
+}
+
+/// Internal function to walk a mut TrieNodeODRc<V> ref along a path
+pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> (&'k [u8], &'a mut TrieNodeODRc<V>) {
+    let mut key = path;
+    let mut node = start_node;
+
+    //Step until we get to the end of the key or find a leaf node
+    let mut node_ptr: *mut TrieNodeODRc<V> = node; //Work-around for lack of polonius
+    if key.len() > 0 {
+        while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_get_child_mut(key) {
+            if consumed_byte_cnt < key.len() {
+                node = next_node;
+                node_ptr = node;
+                key = &key[consumed_byte_cnt..];
+                //NOTE: we could early-out here, except, at most, it saves one step, but introduces a pipeline stall
+                // at every step.  It's a win when the number of steps is about 6 or fewer, but otherwise a cost.
+                // We won't shorten the key anymore, so we can finish here.
+                // if key.len() == 1 {
+                //     break;
+                // }
+            } else {
+                break;
+            };
+        }
+    }
+
+    //SAFETY: Polonius is ok with this code.  All mutable borrows of the current version of the
+    //  `node` &mut ref have ended by this point
+    node = unsafe{ &mut *node_ptr };
+    (key, node)
+}
+
+/// Ensures the node is a DenseByteNode
+///
+/// Returns `true` if the node was upgraded and `false` if it already was a DenseByteNode
+fn make_dense<V: Clone>(node: &mut TrieNodeODRc<V>) -> bool {
+    if node.borrow().as_dense().is_some() {
+        false
+    } else {
+        let replacement = node.make_mut().as_list_mut().unwrap().convert_to_dense(3);
+        *node = replacement;
+        true
     }
 }
 

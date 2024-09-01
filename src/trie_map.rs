@@ -1,6 +1,9 @@
+use core::cell::UnsafeCell;
+
 use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;
+use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice, PartialQuantale};
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -18,12 +21,26 @@ use crate::zipper::*;
 /// assert!(!map.contains("three"));
 /// ```
 #[repr(transparent)]
-#[derive(Clone)]
 pub struct BytesTrieMap<V> {
-    pub(crate) root: TrieNodeODRc<V>
+    root: UnsafeCell<TrieNodeODRc<V>>
 }
 
-impl <V : Clone> BytesTrieMap<V> {
+impl<V: Clone> Clone for BytesTrieMap<V> {
+    fn clone(&self) -> Self {
+        Self{ root: UnsafeCell::new(self.root().clone()) }
+    }
+}
+
+impl<V: Clone> BytesTrieMap<V> {
+    #[inline]
+    pub(crate) fn root(&self) -> &TrieNodeODRc<V> {
+        unsafe{ &*self.root.get() }
+    }
+    #[inline]
+    pub(crate) fn root_mut(&mut self) -> &mut TrieNodeODRc<V> {
+        self.root.get_mut()
+    }
+
     /// Creates a new empty map
     pub fn new() -> Self {
         #[cfg(feature = "all_dense_nodes")]
@@ -36,7 +53,7 @@ impl <V : Clone> BytesTrieMap<V> {
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
     #[inline]
     pub(crate) fn new_with_root(root: TrieNodeODRc<V>) -> Self {
-        Self { root }
+        Self { root: UnsafeCell::new(root) }
     }
 
     pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
@@ -45,8 +62,12 @@ impl <V : Clone> BytesTrieMap<V> {
         // let root = crate::dense_byte_node::_so_range(step as u8, 4);
         // BytesTrieMap::<()>::new_with_root(root)
         //fallback
-        let mut root = TrieNodeODRc::new(crate::dense_byte_node::DenseByteNode::new());
-        let mut zipper = WriteZipper::new_with_node_and_path(&mut root, &[]);
+
+        //GOAT, this method is highly sub-optimal.  It should be possible to populate a range in log n time,
+        // rather than linear time.  Adam has already written code for this, but it's specific to the DenseByteNode
+        // and is commented out in that file
+        let mut new_map = Self::new();
+        let mut zipper = new_map.write_zipper();
 
         let mut i = start;
         let positive = step > zero();
@@ -62,14 +83,14 @@ impl <V : Clone> BytesTrieMap<V> {
             i += step;
         }
 
-        BytesTrieMap::new_with_root(root)
+        new_map
     }
 
     /// Internal Method.  Removes and returns the root from a BytesTrieMap
     #[inline]
     pub(crate) fn into_root(self) -> Option<TrieNodeODRc<V>> {
-        if !self.root.borrow().node_is_empty() {
-            Some(self.root)
+        if !self.root().borrow().node_is_empty() {
+            Some(self.root.into_inner())
         } else {
             None
         }
@@ -77,22 +98,43 @@ impl <V : Clone> BytesTrieMap<V> {
 
     /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
     pub fn read_zipper(&self) -> ReadZipper<V> {
-        ReadZipper::new_with_node_and_path_internal(self.root.borrow(), &[], Some(0), None)
+        ReadZipper::new_with_node_and_path_internal(self.root().borrow(), &[], Some(0), None)
     }
 
     /// Creates a new [ReadZipper] with the specified path from the root of the map
     pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
-        ReadZipper::new_with_node_and_path(self.root.borrow(), path.as_ref(), Some(path.len()))
+        ReadZipper::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()))
     }
 
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap
     pub fn write_zipper(&mut self) -> WriteZipper<V> {
-        WriteZipper::new_with_node_and_path_internal(&mut self.root, &[])
+        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[])
     }
 
     /// Creates a new [WriteZipper] with the specified path from the root of the map
     pub fn write_zipper_at_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
-        WriteZipper::new_with_node_and_path(&mut self.root, path.as_ref())
+        WriteZipper::new_with_node_and_path(self.root_mut(), path.as_ref())
+    }
+
+    /// Creates a new [WriteZipper] with the specified path from the root of the map, where the
+    /// caller guarantees that no existing zippers may access the specified path
+    ///
+    /// NOTE: There is no safe version of this method because we don't want to pay the overhead of
+    /// tracking every ReadZipper's path in a release build
+    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, 'k>(&'a self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
+
+        //GOAT TODO: Make a debug check for exclusivity, so this will panic if the method is misused, when
+        // running a debug build
+        let path_len = path.len();
+        if path_len == 0 {
+            panic!("Fatal Error: Root path cannot be modified without mutable access to the map.  Use TrieMap::write_zipper");
+        }
+        let (_created_node, parent_node) = prepare_exclusive_write_path(&mut *self.root.get(), &path[..path_len-1]);
+        let _created_cf = parent_node.make_mut().as_dense_mut().unwrap().prepare_cf(path[path_len-1]);
+        //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
+        // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
+        // to prune the zipper's path.
+        WriteZipper::new_with_node_and_path_internal(parent_node, &path[path_len-1..])
     }
 
     /// Returns an iterator over all key-value pairs within the map
@@ -176,7 +218,7 @@ impl <V : Clone> BytesTrieMap<V> {
 
     /// Returns `true` if the map is empty, otherwise returns `false`
     pub fn is_empty(&self) -> bool {
-        self.root.borrow().node_is_empty()
+        self.root().borrow().node_is_empty()
     }
 
     /// Returns a reference to the value at the specified path
@@ -197,7 +239,7 @@ impl <V : Clone> BytesTrieMap<V> {
     ///
     /// WARNING: This is not a cheap method. It may have an order-N cost
     pub fn val_count(&self) -> usize {
-        return self.root.borrow().node_subtree_len()
+        return self.root().borrow().node_subtree_len()
     }
 }
 
@@ -225,7 +267,7 @@ impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
         let mut prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
         prefix_idx.push(0);
         let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
-        btnis.push(btm.root.borrow().boxed_node_iter());
+        btnis.push(btm.root().borrow().boxed_node_iter());
         Self {
             prefix_buf: Vec::with_capacity(256),
             prefix_idx,
@@ -273,6 +315,49 @@ impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
             map.insert(key, val);
         }
         map
+    }
+}
+
+impl<V: Clone + Lattice> Lattice for BytesTrieMap<V> {
+    fn join(&self, other: &Self) -> Self {
+        Self::new_with_root(self.root().join(other.root()))
+    }
+
+    fn join_into(&mut self, other: Self) {
+        if let Some(other_root) = other.into_root() {
+            self.root_mut().join_into(other_root)
+        }
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        match self.root().meet(other.root()) {
+            Some(new_root) => Self::new_with_root(new_root),
+            None => Self::new()
+        }
+    }
+
+    fn bottom() -> Self {
+        BytesTrieMap::new()
+    }
+}
+
+impl<V: Clone + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
+    fn subtract(&self, other: &Self) -> Self {
+        Self::new_with_root(self.root().subtract(other.root()))
+    }
+}
+
+impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
+    fn psubtract(&self, other: &Self) -> Option<Self> {
+        let s = self.root().subtract(other.root());
+        if s.borrow().node_is_empty() { None }
+        else { Some(Self::new_with_root(s)) }
+    }
+}
+
+impl<V: Clone> PartialQuantale for BytesTrieMap<V> {
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
+        self.root().prestrict(other.root()).map(|r| Self::new_with_root(r) )
     }
 }
 

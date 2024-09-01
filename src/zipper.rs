@@ -972,7 +972,7 @@ mod tests {
 
         //Test `descend_to` and `ascend_until`
         let root_key = b"ro";
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), root_key, Some(root_key.len()));
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()));
         assert_eq!(zipper.path(), b"");
         assert_eq!(zipper.child_count(), 1);
         zipper.descend_to(b"m");
@@ -1069,14 +1069,14 @@ mod tests {
         rs.iter().for_each(|r| { btm.insert(r.as_bytes(), *r); });
 
         let root_key = b"ro";
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), root_key, Some(root_key.len()));
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()));
         assert_eq!(zipper.is_value(), false);
         zipper.descend_to(b"mulus");
         assert_eq!(zipper.is_value(), true);
         assert_eq!(zipper.get_value(), Some(&"romulus"));
 
         let root_key = b"roman";
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root.borrow(), root_key, Some(root_key.len()));
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()));
         assert_eq!(zipper.is_value(), true);
         assert_eq!(zipper.get_value(), Some(&"roman"));
         zipper.descend_to(b"e");

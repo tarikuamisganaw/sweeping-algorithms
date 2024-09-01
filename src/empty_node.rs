@@ -85,6 +85,11 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         unreachable!()
     }
     fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
+    //GOAT, remove.  Changed my mind
+    // fn node_prepare_path(&mut self, _key: &[u8]) -> Result<bool, TrieNodeODRc<V>> {
+    //     let replacement_node = LineListNode::new();
+    //     Err(TrieNodeODRc::new(replacement_node))
+    // }
     fn node_is_empty(&self) -> bool {
         true
     }
@@ -156,6 +161,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         None
     }
     fn as_list(&self) -> Option<&LineListNode<V>> {
+        None
+    }
+    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         None
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {

@@ -1,7 +1,7 @@
 
 use mutcursor::MutCursorRootedVec;
 
-use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef};
+use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef, node_along_path_mut};
 use crate::trie_map::BytesTrieMap;
 use crate::empty_node::EmptyNode;
 use crate::zipper::*;
@@ -201,6 +201,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
             focus_stack,
         }
     }
+
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     pub fn get_value(&self) -> Option<&V> {
         self.focus_stack.top().unwrap().node_get_val(self.key.node_key())
@@ -768,37 +769,6 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
         self.key.prefix_buf.truncate(new_len);
     }
 
-}
-
-/// Internal function to walk a mut TrieNodeODRc<V> ref along a path
-fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> (&'k [u8], &'a mut TrieNodeODRc<V>) {
-    let mut key = path;
-    let mut node = start_node;
-
-    //Step until we get to the end of the key or find a leaf node
-    let mut node_ptr: *mut TrieNodeODRc<V> = node; //Work-around for lack of polonius
-    if key.len() > 0 {
-        while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_get_child_mut(key) {
-            if consumed_byte_cnt < key.len() {
-                node = next_node;
-                node_ptr = node;
-                key = &key[consumed_byte_cnt..];
-                //NOTE: we could early-out here, except, at most, it saves one step, but introduces a pipeline stall
-                // at every step.  It's a win when the number of steps is about 6 or fewer, but otherwise a cost.
-                // We won't shorten the key anymore, so we can finish here.
-                // if key.len() == 1 {
-                //     break;
-                // }
-            } else {
-                break;
-            };
-        }
-    }
-
-    //SAFETY: Polonius is ok with this code.  All mutable borrows of the current version of the
-    //  `node` &mut ref have ended by this point
-    node = unsafe{ &mut *node_ptr };
-    (key, node)
 }
 
 /// Internal function to create a parent path leading up to the supplied `child_node`

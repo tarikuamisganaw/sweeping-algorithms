@@ -313,13 +313,13 @@ impl<V> LineListNode<V> {
     // unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
     //     self.set_payload_1(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
     // }
-    /// Sets the payload and key for slot_0
+    /// Sets the payload and key for slot_0, and ensures slot_1 is empty
     #[inline]
     unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
         debug_assert!(key.len() <= KEY_BYTES_CNT);
         core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
         self.val_or_child0 = payload;
-        self.header |= Self::header0(is_child_ptr, key.len());
+        self.header = Self::header0(is_child_ptr, key.len());
         if key.len() == KEY_BYTES_CNT {
             self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
         }
@@ -771,7 +771,29 @@ impl<V> LineListNode<V> {
 
         //We couldn't store the value in either of the slots, so upgrade the node
         //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-        let mut replacement_node = DenseByteNode::<V>::with_capacity(3);
+        let mut replacement_node = self.convert_to_dense(3);
+        let dense_node = replacement_node.make_mut().as_dense_mut().unwrap();
+
+        //Add the new key-value pair to the new DenseByteNode
+        if key.len() > 1 {
+            let mut child_node = Self::new();
+            set_payload_recursive(&mut child_node, &key[1..], payload).unwrap_or_else(|_| panic!());
+            dense_node.set_child(key[0], TrieNodeODRc::new(child_node));
+        } else {
+            if IS_CHILD {
+                dense_node.set_child(key[0], unsafe{ payload.into_child() });
+            } else {
+                dense_node.set_val(key[0], unsafe{ payload.into_val() });
+            }
+        }
+
+        Err(replacement_node)
+    }
+
+    /// Converts the node to a DenseByteNode, transplanting the contents and leaving `self` empty
+    #[inline]
+    pub(crate) fn convert_to_dense(&mut self, capacity: usize) -> TrieNodeODRc<V> where V: Clone {
+        let mut replacement_node = DenseByteNode::<V>::with_capacity(capacity);
 
         //1. Transplant the key / value from slot_1 to the new node
         let mut slot_0_payload = ValOrChildUnion{ _unused: () };
@@ -811,23 +833,10 @@ impl<V> LineListNode<V> {
             }
         }
 
-        //3. Add the new key-value pair to the new DenseByteNode
-        if key.len() > 1 {
-            let mut child_node = Self::new();
-            set_payload_recursive(&mut child_node, &key[1..], payload).unwrap_or_else(|_| panic!());
-            replacement_node.set_child(key[0], TrieNodeODRc::new(child_node));
-        } else {
-            if IS_CHILD {
-                replacement_node.set_child(key[0], unsafe{ payload.into_child() });
-            } else {
-                replacement_node.set_val(key[0], unsafe{ payload.into_val() });
-            }
-        }
-
-        //4. Clear self.header, so we don't double-free when this old node gets dropped
+        //4. Clear self.header, so we don't double-free anything when this old node gets dropped
         self.header = 0;
 
-        Err(TrieNodeODRc::new(replacement_node))
+        TrieNodeODRc::new(replacement_node)
     }
 
     /// Internal method to meet the contents of `SLOT` with the contents of the `other` node
@@ -1217,6 +1226,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
         panic!(); // todo
     }
+
+    //GOAT, changed my mind about this approach
+    // fn node_prepare_path(&mut self, key: &[u8]) -> Result<bool, TrieNodeODRc<V>> {
+    //     panic!()
+    // }
 
     fn node_is_empty(&self) -> bool {
         !self.is_used::<0>()
@@ -1821,15 +1835,15 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         None
     }
-
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         None
     }
-
     fn as_list(&self) -> Option<&Self> {
         Some(self)
     }
-
+    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
+        Some(self)
+    }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
     }
@@ -1896,6 +1910,7 @@ fn validate_node<V>(node: &LineListNode<V>) -> bool {
 
     //If a key is used it must be non-zero length
     if node.is_used::<0>() && key0.len() == 0 || node.is_used::<1>() && key1.len() == 0 {
+        println!("Invalid node - zero-length key {node:?}");
         panic!()
     }
 
@@ -1916,6 +1931,7 @@ fn validate_node<V>(node: &LineListNode<V>) -> bool {
 
     //key0 must always be alphabetically before key1, if slot_1 is filled
     if node.is_used::<1>() && key0 > key1 {
+        println!("Invalid node - keys not sorted {node:?}");
         panic!()
     }
 
@@ -2413,6 +2429,3 @@ mod tests {
 //GOAT, want a tri-state or bi-state return flag for unmodified values.  For all lattice ops, incl join, meet, and subtract
 //
 //GOAT, want to promote the meet method to partial meet, to rreturn an "unmodified" flag
-
-//GOAT, BUG!!!!!!!  Set the largest number for sparse_meet benchmark (list-node variant) to 16000, and it
-// panics on an unwrap or None.  Need to make this into a stand-alone test
