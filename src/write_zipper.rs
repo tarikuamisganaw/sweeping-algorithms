@@ -21,6 +21,10 @@ pub struct WriteZipper<'a, 'k, V> {
     zipper_tracker: ZipperTracker,
 }
 
+impl<V> Drop for WriteZipper<'_, '_, V> {
+    fn drop(&mut self) { }
+}
+
 /// The part of the [WriteZipper] that contains the key-related fields.  So it can be borrowed separately
 struct KeyFields<'k> {
     /// A reference to the part of the key within the root node that represents the zipper root
@@ -883,6 +887,7 @@ mod tests {
         let mut wz = a.write_zipper_at_path(b"ro");
         let rz = b.read_zipper();
         wz.graft(&rz);
+        drop(wz);
 
         //Test that the original keys were left alone, above the graft point
         assert_eq!(a.get(b"arrow").unwrap(), &0);
@@ -924,6 +929,7 @@ mod tests {
         let mut rz = b.read_zipper();
         rz.descend_to(b"ro");
         wz.join(&rz);
+        drop(wz);
 
         //Test that the original keys were left alone, above the graft point
         assert_eq!(a.val_count(), 20);
@@ -1005,6 +1011,7 @@ mod tests {
         wz.graft(&rz);
         rz.reset();
         assert!(wz.join(&rz));
+        drop(wz);
 
         assert_eq!(map.val_count(), 5);
         let values: Vec<String> = map.iter().map(|(path, _)| String::from_utf8_lossy(&path[..]).to_string()).collect();
@@ -1019,6 +1026,7 @@ mod tests {
 
         let mut wz = map.write_zipper_at_path(b"roman");
         wz.remove_branch();
+        drop(wz);
 
         //Test that the original keys were left alone, above the graft point
         assert_eq!(map.get(b"arrow").unwrap(), &0);
@@ -1038,6 +1046,7 @@ mod tests {
         assert!(wz.path_exists());
         wz.remove_branch();
         assert!(!wz.path_exists());
+        drop(wz);
 
         let mut wz = map.write_zipper();
         wz.descend_to(b"abcdefghijklmnopq");
@@ -1046,6 +1055,8 @@ mod tests {
         wz.remove_branch();
         assert!(!wz.path_exists());
         assert_eq!(wz.path(), b"abcdefghijklmnopq");
+        drop(wz);
+
         assert!(!map.contains_path(b"abcdefghijklmnopq"));
         assert!(!map.contains_path(b"abc"));
     }
@@ -1065,6 +1076,7 @@ mod tests {
         let mut wz = map.write_zipper_at_path(b"123:");
 
         wz.drop_head(4);
+        drop(wz);
 
         let ref_keys: Vec<&[u8]> = vec![
             b"123:Bob",
@@ -1089,6 +1101,8 @@ mod tests {
         let mut wz = map.write_zipper_at_path(b"123:");
 
         wz.insert_prefix(b"pet:");
+        drop(wz);
+
         // let paths: Vec<String> = map.iter().map(|(k, _)| String::from_utf8_lossy(&k[..]).to_string()).collect();
         let ref_keys: Vec<&[u8]> = vec![
             b"123:pet:Bob:Fido",
@@ -1102,6 +1116,8 @@ mod tests {
         wz.insert_prefix(b"people:");
         //let paths: Vec<String> = map.iter().map(|(k, _)| String::from_utf8_lossy(&k[..]).to_string()).collect();
         wz.drop_head(b"people:".len());
+        drop(wz);
+
         assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
     }
 
@@ -1113,6 +1129,8 @@ mod tests {
         let mut wr = map.write_zipper();
         wr.descend_to(b"rom");
         let sub_map = wr.take_map().unwrap();
+        drop(wr);
+
         let sub_map_keys: Vec<String> = sub_map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect();
         assert_eq!(sub_map_keys, ["'i", "an", "ane", "anus", "ulus"]);
         let map_keys: Vec<String> = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect();
@@ -1121,6 +1139,8 @@ mod tests {
         let mut wr = map.write_zipper();
         wr.descend_to(b"c");
         wr.join_map(sub_map);
+        drop(wr);
+
         let map_keys: Vec<String> = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect();
         assert_eq!(map_keys, ["arrow", "bow", "c'i", "can", "cane", "cannon", "canus", "culus", "rubens", "ruber", "rubicon", "rubicundus"]);
     }
@@ -1136,6 +1156,7 @@ mod tests {
         let mut m = [0, 0, 0, 0];
         for b in "abc".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
         wr.remove_masked_branches(m);
+        drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
 
@@ -1166,6 +1187,7 @@ mod tests {
         wr.descend_to("d".as_bytes());
         for b in "o".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
         wr.remove_masked_branches(m);
+        drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
 

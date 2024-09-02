@@ -1,14 +1,6 @@
 
-use core::cell::RefCell;
-
-/// Tracks the root paths of every outstanding zipper, to check for violations with the
-/// [ByteTrieMap::write_zipper_at_exclusive_path_unchecked] API.
-#[derive(Default)]
-struct ZipperPaths {
-    read_zippers: RefCell<Vec<Vec<u8>>>,
-    write_zippers: RefCell<Vec<Vec<u8>>>
-}
-
+/// Tracks the root path of each zipper, to check for violations against all other outstanding zipper paths.
+/// See [ByteTrieMap::write_zipper_at_exclusive_path_unchecked].
 #[cfg(debug_assertions)]
 #[derive(Default)]
 pub(crate) struct ZipperTracker {
@@ -17,12 +9,37 @@ pub(crate) struct ZipperTracker {
     is_tracking: IsTracking,
 }
 
+/// A shared registry of every outstanding zipper
+#[cfg(debug_assertions)]
 #[derive(Default)]
+struct ZipperPaths {
+    read_zippers: core::cell::RefCell<Vec<Vec<u8>>>,
+    write_zippers: core::cell::RefCell<Vec<Vec<u8>>>
+}
+
+#[cfg(debug_assertions)]
+#[derive(Debug, Default)]
 enum IsTracking {
     #[default]
     Map,
     WriteZipper,
     ReadZipper,
+}
+
+#[cfg(debug_assertions)]
+impl core::fmt::Debug for ZipperTracker {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let _ = writeln!(f, "ZipperTracker {{ type = {:?}, path = {:?}", self.is_tracking, self.this_path);
+        let _ = writeln!(f, "\tRead Zippers:");
+        for rz in self.all_paths.read_zippers.borrow().iter() {
+            let _ = writeln!(f, "\t\t{rz:?}");
+        }
+        let _ = writeln!(f, "\tWrite Zippers:");
+        for wz in self.all_paths.write_zippers.borrow().iter() {
+            let _ = writeln!(f, "\t\t{wz:?}");
+        }
+        write!(f, "}}")
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -86,9 +103,9 @@ pub(crate) struct ZipperTracker(());
 #[cfg(not(debug_assertions))]
 impl ZipperTracker {
     #[inline]
-    pub fn new_write_path(&self, path: &[u8]) -> Self { Self(()) }
+    pub fn new_write_path(&self, _path: &[u8]) -> Self { Self(()) }
     #[inline]
-    pub fn new_read_path(&self, path: &[u8]) -> Self { Self(()) }
+    pub fn new_read_path(&self, _path: &[u8]) -> Self { Self(()) }
     #[inline]
-    pub fn new_read_path_no_check(&self, path: &[u8]) -> Self { Self(()) }
+    pub fn new_read_path_no_check(&self, _path: &[u8]) -> Self { Self(()) }
 }

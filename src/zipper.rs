@@ -145,6 +145,10 @@ pub struct ReadZipper<'a, 'k, V> {
     zipper_tracker: ZipperTracker,
 }
 
+impl<V> Drop for ReadZipper<'_, '_, V> {
+    fn drop(&mut self) { }
+}
+
 impl<'a, 'k, V> Clone for ReadZipper<'a, 'k, V> where V: Clone {
     fn clone(&self) -> Self {
         Self {
@@ -988,6 +992,7 @@ mod tests {
             // println!("{val}  {} = {}", std::str::from_utf8(sub_zipper.path()).unwrap(), std::str::from_utf8(&rs[val].as_bytes()[3..]).unwrap());
             assert_eq!(&rs[val].as_bytes()[3..], sub_zipper.path());
         }
+        drop(sub_zipper);
 
         for (path, &val) in zipper {
             // println!("{val}  {} = {}", std::str::from_utf8(&path).unwrap(), std::str::from_utf8(rs[val].as_bytes()).unwrap());

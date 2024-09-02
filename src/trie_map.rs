@@ -86,6 +86,7 @@ impl<V: Clone> BytesTrieMap<V> {
 
             i += step;
         }
+        drop(zipper);
 
         new_map
     }
@@ -496,6 +497,8 @@ mod tests {
 
         let mut zipper = btm.write_zipper_at_path(b"cannon");
         assert_eq!(zipper.get_value_or_insert(42), &2);
+        drop(zipper);
+
         let mut zipper = btm.write_zipper_at_path(b"dagger");
         assert_eq!(zipper.get_value_or_insert(42), &42);
     }
