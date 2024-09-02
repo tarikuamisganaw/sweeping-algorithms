@@ -6,6 +6,7 @@ use crate::trie_map::BytesTrieMap;
 use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
+use crate::zipper_tracking::*;
 use crate::ring::{Lattice, PartialDistributiveLattice};
 #[cfg(feature = "all_dense_nodes")]
 use crate::dense_byte_node::DenseByteNode;
@@ -17,6 +18,7 @@ pub struct WriteZipper<'a, 'k, V> {
     key: KeyFields<'k>,
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
     focus_stack: MutCursorRootedVec<'a, TrieNodeODRc<V>, dyn TrieNode<V>>,
+    zipper_tracker: ZipperTracker,
 }
 
 /// The part of the [WriteZipper] that contains the key-related fields.  So it can be borrowed separately
@@ -166,7 +168,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
 
     fn fork_zipper(&self) -> ReadZipper<V> {
         let new_root_val = self.get_value();
-        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap(), &self.key.root_key, None, new_root_val)
+        let zipper_tracker = self.zipper_tracker.new_read_path_no_check(&self.key.root_key);
+        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap(), &self.key.root_key, None, new_root_val, zipper_tracker)
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
@@ -184,21 +187,22 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
 
 impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
-    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
         let (key, node) = node_along_path_mut(root_node, path);
-        Self::new_with_node_and_path_internal(node, key)
+        Self::new_with_node_and_path_internal(node, key, zipper_tracker)
     }
     /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
     /// the node
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(root_node);
         focus_stack.advance_from_root(|root| Some(root.make_mut()));
         Self {
             key: KeyFields::new(path),
             focus_stack,
+            zipper_tracker,
         }
     }
 

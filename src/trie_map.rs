@@ -4,6 +4,7 @@ use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice, PartialQuantale};
+use crate::zipper_tracking::*;
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -20,14 +21,14 @@ use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice, Part
 /// assert_eq!(map.get("two"), Some(&"2".to_string()));
 /// assert!(!map.contains("three"));
 /// ```
-#[repr(transparent)]
 pub struct BytesTrieMap<V> {
-    root: UnsafeCell<TrieNodeODRc<V>>
+    root: UnsafeCell<TrieNodeODRc<V>>,
+    zipper_tracker: ZipperTracker,
 }
 
 impl<V: Clone> Clone for BytesTrieMap<V> {
     fn clone(&self) -> Self {
-        Self{ root: UnsafeCell::new(self.root().clone()) }
+        Self::new_with_root(self.root().clone())
     }
 }
 
@@ -53,7 +54,10 @@ impl<V: Clone> BytesTrieMap<V> {
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
     #[inline]
     pub(crate) fn new_with_root(root: TrieNodeODRc<V>) -> Self {
-        Self { root: UnsafeCell::new(root) }
+        Self {
+            root: UnsafeCell::new(root),
+            zipper_tracker: ZipperTracker::default(),
+        }
     }
 
     pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
@@ -98,22 +102,26 @@ impl<V: Clone> BytesTrieMap<V> {
 
     /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
     pub fn read_zipper(&self) -> ReadZipper<V> {
-        ReadZipper::new_with_node_and_path_internal(self.root().borrow(), &[], Some(0), None)
+        let zipper_tracker = self.zipper_tracker.new_read_path(&[]);
+        ReadZipper::new_with_node_and_path_internal(self.root().borrow(), &[], Some(0), None, zipper_tracker)
     }
 
     /// Creates a new [ReadZipper] with the specified path from the root of the map
     pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
-        ReadZipper::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()))
+        let zipper_tracker = self.zipper_tracker.new_read_path(path);
+        ReadZipper::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()), zipper_tracker)
     }
 
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap
     pub fn write_zipper(&mut self) -> WriteZipper<V> {
-        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[])
+        let zipper_tracker = self.zipper_tracker.new_write_path(&[]);
+        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[], zipper_tracker)
     }
 
     /// Creates a new [WriteZipper] with the specified path from the root of the map
     pub fn write_zipper_at_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
-        WriteZipper::new_with_node_and_path(self.root_mut(), path.as_ref())
+        let zipper_tracker = self.zipper_tracker.new_write_path(path);
+        WriteZipper::new_with_node_and_path(self.root_mut(), path, zipper_tracker)
     }
 
     /// Creates a new [WriteZipper] with the specified path from the root of the map, where the
@@ -122,19 +130,17 @@ impl<V: Clone> BytesTrieMap<V> {
     /// NOTE: There is no safe version of this method because we don't want to pay the overhead of
     /// tracking every ReadZipper's path in a release build
     pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, 'k>(&'a self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
-
-        //GOAT TODO: Make a debug check for exclusivity, so this will panic if the method is misused, when
-        // running a debug build
         let path_len = path.len();
         if path_len == 0 {
             panic!("Fatal Error: Root path cannot be modified without mutable access to the map.  Use TrieMap::write_zipper");
         }
+        let zipper_tracker = self.zipper_tracker.new_write_path(path);
         let (_created_node, parent_node) = prepare_exclusive_write_path(&mut *self.root.get(), &path[..path_len-1]);
         let _created_cf = parent_node.make_mut().as_dense_mut().unwrap().prepare_cf(path[path_len-1]);
         //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
-        WriteZipper::new_with_node_and_path_internal(parent_node, &path[path_len-1..])
+        WriteZipper::new_with_node_and_path_internal(parent_node, &path[path_len-1..], zipper_tracker)
     }
 
     /// Returns an iterator over all key-value pairs within the map

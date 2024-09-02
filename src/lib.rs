@@ -9,6 +9,9 @@ pub mod trie_map;
 /// Cursors that can move over a trie, to inspect and modify contained elements or entire branches
 pub mod zipper;
 
+/// Track outstanding zippers to be sure they don't conflict
+pub(crate) mod zipper_tracking;
+
 /// Features to inspect performance properties of trees, for optimizing
 #[cfg(feature = "counters")]
 pub mod counters;

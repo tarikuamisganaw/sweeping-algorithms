@@ -796,40 +796,44 @@ impl<V> LineListNode<V> {
         let mut replacement_node = DenseByteNode::<V>::with_capacity(capacity);
 
         //1. Transplant the key / value from slot_1 to the new node
-        let mut slot_0_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut slot_0_payload, &mut self.val_or_child0);
-        let key_0 = unsafe{ self.key_unchecked::<0>() };
-        //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
-        // make an intermediate node to hold the rest of the key
-        if key_0.len() > 1 {
-            let mut child_node = Self::new();
-            unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr::<0>(), slot_0_payload); }
-            replacement_node.set_child(key_0[0], TrieNodeODRc::new(child_node));
-        } else {
-            if self.is_child_ptr::<0>() {
-                let child_node = unsafe{ ManuallyDrop::into_inner(slot_0_payload.child) };
-                replacement_node.set_child(key_0[0], child_node);
+        if self.is_used::<0>() {
+            let mut slot_0_payload = ValOrChildUnion{ _unused: () };
+            core::mem::swap(&mut slot_0_payload, &mut self.val_or_child0);
+            let key_0 = unsafe{ self.key_unchecked::<0>() };
+            //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
+            // make an intermediate node to hold the rest of the key
+            if key_0.len() > 1 {
+                let mut child_node = Self::new();
+                unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr::<0>(), slot_0_payload); }
+                replacement_node.set_child(key_0[0], TrieNodeODRc::new(child_node));
             } else {
-                let val_0 = unsafe{ ManuallyDrop::into_inner(slot_0_payload.val) };
-                replacement_node.set_val(key_0[0], LocalOrHeap::into_inner(val_0));
+                if self.is_child_ptr::<0>() {
+                    let child_node = unsafe{ ManuallyDrop::into_inner(slot_0_payload.child) };
+                    replacement_node.set_child(key_0[0], child_node);
+                } else {
+                    let val_0 = unsafe{ ManuallyDrop::into_inner(slot_0_payload.val) };
+                    replacement_node.set_val(key_0[0], LocalOrHeap::into_inner(val_0));
+                }
             }
         }
 
         //2. Transplant the key / value from slot_1 to the new node
-        let mut slot_1_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut slot_1_payload, &mut self.val_or_child1);
-        let key_1 = unsafe{ self.key_unchecked::<1>() };
-        if key_1.len() > 1 {
-            let mut child_node = Self::new();
-            unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr::<1>(), slot_1_payload); }
-            replacement_node.set_child(key_1[0], TrieNodeODRc::new(child_node));
-        } else {
-            if self.is_child_ptr::<1>() {
-                let child_node = unsafe{ ManuallyDrop::into_inner(slot_1_payload.child) };
-                replacement_node.set_child(key_1[0], child_node);
+        if self.is_used::<1>() {
+            let mut slot_1_payload = ValOrChildUnion{ _unused: () };
+            core::mem::swap(&mut slot_1_payload, &mut self.val_or_child1);
+            let key_1 = unsafe{ self.key_unchecked::<1>() };
+            if key_1.len() > 1 {
+                let mut child_node = Self::new();
+                unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr::<1>(), slot_1_payload); }
+                replacement_node.set_child(key_1[0], TrieNodeODRc::new(child_node));
             } else {
-                let val_1 = unsafe{ ManuallyDrop::into_inner(slot_1_payload.val) };
-                replacement_node.set_val(key_1[0], LocalOrHeap::into_inner(val_1));
+                if self.is_child_ptr::<1>() {
+                    let child_node = unsafe{ ManuallyDrop::into_inner(slot_1_payload.child) };
+                    replacement_node.set_child(key_1[0], child_node);
+                } else {
+                    let val_1 = unsafe{ ManuallyDrop::into_inner(slot_1_payload.val) };
+                    replacement_node.set_val(key_1[0], LocalOrHeap::into_inner(val_1));
+                }
             }
         }
 
