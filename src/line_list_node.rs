@@ -167,6 +167,34 @@ impl<V> LineListNode<V> {
         }
     }
     #[inline]
+    fn clone_with_updated_payloads(&self, payload_0: Option<ValOrChildUnion<V>>, payload_1: Option<ValOrChildUnion<V>>) -> Option<Self> {
+        match (payload_0, payload_1) {
+            (Some(slot0_payload), Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let (key0, key1) = self.get_both_keys();
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (Some(slot0_payload), None) => {
+                let mut new_node = Self::new();
+                let key0 = unsafe{ self.key_unchecked::<0>() };
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (None, Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let key1 = unsafe{ self.key_unchecked::<1>() };
+                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (None, None) => None,
+        }
+    }
+    #[inline]
     pub fn is_used<const SLOT: usize>(&self) -> bool {
         match SLOT {
             0 => self.header & (1 << 15) > 0,
@@ -854,7 +882,10 @@ impl<V> LineListNode<V> {
                     let meet_node = if onward_key.len() == 0 {
                         self_onward_link.borrow().meet_dyn(onward_node)
                     } else {
-                        self_onward_link.borrow().meet_dyn(onward_node.get_node_at_key(onward_key).borrow())
+                        match onward_node.get_node_at_key(onward_key).into_option() {
+                            Some(other_onward_node) => self_onward_link.borrow().meet_dyn(other_onward_node.borrow()),
+                            None => None
+                        }
                     };
                     meet_node.map(|node| ValOrChildUnion::from(node))
                 } else {
@@ -878,7 +909,7 @@ impl<V> LineListNode<V> {
     /// If this method returns `(false, None)`, it means the original value should be "annihilated", e.g. complete
     ///   subtraction leaving nothing behind
     /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
-    /// If it returns `(false, Some(_))` then a new payload was created
+    /// If it returns `(false, Some(_))` then a new node was created
     #[inline]
     fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone + PartialDistributiveLattice {
         if !self.is_used::<SLOT>() {
@@ -891,7 +922,10 @@ impl<V> LineListNode<V> {
                 let difference = if onward_key.len() == 0 {
                     self_onward_link.borrow().psubtract_dyn(onward_node)
                 } else {
-                    self_onward_link.borrow().psubtract_dyn(onward_node.get_node_at_key(onward_key).borrow())
+                    match onward_node.get_node_at_key(onward_key).into_option() {
+                        Some(other_onward_node) => self_onward_link.borrow().psubtract_dyn(other_onward_node.borrow()),
+                        None => return (true, None) //We can keep the child that is already here
+                    }
                 };
                 debug_assert!(difference.1.as_ref().map(|node| node.borrow().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true));
                 (difference.0, difference.1.map(|node| ValOrChildUnion::from(node)))
@@ -906,6 +940,42 @@ impl<V> LineListNode<V> {
         } else {
             //We subtracted nothing from the slot, so the source should be referenced, unmodified
             (true, None)
+        }
+    }
+    /// Internal method to restrict the contents of `SLOT` with the contents of the `other` node
+    /// If this method returns `(false, None)`, it means the original value should be "annihilated", e.g. complete
+    ///   removal leaving nothing behind
+    /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
+    /// If it returns `(false, Some(_))` then a new node was created
+    #[inline]
+    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone {
+        if self.is_used::<SLOT>() {
+            let path = unsafe{ self.key_unchecked::<SLOT>() };
+            let (found_val, onward) = follow_path_to_value(other, path);
+            if found_val {
+                return (true, None);
+            }
+            if let Some((onward_key, onward_node)) = onward {
+                if self.is_child_ptr::<SLOT>() {
+                    let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
+                    let restricted_node = if onward_key.len() == 0 {
+                        self_onward_link.borrow().prestrict_dyn(onward_node)
+                    } else {
+                        match onward_node.get_node_at_key(onward_key).into_option() {
+                            Some(other_onward_node) => self_onward_link.borrow().prestrict_dyn(other_onward_node.borrow()),
+                            None => unreachable!() //return (true, None) //We can keep the child that is already here.  GOAT UPDATE.  I think this case should be unreachable because follow_path_to_value() would have returned None
+                        }
+                    };
+                    //GOAT, should carry an "unmodified" flag out of prestrict_dyn, and propagate it here
+                    (false, restricted_node.map(|node| ValOrChildUnion::from(node)))
+                } else {
+                    (false, None)
+                }
+            } else {
+                (false, None)
+            }
+        } else {
+            (false, None)
         }
     }
 }
@@ -1102,6 +1172,28 @@ fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Op
     }
 }
 
+/// Follows a path from a node, returning `(true, _)` if a value was encountered along the path, returns
+/// `(false, Some)` if the path continues, and `(false, None)` if the path does not descend from the node
+#[inline]
+fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V>)>) {
+    while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
+        if consumed_byte_cnt < key.len() {
+            node = next_node;
+            key = &key[consumed_byte_cnt..]
+        } else {
+            return (false, Some((key, node)));
+        };
+    }
+    if let Some(_) = node.node_first_val_depth_along_key(key) {
+        return (true, None);
+    }
+    if node.node_contains_partial_key(key) {
+        (false, Some((key, node)))
+    } else {
+        (false, None)
+    }
+}
+
 impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         if self.is_used::<0>() {
@@ -1261,6 +1353,17 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn item_count(&self) -> usize {
         self.count()
     }
+    fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize> {
+        debug_assert!(key.len() > 0);
+        let (key0, key1) = self.get_both_keys();
+        if self.is_used_value_0() && key.starts_with(key0) {
+            return Some(key0.len() - 1)
+        }
+        if self.is_used_value_1() && key.starts_with(key1) {
+            return Some(key1.len() - 1)
+        }
+        None
+    }
     fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
 
         //If `n==1` we know the only way we will find a valid result is if it's in slot_1.  On the other
@@ -1312,10 +1415,9 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
     fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         //Logic:  There are 6 possible results from this method:
-        // 1. The `key` arg is a prefix for both node keys, in which case this method should return
-        //   the common key between the two node keys, or the result in slot0 if there is no common prefix.
-        //   Since the format doesn't permit prefix overlap by more than 1 byte, this case can only occur
-        //   with a zero-length `key` arg.
+        // 1. The `key` arg is zero-length, in which case this method should return the common prefix
+        //    (which is guaranteed to be one byte or less) if there is on, or otherwise return the 
+        //    result in slot0
         // 2. The supplied key exactly matches key0 and key1.  In this case, the result is whichever of the
         //    two results is an onward node link. This case can only occur if the `key` arg length is 1.
         // 3. The supplied key exactly matches key0 and is a prefix of key1.  The result is the remaining
@@ -1334,11 +1436,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             if key1.len() > 0 && key0[0] == key1[0] {
                 return (Some(&key0[0..1]), None);
             } else {
-                let remaining_key = remaining_key(key0, key.len());
                 if self.is_child_ptr::<0>() {
-                    return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
                 } else {
-                    return (Some(remaining_key), None)
+                    return (Some(key0), None)
                 }
             }
         }
@@ -1765,28 +1866,8 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         debug_assert!(validate_node(self));
         let slot0_payload = self.meet_slot_contents::<0>(other);
         let slot1_payload = self.meet_slot_contents::<1>(other);
-        match (slot0_payload, slot1_payload) {
-            (Some(slot0_payload), Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let (key0, key1) = self.get_both_keys();
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                Some(TrieNodeODRc::new(new_node))
-            },
-            (Some(slot0_payload), None) => {
-                let mut new_node = Self::new();
-                let key0 = unsafe{ self.key_unchecked::<0>() };
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                Some(TrieNodeODRc::new(new_node))
-            },
-            (None, Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let key1 = unsafe{ self.key_unchecked::<1>() };
-                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                Some(TrieNodeODRc::new(new_node))
-            },
-            (None, None) => None,
-        }
+        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
+        new_node.map(|node| TrieNodeODRc::new(node))
     }
 
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
@@ -1799,36 +1880,25 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             (false, true) => slot1_payload = self.clone_payload::<1>().map(|payload| payload.into()),
             (false, false) => {},
         }
-//GOAT, look at whether I can factor this out with meet_dyn
-        match (slot0_payload, slot1_payload) {
-            (Some(slot0_payload), Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let (key0, key1) = self.get_both_keys();
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                debug_assert!(validate_node(&new_node));
-                (false, Some(TrieNodeODRc::new(new_node)))
-            },
-            (Some(slot0_payload), None) => {
-                let mut new_node = Self::new();
-                let key0 = unsafe{ self.key_unchecked::<0>() };
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                debug_assert!(validate_node(&new_node));
-                (false, Some(TrieNodeODRc::new(new_node)))
-            },
-            (None, Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let key1 = unsafe{ self.key_unchecked::<1>() };
-                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                debug_assert!(validate_node(&new_node));
-                (false, Some(TrieNodeODRc::new(new_node)))
-            },
-            (None, None) => (false, None),
-        }
+        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
+        (false, new_node.map(|node| TrieNodeODRc::new(node)))
     }
 
     fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
-        panic!();
+        debug_assert!(validate_node(self));
+        let (slot0_unmodified, mut slot0_payload) = self.restrict_slot_contents::<0>(other);
+        let (slot1_unmodified, mut slot1_payload) = self.restrict_slot_contents::<1>(other);
+        match (slot0_unmodified, slot1_unmodified) {
+            (true, true) => { //=> return (true, None), GOAT, should early-out when node is unmodified, but prestrict_dyn doesn't have the right signature
+                slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
+                slot1_payload = self.clone_payload::<1>().map(|payload| payload.into());
+            }
+            (true, false) => slot0_payload = self.clone_payload::<0>().map(|payload| payload.into()),
+            (false, true) => slot1_payload = self.clone_payload::<1>().map(|payload| payload.into()),
+            (false, false) => {},
+        }
+        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
+        new_node.map(|node| TrieNodeODRc::new(node))
     }
 
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {

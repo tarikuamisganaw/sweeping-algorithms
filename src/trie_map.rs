@@ -248,6 +248,15 @@ impl<V: Clone> BytesTrieMap<V> {
     pub fn val_count(&self) -> usize {
         return self.root().borrow().node_subtree_len()
     }
+
+    /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
+    /// values in `other`
+    pub fn restrict(&self, other: &Self) -> Self {
+        match self.root().borrow().prestrict_dyn(other.root().borrow()) {
+            Some(new_root) => Self::new_with_root(new_root),
+            None => Self::new()
+        }
+    }
 }
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one

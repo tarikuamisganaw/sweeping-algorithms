@@ -96,6 +96,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn item_count(&self) -> usize {
         0
     }
+    fn node_first_val_depth_along_key(&self, _key: &[u8]) -> Option<usize> {
+        None
+    }
     fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }

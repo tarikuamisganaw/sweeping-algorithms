@@ -137,6 +137,17 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// it will be counted as one item
     fn item_count(&self) -> usize;
 
+    /// Returns the depth (byte count) of the first value encountered along the specified key
+    ///
+    /// For example, if the node contains a value at "he" and another value at "hello", this method should
+    /// return `Some(1)` for the key "hello", because the "he" value is encountered first.  Returns `None`
+    /// if no value is contained within the node along the specified `key`.
+    ///
+    /// If this method returns `Some(n)`, then `node_get_val(&key[..=n])` must return a non-None result.
+    ///
+    /// This method will never be called with a zero-length key.
+    fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize>;
+
     /// Returns the nth child in the branch specified by `key` within this node, as the prefix leading to
     /// that child and optionally a new node
     ///

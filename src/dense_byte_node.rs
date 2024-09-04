@@ -474,6 +474,54 @@ impl<V> DenseByteNode<V> {
             (false, Some(TrieNodeODRc::new(new_node)))
         }
     }
+
+    /// Internal method to restrict using nodes of an abstract type
+    fn prestrict_abstract(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: Clone {
+        let mut new_node = Self::new();
+
+        //Go over each populated entry in the node
+        self.for_each_item(|self_node, key_byte, cf_idx| {
+            if other.node_contains_partial_key(&[key_byte]) {
+                let cf = unsafe{ self_node.values.get_unchecked(cf_idx) };
+
+                //If there is a comparable value in other, keep the whole cf
+                if let Some(_) = other.node_get_val(&[key_byte]) {
+                    new_node.set(key_byte);
+                    new_node.values.push(cf.clone());
+                } else {
+
+                    //If there is an onward link in the CF and other node, continue the restriction recursively
+                    if let Some(self_child) = &cf.rec {
+                        let other_child = other.get_node_at_key(&[key_byte]);
+                        match other_child.try_borrow() {
+                            Some(other_child) => {
+                                let restricted = self_child.borrow().prestrict_dyn(other_child);
+                                let mut new_cf = CoFree::new();
+                                // if restricted.0 {
+                                //     new_cf.rec = Some(self_child.clone());
+                                // } else {
+                                //     new_cf.rec = restricted.1;
+                                // }
+                                new_cf.rec = restricted; //GOAT, optimization opportunity to track when we can reuse a whole node unmodified. See commented out code above.
+                                if new_cf.rec.is_some() {
+                                    new_node.set(key_byte);
+                                    new_node.values.push(new_cf);
+                                }
+                            },
+                            None => { }
+                        }
+                    }
+                }
+            }
+        });
+        if new_node.is_empty() {
+            (false, None)
+        } else {
+            //GOAT, OPTIMIZATION OPPORTUNITY. track whether any unique new nodes were created, or
+            // whether we can just past back the "unmodified" flag for self
+            (false, Some(TrieNodeODRc::new(new_node)))
+        }
+    }
 }
 
 /*
@@ -893,7 +941,16 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn item_count(&self) -> usize {
         self.values.len()
     }
-
+    fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize> {
+        debug_assert!(key.len() > 0);
+        self.get(key[0]).and_then(|cf| {
+            if cf.value.is_some() {
+                Some(0)
+            } else {
+                None
+            }
+        })
+    }
     fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         debug_assert_eq!(key.len(), 0);
         // NOTE: This code was originally written to support indexing from the front or the back of
@@ -1160,7 +1217,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         if let Some(other_dense_node) = other.as_dense() {
             self.prestrict(other_dense_node).map(|node| TrieNodeODRc::new(node))
         } else {
-            panic!();
+            let (_, restricted) = self.prestrict_abstract(other);
+            // GOAT, Optimization opportunity to return a "reuse node unmodified" flag
+            restricted
         }
     }
 

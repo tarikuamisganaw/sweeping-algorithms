@@ -180,6 +180,24 @@ mod tests {
         assert_eq!(remaining.val_count(), l.val_count())
     }
 
+    #[test]
+    fn btm_simple_tree_restrict_test() {
+        let mut l: BytesTrieMap<&str> = BytesTrieMap::new();
+        l.insert(b"alligator", "alligator");
+        l.insert(b"allegedly", "allegedly");
+        l.insert(b"albatross", "albatross");
+        l.insert(b"albino", "albino");
+        let mut r: BytesTrieMap<&str> = BytesTrieMap::new();
+        r.insert(b"all", "all");
+        let restricted = l.restrict(&r);
+
+        assert_eq!(restricted.val_count(), 2);
+        assert_eq!(restricted.get(b"alligator"), Some(&"alligator"));
+        assert_eq!(restricted.get(b"albino"), None);
+        assert_eq!(restricted.get(b"allegedly"), Some(&"allegedly"));
+        assert_eq!(restricted.get(b"albatross"), None);
+    }
+
     /// Tests values that are attached along the paths to other keys, and also tests the absence of keys
     /// after existing values.
     #[test]
