@@ -388,14 +388,18 @@ pub(crate) fn prepare_exclusive_write_path<'a, V: Clone>(root_node: &'a mut Trie
 
     //See below.  Temporary work-around for lack of pononius
     let parent_node_ptr: *mut TrieNodeODRc<V> = parent_node;
-    let (remaining_key, node) = match parent_node.make_mut().node_get_child_mut(remaining_key) {
-        Some((consumed_byte_cnt, node)) => (&remaining_key[consumed_byte_cnt..], node),
-        None => {
-            //SAFETY: The borrow of `parent_node` above is dropped in the case where `node_get_child_mut`
-            // returns `None`. Polonius is ok with this.
-            let parent_node = unsafe{ &mut *parent_node_ptr };
-            (remaining_key, parent_node)
+    let (remaining_key, node) = if remaining_key.len() > 0 {
+        match parent_node.make_mut().node_get_child_mut(remaining_key) {
+            Some((consumed_byte_cnt, node)) => (&remaining_key[consumed_byte_cnt..], node),
+            None => {
+                //SAFETY: The borrow of `parent_node` above is dropped in the case where `node_get_child_mut`
+                // returns `None`. Polonius is ok with this.
+                let parent_node = unsafe{ &mut *parent_node_ptr };
+                (remaining_key, parent_node)
+            }
         }
+    } else {
+        (remaining_key, parent_node)
     };
 
     if remaining_key.len() == 0 {
