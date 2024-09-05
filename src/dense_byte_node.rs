@@ -1137,8 +1137,13 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         if let Some(other_dense_node) = other_node.as_dense_mut() {
             self.join_into(core::mem::take(other_dense_node));
         } else {
-            //GOAT, need to iterate other, grow self, and merge each item in other into self
-            panic!();
+            if let Some(other_list_node) = other.borrow().as_list() {
+                //GOAT, optimization opportunity to take the contents from the list, rather than cloning
+                // them, to turn around and drop the ListNode and free them / decrement the refcounts
+                merge_into_dense_node(self, other_list_node);
+            } else {
+                unreachable!()
+            }
         }
     }
 

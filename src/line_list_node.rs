@@ -1859,7 +1859,41 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
-        panic!()
+        debug_assert!(byte_cnt > 0);
+        if !self.is_used::<0>() {
+            return None
+        }
+        //Case for a node with only one slot filled
+        if !self.is_used::<1>() {
+            let is_child0 = self.is_child_ptr::<0>();
+            let payload0 = core::mem::take(&mut self.val_or_child0);
+            let key0 = unsafe{ self.key_unchecked::<0>() };
+
+            // See if we just shorten the key, or if we need to recurse
+            if byte_cnt < key0.len() {
+                let mut new_node = Self::new();
+                unsafe{ new_node.set_payload_0(&key0[byte_cnt..], is_child0, payload0); }
+                self.header = 0; //This is ugly, but prevents double-free of the payload when the self node is dropped
+                debug_assert!(validate_node(&new_node));
+                return Some(TrieNodeODRc::new(new_node))
+            } else {
+                let remaining_bytes = byte_cnt-key0.len();
+                self.header = 0; 
+                if is_child0 {
+                    let mut child = ManuallyDrop::into_inner(unsafe{ payload0.child });
+                    if remaining_bytes > 0 {
+                        return child.make_mut().drop_head_dyn(remaining_bytes)
+                    } else {
+                        return Some(child)
+                    }
+                } else {
+                    return None
+                }
+            }
+        }
+        //GOAT, gotta handle nodes with both slots filled!
+        panic!();
+
     }
 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
