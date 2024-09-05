@@ -1,4 +1,6 @@
 
+use std::rc::Rc;
+use std::collections::HashMap;
 use dyn_clone::*;
 
 use crate::dense_byte_node::*;
@@ -129,7 +131,7 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>;
 
     /// Returns the total number of leaves contained within the whole subtree defined by the node
-    fn node_subtree_len(&self) -> usize;
+    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
 
     #[cfg(feature = "counters")]
     /// Returns the number of internal paths within the node.  That includes child nodes descending from
@@ -352,6 +354,28 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::BorrowedRc(rc) => Some(rc.clone()),
             AbstractNodeRef::OwnedRc(rc) => Some(rc)
         }
+    }
+}
+
+/// Returns the count of values in the subtrie descending from the node, caching shared subtries
+pub(crate) fn val_count_below_root<V>(node: &dyn TrieNode<V>) -> usize {
+    let mut cache = std::collections::HashMap::new();
+    node.node_val_count(&mut cache)
+}
+
+pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
+    if Rc::strong_count(node.as_rc()) > 1 {
+        let ptr = Rc::as_ptr(node.as_rc());
+        match cache.get(&ptr) {
+            Some(cached) => *cached,
+            None => {
+                let val = node.borrow().node_val_count(cache);
+                cache.insert(ptr, val);
+                val
+            },
+        }
+    } else {
+        node.borrow().node_val_count(cache)
     }
 }
 

@@ -1,6 +1,7 @@
 
 use core::marker::PhantomData;
 use core::fmt::{Debug, Formatter};
+use std::collections::HashMap;
 
 use crate::trie_node::*;
 use crate::ring::*;
@@ -89,7 +90,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
         panic!()
     }
-    fn node_subtree_len(&self) -> usize {
+    fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         0
     }
     #[cfg(feature = "counters")]

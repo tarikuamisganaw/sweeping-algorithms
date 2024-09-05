@@ -246,7 +246,7 @@ impl<V: Clone> BytesTrieMap<V> {
     ///
     /// WARNING: This is not a cheap method. It may have an order-N cost
     pub fn val_count(&self) -> usize {
-        return self.root().borrow().node_subtree_len()
+        return val_count_below_root(self.root().borrow())
     }
 
     /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 

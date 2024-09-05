@@ -1,6 +1,7 @@
 
-use std::fmt::{Debug, Formatter};
-use std::ptr;
+use core::fmt::{Debug, Formatter};
+use core::ptr;
+use std::collections::HashMap;
 
 //OPTIMIZATION QUESTION 2, a note on Rc vs. rclite: Rc's payload bloat is 16 bytes, while rclite's is much smaller <8 Bytes.
 // That's a big deal on a DenseByteNode because it pushes it from a single cache line onto two.
@@ -913,7 +914,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
         Box::new(DenseByteNodeIter::new(self))
     }
-    fn node_subtree_len(&self) -> usize {
+    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         //Discussion: These two implementations do the same thing but with a slightly different ordering of
         // the operations.  In `all_dense_nodes`, the "Branchy" impl wins.  But in a mixed-node setting, the
         // IMPL B is the winner.  My suspicion is that the ListNode's heavily branching structure leads to
@@ -934,7 +935,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
 
         //IMPL B "Arithmetic"
         return self.values.iter().rfold(0, |t, cf| {
-            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| r.borrow().node_subtree_len()).unwrap_or(0)
+            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| val_count_below_node(r, cache)).unwrap_or(0)
         });
     }
     #[cfg(feature = "counters")]

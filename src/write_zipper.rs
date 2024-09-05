@@ -1,7 +1,7 @@
 
 use mutcursor::MutCursorRootedVec;
 
-use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef, node_along_path_mut};
+use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef, node_along_path_mut, val_count_below_root};
 use crate::trie_map::BytesTrieMap;
 use crate::empty_node::EmptyNode;
 use crate::zipper::*;
@@ -74,7 +74,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
         if focus.is_none() {
             0
         } else {
-            focus.borrow().node_subtree_len() + (self.is_value() as usize)
+            val_count_below_root(focus.borrow()) + (self.is_value() as usize)
         }
     }
 

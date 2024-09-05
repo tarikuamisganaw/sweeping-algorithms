@@ -21,7 +21,7 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::trie_node::{TrieNode, AbstractNodeRef};
+use crate::trie_node::{TrieNode, AbstractNodeRef, val_count_below_root};
 use crate::trie_map::BytesTrieMap;
 
 pub use crate::write_zipper::*;
@@ -203,13 +203,13 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn val_count(&self) -> usize {
         if self.node_key().len() == 0 {
-            self.focus_node.node_subtree_len() + (self.is_value() as usize)
+            val_count_below_root(self.focus_node) + (self.is_value() as usize)
         } else {
             let focus = self.get_focus();
             if focus.is_none() {
                 0
             } else {
-                focus.borrow().node_subtree_len() + (self.is_value() as usize)
+                val_count_below_root(focus.borrow()) + (self.is_value() as usize)
             }
         }
     }

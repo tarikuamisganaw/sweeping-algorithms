@@ -1,5 +1,6 @@
 use core::mem::{ManuallyDrop, MaybeUninit};
 use core::iter::Iterator;
+use std::collections::HashMap;
 
 use local_or_heap::LocalOrHeap;
 
@@ -1331,7 +1332,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         Box::new(ListNodeIter::new(self))
     }
 
-    fn node_subtree_len(&self) -> usize {
+    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         let mut result = 0;
         if self.is_used_value_0() {
             result += 1;
@@ -1341,11 +1342,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         if self.is_used_child_0() {
             let child_node = unsafe{ self.child_in_slot::<0>() };
-            result += child_node.borrow().node_subtree_len();
+            result += val_count_below_node(child_node, cache);
         }
         if self.is_used_child_1() {
             let child_node = unsafe{ self.child_in_slot::<1>() };
-            result += child_node.borrow().node_subtree_len();
+            result += val_count_below_node(child_node, cache);
         }
         result
     }
