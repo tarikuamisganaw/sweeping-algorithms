@@ -486,7 +486,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     ///
     /// Returns `true` if the restriction was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
-    pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+    pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
@@ -509,7 +509,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// operation is as a bunch of "stems" in the WriteZipper, that get their downstream contents populated
     /// by the corresponding paths in the ReadZipper.  Ideas for names are: "blossom", "fill_in", "expound",
     /// "populate", etc.  I avoided "bloom" and "expand" because those both have other connotations.
-    pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+    pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
