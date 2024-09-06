@@ -88,6 +88,7 @@ impl<V> Drop for LineListNode<V> {
 
 impl<V: Clone> Clone for LineListNode<V> {
     fn clone(&self) -> Self {
+        debug_assert!(validate_node(self));
         let val_or_child0 = if self.is_used::<0>() {
             if self.is_child_ptr::<0>() {
                 let child = unsafe{ &self.val_or_child0.child }.clone();
@@ -150,7 +151,7 @@ impl<V> core::fmt::Debug for LineListNode<V> {
             "".to_string()
         };
         write!(f,
-               "LineListNode (\nslot0: occupied={} is_child={} key=\"{}\"\nslot1: occupied={} is_child={} key=\"{}\")",
+               "LineListNode (\nslot0: occupied={} is_child={} key={:?}\nslot1: occupied={} is_child={} key={:?})",
                self.is_used::<0>(), self.is_child_ptr::<0>(), key_0,
                self.is_used::<1>(), self.is_child_ptr::<1>(), key_1)
     }
@@ -764,6 +765,10 @@ impl<V> LineListNode<V> {
         let node_key_0 = unsafe{ self.key_unchecked::<0>() };
         let mut overlap = find_prefix_overlap(key, node_key_0);
         if overlap > 0 {
+            if IS_CHILD && self.is_child_ptr::<0>() {
+                let _ = self.take_payload::<0>();
+                return self.set_payload_abstract::<IS_CHILD>(key, payload)
+            }
             if overlap == node_key_0.len() || overlap == key.len() {
                 overlap -= 1;
             }
@@ -788,6 +793,10 @@ impl<V> LineListNode<V> {
         let node_key_1 = unsafe{ self.key_unchecked::<1>() };
         let mut overlap = find_prefix_overlap(key, node_key_1);
         if overlap > 0 {
+            if IS_CHILD && self.is_child_ptr::<1>() {
+                let _ = self.take_payload::<1>();
+                return self.set_payload_abstract::<IS_CHILD>(key, payload)
+            }
             if overlap == node_key_1.len() || overlap == key.len() {
                 overlap -= 1;
             }
@@ -1532,19 +1541,18 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
-        panic!() //todo
+        let (key0, key1) = self.get_both_keys();
+        let mut m = [0u64; 4];
 
-//Here is some code, but it doesn't take key into account
-//     let mut m = [0u64; 4];
-//     if self.is_used::<0>() {
-//         let k = unsafe{ *self.key_unchecked::<0>().as_ptr() };
-//         m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
-//     }
-//     if self.is_used::<1>() {
-//         let k = unsafe{ *self.key_unchecked::<1>().as_ptr() };
-//         m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
-//     }
-//     m
+        if key0.len() > key.len() && key0.starts_with(key) {
+            let k = key0[key.len()];
+            m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
+        }
+        if key1.len() > key.len() && key1.starts_with(key) {
+            let k = key1[key.len()];
+            m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
+        }
+        m
     }
 
     fn is_leaf(&self, key: &[u8]) -> bool {
@@ -1866,22 +1874,28 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         //Case for a node with only one slot filled
         if !self.is_used::<1>() {
-            let is_child0 = self.is_child_ptr::<0>();
-            let payload0 = core::mem::take(&mut self.val_or_child0);
-            let key0 = unsafe{ self.key_unchecked::<0>() };
+            let mut temp_node = core::mem::take(self);
+            let key_len = temp_node.key_len_0();
 
-            // See if we just shorten the key, or if we need to recurse
-            if byte_cnt < key0.len() {
-                let mut new_node = Self::new();
-                unsafe{ new_node.set_payload_0(&key0[byte_cnt..], is_child0, payload0); }
-                self.header = 0; //This is ugly, but prevents double-free of the payload when the self node is dropped
-                debug_assert!(validate_node(&new_node));
-                return Some(TrieNodeODRc::new(new_node))
+            // See if we just shorten the key in this node, or if we need to discard the node entirely and recurse
+            if byte_cnt < key_len {
+                let new_key_len = key_len-byte_cnt;
+                unsafe{
+                    let src_ptr: *const u8 = temp_node.key_bytes.get_unchecked_mut(byte_cnt).as_ptr();
+                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    core::ptr::copy(src_ptr, dst_ptr, new_key_len);
+                }
+                temp_node.header &= 0xf03f; //Zero out the old length, and reset it
+                temp_node.header |= (new_key_len << 6) as u16;
+                debug_assert!(validate_node(&temp_node));
+                return Some(TrieNodeODRc::new(temp_node))
             } else {
-                let remaining_bytes = byte_cnt-key0.len();
-                self.header = 0; 
-                if is_child0 {
-                    let mut child = ManuallyDrop::into_inner(unsafe{ payload0.child });
+                let remaining_bytes = byte_cnt-key_len;
+                if temp_node.is_child_ptr::<0>() {
+                    let mut child = match temp_node.take_payload::<0>().unwrap() {
+                        ValOrChild::Child(child) => child,
+                        ValOrChild::Val(_) => unreachable!(),
+                    };
                     if remaining_bytes > 0 {
                         return child.make_mut().drop_head_dyn(remaining_bytes)
                     } else {
@@ -2014,17 +2028,19 @@ fn validate_node<V>(node: &LineListNode<V>) -> bool {
 
     //If a key is used it must be non-zero length
     if node.is_used::<0>() && key0.len() == 0 || node.is_used::<1>() && key1.len() == 0 {
-        println!("Invalid node - zero-length key {node:?}");
+        println!("Invalid node - zero-length key. {node:?}");
         panic!()
     }
 
     //We are never allowed to have an onward child pointer in slot_0 if the key in slot_1 is a superset of the key in slot_0
     if node.is_used_child_0() && key1.starts_with(key0) && key1.len() > key0.len() {
+        println!("Invalid node - ambiguous path violation. {node:?}");
         panic!()
     }
 
     //If slot_1 is filled, the key in slot_1 may never be a subset of the key in slot_0, only a superset
     if node.is_used::<1>() && key0.len() > key1.len() && key0.starts_with(key1) {
+        println!("Invalid node - ordering violation. {node:?}");
         panic!()
     }
 
