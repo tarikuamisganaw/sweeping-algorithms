@@ -1078,8 +1078,7 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
 
     //We're never allowed to have an onward child key that is shorter than another key, so if that's
     // the case we need to split the longer key, and try to join the resulting nodes
-    if b_key_len == overlap && b.is_child_ptr::<BSLOT>() {
-        debug_assert!(a_key_len > overlap);
+    if b_key_len == overlap && b.is_child_ptr::<BSLOT>() && a_key_len > overlap {
         let a_payload = a.clone_payload::<ASLOT>().unwrap();
         let b_child = unsafe{ b.child_in_slot::<BSLOT>() };
         let mut intermediate_node = LineListNode::new();
@@ -1088,8 +1087,7 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
         let joined = b_child.join(&TrieNodeODRc::new(intermediate_node));
         return Some((&a_key[0..overlap], ValOrChild::Child(joined)))
     }
-    if a_key_len == overlap && a.is_child_ptr::<ASLOT>() {
-        debug_assert!(b_key_len > overlap);
+    if a_key_len == overlap && a.is_child_ptr::<ASLOT>() && b_key_len > overlap {
         let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
         let b_payload = b.clone_payload::<BSLOT>().unwrap();
         let mut intermediate_node = LineListNode::new();
