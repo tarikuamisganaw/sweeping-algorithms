@@ -828,6 +828,30 @@ impl<V> LineListNode<V> {
         Err(replacement_node)
     }
 
+    /// Ensures that a node is valid by combining an illegal shared prefix between the keys if there is one
+    /// This is currently used by drop_head, because dropping a disjoint prefix may cause downstream paths
+    /// to collide, and thus require merging
+    #[inline]
+    fn factor_prefix(&mut self) where V: Clone + Lattice {
+        let (key0, key1) = self.get_both_keys();
+        let overlap = find_prefix_overlap(key0, key1);
+        //Overlap of 1 is legal if and only if ONE OF the following two conditions are true:
+        // A: slot0 contains a value
+        // B: both slots have a length of 1, and one is a value
+        let legal_overlap = overlap == 1 && (
+            !self.is_child_ptr::<0>() ||
+            (!self.is_child_ptr::<1>() && key0.len()==1 && key1.len()==1 ));
+
+        //If the overlap is illegal, split the prefix
+        if overlap > 0 && !legal_overlap {
+            if let Some((shared_key, merged_payload)) = merge_guts::<V, 0, 1>(overlap, key0, self, key1, self) {
+                let mut new_node = Self::new();
+                unsafe{ new_node.set_payload_owned::<0>(shared_key, merged_payload) };
+                *self = new_node;
+            }
+        }
+    }
+
     /// Converts the node to a DenseByteNode, transplanting the contents and leaving `self` empty
     #[inline]
     pub(crate) fn convert_to_dense(&mut self, capacity: usize) -> TrieNodeODRc<V> where V: Clone {
@@ -1867,9 +1891,20 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
     fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
         debug_assert!(byte_cnt > 0);
+
+        //If the node has any values with where `key_len <= byte_cnt`, we can discard those values now
+        if self.is_used_value_1() && self.key_len_1() <= byte_cnt {
+            let _ = self.take_payload::<1>();
+        }
+        if self.is_used_value_0() && self.key_len_0() <= byte_cnt {
+            let _ = self.take_payload::<0>();
+        }
+
+        //If the node is empty, we're done
         if !self.is_used::<0>() {
             return None
         }
+
         //Case for a node with only one slot filled
         if !self.is_used::<1>() {
             let mut temp_node = core::mem::take(self);
@@ -1879,7 +1914,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             if byte_cnt < key_len {
                 let new_key_len = key_len-byte_cnt;
                 unsafe{
-                    let src_ptr: *const u8 = temp_node.key_bytes.get_unchecked_mut(byte_cnt).as_ptr();
+                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt).as_ptr();
                     let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
                     core::ptr::copy(src_ptr, dst_ptr, new_key_len);
                 }
@@ -1889,24 +1924,95 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                 return Some(TrieNodeODRc::new(temp_node))
             } else {
                 let remaining_bytes = byte_cnt-key_len;
-                if temp_node.is_child_ptr::<0>() {
-                    let mut child = match temp_node.take_payload::<0>().unwrap() {
-                        ValOrChild::Child(child) => child,
-                        ValOrChild::Val(_) => unreachable!(),
-                    };
-                    if remaining_bytes > 0 {
-                        return child.make_mut().drop_head_dyn(remaining_bytes)
-                    } else {
-                        return Some(child)
-                    }
+                debug_assert!(temp_node.is_child_ptr::<0>() == true);
+                let mut child = match temp_node.take_payload::<0>().unwrap() {
+                    ValOrChild::Child(child) => child,
+                    ValOrChild::Val(_) => unreachable!(),
+                };
+                if remaining_bytes > 0 {
+                    return child.make_mut().drop_head_dyn(remaining_bytes)
                 } else {
-                    return None
+                    return Some(child)
                 }
             }
         }
-        //GOAT, gotta handle nodes with both slots filled!
-        panic!();
 
+        //If we get here, both slots are filled
+        debug_assert_eq!(self.is_used::<0>(), true);
+        debug_assert_eq!(self.is_used::<1>(), true);
+        let mut temp_node = core::mem::take(self);
+        let (key0, key1) = temp_node.get_both_keys();
+        let key0_len = key0.len();
+        let key1_len = key1.len();
+
+        //If byte_cnt < both key lengths, reuse this node but shorten the keys
+        if byte_cnt < key0_len && byte_cnt < key1_len {
+            let mut slot0_child = temp_node.is_child_ptr::<0>();
+            let mut slot1_child = temp_node.is_child_ptr::<1>();
+            let mut new_key0_len = key0_len-byte_cnt;
+            let mut new_key1_len = key1_len-byte_cnt;
+            //Make sure the new keys are in the correctly sorted order
+            if &key0[byte_cnt..] <= &key1[byte_cnt..] {
+                unsafe {
+                    //Shorten key0
+                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt).as_ptr();
+                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
+                    //Shorten key1
+                    let src_ptr = temp_node.key_bytes.get_unchecked(key0_len+byte_cnt).as_ptr();
+                    let dst_ptr = temp_node.key_bytes.get_unchecked_mut(new_key0_len).as_mut_ptr();
+                    core::ptr::copy(src_ptr, dst_ptr, new_key1_len);
+                }
+            } else {
+                unsafe {
+                    //Move key0 into a temp buffer
+                    let mut tmp_key_buf: [MaybeUninit<u8>; KEY_BYTES_CNT] = [MaybeUninit::new(0); KEY_BYTES_CNT];
+                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt);
+                    let dst_ptr = tmp_key_buf.as_mut_ptr();
+                    core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
+                    //Shorten key1 into the key0 slot
+                    let src_ptr = temp_node.key_bytes.get_unchecked(key0_len+byte_cnt).as_ptr();
+                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    core::ptr::copy(src_ptr, dst_ptr, new_key1_len);
+                    //Move the temp key into the key1 slot
+                    let src_ptr = tmp_key_buf.as_ptr();
+                    let dst_ptr = temp_node.key_bytes.get_unchecked_mut(new_key1_len);
+                    core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
+                }
+                core::mem::swap(&mut new_key0_len, &mut new_key1_len);
+                core::mem::swap(&mut slot0_child, &mut slot1_child);
+                core::mem::swap(&mut temp_node.val_or_child0, &mut temp_node.val_or_child1);
+            }
+            temp_node.header = Self::header0(slot0_child, new_key0_len) | Self::header1(slot1_child, new_key1_len);
+            temp_node.factor_prefix();
+            debug_assert!(validate_node(&temp_node));
+            return Some(TrieNodeODRc::new(temp_node))
+        }
+
+        //The final case is to construct a brand new node from the remaining parts of the key after we have
+        // discarded what we can discard and then merged together what's left.  And then call this function
+        // recursively on the newly merged nodes
+        let chop_bytes = byte_cnt.min(key0_len).min(key1_len);
+        debug_assert!(chop_bytes > 0);
+        let new_key0 = &key0[chop_bytes-1..];
+        let new_key1 = &key1[chop_bytes-1..];
+
+        let overlap = find_prefix_overlap(&key0[chop_bytes..], &key1[chop_bytes..]);
+        let merged_payload = if let Some((_shared_key, merged_payload)) = merge_guts::<V, 0, 1>(overlap+1, new_key0, &temp_node, new_key1, &temp_node) {
+            merged_payload
+        } else {
+            unreachable!()
+        };
+
+        if let ValOrChild::Child(mut child_node) = merged_payload {
+            if chop_bytes == byte_cnt {
+                return Some(child_node)
+            } else {
+                return child_node.make_mut().drop_head_dyn(byte_cnt-chop_bytes)
+            }
+        }
+
+        unreachable!()
     }
 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {

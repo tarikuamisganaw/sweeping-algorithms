@@ -1091,6 +1091,60 @@ mod tests {
     }
 
     #[test]
+    fn write_zipper_drop_head_long_key_test() {
+
+        //A single long key
+        let key = b"12345678901234567890123456789012345678901234567890";
+        let mut map: BytesTrieMap<u64> = BytesTrieMap::<u64>::new();
+        map.insert(key, 42);
+        for i in 0..key.len() {
+            assert_eq!(map.get(&key[i..]), Some(&42));
+            let mut wz = map.write_zipper();
+            wz.drop_head(1);
+        }
+
+        //A slightly more complicated tree
+        let keys: Vec<&[u8]> = vec![
+            b"12345678901234567890123456789012345678901234567890",
+            b"12345ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrs",
+            b"1234567890FGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrs",
+            b"123456789012345KLMNOPQRSTUVWXYZabcdefghijklmnopqrs",
+            b"12345678901234567890PQRSTUVWXYZabcdefghijklmnopqrs",
+            b"1234567890123456789012345UVWXYZabcdefghijklmnopqrs",
+            b"123456789012345678901234567890Zabcdefghijklmnopqrs",
+            b"12345678901234567890123456789012345efghijklmnopqrs",
+            b"1234567890123456789012345678901234567890jklmnopqrs",
+            b"123456789012345678901234567890123456789012345opqrs", ];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        for i in 0..keys[0].len() {
+            assert_eq!(map.get(&keys[0][i..]), Some(&0));
+            if i < 45 {
+                assert_eq!(map.get(&keys[9][i..]), Some(&9));
+            }
+            if i > 10 {
+                assert_eq!(map.val_count(), 11-(i/5));
+            }
+            let mut wz = map.write_zipper();
+            wz.drop_head(1);
+        }
+    }
+
+    #[test]
+    fn write_zipper_drop_head_test2() {
+        let keys: Vec<Vec<u8>> = vec![
+            vec![1, 2, 4, 65, 2, 42, 237, 3, 1, 173, 165, 3, 16, 200, 213, 4, 0, 166, 47, 81, 4, 0, 167, 216, 181, 4, 6, 125, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144],
+            vec![1, 2, 4, 69, 2, 13, 183],
+        ];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wz = map.write_zipper_at_path(&[1]);
+        wz.drop_head(3);
+        drop(wz);
+
+        assert_eq!(map.get(&vec![1, 2, 42, 237, 3, 1, 173, 165, 3, 16, 200, 213, 4, 0, 166, 47, 81, 4, 0, 167, 216, 181, 4, 6, 125, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144]), Some(&0));
+        assert_eq!(map.get(&vec![1, 2, 13, 183]), Some(&1));
+    }
+
+    #[test]
     fn write_zipper_insert_prefix_test() {
         let keys = [
             "123:Bob:Fido",

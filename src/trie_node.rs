@@ -483,7 +483,7 @@ mod opaque_dyn_rc_trie_node {
             where T: 'odb + TrieNode<V>,
             V: 'odb
         {
-            let inner = std::rc::Rc::new(obj) as std::rc::Rc<dyn TrieNode<V>>;
+            let inner: std::rc::Rc<dyn TrieNode<V>> = std::rc::Rc::new(obj);
             //SAFETY NOTE: The key to making this abstraction safe is the bound on this method,
             // such that it's impossible to create this wrapper around a concrete type unless the
             // same lifetime can bound both the trait's type parameter and the type itself
