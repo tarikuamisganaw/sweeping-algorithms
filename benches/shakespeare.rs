@@ -1,6 +1,6 @@
 
 use divan::{Divan, Bencher, black_box};
-use ringmap::trie_map::BytesTrieMap;
+use pathmap::trie_map::BytesTrieMap;
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -75,7 +75,7 @@ fn shakespeare_words_get(bencher: Bencher) {
         map.insert(k, v);
     }
 
-    // let counters = ringmap::counters::Counters::count_ocupancy(&map);
+    // let counters = pathmap::counters::Counters::count_ocupancy(&map);
     // // counters.print_histogram_by_depth();
     // counters.print_run_length_histogram();
 
@@ -130,7 +130,7 @@ fn shakespeare_sentences_get(bencher: Bencher) {
         map.insert(k, v);
     }
 
-    // let counters = ringmap::counters::Counters::count_ocupancy(&map);
+    // let counters = pathmap::counters::Counters::count_ocupancy(&map);
     // // counters.print_histogram_by_depth();
     // counters.print_run_length_histogram();
 

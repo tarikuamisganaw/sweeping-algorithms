@@ -1,7 +1,7 @@
 
 use divan::{Divan, Bencher, black_box};
-use ringmap::ring::*;
-use ringmap::trie_map::BytesTrieMap;
+use pathmap::ring::*;
+use pathmap::trie_map::BytesTrieMap;
 
 fn main() {
     // Run registered benchmarks.

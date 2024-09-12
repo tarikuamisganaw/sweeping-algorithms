@@ -3,8 +3,8 @@
 use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
 use std::time::Instant;
-use ringmap::ring::*;
-use ringmap::trie_map::BytesTrieMap;
+use pathmap::ring::*;
+use pathmap::trie_map::BytesTrieMap;
 
 // #[global_allocator]
 // static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

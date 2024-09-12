@@ -1,5 +1,6 @@
 use core::cell::UnsafeCell;
 
+use std::mem;
 use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -12,7 +13,7 @@ use crate::zipper_tracking::*;
 /// ["Bitwise trie with bitmap" Wikipedia article](https://en.wikipedia.org/wiki/Bitwise_trie_with_bitmap).
 ///
 /// ```
-/// # use ringmap::trie_map::BytesTrieMap;
+/// # use pathmap::trie_map::BytesTrieMap;
 /// let mut map = BytesTrieMap::<String>::new();
 /// map.insert("one", "1".to_string());
 /// map.insert("two", "2".to_string());
