@@ -1,12 +1,10 @@
 #![allow(warnings)]
 
 use std::alloc::{alloc, dealloc, Layout};
-use std::hash::Hash;
 use std::ptr;
 use std::time::Instant;
-use ringmap::ring::*;
-use ringmap::bytize::*;
-use ringmap::bytetrie::BytesTrieMap;
+use pathmap::ring::*;
+use pathmap::trie_map::BytesTrieMap;
 
 // #[global_allocator]
 // static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -29,7 +27,7 @@ fn main() {
         r
     }
 
-    let mut buffer = unsafe { alloc(Layout::new::<u64>()) };
+    let buffer = unsafe { alloc(Layout::new::<u64>()) };
 
     let mut first = true;
     for N in [1000, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000] {
@@ -44,7 +42,7 @@ fn main() {
                 for i in 0..N { assert_eq!(vnl.get(gen_key(i, buffer)), Some(i).as_ref()); }
                 for i in N..2*N { assert_eq!(vnl.get(gen_key(i, buffer)), None); }
                 let mut c: Vec<u64> = Vec::with_capacity(N as usize);
-                vnl.items().for_each(|(k, v)| {
+                vnl.iter().for_each(|(k, v)| {
                     assert!(0 <= *v && *v < N);
                     assert_eq!(k, gen_key(*v, buffer));
                     c.push(parse_key(&k[..], buffer));

@@ -1,8 +1,7 @@
 
 use divan::{Divan, Bencher, black_box};
-use ringmap::ring::*;
-use ringmap::bytize::*;
-use ringmap::bytetrie::BytesTrieMap;
+use pathmap::ring::*;
+use pathmap::trie_map::BytesTrieMap;
 
 fn main() {
     // Run registered benchmarks.
@@ -13,51 +12,35 @@ fn main() {
 }
 
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
-fn join(bencher: Bencher, n: u64) {
+fn superdense_join(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;
-    {
-        let mut vnl = BytesTrieMap::new();
-        let mut vnr = BytesTrieMap::new();
-        for i in 0..n { vnl.insert(prefix_key(&i), i); }
-        // println!("{:?}", vnl.root);
-        for i in 0..n { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
-        for i in n..2*n { assert_eq!(vnl.get(prefix_key(&i)), None); }
-        let mut c: Vec<u64> = Vec::with_capacity(n as usize);
-        vnl.items().for_each(|(k, v)| {
-            assert!(*v < n);
-            assert_eq!(k, prefix_key(&v));
-            c.push(from_prefix_key(k.clone()));
-        });
-        c.sort();
-        assert_eq!(c, (0..n).collect::<Vec<u64>>());
-        for i in o..(n+o) { vnr.insert(prefix_key(&i), i); }
 
-        //Benchmark the join operation
-        let mut j: BytesTrieMap<u64> = BytesTrieMap::new();
-        bencher.bench_local(|| {
-            *black_box(&mut j) = vnl.join(black_box(&vnr));
-        });
+    let mut vnl = BytesTrieMap::new();
+    let mut vnr = BytesTrieMap::new();
+    for i in 0..n { vnl.insert(prefix_key(&i), i); }
+    // println!("{:?}", vnl.root);
+    for i in 0..n { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
+    for i in n..2*n { assert_eq!(vnl.get(prefix_key(&i)), None); }
+    let mut c: Vec<u64> = Vec::with_capacity(n as usize);
+    vnl.iter().for_each(|(k, v)| {
+        assert!(*v < n);
+        assert_eq!(k, prefix_key(&v));
+        c.push(from_prefix_key(k.clone()));
+    });
+    c.sort();
+    assert_eq!(c, (0..n).collect::<Vec<u64>>());
+    for i in o..(n+o) { vnr.insert(prefix_key(&i), i); }
 
-        //Sanity check that we didn't break anything and the benchmarks are valid
-        let m = vnl.meet(&vnr);
-        let l_no_r = vnl.subtract(&vnr);
-        for i in 0..n { assert_eq!(l_no_r.get(prefix_key(&i)), vnl.get(prefix_key(&i))); }
-        for i in n..(2*n) { assert!(!l_no_r.contains(prefix_key(&i))); }
-
-        for i in o..n { assert!(vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i))); }
-        for i in 0..o { assert!(vnl.contains(prefix_key(&i)) && !vnr.contains(prefix_key(&i))); }
-        for i in n..(n+o) { assert!(!vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i))); }
-        for i in 0..(2*n) { assert_eq!(j.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) || vnr.contains(prefix_key(&i)))); }
-        for i in 0..(2*n) { assert_eq!(m.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i)))); }
-        for i in 0..(n+o) { assert_eq!(j.get(prefix_key(&i)), vnl.get(prefix_key(&i)).join(&vnr.get(prefix_key(&i)))); }
-        for i in o..n { assert_eq!(m.get(prefix_key(&i)), vnl.get(prefix_key(&i)).meet(&vnr.get(prefix_key(&i)))); }
-        // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
-    }
+    //Benchmark the join operation
+    let mut j: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut j) = vnl.join(black_box(&vnr));
+    });
 }
 
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
-fn insert(bencher: Bencher, n: u64) {
+fn superdense_insert(bencher: Bencher, n: u64) {
 
     //Benchmark the insert operation
     let out = bencher.with_inputs(|| {
@@ -70,7 +53,7 @@ fn insert(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
-fn drop_bench(bencher: Bencher, n: u64) {
+fn superdense_drop_bench(bencher: Bencher, n: u64) {
 
     //Benchmark the time taken to drop the map
     bencher.with_inputs(|| {
@@ -83,7 +66,7 @@ fn drop_bench(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
-fn get(bencher: Bencher, n: u64) {
+fn superdense_get(bencher: Bencher, n: u64) {
 
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
@@ -96,8 +79,57 @@ fn get(bencher: Bencher, n: u64) {
     });
 }
 
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn superdense_meet(bencher: Bencher, n: u64) {
+    let overlap = 0.5;
+    let o = ((1. - overlap) * n as f64) as u64;
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { l.insert(prefix_key(&i), i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in o..(n+o) { r.insert(prefix_key(&i), i); }
+
+    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut intersection) = l.meet(black_box(&r));
+    });
+}
+
+/// This tests the performance of the meet op when there are already some shared nodes between the maps
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn superdense_meet_after_join(bencher: Bencher, n: u64) {
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..(n/2) { l.insert(prefix_key(&i), i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in (n/2)..n { r.insert(prefix_key(&i), i); }
+
+    let joined = l.join(&r);
+    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut intersection) = joined.meet(black_box(&l));
+    });
+}
+
+/// This tests the performance of the meet op when there are already some shared nodes between the maps
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn superdense_subtract_after_join(bencher: Bencher, n: u64) {
+
+    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..(n/2) { l.insert(prefix_key(&i), i); }
+    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in (n/2)..n { r.insert(prefix_key(&i), i); }
+
+    let joined = l.join(&r);
+    let mut remaining: BytesTrieMap<u64> = BytesTrieMap::new();
+    bencher.bench_local(|| {
+        *black_box(&mut remaining) = joined.subtract(black_box(&r));
+    });
+    assert_eq!(remaining.val_count(), l.val_count())
+}
+
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
-fn iter(bencher: Bencher, n: u64) {
+fn superdense_iter(bencher: Bencher, n: u64) {
 
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
@@ -105,6 +137,64 @@ fn iter(bencher: Bencher, n: u64) {
     //Benchmark the iterator
     let mut sink = 0;
     bencher.bench_local(|| {
-        map.items().for_each(|(_key, val)| *black_box(&mut sink) = *val);
+        map.iter().for_each(|(_key, val)| *black_box(&mut sink) = *val);
     });
+}
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn superdense_cursor(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the cursor
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        let mut cursor = map.cursor();
+        while let Some((_key, val)) = cursor.next() {
+            *black_box(&mut sink) = *val
+        }
+    });
+}
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn superdense_zipper_cursor(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the cursor
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        let mut zipper = map.read_zipper();
+        while let Some(val) = zipper.to_next_val() {
+            *black_box(&mut sink) = *val
+        }
+    });
+}
+
+fn prefix_key(k: &u64) -> &[u8] {
+    let bs = (8 - k.leading_zeros()/8) as u8;
+    let kp: *const u64 = k;
+    unsafe { std::slice::from_raw_parts(kp as *const _, (bs as usize).max(1)) }
+}
+
+fn from_prefix_key(k: Vec<u8>) -> u64 {
+    let kp =  k.as_ptr() as *const u64;
+    let shift = 64usize.saturating_sub(k.len()*8);
+    unsafe { (*kp) & (!0u64 >> shift) }
+}
+
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+fn superdense_val_count_bench(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the time taken to count the number of values in the map
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = map.val_count()
+    });
+    assert_eq!(sink, n as usize);
 }
