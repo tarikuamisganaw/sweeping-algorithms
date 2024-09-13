@@ -115,8 +115,14 @@ impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
     fn node_get_child_and_val_mut(&mut self, _key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> { unreachable!() }
     fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> { unreachable!() }
     fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> { unreachable!() }
-    fn node_contains_val(&self, _key: &[u8]) -> bool {
-        panic!();
+    fn node_contains_val(&self, key: &[u8]) -> bool {
+        if self.is_used_val() {
+            let node_key = self.key();
+            if node_key == key {
+                return true;
+            }
+        }
+        false
     }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         if self.is_used_val() {
@@ -214,14 +220,17 @@ impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
     }
     fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice { unreachable!() }
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice { unreachable!() }
-    fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
-        panic!();
+    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
+        //GOAT, is this worth bespoke code to save some cycles?
+        self.into_full().unwrap().meet_dyn(other)
     }
-    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
-        panic!();
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+        //GOAT, is this worth bespoke code to save some cycles?
+        self.into_full().unwrap().psubtract_dyn(other)
     }
-    fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
-        panic!();
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
+        //GOAT, is this worth bespoke code to save some cycles?
+        self.into_full().unwrap().prestrict_dyn(other)
     }
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         None
