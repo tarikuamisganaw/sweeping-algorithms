@@ -168,7 +168,6 @@ impl<V> LineListNode<V> {
             val_or_child1: ValOrChildUnion{ _unused: () },
         }
     }
-    #[inline]
     fn clone_with_updated_payloads(&self, payload_0: Option<ValOrChildUnion<V>>, payload_1: Option<ValOrChildUnion<V>>) -> Option<Self> {
         match (payload_0, payload_1) {
             (Some(slot0_payload), Some(slot1_payload)) => {
@@ -379,7 +378,6 @@ impl<V> LineListNode<V> {
     }
     /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
     /// created, or false if everything fit within self
-    #[inline]
     unsafe fn set_payload_0_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
         if key.len() <= KEY_BYTES_CNT {
             //The entire key fits within the node
@@ -395,7 +393,6 @@ impl<V> LineListNode<V> {
     }
     /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
     /// created, or false if everything fit within self
-    #[inline]
     unsafe fn set_payload_1_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
         debug_assert!(!self.is_used::<1>());
 
@@ -425,7 +422,6 @@ impl<V> LineListNode<V> {
     }
     /// Shifts the contents of slot_0 to slot_1, and puts the supplied payload into slot_0.  Returns `true`
     /// if a continuation node was created, or false if everything fit within self
-    #[inline]
     unsafe fn set_payload_0_shift_existing(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
         debug_assert!(self.is_used::<0>());
         debug_assert!(!self.is_used::<1>());
@@ -478,7 +474,6 @@ impl<V> LineListNode<V> {
         }
     }
     /// Takes the contents of SLOT.  If SLOT is 0 then it shifts the contents of slot_1 into slot_0
-    #[inline]
     fn take_payload<const SLOT: usize>(&mut self) -> Option<ValOrChild<V>> {
         if !self.is_used::<SLOT>() {
             return None;
@@ -516,7 +511,6 @@ impl<V> LineListNode<V> {
         }
     }
     /// Shifts the contents of slot1 into slot0, obliterating the contents of slot0
-    #[inline]
     fn shift_1_to_0(&mut self) {
         if self.is_used::<1>() {
             self.val_or_child0 = core::mem::take(&mut self.val_or_child1);
@@ -533,7 +527,6 @@ impl<V> LineListNode<V> {
         }
     }
     /// Returns the clone of the value or child in the slot
-    #[inline]
     fn clone_payload<const SLOT: usize>(&self) -> Option<ValOrChild<V>> where V: Clone {
         if !self.is_used::<SLOT>() {
             return None;
@@ -571,7 +564,6 @@ impl<V> LineListNode<V> {
         self.set_payload_1(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
     }
     /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
-    #[inline]
     fn split_0(&mut self, idx: usize) where V: Clone {
         let mut self_payload = ValOrChildUnion{ _unused: () };
         core::mem::swap(&mut self_payload, &mut self.val_or_child0);
@@ -603,7 +595,6 @@ impl<V> LineListNode<V> {
         }
     }
     /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
-    #[inline]
     fn split_1(&mut self, idx: usize) where V: Clone {
         let mut self_payload = ValOrChildUnion{ _unused: () };
         core::mem::swap(&mut self_payload, &mut self.val_or_child1);
@@ -619,7 +610,6 @@ impl<V> LineListNode<V> {
         let slot_mask_0 = self.flags_and_len_0();
         self.header = (slot_mask_0 | 0x5000 | idx) as u16;
     }
-    #[inline]
     fn contains_val(&self, key: &[u8]) -> bool {
         if self.is_used_value_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
@@ -635,7 +625,6 @@ impl<V> LineListNode<V> {
         }
         false
     }
-    #[inline]
     fn get_val(&self, key: &[u8]) -> Option<&V> {
         if self.is_used_value_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
@@ -653,12 +642,10 @@ impl<V> LineListNode<V> {
         }
         None
     }
-    #[inline]
     fn get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
         self.get_payload_exact_key_mut::<false>(key)
             .map(|val_or_child| unsafe{ &mut **val_or_child.val })
     }
-    #[inline]
     fn get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
@@ -682,7 +669,6 @@ impl<V> LineListNode<V> {
         }
         None
     }
-    #[inline]
     fn get_payload_exact_key_mut<const IS_CHILD: bool>(&mut self, key: &[u8]) -> Option<&mut ValOrChildUnion<V>> {
         if self.is_used::<0>() && self.is_child_ptr::<0>() == IS_CHILD {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
@@ -700,18 +686,19 @@ impl<V> LineListNode<V> {
     }
     #[inline]
     fn get_both_keys(&self) -> (&[u8], &[u8]) {
-        let mut key0: &[u8] = &[];
-        let mut key1: &[u8] = &[];
-        if self.is_used::<0>() {
-            key0 = unsafe{ self.key_unchecked::<0>() };
-        }
-        if self.is_used::<1>() {
-            key1 = unsafe{ self.key_unchecked::<1>() };
-        }
+        let key0 = if self.is_used::<0>() {
+            unsafe{ self.key_unchecked::<0>() }
+        } else {
+            &[]
+        };
+        let key1 = if self.is_used::<1>() {
+            unsafe{ self.key_unchecked::<1>() }
+        } else {
+            &[]
+        };
         (key0, key1)
     }
     #[cfg(feature = "counters")]
-    #[inline]
     fn count(&self) -> usize {
         match (self.is_used::<0>(), self.is_used::<1>()) {
             (true, false) => 1,
@@ -732,7 +719,6 @@ impl<V> LineListNode<V> {
     /// replaced value if there was one.
     ///
     /// See [trie_node::TrieNode::node_set_val] for deeper explanation of behavior
-    #[inline]
     fn set_payload_abstract<const IS_CHILD: bool>(&mut self, key: &[u8], mut payload: ValOrChildUnion<V>) -> Result<(Option<ValOrChildUnion<V>>, bool), TrieNodeODRc<V>> where V: Clone {
 
         // A local function to either set a child or a branch on a downstream node
@@ -835,7 +821,6 @@ impl<V> LineListNode<V> {
     /// Ensures that a node is valid by combining an illegal shared prefix between the keys if there is one
     /// This is currently used by drop_head, because dropping a disjoint prefix may cause downstream paths
     /// to collide, and thus require merging
-    #[inline]
     fn factor_prefix(&mut self) where V: Clone + Lattice {
         let (key0, key1) = self.get_both_keys();
         let overlap = find_prefix_overlap(key0, key1);
@@ -857,7 +842,6 @@ impl<V> LineListNode<V> {
     }
 
     /// Converts the node to a DenseByteNode, transplanting the contents and leaving `self` empty
-    #[inline]
     pub(crate) fn convert_to_dense(&mut self, capacity: usize) -> TrieNodeODRc<V> where V: Clone {
         let mut replacement_node = DenseByteNode::<V>::with_capacity(capacity);
 
@@ -910,7 +894,6 @@ impl<V> LineListNode<V> {
     }
 
     /// Internal method to meet the contents of `SLOT` with the contents of the `other` node
-    #[inline]
     fn meet_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> Option<ValOrChildUnion<V>> where V: Clone + Lattice {
         if self.is_used::<SLOT>() {
             let path = unsafe{ self.key_unchecked::<SLOT>() };
@@ -948,7 +931,6 @@ impl<V> LineListNode<V> {
     ///   subtraction leaving nothing behind
     /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
     /// If it returns `(false, Some(_))` then a new node was created
-    #[inline]
     fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone + PartialDistributiveLattice {
         if !self.is_used::<SLOT>() {
             return (false, None)
@@ -985,7 +967,6 @@ impl<V> LineListNode<V> {
     ///   removal leaving nothing behind
     /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
     /// If it returns `(false, Some(_))` then a new node was created
-    #[inline]
     fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone {
         if self.is_used::<SLOT>() {
             let path = unsafe{ self.key_unchecked::<SLOT>() };
@@ -1058,7 +1039,6 @@ fn should_swap_keys(key0: &[u8], key1: &[u8]) -> bool {
 
 /// Attempts to merge a specific slot in a ListNode with a specific slot in another ListNode.  Returns the merged
 /// (key, payload) pair if a merge was possible, otherwise None
-#[inline]
 fn try_merge<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
     //Are there are any common paths between the nodes?
     let overlap = find_prefix_overlap(a_key, b_key);
@@ -1162,7 +1142,6 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
 }
 
 /// Merges the entries in the ListNode into the DenseByteNode
-#[inline]
 pub fn merge_into_dense_node<V>(dense_node: &mut DenseByteNode<V>, list_node: &LineListNode<V>) where V: Clone + Lattice {
     dense_node.reserve_capacity(2);
 
@@ -1191,7 +1170,6 @@ pub fn merge_into_dense_node<V>(dense_node: &mut DenseByteNode<V>, list_node: &L
     }
 }
 
-#[inline]
 fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V>)> {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         if consumed_byte_cnt < key.len() {
@@ -1210,7 +1188,6 @@ fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Op
 
 /// Follows a path from a node, returning `(true, _)` if a value was encountered along the path, returns
 /// `(false, Some)` if the path continues, and `(false, None)` if the path does not descend from the node
-#[inline]
 fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V>)>) {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         if consumed_byte_cnt < key.len() {
@@ -1232,17 +1209,9 @@ fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u
 
 impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
-        if self.is_used::<0>() {
-            let node_key = unsafe{ self.key_unchecked::<0>() };
-            if node_key.starts_with(key) {
-                return true;
-            }
-        }
-        if self.is_used::<1>() {
-            let node_key = unsafe{ self.key_unchecked::<1>() };
-            if node_key.starts_with(key) {
-                return true;
-            }
+        let (key0, key1) = self.get_both_keys();
+        if key0.starts_with(key) || key1.starts_with(key) {
+            return true;
         }
         false
     }
