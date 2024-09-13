@@ -7,6 +7,7 @@ use crate::dense_byte_node::*;
 use crate::line_list_node::LineListNode;
 use crate::empty_node::EmptyNode;
 use crate::ring::*;
+use crate::tiny_node::TinyRefNode;
 
 /// The abstract interface to all nodes, from which tries are built
 ///
@@ -313,6 +314,7 @@ pub enum AbstractNodeRef<'a, V> {
     None,
     BorrowedDyn(&'a dyn TrieNode<V>),
     BorrowedRc(&'a TrieNodeODRc<V>),
+    BorrowedTiny(TinyRefNode<'a, V>),
     OwnedRc(TrieNodeODRc<V>)
 }
 
@@ -322,6 +324,7 @@ impl<'a, V> core::fmt::Debug for AbstractNodeRef<'a, V> {
             Self::None => write!(f, "AbstractNodeRef::None"),
             Self::BorrowedDyn(_) => write!(f, "AbstractNodeRef::BorrowedDyn"),
             Self::BorrowedRc(_) => write!(f, "AbstractNodeRef::BorrowedRc"),
+            Self::BorrowedTiny(_) => write!(f, "AbstractNodeRef::BorrowedTiny"),
             Self::OwnedRc(_) => write!(f, "AbstractNodeRef::OwnedRc"),
         }
     }
@@ -336,6 +339,7 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::None => panic!(),
             AbstractNodeRef::BorrowedDyn(node) => *node,
             AbstractNodeRef::BorrowedRc(rc) => rc.borrow(),
+            AbstractNodeRef::BorrowedTiny(tiny) => tiny,
             AbstractNodeRef::OwnedRc(rc) => rc.borrow()
         }
     }
@@ -344,6 +348,7 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::None => None,
             AbstractNodeRef::BorrowedDyn(node) => Some(*node),
             AbstractNodeRef::BorrowedRc(rc) => Some(rc.borrow()),
+            AbstractNodeRef::BorrowedTiny(tiny) => Some(tiny),
             AbstractNodeRef::OwnedRc(rc) => Some(rc.borrow())
         }
     }
@@ -352,6 +357,7 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::None => None,
             AbstractNodeRef::BorrowedDyn(node) => Some(node.clone_self()),
             AbstractNodeRef::BorrowedRc(rc) => Some(rc.clone()),
+            AbstractNodeRef::BorrowedTiny(tiny) => tiny.into_full().map(|list_node| TrieNodeODRc::new(list_node)),
             AbstractNodeRef::OwnedRc(rc) => Some(rc)
         }
     }

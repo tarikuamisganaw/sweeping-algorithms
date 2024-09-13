@@ -7,6 +7,7 @@ use local_or_heap::LocalOrHeap;
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::dense_byte_node::DenseByteNode;
+use crate::tiny_node::TinyRefNode;
 
 
 /// A LineListNode stores up to 2 children in a single cache line
@@ -29,10 +30,10 @@ pub struct LineListNode<V> {
 //WARNING the length bits mean I will overflow if I go above 63
 const KEY_BYTES_CNT: usize = 14;
 
-union ValOrChildUnion<V> {
-    child: ManuallyDrop<TrieNodeODRc<V>>,
-    val: ManuallyDrop<LocalOrHeap<V>>,
-    _unused: ()
+pub union ValOrChildUnion<V> {
+    pub child: ManuallyDrop<TrieNodeODRc<V>>,
+    pub val: ManuallyDrop<LocalOrHeap<V>>,
+    pub _unused: ()
 }
 
 impl<V> Default for ValOrChildUnion<V> {
@@ -363,7 +364,7 @@ impl<V> LineListNode<V> {
         self.header |= Self::header1(is_child_ptr, key.len());
     }
     #[inline]
-    unsafe fn set_payload_owned<const SLOT: usize>(&mut self, key: &[u8], payload: ValOrChild<V>) where V: Clone {
+    pub(crate) unsafe fn set_payload_owned<const SLOT: usize>(&mut self, key: &[u8], payload: ValOrChild<V>) where V: Clone {
         match SLOT {
             0 => match payload {
                 ValOrChild::Child(child) => self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }),
@@ -980,10 +981,8 @@ impl<V> LineListNode<V> {
                     let restricted_node = if onward_key.len() == 0 {
                         self_onward_link.borrow().prestrict_dyn(onward_node)
                     } else {
-                        match onward_node.get_node_at_key(onward_key).into_option() {
-                            Some(other_onward_node) => self_onward_link.borrow().prestrict_dyn(other_onward_node.borrow()),
-                            None => unreachable!() //return (true, None) //We can keep the child that is already here.  GOAT UPDATE.  I think this case should be unreachable because follow_path_to_value() would have returned None
-                        }
+                        let other_onward_node = onward_node.get_node_at_key(onward_key);
+                        self_onward_link.borrow().prestrict_dyn(other_onward_node.borrow())
                     };
                     //GOAT, should carry an "unmodified" flag out of prestrict_dyn, and propagate it here
                     (false, restricted_node.map(|node| ValOrChildUnion::from(node)))
@@ -1218,7 +1217,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-            let key_len = self.key_len_0();
+            let key_len = node_key_0.len();
             if key.len() >= key_len {
                 if node_key_0 == &key[..key_len] {
                     let child = unsafe{ self.child_in_slot::<0>().borrow() };
@@ -1228,7 +1227,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         if self.is_used_child_1() {
             let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-            let key_len = self.key_len_1();
+            let key_len = node_key_1.len();
             if key.len() >= key_len {
                 if node_key_1 == &key[..key_len] {
                     let child = unsafe{ self.child_in_slot::<1>().borrow() };
@@ -1658,18 +1657,32 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         //Otherwise check to see if we need to make a sub-node.  If we do,
         // We know the new node will have only 1 slot filled
         if key0.len() > key.len() && key0.starts_with(key) {
-            let mut new_node = Self::new();
-            let payload = self.clone_payload::<0>().unwrap();
-            unsafe{ new_node.set_payload_owned::<0>(&key0[key.len()..], payload); }
-            debug_assert!(validate_node(&new_node));
-            return AbstractNodeRef::OwnedRc(TrieNodeODRc::new(new_node));
+            let new_key = &key0[key.len()..];
+            //If the new node's key is 7 Bytes or fewer, we can make a TinyRefNode
+            if new_key.len() <= 7 {
+                let ref_node = TinyRefNode::new(self.is_child_ptr::<0>(), new_key, &self.val_or_child0);
+                return AbstractNodeRef::BorrowedTiny(ref_node);
+            } else {
+                let mut new_node = Self::new();
+                let payload = self.clone_payload::<0>().unwrap();
+                unsafe{ new_node.set_payload_owned::<0>(new_key, payload); }
+                debug_assert!(validate_node(&new_node));
+                return AbstractNodeRef::OwnedRc(TrieNodeODRc::new(new_node));
+            }
         }
         if key1.len() > key.len() && key1.starts_with(key) {
-            let mut new_node = Self::new();
-            let payload = self.clone_payload::<1>().unwrap();
-            unsafe{ new_node.set_payload_owned::<0>(&key1[key.len()..], payload); }
-            debug_assert!(validate_node(&new_node));
-            return AbstractNodeRef::OwnedRc(TrieNodeODRc::new(new_node));
+            let new_key = &key1[key.len()..];
+            //If the new node's key is 7 Bytes or fewer, we can make a TinyRefNode
+            if new_key.len() <= 7 {
+                let ref_node = TinyRefNode::new(self.is_child_ptr::<1>(), new_key, &self.val_or_child1);
+                return AbstractNodeRef::BorrowedTiny(ref_node);
+            } else {
+                let mut new_node = Self::new();
+                let payload = self.clone_payload::<1>().unwrap();
+                unsafe{ new_node.set_payload_owned::<0>(new_key, payload); }
+                debug_assert!(validate_node(&new_node));
+                return AbstractNodeRef::OwnedRc(TrieNodeODRc::new(new_node));
+            }
         }
         //The key must specify a path the node doesn't contains
         AbstractNodeRef::None
@@ -2100,7 +2113,7 @@ impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
 
 /// DEBUG-ONLY  Performs some validity tests to catch malformed ListNodes before they can wreak more havoc
 #[cfg(debug_assertions)]
-fn validate_node<V>(node: &LineListNode<V>) -> bool {
+pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool {
     let (key0, key1) = node.get_both_keys();
 
     //If a key is used it must be non-zero length
@@ -2137,7 +2150,7 @@ fn validate_node<V>(node: &LineListNode<V>) -> bool {
 
 /// So release build will compile
 #[cfg(not(debug_assertions))]
-fn validate_node<V>(node: &LineListNode<V>) -> bool { true }
+pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool { true }
 
 #[cfg(test)]
 mod tests {

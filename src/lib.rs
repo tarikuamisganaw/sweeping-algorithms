@@ -21,6 +21,7 @@ mod write_zipper;
 mod dense_byte_node;
 pub mod line_list_node;
 mod empty_node;
+mod tiny_node;
 
 #[cfg(test)]
 mod tests {
