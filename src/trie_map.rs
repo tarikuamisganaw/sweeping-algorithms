@@ -130,6 +130,11 @@ impl<V: Clone> BytesTrieMap<V> {
     ///
     /// NOTE: There is no safe version of this method because we don't want to pay the overhead of
     /// tracking every ReadZipper's path in a release build
+    ///
+    //GOAT!!  I Realized this is unsound because the TrieMap direct methods can still traverse from the
+    // root, and potentially read parts of the trie that a WriteZipper is in the process of modifying.
+    //Instead I propose a "ZipperMaker" that takes a mutable borrow of the map, and can dispense both read
+    // and write zippers
     pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, 'k>(&'a self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
         let path_len = path.len();
         if path_len == 0 {

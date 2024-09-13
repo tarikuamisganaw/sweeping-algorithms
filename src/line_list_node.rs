@@ -765,10 +765,12 @@ impl<V> LineListNode<V> {
         let node_key_0 = unsafe{ self.key_unchecked::<0>() };
         let mut overlap = find_prefix_overlap(key, node_key_0);
         if overlap > 0 {
-            if IS_CHILD && self.is_child_ptr::<0>() {
+            //See if we should totally replace the existing downstream branch
+            if IS_CHILD && self.is_child_ptr::<0>() && overlap == key.len() {
                 let _ = self.take_payload::<0>();
                 return self.set_payload_abstract::<IS_CHILD>(key, payload)
             }
+            //Otherwise add in a new branch
             if overlap == node_key_0.len() || overlap == key.len() {
                 overlap -= 1;
             }
@@ -793,10 +795,12 @@ impl<V> LineListNode<V> {
         let node_key_1 = unsafe{ self.key_unchecked::<1>() };
         let mut overlap = find_prefix_overlap(key, node_key_1);
         if overlap > 0 {
-            if IS_CHILD && self.is_child_ptr::<1>() {
+            //See if we should totally replace the existing downstream branch
+            if IS_CHILD && self.is_child_ptr::<1>() && overlap == key.len() {
                 let _ = self.take_payload::<1>();
                 return self.set_payload_abstract::<IS_CHILD>(key, payload)
             }
+            //Otherwise add in a new branch
             if overlap == node_key_1.len() || overlap == key.len() {
                 overlap -= 1;
             }
