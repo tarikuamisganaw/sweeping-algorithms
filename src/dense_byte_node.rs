@@ -1051,7 +1051,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         match key.len() {
             0 => self.values.len() == 0,
             1 => self.get(key[0]).map(|cf| !cf.rec.is_some()).unwrap_or(true),
-            _ => unreachable!() //The calling code should have advanced to the next node
+            _ => true
         }
     }
 
@@ -1061,7 +1061,9 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
 
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
-        debug_assert_eq!(key.len(), 1);
+        if key.len() != 1 {
+            return (None, None)
+        }
         let k = key[0];
         let mut mask_i = ((k & 0b11000000) >> 6) as usize;
         let bit_i = k & 0b00111111;

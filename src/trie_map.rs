@@ -1,6 +1,5 @@
 use core::cell::UnsafeCell;
 
-use std::mem;
 use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;

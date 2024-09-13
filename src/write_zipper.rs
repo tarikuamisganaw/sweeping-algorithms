@@ -484,7 +484,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
     /// Restricts paths in the subtrie downstream of the `self` focus to paths prefixed by a path to a value in
     /// `read_zipper`
     ///
-    /// Returns `true` if the restriction was sucessful, or `false` if either `self` of `read_zipper` is at a
+    /// Returns `true` if the restriction was sucessful, or `false` if either `self` or `read_zipper` is at a
     /// nonexistent path.
     pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
         let src = read_zipper.get_focus();
@@ -1142,6 +1142,15 @@ mod tests {
 
         assert_eq!(map.get(&vec![1, 2, 42, 237, 3, 1, 173, 165, 3, 16, 200, 213, 4, 0, 166, 47, 81, 4, 0, 167, 216, 181, 4, 6, 125, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144]), Some(&0));
         assert_eq!(map.get(&vec![1, 2, 13, 183]), Some(&1));
+        assert_eq!(map.val_count(), 2);
+
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wz = map.write_zipper_at_path(&[1]);
+        wz.drop_head(27);
+        drop(wz);
+
+        assert_eq!(map.get(&vec![1, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144]), Some(&0));
+        assert_eq!(map.val_count(), 1);
     }
 
     #[test]
