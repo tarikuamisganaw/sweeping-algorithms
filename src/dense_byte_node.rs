@@ -940,7 +940,12 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
     #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
-        self.values.len()
+        let mut cnt = 0;
+        for cf in self.values.iter() {
+            cnt += cf.rec.is_some() as usize;
+            cnt += cf.value.is_some() as usize;
+        }
+        cnt
     }
     fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize> {
         debug_assert!(key.len() > 0);

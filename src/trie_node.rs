@@ -135,9 +135,8 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
 
     #[cfg(feature = "counters")]
-    /// Returns the number of internal paths within the node.  That includes child nodes descending from
-    /// the node as well as values; in the case where a child node and a value have the same internal path
-    /// it will be counted as one item
+    /// Returns the number of internal items (onward links and values) within the node.  In the case where
+    /// a child node and a value have the same internal path it should be counted as two items
     fn item_count(&self) -> usize;
 
     /// Returns the depth (byte count) of the first value encountered along the specified key

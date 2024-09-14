@@ -686,7 +686,7 @@ impl<V> LineListNode<V> {
         None
     }
     #[inline]
-    fn get_both_keys(&self) -> (&[u8], &[u8]) {
+    pub(crate) fn get_both_keys(&self) -> (&[u8], &[u8]) {
         let key0 = if self.is_used::<0>() {
             unsafe{ self.key_unchecked::<0>() }
         } else {
@@ -704,14 +704,7 @@ impl<V> LineListNode<V> {
         match (self.is_used::<0>(), self.is_used::<1>()) {
             (true, false) => 1,
             (false, false) => 0,
-            (true, true) => {
-                let (key0, key1) = self.get_both_keys();
-                if key0 == key1 {
-                    1
-                } else {
-                    2
-                }
-            },
+            (true, true) => 2,
             (false, true) => unreachable!(),
         }
     }
@@ -2645,9 +2638,7 @@ mod tests {
 //GOAT, Fix remaining tests
 //
 //GOAT, Write ReadMe
-//  intro - as a key-value store, the power of prefixes
+//  intro - as a key-value store, the power of prefixes, structural sharing
 //  algebraic ops
 //  Zippers as a concept
 //  Multiple zippers in the same map
-//
-//GOAT, additional counters (node-type depth-based histogram, list-node stats)

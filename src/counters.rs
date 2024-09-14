@@ -1,7 +1,7 @@
 
 use crate::trie_map::BytesTrieMap;
-use crate::zipper::{Zipper, ReadZipper};
-use crate::trie_node::ValOrChildRef;
+use crate::zipper::{Zipper, ReadZipper, zipper_priv::ZipperPriv};
+use crate::trie_node::TrieNode;
 
 pub struct Counters {
     total_nodes_by_depth: Vec<usize>,
@@ -20,6 +20,7 @@ pub struct Counters {
     /// Counts the runs of distance (in bytes) that end at each byte depth
     /// [run_length][ending_byte_depth]
     run_length_histogram_by_ending_byte_depth: Vec<Vec<usize>>,
+    cur_run_start_depth: usize,
 }
 impl Counters {
     pub const fn new() -> Self {
@@ -33,6 +34,7 @@ impl Counters {
             slot1_occupancy_count_by_depth: vec![],
             total_slot1_length_by_depth: vec![],
             run_length_histogram_by_ending_byte_depth: vec![],
+            cur_run_start_depth: 0,
         }
     }
     pub fn total_nodes(&self) -> usize {
@@ -46,13 +48,16 @@ impl Counters {
         total
     }
     pub fn print_histogram_by_depth(&self) {
-        println!("\n\ttotal_nodes\ttot_child_cnt\tavg_branch\tmax_child_items");
+        println!("\n\ttotal_nodes\ttot_child_cnt\tavg_branch\tmax_child_items\tdense_nodes\tlist_nodes");
         for depth in 0..self.total_nodes_by_depth.len() {
-            println!("{depth}\t{}\t\t{}\t\t{:1.4}\t\t{}",
+            println!("{depth}\t{}\t\t{}\t\t{:1.4}\t\t{}\t\t{}\t\t{}",
                 self.total_nodes_by_depth[depth],
                 self.total_child_items_by_depth[depth],
                 self.total_child_items_by_depth[depth] as f32 / self.total_nodes_by_depth[depth] as f32,
-                self.max_child_items_by_depth[depth]);
+                self.max_child_items_by_depth[depth],
+                self.total_dense_byte_nodes_by_depth[depth],
+                self.total_list_nodes_by_depth[depth],
+            );
         }
         println!("TOTAL nodes: {}, items: {}, avg children-per-node: {}", self.total_nodes(), self.total_child_items(), self.total_child_items() as f32 / self.total_nodes() as f32);
     }
@@ -64,20 +69,41 @@ impl Counters {
             println!("{run_length}\t{total}\t{}", depth_sum as f32 / total as f32);
         }
     }
+    pub fn print_list_node_stats(&self) {
+        println!("\n\ttotal_nodes\tlist_node_cnt\tavg_slot0_len\tslot1_cnt\tavg_slot1_len");
+        for depth in 0..self.total_nodes_by_depth.len() {
+            println!("{depth}\t{}\t\t{}\t\t{:1.4}\t\t{}\t\t{:1.4}",
+                self.total_nodes_by_depth[depth],
+                self.total_list_nodes_by_depth[depth],
+                self.total_slot0_length_by_depth[depth] as f32 / self.total_list_nodes_by_depth[depth] as f32,
+                self.slot1_occupancy_count_by_depth[depth],
+                self.total_slot1_length_by_depth[depth] as f32 / self.slot1_occupancy_count_by_depth[depth] as f32,
+            );
+        }
+    }
     pub fn count_ocupancy<V: Clone>(map: &BytesTrieMap<V>) -> Self {
         let mut counters = Counters::new();
-        let mut depth = 0;
-        let mut cur_run_length = 0;
-        let mut byte_depth = 0;
-        let mut byte_depth_stack: Vec<usize> = vec![0];
-        let mut prefixes: Vec<Vec<u8>> = vec![vec![]];
 
-        counters.count_node(map.root().borrow().item_count(), 0);
+        counters.count_node(map.root().borrow(), 0);
 
         let mut zipper = map.read_zipper();
-        
+        while zipper.to_next_step() {
+            let depth = zipper.path().len();
+
+            counters.run_counter_update(depth);
+            if let Some(focus_node) = zipper.get_focus().try_borrow() {
+                counters.count_node(focus_node, depth);
+            } else {
+                counters.end_run(depth-1);
+            }
+        }
 
         //GOAT, old implementation using TrieNode::boxed_node_iter()
+        // let mut cur_run_length = 0;
+        // let mut byte_depth = 0;
+        // let mut byte_depth_stack: Vec<usize> = vec![0];
+        // let mut depth = 0;
+        // let mut prefixes: Vec<Vec<u8>> = vec![vec![]];
         // let mut btnis = vec![map.root().borrow().boxed_node_iter()];
         // loop {
         //     match btnis.last_mut() {
@@ -127,16 +153,60 @@ impl Counters {
         // }
         counters
     }
-    fn count_node(&mut self, child_item_count: usize, depth: usize) {
+    fn count_node<V: Clone>(&mut self, node: &dyn TrieNode<V>, depth: usize) {
+        if let Some(node) = node.as_dense() {
+            if node.item_count() != 1 {
+                self.end_run(depth);
+            }
+            self.increment_common_counters(node, depth);
+            self.total_dense_byte_nodes_by_depth[depth] += 1;
+        }
+        if let Some(node) = node.as_list() {
+            if node.item_count() != 1 {
+                self.end_run(depth);
+            }
+            self.increment_common_counters(node, depth);
+            self.total_list_nodes_by_depth[depth] += 1;
+
+            let (key0, key1) = node.get_both_keys();
+            self.total_slot0_length_by_depth[depth] += key0.len();
+            if key1.len() > 0 {
+                self.slot1_occupancy_count_by_depth[depth] += 1;
+                self.total_slot1_length_by_depth[depth] += key1.len();
+            }
+        }
+    }
+    fn resize_all_historgrams(&mut self, depth: usize) {
         if self.total_nodes_by_depth.len() <= depth {
             self.total_nodes_by_depth.resize(depth+1, 0);
             self.total_child_items_by_depth.resize(depth+1, 0);
             self.max_child_items_by_depth.resize(depth+1, 0);
+            self.total_dense_byte_nodes_by_depth.resize(depth+1, 0);
+            self.total_list_nodes_by_depth.resize(depth+1, 0);
+            self.total_slot0_length_by_depth.resize(depth+1, 0);
+            self.slot1_occupancy_count_by_depth.resize(depth+1, 0);
+            self.total_slot1_length_by_depth.resize(depth+1, 0);
         }
+    }
+    fn increment_common_counters<V: Clone>(&mut self, node: &dyn TrieNode<V>, depth: usize) {
+        self.resize_all_historgrams(depth);
+        let child_item_count = node.item_count();
         self.total_nodes_by_depth[depth] += 1;
         self.total_child_items_by_depth[depth] += child_item_count;
         if self.max_child_items_by_depth[depth] < child_item_count {
             self.max_child_items_by_depth[depth] = child_item_count;
+        }
+    }
+    fn end_run(&mut self, depth: usize) {
+        if depth > self.cur_run_start_depth {
+            let cur_run_length = depth - self.cur_run_start_depth;
+            self.push_run(cur_run_length, depth-1);
+        }
+        self.cur_run_start_depth = depth;
+    }
+    fn run_counter_update(&mut self, depth: usize) {
+        if self.cur_run_start_depth > depth {
+            self.cur_run_start_depth = depth;
         }
     }
     fn push_run(&mut self, cur_run_length: usize, byte_depth: usize) {
@@ -148,7 +218,6 @@ impl Counters {
         }
         self.run_length_histogram_by_ending_byte_depth[cur_run_length][byte_depth] += 1;
     }
-
 }
 
 pub fn print_traversal<V: Clone>(zipper: &ReadZipper<V>) {
