@@ -151,12 +151,12 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// This method will never be called with a zero-length key.
     fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize>;
 
-    /// Returns the nth child in the branch specified by `key` within this node, as the prefix leading to
-    /// that child and optionally a new node
+    /// Returns the nth descending child path from the branch specified by `key` within this node, as the
+    /// prefix leading to that new path and optionally a new node
     ///
-    /// This method returns (None, _) if `n >= self.child_count()`.
-    /// This method returns (Some(_), None) if the child is is contained within the same node.
-    /// This method returns (Some(_), Some(_)) if the child is is contained within a different node.
+    /// This method returns (None, _) if `n >= self.count_branches()`.
+    /// This method returns (Some(_), None) if the child path is is contained within the same node.
+    /// This method returns (Some(_), Some(_)) if the child path is is contained within a different node.
     ///
     /// NOTE: onward paths that lead to values are still part of the enumeration
     /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
@@ -186,10 +186,10 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     ///
     /// NOTE: Returns `true` if the key specifies an invalid path, because an invalid path has no
     ///   onward paths branching from it.
-    /// NOTE: The reason this is not the same as `node.child_count_at_key() == 0` is because [Self::count_branches]
+    /// NOTE: The reason this is not the same as `node.count_branches() == 0` is because [Self::count_branches]
     ///   counts only internal children, and treats values and onward links equivalently.  Therefore
-    ///   some keys that specify onward links will be reported as having a `child_count` of 0, but `is_leaf`
-    ///   will be true.
+    ///   some keys that specify onward links will be reported as having a `count_branches` of 0, but
+    ///   `is_leaf` will not be true.
     fn is_leaf(&self, key: &[u8]) -> bool;
 
     /// Returns the key of the prior upstream branch, within the node

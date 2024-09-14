@@ -7,10 +7,18 @@ pub struct Counters {
     total_nodes_by_depth: Vec<usize>,
     total_child_items_by_depth: Vec<usize>,
     max_child_items_by_depth: Vec<usize>,
-    //GOAT, also segment child counts by node type
 
-    //Not node-type specific.  counts the runs of distance (in bytes) that end at each byte depth
-    // [run_length][ending_byte_depth]
+    /// Counts the number of each node type at a given depth
+    total_dense_byte_nodes_by_depth: Vec<usize>,
+    total_list_nodes_by_depth: Vec<usize>,
+
+    /// List-node-specific counters
+    total_slot0_length_by_depth: Vec<usize>,
+    slot1_occupancy_count_by_depth: Vec<usize>,
+    total_slot1_length_by_depth: Vec<usize>,
+
+    /// Counts the runs of distance (in bytes) that end at each byte depth
+    /// [run_length][ending_byte_depth]
     run_length_histogram_by_ending_byte_depth: Vec<Vec<usize>>,
 }
 impl Counters {
@@ -19,6 +27,11 @@ impl Counters {
             total_nodes_by_depth: vec![],
             total_child_items_by_depth: vec![],
             max_child_items_by_depth: vec![],
+            total_dense_byte_nodes_by_depth: vec![],
+            total_list_nodes_by_depth: vec![],
+            total_slot0_length_by_depth: vec![],
+            slot1_occupancy_count_by_depth: vec![],
+            total_slot1_length_by_depth: vec![],
             run_length_histogram_by_ending_byte_depth: vec![],
         }
     }
@@ -58,55 +71,60 @@ impl Counters {
         let mut byte_depth = 0;
         let mut byte_depth_stack: Vec<usize> = vec![0];
         let mut prefixes: Vec<Vec<u8>> = vec![vec![]];
-        let mut btnis = vec![map.root().borrow().boxed_node_iter()];
 
         counters.count_node(map.root().borrow().item_count(), 0);
-        loop {
-            match btnis.last_mut() {
-                None => { break }
-                Some(last) => {
-                    match last.next() {
-                        None => {
-                            depth -= 1;
-                            byte_depth -= byte_depth_stack.pop().unwrap();
-                            cur_run_length = 0;
-                            prefixes.pop();
-                            btnis.pop();
-                        }
-                        Some((bytes, item)) => {
-                            //let mut cur_prefix: Vec<u8> = prefixes.last().unwrap().clone();
-                            //cur_prefix.extend(bytes);
 
-                            match item {
-                                ValOrChildRef::Val(_val) => {
+        let mut zipper = map.read_zipper();
+        
 
-                                    counters.push_run(cur_run_length + bytes.len(), byte_depth + bytes.len());
+        //GOAT, old implementation using TrieNode::boxed_node_iter()
+        // let mut btnis = vec![map.root().borrow().boxed_node_iter()];
+        // loop {
+        //     match btnis.last_mut() {
+        //         None => { break }
+        //         Some(last) => {
+        //             match last.next() {
+        //                 None => {
+        //                     depth -= 1;
+        //                     byte_depth -= byte_depth_stack.pop().unwrap();
+        //                     cur_run_length = 0;
+        //                     prefixes.pop();
+        //                     btnis.pop();
+        //                 }
+        //                 Some((bytes, item)) => {
+        //                     //let mut cur_prefix: Vec<u8> = prefixes.last().unwrap().clone();
+        //                     //cur_prefix.extend(bytes);
 
-                                    //return Some((cur_prefix, val))
-                                },
-                                ValOrChildRef::Child(child) => {
-                                    depth += 1;
-                                    counters.count_node(child.item_count(), depth);
+        //                     match item {
+        //                         ValOrChildRef::Val(_val) => {
 
-                                    byte_depth += bytes.len();
-                                    byte_depth_stack.push(bytes.len());
+        //                             counters.push_run(cur_run_length + bytes.len(), byte_depth + bytes.len());
 
-                                    if child.item_count() > 1 {
-                                        counters.push_run(cur_run_length + bytes.len(), byte_depth);
-                                        cur_run_length = 0;
-                                    } else {
-                                        cur_run_length += bytes.len();
-                                    }
+        //                             //return Some((cur_prefix, val))
+        //                         },
+        //                         ValOrChildRef::Child(child) => {
+        //                             depth += 1;
+        //                             counters.count_node(child.item_count(), depth);
 
-                                    //prefixes.push(cur_prefix);
-                                    btnis.push(child.boxed_node_iter())
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        //                             byte_depth += bytes.len();
+        //                             byte_depth_stack.push(bytes.len());
+
+        //                             if child.item_count() > 1 {
+        //                                 counters.push_run(cur_run_length + bytes.len(), byte_depth);
+        //                                 cur_run_length = 0;
+        //                             } else {
+        //                                 cur_run_length += bytes.len();
+        //                             }
+
+        //                             //prefixes.push(cur_prefix);
+        //                             btnis.push(child.boxed_node_iter())
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
         counters
     }
     fn count_node(&mut self, child_item_count: usize, depth: usize) {

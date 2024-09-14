@@ -548,9 +548,11 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
 
     /// Uses a 256-bit mask to remove multiple branches below the zipper's focus
     ///
+    /// Key bytes for which the corresponding `mask` bit is `0` will be removed.
+    ///
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
     /// [Self::path_exists] returning `false`, where it previously returned `true`
-    pub fn remove_masked_branches(&mut self, mask: [u64; 4]) {
+    pub fn remove_unmasked_branches(&mut self, mask: [u64; 4]) {
         let focus_node = self.focus_stack.top_mut().unwrap();
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
@@ -1218,7 +1220,7 @@ mod tests {
 
         let mut m = [0, 0, 0, 0];
         for b in "abc".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.remove_masked_branches(m);
+        wr.remove_unmasked_branches(m);
         drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
@@ -1245,11 +1247,11 @@ mod tests {
 
         let mut m = [0, 0, 0, 0];
         for b in "dco".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.remove_masked_branches(m);
+        wr.remove_unmasked_branches(m);
         m = [0, 0, 0, 0];
         wr.descend_to("d".as_bytes());
         for b in "o".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.remove_masked_branches(m);
+        wr.remove_unmasked_branches(m);
         drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();

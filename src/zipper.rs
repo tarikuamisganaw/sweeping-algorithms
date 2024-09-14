@@ -11,7 +11,7 @@
 //! such as branches and values.  In general, moving by jumping will be faster.
 //!
 //! The stepping methods are:
-//! - [descend_indexed_child](zipper::Zipper::descend_indexed_child)
+//! - [descend_indexed_branch](zipper::Zipper::descend_indexed_branch)
 //! - [ascend](zipper::Zipper::ascend)
 //! - [to_sibling](zipper::Zipper::to_sibling)
 //!
@@ -265,8 +265,6 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn descend_until(&mut self) -> bool {
         let mut moved = false;
-        self.prepare_buffers();
-
         while self.child_count() == 1 {
             moved = true;
             self.descend_first();
@@ -278,6 +276,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn to_sibling(&mut self, next: bool) -> bool {
+        self.prepare_buffers();
         if self.node_key().len() != 0 {
             match self.focus_node.get_sibling_of_child(self.node_key(), next) {
                 (Some(prefix), Some(child_node)) => {
@@ -464,7 +463,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
     pub fn to_next_val(&mut self) -> Option<&'a V> {
-        self.prepare_buffers();
         loop {
             //If we're at a leaf ascend and jump to the next sibling
             if self.focus_node.is_leaf(self.node_key()) {
@@ -489,19 +487,29 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
-    //GOAT, this might be useful... But not sure.
-    // /// Systematically advances the zipper to the next position where the path contains `pattern` as a
-    // /// substring
-    // ///
-    // /// Traversal proceeds in a depth-first order.  When a match is encountered, the zipper will stop at the
-    // /// end of the matched substring.  The zipper will not descend past a path length of `depth_limit` bytes,
-    // /// from the zipper's root.
-    // ///
-    // /// Returns `true` if the zipper has arrived at a valid match, and `false` if no further matches could be
-    // /// found.
-    // pub fn to_next_match<K: AsRef<[u8]>>(&mut self, pattern: K, depth_limit: usize) -> bool {
+    //GOAT, this seems like it should be lifted into a utility layer above PathMap, since it it build
+    // totally on public interfaces
+    /// Advances the zipper to visit every existing path within the trie in a depth-first order
+    ///
+    /// Returns `true` if the position of the zipper has moved, or `false` if the zipper has returned
+    /// to the root
+    pub fn to_next_step(&mut self) -> bool {
 
+        //If we're at a leaf ascend until we're not and jump to the next sibling
+        if self.child_count() == 0 {
+            //We can stop ascending when we succeed in moving to a sibling
+            while !self.to_sibling(true) {
+                if !self.ascend(1) {
+                    return false;
+                }
+            }
+        } else {
+            return self.descend_indexed_branch(0)
+        }
+        true
+    }
 
+    //GOAT, should k_path be lifted into a utility layer above PathMap?
     /// Descends the zipper's focus 'k' bytes, following the first child at each branch, and continuing with
     /// depth-first exploration until a path that is `k` bytes from the focus has been found
     ///
@@ -513,7 +521,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     ///
     /// See: [Self::to_k_path_next]
     pub fn descend_first_k_path(&mut self, k: usize) -> bool {
-        self.prepare_buffers();
         self.k_path_internal(k, self.path().len())
     }
 
@@ -529,7 +536,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     ///
     /// See: [Self::descend_k_path_first]
     pub fn to_next_k_path(&mut self, k: usize) -> bool {
-        self.prepare_buffers();
         let base_idx = if self.path().len() > k {
             self.path().len() - k
         } else {
@@ -590,6 +596,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Internal method implementing part of [Self::descend_until], but doesn't pay attention to to [Self::child_count]
     #[inline]
     fn descend_first(&mut self) {
+        self.prepare_buffers();
         match self.focus_node.first_child_from_key(self.node_key()) {
             (Some(prefix), Some(child_node)) => {
                 //Step to a new node
@@ -898,7 +905,7 @@ mod tests {
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
         let mut zipper = btm.read_zipper();
 
-        //descends a single specific byte using `descend_indexed_child`. Just for testing. A real user would use `descend_towards`
+        //descends a single specific byte using `descend_indexed_branch`. Just for testing. A real user would use `descend_towards`
         fn descend_byte(zipper: &mut ReadZipper<usize>, byte: u8) {
             for i in 0..zipper.child_count() {
                 assert_eq!(zipper.descend_indexed_branch(i), true);
@@ -1033,6 +1040,38 @@ mod tests {
             full_parent_path.extend(parent_zipper.path());
             assert!(family.contains(full_parent_path.clone()));
             assert_eq!(full_parent_path, parent_zipper.origin_path().unwrap());
+        }
+    }
+
+    #[test]
+    fn to_next_step_test() {
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let btm: BytesTrieMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i)).collect();
+        let mut zipper = btm.read_zipper();
+
+        let mut i = 0;
+        while zipper.to_next_step() {
+            match i {
+                0 => assert_eq!(zipper.path(), b"a"),
+                4 => assert_eq!(zipper.path(), b"arrow"),
+                5 => assert_eq!(zipper.path(), b"b"),
+                7 => assert_eq!(zipper.path(), b"bow"),
+                8 => assert_eq!(zipper.path(), b"c"),
+                13 => assert_eq!(zipper.path(), b"cannon"),
+                14 => assert_eq!(zipper.path(), b"r"),
+                18 => assert_eq!(zipper.path(), b"rom'i"),
+                20 => assert_eq!(zipper.path(), b"roman"),
+                21 => assert_eq!(zipper.path(), b"romane"),
+                23 => assert_eq!(zipper.path(), b"romanus"),
+                27 => assert_eq!(zipper.path(), b"romulus"),
+                28 => assert_eq!(zipper.path(), b"ru"),
+                32 => assert_eq!(zipper.path(), b"rubens"),
+                33 => assert_eq!(zipper.path(), b"ruber"),
+                37 => assert_eq!(zipper.path(), b"rubicon"),
+                42 => assert_eq!(zipper.path(), b"rubicundus"),
+                _ => {}
+            }
+            i += 1;
         }
     }
 

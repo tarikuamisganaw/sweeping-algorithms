@@ -1375,25 +1375,21 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         // slot_0 doesn't match the key being passed.
         match n {
             0 => {
-                if self.is_used::<0>() {
-                    let key0 = unsafe{ self.key_unchecked::<0>() };
-                    if key0.starts_with(key) && key0.len() > key.len() {
+                let (key0, key1) = self.get_both_keys();
+                if key0.starts_with(key) && key0.len() > key.len() {
+                    if key0 != key1 {
                         if key.len() + 1 == key0.len() && self.is_child_ptr::<0>() {
                             return (Some(key0[key.len()]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
                         } else {
                             return (Some(key0[key.len()]), None)
                         }
+                    }
+                }
+                if key1.starts_with(key) && key1.len() > key.len() {
+                    if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
+                        return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
                     } else {
-                        if self.is_used::<1>() {
-                            let key1 = unsafe{ self.key_unchecked::<1>() };
-                            if key1.starts_with(key) && key1.len() > key.len() {
-                                if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
-                                    return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
-                                } else {
-                                    return (Some(key1[key.len()]), None)
-                                }
-                            }
-                        }
+                        return (Some(key1[key.len()]), None)
                     }
                 }
             }
@@ -2639,3 +2635,19 @@ mod tests {
 //GOAT, want a tri-state or bi-state return flag for unmodified values.  For all lattice ops, incl join, meet, and subtract
 //
 //GOAT, want to promote the meet method to partial meet, to rreturn an "unmodified" flag
+//
+//GOAT, macro for the algebraic impl on primitive types
+//
+//GOAT, rename BytesTrieMap to PathMap, consider other renames, marked by GOATs
+//
+//GOAT, Make sound API for multiple zippers on a map
+//
+//GOAT, Fix remaining tests
+//
+//GOAT, Write ReadMe
+//  intro - as a key-value store, the power of prefixes
+//  algebraic ops
+//  Zippers as a concept
+//  Multiple zippers in the same map
+//
+//GOAT, additional counters (node-type depth-based histogram, list-node stats)
