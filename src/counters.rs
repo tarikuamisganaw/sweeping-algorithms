@@ -3,6 +3,15 @@ use crate::trie_map::BytesTrieMap;
 use crate::zipper::{Zipper, ReadZipper, zipper_priv::ZipperPriv};
 use crate::trie_node::TrieNode;
 
+/// Example usage of counters
+///
+/// ```
+/// pathmap::counters::print_traversal(&map.read_zipper());
+/// let counters = pathmap::counters::Counters::count_ocupancy(&map);
+/// counters.print_histogram_by_depth();
+/// counters.print_run_length_histogram();
+/// counters.print_list_node_stats();
+/// ```
 pub struct Counters {
     total_nodes_by_depth: Vec<usize>,
     total_child_items_by_depth: Vec<usize>,
@@ -72,9 +81,9 @@ impl Counters {
         }
     }
     pub fn print_list_node_stats(&self) {
-        println!("\n\ttotal_nodes\tlist_node_cnt\tlist_node_ratio\tavg_slot0_len\tslot1_cnt\tslot1_used_rto\tavg_slot1_len\tone_byte_key_cnt");
+        println!("\n\ttotal_nodes\tlist_node_cnt\tlist_node_rto\tavg_slot0_len\tslot1_cnt\tslot1_used_rto\tavg_slot1_len\tone_byte_keys\tone_byte_rto");
         for depth in 0..self.total_nodes_by_depth.len() {
-            println!("{depth}\t{}\t\t{}\t\t{:2.1}%\t\t{:1.4}\t\t{}\t\t{:2.1}%\t\t{:1.4}\t\t{}",
+            println!("{depth}\t{}\t\t{}\t\t{:2.1}%\t\t{:1.4}\t\t{}\t\t{:2.1}%\t\t{:1.4}\t\t{}\t\t{:2.1}%",
                 self.total_nodes_by_depth[depth],
                 self.total_list_nodes_by_depth[depth],
                 self.total_list_nodes_by_depth[depth] as f32 / self.total_nodes_by_depth[depth] as f32 * 100.0,
@@ -83,6 +92,7 @@ impl Counters {
                 self.slot1_occupancy_count_by_depth[depth] as f32 / self.total_list_nodes_by_depth[depth] as f32 * 100.0,
                 self.total_slot1_length_by_depth[depth] as f32 / self.slot1_occupancy_count_by_depth[depth] as f32,
                 self.list_node_single_byte_keys_by_depth[depth],
+                self.list_node_single_byte_keys_by_depth[depth] as f32 / self.total_list_nodes_by_depth[depth] as f32 * 100.0,
             );
         }
     }
