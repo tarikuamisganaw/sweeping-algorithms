@@ -18,8 +18,8 @@ pub struct LineListNode<V> {
     /// bit 12 = slot_1_is_child (child ptr vs value).  If bit 14 is 0, but bit 12 is 1, it means slot_0 consumed all the key space, so nothing can go in slot_1
     /// bits 11 to bit 6 = slot_0_key_len
     /// bit 5 to bit 0 = slot_1_key_len
-    header: u16,
     key_bytes: [MaybeUninit<u8>; KEY_BYTES_CNT],
+    header: u16,
     val_or_child0: ValOrChildUnion<V>,
     val_or_child1: ValOrChildUnion<V>,
 }
@@ -60,10 +60,10 @@ impl<V> From<ValOrChild<V>> for ValOrChildUnion<V> {
     }
 }
 impl<V> ValOrChildUnion<V> {
-    unsafe fn into_val(self) -> V {
+    pub unsafe fn into_val(self) -> V {
         LocalOrHeap::into_inner(ManuallyDrop::into_inner(self.val))
     }
-    unsafe fn into_child(self) -> TrieNodeODRc<V> {
+    pub unsafe fn into_child(self) -> TrieNodeODRc<V> {
         ManuallyDrop::into_inner(self.child)
     }
 }
@@ -993,7 +993,7 @@ impl<V> LineListNode<V> {
 
 /// Returns the number of characters shared between two slices
 #[inline]
-fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+pub(crate) fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     let mut cnt = 0;
     loop {
         if cnt == a.len() {break}

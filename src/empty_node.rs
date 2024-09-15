@@ -67,9 +67,17 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         None
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
-        let mut replacement_node = LineListNode::new();
-        replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
-        Err(TrieNodeODRc::new(replacement_node))
+        #[cfg(not(feature = "bridge_nodes"))]
+        {
+            let mut replacement_node = LineListNode::new();
+            replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
+            Err(TrieNodeODRc::new(replacement_node))
+        }
+        #[cfg(feature = "bridge_nodes")]
+        {
+            let replacement_node = crate::bridge_node::BridgeNode::new(key, false, val.into());
+            Err(TrieNodeODRc::new(replacement_node))
+        }
     }
     //GOAT-Deprecated-Update delete this, once we have WriteZipper doing everything update did
     // fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
@@ -78,9 +86,17 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     //     Err(TrieNodeODRc::new(replacement_node))
     // }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
-        let mut replacement_node = LineListNode::new();
-        replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
-        Err(TrieNodeODRc::new(replacement_node))
+        #[cfg(not(feature = "bridge_nodes"))]
+        {
+            let mut replacement_node = LineListNode::new();
+            replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
+            Err(TrieNodeODRc::new(replacement_node))
+            }
+        #[cfg(feature = "bridge_nodes")]
+        {
+            let replacement_node = crate::bridge_node::BridgeNode::new(key, true, new_node.into());
+            Err(TrieNodeODRc::new(replacement_node))
+        }
     }
     fn node_remove_all_branches(&mut self, _key: &[u8]) -> bool {
         unreachable!()

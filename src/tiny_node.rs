@@ -14,8 +14,8 @@ pub struct TinyRefNode<'a, V> {
     /// bit 7 = used
     /// bit 6 = is_child
     /// bit 5 to bit 0 = key_len
-    header: u8,
     key_bytes: [MaybeUninit<u8>; 7],
+    header: u8,
     payload: &'a ValOrChildUnion<V>
 }
 

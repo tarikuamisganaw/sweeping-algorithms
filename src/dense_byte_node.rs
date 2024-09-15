@@ -36,6 +36,8 @@ use std::collections::HashMap;
 #[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
 
+#[cfg(feature = "bridge_nodes")]
+use crate::bridge_node::BridgeNode;
 use crate::ring::*;
 use crate::trie_node::*;
 use crate::line_list_node::{LineListNode, merge_into_dense_node};
@@ -668,6 +670,26 @@ impl <V: Clone> DenseByteNode<V> {
         }
         cur
     }
+    #[cfg(feature = "bridge_nodes")]
+    /// Adds a payload (value or CF link) to a given long key, creating BridgeNodes along the way.  If the
+    /// value of onward link already exists at the specified byte, it will be replaced
+    pub(crate) fn add_payload(&mut self, key: &[u8], is_child: bool, payload: crate::line_list_node::ValOrChildUnion<V>) {
+        debug_assert!(key.len() > 0);
+        //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
+        // make an intermediate node to hold the rest of the key
+        if key.len() > 1 {
+            let bridge_node = crate::bridge_node::BridgeNode::new(&key[1..], is_child, payload);
+            self.set_child(key[0], TrieNodeODRc::new(bridge_node));
+        } else {
+            if is_child {
+                let child_node = unsafe{ payload.into_child() };
+                self.set_child(key[0], child_node);
+            } else {
+                let val = unsafe{ payload.into_val() };
+                self.set_val(key[0], val);
+            }
+        }
+    }
 }
 
 pub(crate) struct DenseByteNodeIter<'a, V> {
@@ -812,11 +834,19 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         #[cfg(not(feature = "all_dense_nodes"))]
         {
-            //Split a ListNode to hold everything after the first byte of the key
+            //Split a new node to hold everything after the first byte of the key
             if key.len() > 1 {
-                let mut child = LineListNode::new();
-                child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
-                self.set_child(key[0], TrieNodeODRc::new(child));
+                #[cfg(not(feature = "bridge_nodes"))]
+                {
+                    let mut child = LineListNode::new();
+                    child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
+                #[cfg(feature = "bridge_nodes")]
+                {
+                    let child = BridgeNode::new(&key[1..], false, val.into());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
                 Ok((None, true))
             } else {
                 Ok((self.set_val(key[0], val), false))
