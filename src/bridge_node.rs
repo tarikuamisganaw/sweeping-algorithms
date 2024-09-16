@@ -211,8 +211,25 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         }
         None
     }
-    fn node_remove_val(&mut self, _key: &[u8]) -> Option<V> { unreachable!() }
-    fn node_get_val_mut(&mut self, _key: &[u8]) -> Option<&mut V> { unreachable!() }
+    fn node_remove_val(&mut self, key: &[u8]) -> Option<V> {
+        debug_assert_eq!(self.is_empty(), false);
+        if !self.is_child_ptr() && self.key() == key {
+            let payload = self.take_payload();
+            Some(unsafe{ payload.into_val() })
+        } else {
+            None
+        }
+    }
+    fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
+        if self.is_used_val() {
+            let node_key = self.key();
+            if node_key == key {
+                let val = unsafe{ &mut **self.payload.val };
+                return Some(val);
+            }
+        }
+        None
+    }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         const IS_CHILD: bool = false; //GOAT, in anticipation of refactoring
         debug_assert_eq!(self.is_empty(), false);
@@ -266,8 +283,14 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         self.is_empty()
     }
     fn boxed_node_iter<'n>(&'n self) -> Box<dyn Iterator<Item=(&'n[u8], ValOrChildRef<'n, V>)> + 'n> { unreachable!() }
-    fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
-        panic!();
+    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
+        debug_assert!(!self.is_empty());
+        if self.is_child_ptr() {
+            let child = unsafe{ &*self.payload.child }.borrow();
+            child.node_val_count(cache)
+        } else {
+            1
+        }
     }
     #[cfg(feature = "counters")]
     fn item_count(&self) -> usize {
@@ -287,26 +310,69 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
             None
         }
     }
-    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
-        panic!();
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
+        debug_assert!(!self.is_empty());
+        if n == 0 {
+            let self_key = self.key();
+            let key_len = key.len();
+            if self_key.len() > key_len && self_key.starts_with(key) {
+                let next_byte = self_key[key_len];
+                if self.is_child_ptr() {
+                    return (Some(next_byte), Some(unsafe{ &*self.payload.child }.borrow()))
+                } else {
+                    return (Some(next_byte), None)
+                }
+            }
+        }
+        (None, None)
     }
-    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
-        panic!();
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
+        debug_assert!(!self.is_empty());
+        let self_key = self.key();
+        let key_len = key.len();
+        if self_key.len() > key_len && self_key.starts_with(key) {
+            let remaining_key = &self_key[key_len..];
+            if self.is_child_ptr() {
+                (Some(remaining_key), Some(unsafe{ &*self.payload.child }.borrow()))
+            } else {
+                (Some(remaining_key), None)
+            }
+        } else {
+            (None, None)
+        }
     }
-    fn count_branches(&self, _key: &[u8]) -> usize {
-        panic!();
+    fn count_branches(&self, key: &[u8]) -> usize {
+        if !self.is_empty() {
+            let self_key = self.key();
+            if self_key.starts_with(key) {
+                if self.is_child_ptr() || self_key.len() > key.len() {
+                    return 1
+                }
+            }
+        }
+        0
     }
     fn node_branches_mask(&self, _key: &[u8]) -> [u64; 4] {
         panic!();
     }
-    fn is_leaf(&self, _key: &[u8]) -> bool {
-        panic!();
+    fn is_leaf(&self, key: &[u8]) -> bool {
+        debug_assert!(!self.is_empty());
+        let self_key = self.key();
+        if self_key.starts_with(key) {
+            if key.len() < self_key.len() || self.is_child_ptr() {
+                return false
+            }
+        }
+        true
     }
-    fn prior_branch_key(&self, _key: &[u8]) -> &[u8] {
-        panic!();
+    fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+        debug_assert!(key.len() > 0);
+        //BridgeNodes never contain internal branches!
+        &[]
     }
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
-        panic!();
+        //BridgeNodes never contain siblings!
+        (None, None)
     }
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
         debug_assert!(!self.is_empty());

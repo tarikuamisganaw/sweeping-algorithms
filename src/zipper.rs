@@ -1038,7 +1038,7 @@ mod tests {
         while let Some(_val) = parent_zipper.to_next_val() {
             let mut full_parent_path = parent_path.as_bytes().to_vec();
             full_parent_path.extend(parent_zipper.path());
-            assert!(family.contains(full_parent_path.clone()));
+            assert!(family.contains(&full_parent_path));
             assert_eq!(full_parent_path, parent_zipper.origin_path().unwrap());
         }
     }
