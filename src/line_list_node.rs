@@ -2639,7 +2639,7 @@ mod tests {
 //
 //GOAT, Make sound API for multiple zippers on a map
 //
-//GOAT, Fix remaining tests
+//GOAT, Fix remaining tests & warnings
 //
 //GOAT, Write ReadMe
 //  intro - as a key-value store, the power of prefixes, structural sharing
