@@ -29,23 +29,10 @@ impl<V> Drop for BridgeNode<V> {
 
 impl<V: Clone> Clone for BridgeNode<V> {
     fn clone(&self) -> Self {
-        let is_used_child = self.is_used_child();
-        let is_used_val = self.is_used_val();
-        let payload = if is_used_child || is_used_val {
-            if is_used_child {
-                let child = unsafe{ &self.payload.child }.clone();
-                ValOrChildUnion{ child }
-            } else {
-                let val = unsafe{ &self.payload.val }.clone();
-                ValOrChildUnion{ val }
-            }
-        } else {
-            ValOrChildUnion{ _unused: () }
-        };
         Self {
             header: self.header,
             key_bytes: self.key_bytes,
-            payload,
+            payload: self.clone_payload(),
         }
     }
 }
@@ -74,10 +61,10 @@ impl<V> BridgeNode<V> {
             ((1 << 7) | key_len) as u8
         }
     }
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.header & (1 << 7) == 0
     }
-    fn is_child_ptr(&self) -> bool {
+    pub fn is_child_ptr(&self) -> bool {
         self.header & (1 << 6) > 0
     }
     fn is_used_child(&self) -> bool {
@@ -86,10 +73,10 @@ impl<V> BridgeNode<V> {
     fn is_used_val(&self) -> bool {
         self.header & ((1 << 7) | (1 << 6)) == (1 << 7)
     }
-    fn key_len(&self) -> usize {
+    pub fn key_len(&self) -> usize {
         (self.header & 0x3f) as usize
     }
-    fn key(&self) -> &[u8] {
+    pub fn key(&self) -> &[u8] {
         unsafe{ core::slice::from_raw_parts(self.key_bytes.as_ptr().cast(), self.key_len()) }
     }
     fn drop_payload(&mut self) {
@@ -170,29 +157,74 @@ impl<V: Clone> BridgeNode<V> {
             Err(TrieNodeODRc::new(replacement_node))
         }
     }
-    /// Clones the payload from self
-    fn clone_payload(&self) -> Option<ValOrChild<V>> {
-        if self.is_empty() {
-            return None;
+    /// Clone the payload from self
+    pub fn clone_payload(&self) -> ValOrChildUnion<V> {
+        debug_assert!(!self.is_empty());
+        if self.is_child_ptr() {
+            unsafe{ &*self.payload.child }.clone().into()
         } else {
-            match self.is_child_ptr() {
-                true => {
-                    let child = unsafe{ &*self.payload.child }.clone();
-                    Some(ValOrChild::Child(child))
-                },
-                false => {
-                    let val = unsafe{ &**self.payload.val }.clone();
-                    Some(ValOrChild::Val(val))
-                }
-            }
+            unsafe{ &**self.payload.val }.clone().into()
         }
     }
     /// Takes the payload from self, leaving self empty, but with `key()`` and `is_child_ptr()` continuing
     /// to return the old information
-    fn take_payload(&mut self) -> ValOrChildUnion<V> {
+    pub fn take_payload(&mut self) -> ValOrChildUnion<V> {
         debug_assert_eq!(self.is_empty(), false);
         self.header &= !(1 << 7);
         core::mem::take(&mut self.payload)
+    }
+    fn merge_bridge_nodes(&self, other: &BridgeNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+        debug_assert!(!self.is_empty());
+        debug_assert!(!other.is_empty());
+
+        let self_key = self.key();
+        let self_is_child = self.is_child_ptr();
+        let other_key = other.key();
+        let other_is_child = other.is_child_ptr();
+
+        let mut overlap = find_prefix_overlap(self_key, other_key);
+        if overlap > 0 {
+            //If the keys are an exact match and the payload is the same type, merge the payloads
+            if overlap == self_key.len() && overlap == other_key.len() && self_is_child == other_is_child {
+                if self_is_child {
+                    let self_child = unsafe{ &*self.payload.child };
+                    let other_child = unsafe{ &*other.payload.child };
+                    let new_child = self_child.borrow().join_dyn(other_child.borrow());
+                    let new_node = Self::new(self_key, true, new_child.into());
+                    return TrieNodeODRc::new(new_node);
+                } else {
+                    let self_val = unsafe{ &**self.payload.val };
+                    let other_val = unsafe{ &**other.payload.val };
+                    let new_val = self_val.join(other_val);
+                    let new_node = Self::new(self_key, false, new_val.into());
+                    return TrieNodeODRc::new(new_node);
+                }
+            }
+
+            //Make sure we have some key to work with, for the new split node
+            if overlap == self_key.len() || overlap == other_key.len() {
+                overlap -= 1;
+            }
+
+            //Make a new node containing the unique parts of self and the other payload
+            let mut split_node = DenseByteNode::<V>::with_capacity(2);
+            split_node.merge_payload(&self_key[overlap..], self_is_child, self.clone_payload());
+            split_node.merge_payload(&other_key[overlap..], other_is_child, other.clone_payload());
+
+            //If we still have some overlap, make a preface BridgeNode, If not, the split_node is the result
+            if overlap > 0 {
+                let new_node = Self::new(&self_key[..overlap], true, TrieNodeODRc::new(split_node).into());
+                return TrieNodeODRc::new(new_node)
+            } else {
+                return TrieNodeODRc::new(split_node)
+            }
+        } else {
+            //We have no overlap, so we should replace this node
+            let mut split_node = DenseByteNode::<V>::with_capacity(2);
+            split_node.merge_payload(self_key, self_is_child, self.clone_payload());
+            split_node.merge_payload(other_key, other_is_child, other.clone_payload());
+            return TrieNodeODRc::new(split_node)
+        }
     }
 }
 
@@ -452,10 +484,28 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         }
     }
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
-        panic!();
+        debug_assert!(!self.is_empty());
+        if let Some(other_bridge) = other.as_bridge() {
+            self.merge_bridge_nodes(other_bridge)
+        } else {
+            if let Some(other_dense) = other.as_dense() {
+                let mut new_dense = other_dense.clone();
+                new_dense.merge_payload(self.key(), self.is_child_ptr(), self.clone_payload());
+                TrieNodeODRc::new(new_dense)
+            } else {
+                unreachable!()
+            }
+        }
     }
-    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice { unreachable!() }
-    fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice { unreachable!() }
+    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice {
+        //NOTE: This method is never called.  However, if it were called, we could implement the bridge->bridge
+        // path using `splice_new_payload`.  But the current prototype doesn't allow arbitrary node types to
+        // implement this method at all, because the joined node might not be representable
+        unreachable!()
+    }
+    fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
+        unreachable!()
+    }
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
         panic!();
     }
@@ -476,6 +526,9 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
     }
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         None
+    }
+    fn as_bridge(&self) -> Option<&BridgeNode<V>> {
+        Some(self)
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())

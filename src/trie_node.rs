@@ -272,11 +272,15 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
 
+    #[cfg(feature = "bridge_nodes")]
+    /// Returns a reference to the node as a specific concrete type or None if it is not that type
+    fn as_bridge(&self) -> Option<&crate::bridge_node::BridgeNode<V>>;
+
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V>;
 }
 
-#[cfg(feature = "bridge_nodes")]
+#[cfg(feature = "bridge_nodes")] //Currently only used by BridgeNode, but could be useful elsewhere
 /// Returns `true` if the bit in `mask` that corresponds to `k` is 1
 #[inline]
 pub fn test_mask(mask: &[u64; 4], k: u8) -> bool {

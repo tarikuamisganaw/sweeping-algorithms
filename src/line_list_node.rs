@@ -2041,6 +2041,10 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         Some(self)
     }
+    #[cfg(feature = "bridge_nodes")]
+    fn as_bridge(&self) -> Option<&crate::bridge_node::BridgeNode<V>> {
+        None
+    }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
     }

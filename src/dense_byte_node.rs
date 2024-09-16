@@ -690,6 +690,24 @@ impl <V: Clone> DenseByteNode<V> {
             }
         }
     }
+    #[cfg(feature = "bridge_nodes")]
+    pub(crate) fn merge_payload(&mut self, key: &[u8], is_child: bool, payload: crate::line_list_node::ValOrChildUnion<V>) where V: Lattice {
+        debug_assert!(key.len() > 0);
+        //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
+        // make an intermediate node to hold the rest of the key
+        if key.len() > 1 {
+            let bridge_node = crate::bridge_node::BridgeNode::new(&key[1..], is_child, payload);
+            self.join_child_into(key[0], TrieNodeODRc::new(bridge_node));
+        } else {
+            if is_child {
+                let child_node = unsafe{ payload.into_child() };
+                self.join_child_into(key[0], child_node);
+            } else {
+                let val = unsafe{ payload.into_val() };
+                self.join_val_into(key[0], val);
+            }
+        }
+    }
 }
 
 pub(crate) struct DenseByteNodeIter<'a, V> {
@@ -1160,9 +1178,19 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             let new_node = self.join(other_dense_node);
             TrieNodeODRc::new(new_node)
         } else {
+            #[cfg(not(feature = "bridge_nodes"))]
             if let Some(other_list_node) = other.as_list() {
                 let mut new_node = self.clone();
                 merge_into_dense_node(&mut new_node, other_list_node);
+                TrieNodeODRc::new(new_node)
+            } else {
+                unreachable!()
+            }
+            #[cfg(feature = "bridge_nodes")]
+            if let Some(other_bridge_node) = other.as_bridge() {
+                let mut new_node = self.clone();
+                debug_assert!(!other_bridge_node.is_empty());
+                new_node.merge_payload(other_bridge_node.key(), other_bridge_node.is_child_ptr(), other_bridge_node.clone_payload());
                 TrieNodeODRc::new(new_node)
             } else {
                 unreachable!()
@@ -1276,6 +1304,10 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         None
     }
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
+        None
+    }
+    #[cfg(feature = "bridge_nodes")]
+    fn as_bridge(&self) -> Option<&BridgeNode<V>> {
         None
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {

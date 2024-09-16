@@ -15,6 +15,7 @@ mutcursor = {version = "0.1.6"}
 num-traits = "0.2"
 
 [features]
+# default = ["bridge_nodes"]
 all_dense_nodes = [] # Exclusively use the DenseNode type, which generally performs worse but is useful for compatibility and perf comparisons
 bridge_nodes = [] # Enable the experimental BridgeNode type.  Incompatible with `all_dense_nodes`
 counters = [] # Enable features to inspect performance properties of trees
