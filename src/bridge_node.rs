@@ -23,12 +23,7 @@ const KEY_BYTES_CNT: usize = 31;
 
 impl<V> Drop for BridgeNode<V> {
     fn drop(&mut self) {
-        if self.is_used_child() {
-            unsafe{ ManuallyDrop::drop(&mut self.payload.child) }
-        }
-        if self.is_used_val() {
-            unsafe{ ManuallyDrop::drop(&mut self.payload.val) }
-        }
+        self.drop_payload()
     }
 }
 
@@ -97,6 +92,14 @@ impl<V> BridgeNode<V> {
     fn key(&self) -> &[u8] {
         unsafe{ core::slice::from_raw_parts(self.key_bytes.as_ptr().cast(), self.key_len()) }
     }
+    fn drop_payload(&mut self) {
+        if self.is_used_child() {
+            unsafe{ ManuallyDrop::drop(&mut self.payload.child) }
+        }
+        if self.is_used_val() {
+            unsafe{ ManuallyDrop::drop(&mut self.payload.val) }
+        }
+    }
 }
 
 impl<V: Clone> BridgeNode<V> {
@@ -128,6 +131,44 @@ impl<V: Clone> BridgeNode<V> {
         self.header = Self::header(is_child, key.len());
         self.payload = payload;
         unsafe{ core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len()); }
+    }
+    fn splice_new_payload<const IS_CHILD: bool>(&mut self, key: &[u8], mut new_payload: ValOrChildUnion<V>) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
+        debug_assert_eq!(self.is_empty(), false);
+        let node_key = self.key();
+        let mut overlap = find_prefix_overlap(key, node_key);
+        if overlap > 0 {
+            //If the keys are an exact match and the payload is the same type, replace the payload
+            if overlap == node_key.len() && overlap == key.len() && IS_CHILD == self.is_child_ptr() {
+                core::mem::swap(&mut new_payload, &mut self.payload);
+                return Ok((Some(unsafe{ new_payload.into_val() }), false))
+            }
+
+            //Make sure we have some key to work with, for the new split node
+            if overlap == node_key.len() || overlap == key.len() {
+                overlap -= 1;
+            }
+
+            //Make a new node containing what's left of self and the newly added payload
+            let mut replacement_node = DenseByteNode::<V>::with_capacity(2);
+            let self_payload = self.take_payload();
+            replacement_node.add_payload(&self.key()[overlap..], self.is_child_ptr(), self_payload);
+            replacement_node.add_payload(&key[overlap..], IS_CHILD, new_payload);
+
+            //If we still have some overlap, split this node's key, If not, replace this node entirely
+            if overlap > 0 {
+                self.set_payload(&key[..overlap], true, TrieNodeODRc::new(replacement_node).into());
+                Ok((None, true))
+            } else {
+                Err(TrieNodeODRc::new(replacement_node))
+            }
+        } else {
+            //We have no overlap, so we should replace this node
+            let mut replacement_node = DenseByteNode::<V>::with_capacity(2);
+            let self_payload = self.take_payload();
+            replacement_node.add_payload(self.key(), self.is_child_ptr(), self_payload);
+            replacement_node.add_payload(key, IS_CHILD, new_payload);
+            Err(TrieNodeODRc::new(replacement_node))
+        }
     }
     /// Clones the payload from self
     fn clone_payload(&self) -> Option<ValOrChild<V>> {
@@ -231,54 +272,37 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         None
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
-        const IS_CHILD: bool = false; //GOAT, in anticipation of refactoring
-        debug_assert_eq!(self.is_empty(), false);
-        let node_key = self.key();
-        let mut overlap = find_prefix_overlap(key, node_key);
-        if overlap > 0 {
-            //If the keys are an exact match and the payload is the same type, replace the payload
-            if overlap == node_key.len() && overlap == key.len() && IS_CHILD == self.is_child_ptr() {
-                let mut return_val = ValOrChildUnion::from(val);
-                core::mem::swap(&mut return_val, &mut self.payload);
-                return Ok((Some(unsafe{ return_val.into_val() }), false))
-            }
-
-            //Make sure we have some key to work with, for the new split node
-            if overlap == node_key.len() || overlap == key.len() {
-                overlap -= 1;
-            }
-
-            //Make a new node containing what's left of self and the newly added payload
-            let mut replacement_node = DenseByteNode::<V>::with_capacity(2);
-            let self_payload = self.take_payload();
-            replacement_node.add_payload(&self.key()[overlap..], self.is_child_ptr(), self_payload);
-            replacement_node.add_payload(&key[overlap..], false, val.into());
-
-            //If we still have some overlap, split this node's key, If not, replace this node entirely
-            if overlap > 0 {
-                self.set_payload(&key[..overlap], true, TrieNodeODRc::new(replacement_node).into());
-                Ok((None, true))
-            } else {
-                Err(TrieNodeODRc::new(replacement_node))
-            }
-        } else {
-            //We have no overlap, so we should replace this node
-            let mut replacement_node = DenseByteNode::<V>::with_capacity(2);
-            let self_payload = self.take_payload();
-            replacement_node.add_payload(self.key(), self.is_child_ptr(), self_payload);
-            replacement_node.add_payload(key, false, val.into());
-            Err(TrieNodeODRc::new(replacement_node))
-        }
+        self.splice_new_payload::<false>(key, val.into())
     }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
-        //GOAT, factor this with node_set_val
-        panic!()
-        // let mut replacement_node = self.into_full().unwrap();
-        // replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
-        // Err(TrieNodeODRc::new(replacement_node))
+        self.splice_new_payload::<true>(key, new_node.into()).map(|(_, created_subnode)| created_subnode)
     }
-    fn node_remove_all_branches(&mut self, _key: &[u8]) -> bool { unreachable!() }
-    fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) { unreachable!() }
+    fn node_remove_all_branches(&mut self, key: &[u8]) -> bool {
+        debug_assert!(!self.is_empty());
+        let self_key = self.key();
+        if self_key.starts_with(key) && (key.len() < self_key.len() || self.is_child_ptr()) {
+            self.drop_payload();
+            self.header = 0;
+            true
+        } else {
+            false
+        }
+    }
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
+        debug_assert!(!self.is_empty());
+        let self_key = self.key();
+        if self_key.starts_with(key) {
+            if key.len() < self_key.len() && !test_mask(&mask, self_key[key.len()]) {
+                self.drop_payload();
+                self.header = 0;
+                return
+            }
+            if self.is_child_ptr() {
+                let child = unsafe{ &mut *self.payload.child }.make_mut();
+                child.node_remove_unmasked_branches(&[], mask)
+            }
+        }
+    }
     fn node_is_empty(&self) -> bool {
         self.is_empty()
     }
@@ -352,8 +376,16 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         }
         0
     }
-    fn node_branches_mask(&self, _key: &[u8]) -> [u64; 4] {
-        panic!();
+    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
+        debug_assert!(!self.is_empty());
+        let self_key = self.key();
+        let mut m = [0u64; 4];
+
+        if self_key.len() > key.len() && self_key.starts_with(key) {
+            let k = self_key[key.len()];
+            m[((k & 0b11000000) >> 6) as usize] = 1u64 << (k & 0b00111111);
+        }
+        m
     }
     fn is_leaf(&self, key: &[u8]) -> bool {
         debug_assert!(!self.is_empty());
@@ -398,7 +430,27 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         //The key fails to specify a path contained within the node
         AbstractNodeRef::None
     }
-    fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V>> { unreachable!() }
+    fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>> {
+        debug_assert!(!self.is_empty());
+        let self_key = self.key();
+        if self_key.starts_with(key) {
+            if self_key.len() == key.len() {
+                if self.is_child_ptr() {
+                    let self_payload = self.take_payload();
+                    Some(unsafe{ self_payload.into_child() })
+                } else {
+                    None
+                }
+            } else {
+                let self_payload = self.take_payload();
+                let self_key = self.key();
+                let new_node = Self::new(&self_key[key.len()..], self.is_child_ptr(), self_payload);
+                Some(TrieNodeODRc::new(new_node))
+            }
+        } else {
+            None
+        }
+    }
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         panic!();
     }

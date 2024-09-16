@@ -2639,6 +2639,7 @@ mod tests {
 //
 //GOAT, Write ReadMe
 //  intro - as a key-value store, the power of prefixes, structural sharing
+//      caveat-sidebar about path stability.  Paths without values may be pruned.  Paths with values are reliable.
 //  algebraic ops
 //  Zippers as a concept
 //  Multiple zippers in the same map

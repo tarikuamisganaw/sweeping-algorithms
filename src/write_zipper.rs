@@ -1243,7 +1243,7 @@ mod tests {
 
         let mut wr = map.write_zipper();
         wr.descend_to("123:".as_bytes());
-        println!("{:?}", wr.child_mask());
+        // println!("{:?}", wr.child_mask());
 
         let mut m = [0, 0, 0, 0];
         for b in "dco".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
@@ -1261,5 +1261,33 @@ mod tests {
             "123:dog:Bob:Fido",
             "123:dog:Pam:Bandit",
             "123:owl:Sue:Cornelius"]);
+    }
+
+    #[test]
+    fn write_zipper_remove_unmask_branches() {
+        let keys = ["Wilson", "Taft", "Roosevelt", "McKinley", "Cleveland", "Harrison", "Arthur", "Garfield"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut wr = map.write_zipper();
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'M'-64)), 0xFF, 0xFF]);
+        //McKinley didn't make it
+        wr.descend_to("McKinley");
+        assert_eq!(wr.get_value(), None);
+
+        wr.reset();
+        wr.descend_to("Roos");
+        assert_eq!(wr.path_exists(), true);
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF]);
+        //Missed Roosevelt
+        wr.descend_to("evelt");
+        assert_eq!(wr.get_value(), Some(&2));
+
+        wr.reset();
+        wr.descend_to("Garf");
+        assert_eq!(wr.path_exists(), true);
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF]);
+        wr.descend_to("ield");
+        //Garfield was removed
+        assert_eq!(wr.get_value(), None);
     }
 }

@@ -109,8 +109,8 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     /// Removes the downstream branch from the specified `key`.  Does not affect the value at the `key`
     ///
-    /// Returns `true` if a value was sucessfully removed from the node; returns `false` if the node did not
-    /// contain a branch at the specified key
+    /// Returns `true` if one or more downstream branches were removed from the node; returns `false` if
+    /// the node did not contain any downstream branches from the specified key
     ///
     /// WARNING: This method may leave the node empty.  If eager pruning of branches is desired then the
     /// node should subsequently be checked to see if it is empty
@@ -218,6 +218,8 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns a node which is the the portion of the node rooted at `key`, or `None` if `key` does
     /// not specify a path within the node
     ///
+    /// WARNING: This method may leave the node empty
+    ///
     /// This method should never be called with `key.len() == 0`
     fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
 
@@ -272,6 +274,14 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V>;
+}
+
+#[cfg(feature = "bridge_nodes")]
+/// Returns `true` if the bit in `mask` that corresponds to `k` is 1
+#[inline]
+pub fn test_mask(mask: &[u64; 4], k: u8) -> bool {
+    let idx = ((k & 0b11000000) >> 6) as usize;
+    mask[idx] & 1u64 << (k & 0b00111111) > 0
 }
 
 pub enum ValOrChildRef<'a, V> {

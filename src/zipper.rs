@@ -1154,6 +1154,36 @@ mod tests {
         assert_eq!(zipper.path(), b"5:");
         assert_eq!(zipper.child_count(), 6);
     }
+
+    #[test]
+    fn zipper_test_masks() {
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let btm: BytesTrieMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i)).collect();
+        let mut zipper = btm.read_zipper();
+
+        //'a' + 'b' + 'c' + 'r'
+        assert_eq!(zipper.child_mask(), [0, 1<<(b'a'-64) | 1<<(b'b'-64) | 1<<(b'c'-64) | 1<<(b'r'-64), 0, 0]);
+
+        let mut i = 0;
+        while zipper.to_next_step() {
+            match i {
+                //'r' descending from 'a' in "arrow"
+                0 => assert_eq!(zipper.child_mask(), [0, 1<<(b'r'-64), 0, 0]),
+                //'r' descending from "ar" in "arrow"
+                1 => assert_eq!(zipper.child_mask(), [0, 1<<(b'r'-64), 0, 0]),
+                //'o' descending from "arr" in "arrow"
+                2 => assert_eq!(zipper.child_mask(), [0, 1<<(b'o'-64), 0, 0]),
+                //'w' descending from "arro" in "arrow"
+                3 => assert_eq!(zipper.child_mask(), [0, 1<<(b'w'-64), 0, 0]),
+                //leaf node, "arrow"
+                4 => assert_eq!(zipper.child_mask(), [0, 0, 0, 0]),
+                //'o' + 'u' descending from 'r' in "roman", "rubens", etc.
+                14 => assert_eq!(zipper.child_mask(), [0, 1<<(b'o'-64) | 1<<(b'u'-64), 0, 0]),
+                _ => {}
+            }
+            i += 1;
+        }
+    }
 }
 
 // GOAT, new zipper API.  "fork_zipper_at_path".  Cheap call to make a new zipper cheaper than descend_to
