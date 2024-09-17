@@ -23,6 +23,8 @@ pub mod line_list_node;
 mod empty_node;
 mod tiny_node;
 
+mod old_dense_cursor;
+
 #[cfg(test)]
 mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};

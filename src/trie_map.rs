@@ -164,6 +164,10 @@ impl<V: Clone> BytesTrieMap<V> {
         BytesTrieMapCursor::new(self)
     }
 
+    pub fn old_cursor<'a>(&'a self) -> crate::old_dense_cursor::OldCursor<'a, V> {
+        crate::old_dense_cursor::OldCursor::new(self)
+    }
+
     /// Returns `true` if the map contains a value at the specified key, otherwise returns `false`
     pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
         let k = k.as_ref();

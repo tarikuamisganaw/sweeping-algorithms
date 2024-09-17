@@ -45,7 +45,7 @@ const ALL_BYTES: [u8; 256] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 
 
 #[derive(Clone)]
 pub struct DenseByteNode<V> {
-    mask: [u64; 4],
+    pub mask: [u64; 4],
     #[cfg(all(feature = "all_dense_nodes", feature = "smallvec"))]
     values: SmallVec<[CoFree<V>; 2]>,
     #[cfg(all(not(feature = "all_dense_nodes"), feature = "smallvec"))]
@@ -337,7 +337,7 @@ impl<V> DenseByteNode<V> {
     }
 
     #[inline]
-    unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
+    pub unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
         let ix = self.left(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
         self.values.get_unchecked(ix)
@@ -1273,7 +1273,7 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
 }
 
 #[derive(Default, Clone, Debug)]
-struct CoFree<V> {
+pub struct CoFree<V> {
     pub(crate) rec: Option<TrieNodeODRc<V>>,
     pub(crate) value: Option<V>
 }
