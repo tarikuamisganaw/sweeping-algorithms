@@ -74,6 +74,8 @@ impl <V> Debug for DenseByteNode<V> {
 }
 
 impl<V> DenseByteNode<V> {
+    const NULL_COFREE: CoFree<V> = CoFree{ rec: None, value: None };
+
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -914,6 +916,53 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
         Box::new(DenseByteNodeIter::new(self))
     }
+    fn new_iter_token(&self) -> u128 {
+        self.mask[0] as u128
+    }
+    fn next_cf(&self, token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
+        let mut i = (token >> 64) as u8;
+        let mut w = token as u64;
+        loop {
+            if w != 0 {
+                let wi = w.trailing_zeros() as u8;
+                w ^= 1u64 << wi;
+                let index = i*64 + wi;
+
+                let new_token = ((i as u128) << 64) | (w as u128);
+                return (new_token, index, unsafe{ self.get_unchecked(index) } )
+            } else if i < 3 {
+                i += 1;
+
+                w = unsafe { *self.mask.get_unchecked(i as usize) };
+            } else {
+                return (0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF, 0, &Self::NULL_COFREE)
+            }
+        }
+    }
+    #[inline(always)]
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        let mut i = (token >> 64) as u8;
+        let mut w = token as u64;
+        loop {
+            if w != 0 {
+                let wi = w.trailing_zeros() as u8;
+                w ^= 1u64 << wi;
+                let k = i*64 + wi;
+
+                let new_token = ((i as u128) << 64) | (w as u128);
+                let cf = unsafe{ self.get_unchecked(k) };
+                let k = k as usize;
+                return (new_token, &ALL_BYTES[k..=k], cf.rec.as_ref(), cf.value.as_ref())
+
+            } else if i < 3 {
+                i += 1;
+
+                w = unsafe { *self.mask.get_unchecked(i as usize) };
+            } else {
+                return (NODE_ITER_FINISHED, &[], None, None)
+            }
+        }
+    }
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         //Discussion: These two implementations do the same thing but with a slightly different ordering of
         // the operations.  In `all_dense_nodes`, the "Branchy" impl wins.  But in a mixed-node setting, the
@@ -1250,6 +1299,10 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
+    }
+    #[inline(always)]
+    fn as_dyn_ref(&self) -> crate::old_dense_cursor::DynNodeRef<V> {
+        crate::old_dense_cursor::DynNodeRef::DenseByteNode(self)
     }
 }
 

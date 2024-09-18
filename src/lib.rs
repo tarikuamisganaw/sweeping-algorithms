@@ -316,15 +316,4 @@ mod tests {
             }
         }
     }
-
-    #[test]
-    fn btm_cursor_test() {
-        let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
-        let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
-        let mut cursor = btm.cursor();
-        while let Some((k, v)) = cursor.next() {
-            // println!("{}, {v}", std::str::from_utf8(k).unwrap());
-            assert_eq!(k, table[*v].as_bytes());
-        }
-    }
 }

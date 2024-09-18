@@ -157,6 +157,7 @@ fn superdense_cursor(bencher: Bencher, n: u64) {
     });
 }
 
+#[cfg(feature = "all_dense_nodes")]
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_old_cursor(bencher: Bencher, n: u64) {
 
@@ -167,6 +168,22 @@ fn superdense_old_cursor(bencher: Bencher, n: u64) {
     let mut sink = 0;
     bencher.bench_local(|| {
         let mut cursor = map.old_cursor();
+        while let Some((_key, val)) = cursor.next() {
+            *black_box(&mut sink) = *val
+        }
+    });
+}
+
+#[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
+fn superdense_old_cursor_abstracted(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+
+    //Benchmark the cursor
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        let mut cursor = map.abstracted_old_cursor();
         while let Some((_key, val)) = cursor.next() {
             *black_box(&mut sink) = *val
         }

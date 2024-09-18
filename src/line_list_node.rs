@@ -1327,7 +1327,52 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
         Box::new(ListNodeIter::new(self))
     }
-
+    fn new_iter_token(&self) -> u128 {
+        0
+    }
+    fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
+        panic!()
+    }
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        match token {
+            0 => {
+                let (key0, key1) = self.get_both_keys();
+                let mut child = None;
+                let mut value = None;
+                let mut next_token = 1;
+                if self.is_child_ptr::<0>() {
+                    child = Some(unsafe{ self.child_in_slot::<0>() })
+                } else {
+                    value = Some(unsafe{ self.val_in_slot::<0>() })
+                };
+                if key0 == key1 {
+                    if self.is_child_ptr::<1>() {
+                        child = Some(unsafe{ self.child_in_slot::<1>() });
+                    } else {
+                        value = Some(unsafe{ self.val_in_slot::<1>() });
+                    }
+                    next_token = 2;
+                }
+                (next_token, key0, child, value)
+            },
+            1 => {
+                if self.is_used::<1>() {
+                    let mut child = None;
+                    let mut value = None;
+                    let key1 = unsafe{ self.key_unchecked::<1>() };
+                    if self.is_child_ptr::<1>() {
+                        child = Some(unsafe{ self.child_in_slot::<1>() });
+                    } else {
+                        value = Some(unsafe{ self.val_in_slot::<1>() });
+                    }
+                    (2, key1, child, value)
+                } else {
+                    (NODE_ITER_FINISHED, &[], None, None)
+                }
+            },
+            _ => (NODE_ITER_FINISHED, &[], None, None)
+        }
+    }
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         let mut result = 0;
         if self.is_used_value_0() {
@@ -2040,6 +2085,9 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         Some(self)
+    }
+    fn as_dyn_ref(&self) -> crate::old_dense_cursor::DynNodeRef<V> {
+        crate::old_dense_cursor::DynNodeRef::LineListNode(self)
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())

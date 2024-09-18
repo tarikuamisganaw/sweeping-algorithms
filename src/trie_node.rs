@@ -3,6 +3,7 @@ use std::rc::Rc;
 use std::collections::HashMap;
 use dyn_clone::*;
 
+use crate::old_dense_cursor::DynNodeRef;
 use crate::dense_byte_node::*;
 use crate::line_list_node::LineListNode;
 use crate::empty_node::EmptyNode;
@@ -130,6 +131,22 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// TODO, hopefully we can deprecate this method when the zipper iteration gets a little faster.  See
     /// comments around [crate::trie_map::BytesTrieMapCursor]
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>;
+
+    /// Generates a new iter token, to iterate the children and values contained within this node
+    fn new_iter_token(&self) -> u128;
+
+    /// GOAT, trash, remove before merge
+    fn next_cf(&self, token: u128) -> (u128, u8, &CoFree<V>);
+
+    /// Steps to the next existing path within the node
+    ///
+    /// Returns `(next_token, path, child_node, value)`
+    /// - `next_token` is the value to pass to a subsequent call of this method.  Returns
+    ///   [NODE_ITER_FINISHED] when there are no more sub-paths
+    /// - `path` is relative to the start of `node`
+    /// - `child_node` an onward node link, of `None`
+    /// - `value` that exists at the path, or `None`
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>);
 
     /// Returns the total number of leaves contained within the whole subtree defined by the node
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
@@ -270,9 +287,15 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
 
+    /// Returns a [DynNodeRef] referencing this node
+    fn as_dyn_ref(&self) -> DynNodeRef<V>;
+
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V>;
 }
+
+/// Special sentinel token value indicating iteration of a node has concluded
+pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
 
 pub enum ValOrChildRef<'a, V> {
     Val(&'a V),

@@ -90,6 +90,15 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
         panic!()
     }
+    fn new_iter_token(&self) -> u128 {
+        panic!()
+    }
+    fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
+        panic!()
+    }
+    fn next_items(&self, _token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        panic!()
+    }
     fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         0
     }
@@ -162,6 +171,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         None
+    }
+    fn as_dyn_ref(&self) -> crate::old_dense_cursor::DynNodeRef<V> {
+        panic!()
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())

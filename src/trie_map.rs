@@ -167,6 +167,9 @@ impl<V: Clone> BytesTrieMap<V> {
     pub fn old_cursor<'a>(&'a self) -> crate::old_dense_cursor::OldCursor<'a, V> {
         crate::old_dense_cursor::OldCursor::new(self)
     }
+    pub fn abstracted_old_cursor<'a>(&'a self) -> crate::old_dense_cursor::AbstractedOldCursor<'a, V> {
+        crate::old_dense_cursor::AbstractedOldCursor::new(self)
+    }
 
     /// Returns `true` if the map contains a value at the specified key, otherwise returns `false`
     pub fn contains<K: AsRef<[u8]>>(&self, k: K) -> bool {
@@ -540,5 +543,16 @@ mod tests {
             assert_eq!(rs[*i].as_bytes(), &path);
         }
         assert_eq!(joined.val_count(), rs.len());
+    }
+
+    #[test]
+    fn cursor_test() {
+        let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
+        let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
+        let mut cursor = btm.abstracted_old_cursor();
+        while let Some((k, v)) = cursor.next() {
+            // println!("{}, {v}", std::str::from_utf8(k).unwrap());
+            assert_eq!(k, table[*v].as_bytes());
+        }
     }
 }

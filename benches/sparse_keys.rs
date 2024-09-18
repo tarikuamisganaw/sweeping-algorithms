@@ -178,6 +178,7 @@ fn sparse_cursor(bencher: Bencher, n: u64) {
     });
 }
 
+#[cfg(feature = "all_dense_nodes")]
 #[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_old_cursor(bencher: Bencher, n: u64) {
 
@@ -192,6 +193,26 @@ fn sparse_old_cursor(bencher: Bencher, n: u64) {
     let mut sink = 0;
     bencher.bench_local(|| {
         let mut cursor = map.old_cursor();
+        while let Some((_key, val)) = cursor.next() {
+            *black_box(&mut sink) = *val
+        }
+    });
+}
+
+#[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
+fn sparse_old_cursor_abstracted(bencher: Bencher, n: u64) {
+
+    let mut r = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+    }).collect();
+    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+
+    //Benchmark the iterator
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        let mut cursor = map.abstracted_old_cursor();
         while let Some((_key, val)) = cursor.next() {
             *black_box(&mut sink) = *val
         }
