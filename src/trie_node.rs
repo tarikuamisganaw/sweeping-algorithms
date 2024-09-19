@@ -135,10 +135,14 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Generates a new iter token, to iterate the children and values contained within this node
     fn new_iter_token(&self) -> u128;
 
+    /// Generates an iter token that can be passed to [Self::next_items] to continue iteration from the
+    /// specified path
+    fn iter_token_for_path(&self, key: &[u8]) -> u128;
+
     /// GOAT, trash, remove before merge
     fn next_cf(&self, token: u128) -> (u128, u8, &CoFree<V>);
 
-    /// Steps to the next existing path within the node
+    /// Steps to the next existing path within the node, in a depth-first order
     ///
     /// Returns `(next_token, path, child_node, value)`
     /// - `next_token` is the value to pass to a subsequent call of this method.  Returns

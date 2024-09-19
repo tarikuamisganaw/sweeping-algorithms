@@ -21,7 +21,7 @@
 //! - [ascend_until](zipper::Zipper::ascend_until)
 //!
 
-use crate::trie_node::{TrieNode, AbstractNodeRef, val_count_below_root};
+use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
 
 pub use crate::write_zipper::*;
@@ -135,12 +135,14 @@ pub struct ReadZipper<'a, 'k, V> {
     root_val: Option<&'a V>,
     /// A reference to the root node
     focus_node: &'a dyn TrieNode<V>,
+    /// An iter token corresponding to the location of the `node_key` within the `focus_node`, or NODE_ITER_FINISHED
+    /// if iteration is not in-process
+    focus_iter_token: u128,
     /// Stores the entire path from the root node, including the bytes from `root_key`
     prefix_buf: Vec<u8>,
-    /// Stores the lengths for each successive node's key
-    prefix_idx: Vec<usize>,
     /// Stores a stack of parent node references.  Does not include the focus_node
-    ancestors: Vec<&'a dyn TrieNode<V>>,
+    /// The tuple contains: `(node_ref, iter_token, key_offset_in_prefix_buf)`
+    ancestors: Vec<(&'a dyn TrieNode<V>, u128, usize)>,
     /// Tracks the outstanding zippers to ensure there are no conflicts
     zipper_tracker: ZipperTracker,
 }
@@ -156,8 +158,8 @@ impl<'a, 'k, V> Clone for ReadZipper<'a, 'k, V> where V: Clone {
             root_key_offset: self.root_key_offset,
             root_val: self.root_val.clone(),
             focus_node: self.focus_node,
+            focus_iter_token: NODE_ITER_FINISHED,
             prefix_buf: self.prefix_buf.clone(),
-            prefix_idx: self.prefix_idx.clone(),
             ancestors: self.ancestors.clone(),
             zipper_tracker: self.zipper_tracker.new_read_path(self.origin_path),
         }
@@ -173,11 +175,10 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     fn reset(&mut self) {
         self.ancestors.truncate(1);
         match self.ancestors.pop() {
-            Some(node) => self.focus_node = node,
+            Some((node, _tok, _prefix_len)) => self.focus_node = node,
             None => {}
         }
         self.prefix_buf.truncate(self.origin_path.len());
-        self.prefix_idx.clear();
     }
 
     fn path(&self) -> &[u8] {
@@ -232,8 +233,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         //Step until we get to the end of the key or find a leaf node
         while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
             key_start += consumed_byte_cnt;
-            self.prefix_idx.push(key_start);
-            self.ancestors.push(self.focus_node);
+            self.ancestors.push((self.focus_node, NODE_ITER_FINISHED, key_start));
             self.focus_node = next_node;
             if consumed_byte_cnt < key.len() {
                 key = &key[consumed_byte_cnt..]
@@ -250,8 +250,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
             (Some(prefix), Some(child_node)) => {
                 self.prefix_buf.push(prefix);
-                self.prefix_idx.push(self.prefix_buf.len());
-                self.ancestors.push(self.focus_node);
+                self.ancestors.push((self.focus_node, NODE_ITER_FINISHED, self.prefix_buf.len()));
                 self.focus_node = child_node;
                 true
             },
@@ -281,8 +280,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
             match self.focus_node.get_sibling_of_child(self.node_key(), next) {
                 (Some(prefix), Some(child_node)) => {
                     *self.prefix_buf.last_mut().unwrap() = prefix;
-                    self.prefix_idx.push(self.prefix_buf.len());
-                    self.ancestors.push(self.focus_node);
+                    self.ancestors.push((self.focus_node, NODE_ITER_FINISHED, self.prefix_buf.len()));
                     self.focus_node = child_node;
                     true
                 },
@@ -296,7 +294,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
             let mut should_pop = false;
             let result = match self.ancestors.last() {
                 None => { false }
-                Some(parent) => {
+                Some((parent, _iter_tok, _prefix_offset)) => {
                     match parent.get_sibling_of_child(self.parent_key(), next) {
                         (Some(prefix), Some(child_node)) => {
                             *self.prefix_buf.last_mut().unwrap() = prefix;
@@ -315,8 +313,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
                 }
             };
             if should_pop {
-                self.focus_node = self.ancestors.pop().unwrap();
-                self.prefix_idx.pop();
+                let (focus_node, _iter_tok, _prefix_offset) = self.ancestors.pop().unwrap();
+                self.focus_node = focus_node;
             }
             result
         }
@@ -326,10 +324,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         while steps > 0 {
             if self.excess_key_len() == 0 {
                 self.focus_node = match self.ancestors.pop() {
-                    Some(node) => node,
+                    Some((node, _iter_tok, _prefix_offset)) => node,
                     None => return false
                 };
-                self.prefix_idx.pop();
             }
             let cur_jump = steps.min(self.excess_key_len());
             self.prefix_buf.truncate(self.prefix_buf.len() - cur_jump);
@@ -425,8 +422,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             root_key_offset,
             root_val,
             focus_node: root_node,
+            focus_iter_token: NODE_ITER_FINISHED,
             prefix_buf: vec![],
-            prefix_idx: vec![],
             ancestors: vec![],
             zipper_tracker,
         }
@@ -438,7 +435,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         if key.len() > 0 {
             self.focus_node.node_get_val(key)
         } else {
-            if let Some(parent) = self.ancestors.last() {
+            if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
                 parent.node_get_val(self.parent_key())
             } else {
                 self.root_val.clone() //Just clone the ref, not the value itself
@@ -460,29 +457,78 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
+    // /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
+    // /// order.  Returns a reference to the value
+    //GOAT.  Old impl using simpler zipper-move ops
+    // pub fn to_next_val(&mut self) -> Option<&'a V> {
+    //     loop {
+    //         //If we're at a leaf ascend and jump to the next sibling
+    //         if self.focus_node.is_leaf(self.node_key()) {
+    //             //We can stop ascending when we succeed in moving to a sibling
+    //             while !self.to_sibling(true) {
+    //                 if !self.ascend_jump(None) {
+    //                     return None;
+    //                 }
+    //             }
+    //         } else {
+    //             //We're at a branch, so descend
+    //             self.descend_first();
+    //         }
+
+    //         //If there is a value here, return it
+    //         //UGH! Polonius!! We need you!!!  We know this is safe because we either return the result,
+    //         // and hence no future use, or `get_value()` returns None, so we drop the borrow
+    //         let self_ptr: *const Self = self;
+    //         if let Some(val) = unsafe{ &*self_ptr }.get_value() {
+    //             return Some(val);
+    //         }
+    //     }
+    // }
+
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
     pub fn to_next_val(&mut self) -> Option<&'a V> {
+        self.prepare_buffers();
         loop {
-            //If we're at a leaf ascend and jump to the next sibling
-            if self.focus_node.is_leaf(self.node_key()) {
-                //We can stop ascending when we succeed in moving to a sibling
-                while !self.to_sibling(true) {
-                    if !self.ascend_jump(None) {
-                        return None;
-                    }
+            let iter_tok = if self.focus_iter_token != NODE_ITER_FINISHED {
+                self.focus_iter_token
+            } else {
+                self.focus_node.iter_token_for_path(self.node_key())
+            };
+
+            let (new_tok, key_bytes, child_node, value) = self.focus_node.next_items(iter_tok);
+            if new_tok != NODE_ITER_FINISHED {
+                self.focus_iter_token = new_tok;
+
+                let key_start = self.node_key_start();
+                self.prefix_buf.truncate(key_start);
+                self.prefix_buf.extend(key_bytes);
+
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow();
+                        self.focus_iter_token = self.focus_node.new_iter_token();
+                    },
+                }
+
+                match value {
+                    Some(v) => return Some(v),
+                    None => {}
                 }
             } else {
-                //We're at a branch, so descend
-                self.descend_first();
-            }
-
-            //If there is a value here, return it
-            //UGH! Polonius!! We need you!!!  We know this is safe because we either return the result,
-            // and hence no future use, or `get_value()` returns None, so we drop the borrow
-            let self_ptr: *const Self = self;
-            if let Some(val) = unsafe{ &*self_ptr }.get_value() {
-                return Some(val);
+                //Ascend
+                // || max_jump == Some(0) { GOAT, check get max_jump in here, so we can implement k_path
+                if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
+                    self.focus_node = focus_node;
+                    self.focus_iter_token = iter_tok;
+                    self.prefix_buf.truncate(prefix_offset);
+                } else {
+                    let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                    self.prefix_buf.truncate(new_len);
+                    return None
+                }
             }
         }
     }
@@ -585,7 +631,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         if key.len() > 0 {
             self.focus_node.node_contains_val(key)
         } else {
-            if let Some(parent) = self.ancestors.last() {
+            if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
                 parent.node_contains_val(self.parent_key())
             } else {
                 self.root_val.is_some()
@@ -601,8 +647,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             (Some(prefix), Some(child_node)) => {
                 //Step to a new node
                 self.prefix_buf.extend(prefix);
-                self.prefix_idx.push(self.prefix_buf.len());
-                self.ancestors.push(self.focus_node);
+                self.ancestors.push((self.focus_node, NODE_ITER_FINISHED, self.prefix_buf.len()));
                 self.focus_node = child_node;
 
                 //If we're at the root of the new node, descend to the first child
@@ -623,7 +668,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     fn prepare_buffers(&mut self) {
         if self.prefix_buf.capacity() == 0 {
             self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
-            self.prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
             self.ancestors = Vec::with_capacity(EXPECTED_DEPTH);
             self.prefix_buf.extend(self.origin_path);
         }
@@ -641,7 +685,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
     #[inline]
     fn node_key_start(&self) -> usize {
-        self.prefix_idx.last().map(|i| *i)
+        self.ancestors.last().map(|(_node, _iter_tok, i)| *i)
             .unwrap_or_else(|| self.root_key_offset.unwrap_or(0))
     }
     /// Internal method returning the key within the focus node
@@ -660,8 +704,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     #[inline]
     fn parent_key(&self) -> &[u8] {
         if self.prefix_buf.len() > 0 {
-            let key_start = if self.prefix_idx.len() > 1 {
-                unsafe{ *self.prefix_idx.get_unchecked(self.prefix_idx.len()-2) }
+            let key_start = if self.ancestors.len() > 1 {
+                unsafe{ *self.ancestors.get_unchecked(self.ancestors.len()-2) }.2
             } else {
                 self.root_key_offset.unwrap_or(0)
             };
@@ -674,15 +718,15 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// legally ascended within the node, taking into account the root_key
     #[inline]
     fn excess_key_len(&self) -> usize {
-        self.prefix_buf.len() - self.prefix_idx.last().map(|i| *i).unwrap_or(self.origin_path.len())
+        self.prefix_buf.len() - self.ancestors.last().map(|(_node, _iter_tok, i)| *i).unwrap_or(self.origin_path.len())
     }
     /// Internal method which doesn't actually move the zipper, but ensures `self.node_key().len() > 0`
     /// WARNING, must never be called if `self.node_key().len() != 0`
     #[inline]
     fn ascend_across_nodes(&mut self) {
         debug_assert!(self.node_key().len() == 0);
-        self.focus_node = self.ancestors.pop().unwrap();
-        self.prefix_idx.pop();
+        let (focus_node, _iter_tok, _prefix_offset) = self.ancestors.pop().unwrap();
+        self.focus_node = focus_node;
     }
     /// Internal method used to impement `ascend_until` when ascending within a node
     #[inline]
@@ -692,6 +736,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         self.prefix_buf.truncate(new_len);
     }
 
+    //GOAT, method function can be removed when the old zipper-iter path is removed
     /// Internal method to ascend in one contiguous step, but unlike [Self::ascend_until], this method
     /// will stop one byte below the branch point, and also will not ascend recursively across multiple
     /// node boundaries.  Mainly this is useful in the implementation of [Self::to_next_val]

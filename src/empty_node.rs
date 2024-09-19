@@ -91,13 +91,16 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
         panic!()
     }
     fn new_iter_token(&self) -> u128 {
-        panic!()
+        0
     }
     fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
         panic!()
     }
+    fn iter_token_for_path(&self, _key: &[u8]) -> u128 {
+        0
+    }
     fn next_items(&self, _token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
-        panic!()
+        (0, &[], None, None)
     }
     fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         0

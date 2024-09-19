@@ -919,6 +919,18 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn new_iter_token(&self) -> u128 {
         self.mask[0] as u128
     }
+    fn iter_token_for_path(&self, key: &[u8]) -> u128 {
+        if key.len() != 1 {
+            self.new_iter_token()
+        } else {
+            let k = *unsafe{ key.get_unchecked(0) };
+            let idx = ((k & 0b11000000) >> 6) as usize;
+            let bit_i = k & 0b00111111;
+            debug_assert!(idx < 4);
+            let mask: u64 = (0xFFFFFFFFFFFFFFFF << bit_i+1) & unsafe{ self.mask.get_unchecked(idx) };
+            ((idx as u128) << 64) | (mask as u128)
+        }
+    }
     fn next_cf(&self, token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
         let mut i = (token >> 64) as u8;
         let mut w = token as u64;
