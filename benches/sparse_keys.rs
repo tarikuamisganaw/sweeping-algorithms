@@ -220,6 +220,28 @@ fn sparse_old_cursor_abstracted(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
+fn sparse_k_path_iter(bencher: Bencher, n: u64) {
+
+    let mut r = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (r.gen::<u8>() % 15) + 5; //length between 5 and 20 chars
+        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+    }).collect();
+    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+
+    //Benchmark the zipper's iterator
+    bencher.bench_local(|| {
+        let mut zipper = map.read_zipper();
+        let mut count = 1;
+        zipper.descend_first_k_path(5);
+        while zipper.to_next_k_path(5) {
+            count += 1;
+        }
+        assert_eq!(count, n);
+    });
+}
+
+#[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_zipper_cursor(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);

@@ -489,6 +489,26 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// order.  Returns a reference to the value
     pub fn to_next_val(&mut self) -> Option<&'a V> {
         self.prepare_buffers();
+        // ==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**
+        // Alternate implementation.  The compiler should make this *identical* to the one below
+        // through inlining, but empirically it's ~10% slower.
+        // ==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**
+        // loop {
+        //     let (should_ascend, value) = self.iter_step_internal(None);
+        //     match value {
+        //         Some(v) => return Some(v),
+        //         None => {}
+        //     }
+        //     if should_ascend {
+        //         if !self.iter_ascend_internal() {
+        //             return None
+        //         }
+        //     }
+        // }
+
+        // ==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**
+        // Hand-expanded implementation
+        // ==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**==**
         loop {
             let iter_tok = if self.focus_iter_token != NODE_ITER_FINISHED {
                 self.focus_iter_token
@@ -519,7 +539,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 }
             } else {
                 //Ascend
-                // || max_jump == Some(0) { GOAT, check get max_jump in here, so we can implement k_path
                 if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
                     self.focus_node = focus_node;
                     self.focus_iter_token = iter_tok;
@@ -530,6 +549,64 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                     return None
                 }
             }
+        }
+    }
+
+    /// Internal method for the implementation of iteration methods such as to_next_val, and k_path
+    ///
+    /// Returns `(should_ascend, val_at_path)`
+    fn iter_step_internal(&mut self, do_not_descend_below: Option<usize>) -> (bool, Option<&'a V>) {
+        let iter_tok = if self.focus_iter_token != NODE_ITER_FINISHED {
+            self.focus_iter_token
+        } else {
+            self.focus_node.iter_token_for_path(self.node_key())
+        };
+
+        let (new_tok, key_bytes, child_node, value) = self.focus_node.next_items(iter_tok);
+        if new_tok != NODE_ITER_FINISHED {
+            self.focus_iter_token = new_tok;
+
+            let key_start = self.node_key_start();
+            self.prefix_buf.truncate(key_start);
+            self.prefix_buf.extend(key_bytes);
+
+            let allow_further_descent = if let Some(depth_limit) = do_not_descend_below {
+                self.path().len() < depth_limit
+            } else {
+                true
+            };
+
+            if allow_further_descent {
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow();
+                        self.focus_iter_token = self.focus_node.new_iter_token();
+                    },
+                }
+            }
+
+            (false, value)
+        } else {
+            (true, None)
+        }
+    }
+
+    /// Internal method to ascend the zipper as part of iteration
+    ///
+    /// Returns `true` if the zipper moved, or `false` it it's already at the root / `min_path_len`
+    fn iter_ascend_internal(&mut self) -> bool {
+
+        if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
+            self.focus_node = focus_node;
+            self.focus_iter_token = iter_tok;
+            self.prefix_buf.truncate(prefix_offset);
+            true
+        } else {
+            let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+            self.prefix_buf.truncate(new_len);
+            false
         }
     }
 
@@ -555,7 +632,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         true
     }
 
-    //GOAT, should k_path be lifted into a utility layer above PathMap?
     /// Descends the zipper's focus 'k' bytes, following the first child at each branch, and continuing with
     /// depth-first exploration until a path that is `k` bytes from the focus has been found
     ///
@@ -593,35 +669,70 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Internal method that implements both `k_path...` methods above
     #[inline]
     fn k_path_internal(&mut self, k: usize, base_idx: usize) -> bool {
-        let depth = |z: &Self| z.path().len() - base_idx;
+        self.prepare_buffers();
         loop {
-            //If we're at a leaf or `k` depth, then ascend and jump to the next sibling
-            if self.focus_node.is_leaf(self.node_key()) || depth(self) >= k {
-                //We can stop ascending when we succeed in moving to a sibling
-                while !self.to_sibling(true) {
-                    if !self.ascend_jump(Some(depth(self))) {
-                        return false;
-                    }
+            let (should_ascend, _value) = self.iter_step_internal(Some(k+base_idx));
+            if should_ascend {
+                //This branch means we need to ascend or we're finished with the iteration
+
+                if self.path().len() <= base_idx+1 {
+                    self.prefix_buf.truncate(base_idx+1);
+                    return false
+                }
+
+                if !self.iter_ascend_internal() {
+                    return false
                 }
             } else {
-                //We're at a branch, so descend
-                self.descend_first();
-            }
+                //This branch means we're either going to continue to descend, or return
 
-            //Truncate the path if we over-shot
-            if depth(self) > k {
-                if self.node_key().len() == 0 {
-                    self.ascend_across_nodes();
+                //Truncate the path if we over-shot
+                if self.path().len() > k+base_idx {
+                    if self.node_key().len() == 0 {
+                        self.ascend_across_nodes();
+                    }
+
+                    let overshoot = self.path().len() - (k+base_idx);
+                    self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
                 }
 
-                let overshoot = depth(self) - k;
-                self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
-            }
-
-            if depth(self) == k {
-                return true;
+                if self.path().len() == k+base_idx {
+                    return true;
+                }
             }
         }
+
+
+        // //GOAT, old implementation
+        // let depth = |z: &Self| z.path().len() - base_idx;
+        // loop {
+        //     //If we're at a leaf or `k` depth, then ascend and jump to the next sibling
+        //     if self.focus_node.is_leaf(self.node_key()) || depth(self) >= k {
+        //         //We can stop ascending when we succeed in moving to a sibling
+        //         while !self.to_sibling(true) {
+        //             if !self.ascend_jump(Some(depth(self))) {
+        //                 return false;
+        //             }
+        //         }
+        //     } else {
+        //         //We're at a branch, so descend
+        //         self.descend_first();
+        //     }
+
+        //     //Truncate the path if we over-shot
+        //     if depth(self) > k {
+        //         if self.node_key().len() == 0 {
+        //             self.ascend_across_nodes();
+        //         }
+
+        //         let overshoot = depth(self) - k;
+        //         self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
+        //     }
+
+        //     if depth(self) == k {
+        //         return true;
+        //     }
+        // }
     }
 
     /// Internal method that implements [Self::is_value], but so it can be inlined elsewhere
@@ -736,34 +847,34 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         self.prefix_buf.truncate(new_len);
     }
 
-    //GOAT, method function can be removed when the old zipper-iter path is removed
-    /// Internal method to ascend in one contiguous step, but unlike [Self::ascend_until], this method
-    /// will stop one byte below the branch point, and also will not ascend recursively across multiple
-    /// node boundaries.  Mainly this is useful in the implementation of [Self::to_next_val]
-    #[inline]
-    fn ascend_jump(&mut self, max_jump: Option<usize>) -> bool {
-        if self.at_root() || max_jump == Some(0) {
-            return false;
-        }
-        if self.node_key().len() == 0 {
-            self.ascend_across_nodes();
-        }
-        if self.node_key().len() == 1 {
-            let new_len = self.origin_path.len().max(self.node_key_start());
-            self.prefix_buf.truncate(new_len);
-            if self.at_root() || max_jump == Some(1) {
-                return false;
-            }
-            self.ascend_across_nodes();
-        }
-        let branch_key = self.focus_node.prior_branch_key(self.node_key());
-        let mut new_len = self.origin_path.len().max(self.node_key_start() + branch_key.len().max(1));
-        if let Some(max_jump) = max_jump {
-            new_len = new_len.max(self.prefix_buf.len() - max_jump);
-        }
-        self.prefix_buf.truncate(new_len);
-        true
-    }
+    // //GOAT, method can be removed when the old zipper-iter path is removed
+    // /// Internal method to ascend in one contiguous step, but unlike [Self::ascend_until], this method
+    // /// will stop one byte below the branch point, and also will not ascend recursively across multiple
+    // /// node boundaries.  Mainly this is useful in the implementation of [Self::to_next_val]
+    // #[inline]
+    // fn ascend_jump(&mut self, max_jump: Option<usize>) -> bool {
+    //     if self.at_root() || max_jump == Some(0) {
+    //         return false;
+    //     }
+    //     if self.node_key().len() == 0 {
+    //         self.ascend_across_nodes();
+    //     }
+    //     if self.node_key().len() == 1 {
+    //         let new_len = self.origin_path.len().max(self.node_key_start());
+    //         self.prefix_buf.truncate(new_len);
+    //         if self.at_root() || max_jump == Some(1) {
+    //             return false;
+    //         }
+    //         self.ascend_across_nodes();
+    //     }
+    //     let branch_key = self.focus_node.prior_branch_key(self.node_key());
+    //     let mut new_len = self.origin_path.len().max(self.node_key_start() + branch_key.len().max(1));
+    //     if let Some(max_jump) = max_jump {
+    //         new_len = new_len.max(self.prefix_buf.len() - max_jump);
+    //     }
+    //     self.prefix_buf.truncate(new_len);
+    //     true
+    // }
 }
 
 impl<'a, 'k, V: Clone> std::iter::IntoIterator for ReadZipper<'a, 'k, V> {
@@ -1142,7 +1253,7 @@ mod tests {
     }
 
     #[test]
-    fn k_path_test() {
+    fn k_path_test1() {
         //This is a toy encoding where `:n:` precedes a symbol of `n` characters long
         let keys = [
             ":5:above:3:the:4:fray:",
@@ -1198,6 +1309,24 @@ mod tests {
         assert_eq!(zipper.to_next_k_path(sym_len+1), false);
         assert_eq!(zipper.path(), b"5:");
         assert_eq!(zipper.child_count(), 6);
+    }
+
+    #[test]
+    fn k_path_test2() {
+        const N: usize = 50;
+        let keys: Vec<Vec<u8>> = (0..N).into_iter().map(|i| {
+            let len = (i % 15) + 5; //length between 5 and 20 chars
+            (0..len).into_iter().map(|j| ((j+i) % 255) as u8).collect()
+        }).collect();
+        let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+
+        let mut zipper = map.read_zipper();
+        zipper.descend_first_k_path(5);
+        let mut count = 1;
+        while zipper.to_next_k_path(5) {
+            count += 1;
+        }
+        assert_eq!(count, N);
     }
 }
 
