@@ -181,6 +181,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         self.prefix_buf.truncate(self.origin_path.len());
     }
 
+    #[inline]
     fn path(&self) -> &[u8] {
         if self.prefix_buf.len() > 0 {
             &self.prefix_buf[self.origin_path.len()..]
@@ -429,6 +430,12 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
+    /// Returns the length of the `self.path()`, saving a couple instructions, but is internal because it may panic
+    #[inline(always)]
+    fn path_len(&self) -> usize {
+        self.prefix_buf.len() - self.origin_path.len()
+    }
+
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     pub fn get_value(&self) -> Option<&'a V> {
         let key = self.node_key();
@@ -596,6 +603,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Internal method to ascend the zipper as part of iteration
     ///
     /// Returns `true` if the zipper moved, or `false` it it's already at the root / `min_path_len`
+    #[inline(always)]
     fn iter_ascend_internal(&mut self) -> bool {
 
         if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
@@ -643,7 +651,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     ///
     /// See: [Self::to_k_path_next]
     pub fn descend_first_k_path(&mut self, k: usize) -> bool {
-        self.k_path_internal(k, self.path().len())
+        self.prepare_buffers();
+        self.k_path_internal(k, self.prefix_buf.len())
     }
 
     /// Moves the zipper's focus to the next location with the same path length as the current focus, following
@@ -658,10 +667,10 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     ///
     /// See: [Self::descend_k_path_first]
     pub fn to_next_k_path(&mut self, k: usize) -> bool {
-        let base_idx = if self.path().len() > k {
-            self.path().len() - k
+        let base_idx = if self.path_len() > k {
+            self.prefix_buf.len() - k
         } else {
-            0
+            self.origin_path.len()
         };
         self.k_path_internal(k, base_idx)
     }
@@ -669,38 +678,98 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// Internal method that implements both `k_path...` methods above
     #[inline]
     fn k_path_internal(&mut self, k: usize, base_idx: usize) -> bool {
-        self.prepare_buffers();
+        // loop {
+        //     let (should_ascend, _value) = self.iter_step_internal(Some(k+base_idx));
+        //     if should_ascend {
+        //         //This branch means we need to ascend or we're finished with the iteration
+
+        //         if self.prefix_buf.len() <= base_idx+1 {
+        //             self.prefix_buf.truncate(base_idx+1);
+        //             return false
+        //         }
+
+        //         if !self.iter_ascend_internal() {
+        //             return false
+        //         }
+        //     } else {
+        //         //This branch means we're either going to continue to descend, or return
+
+        //         //Truncate the path if we over-shot
+        //         if self.prefix_buf.len() > k+base_idx {
+        //             if self.node_key().len() == 0 {
+        //                 self.ascend_across_nodes();
+        //             }
+
+        //             let overshoot = self.prefix_buf.len() - (k+base_idx);
+        //             self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
+        //         }
+
+        //         if self.prefix_buf.len() == k+base_idx {
+        //             return true;
+        //         }
+        //     }
+        // }
+
+
         loop {
-            let (should_ascend, _value) = self.iter_step_internal(Some(k+base_idx));
-            if should_ascend {
-                //This branch means we need to ascend or we're finished with the iteration
-
-                if self.path().len() <= base_idx+1 {
-                    self.prefix_buf.truncate(base_idx+1);
-                    return false
-                }
-
-                if !self.iter_ascend_internal() {
-                    return false
-                }
+            let iter_tok = if self.focus_iter_token != NODE_ITER_FINISHED {
+                self.focus_iter_token
             } else {
+                self.focus_node.iter_token_for_path(self.node_key())
+            };
+
+            let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(iter_tok);
+            if new_tok != NODE_ITER_FINISHED {
                 //This branch means we're either going to continue to descend, or return
+                self.focus_iter_token = new_tok;
+
+                let key_start = self.node_key_start();
+                self.prefix_buf.truncate(key_start);
+                self.prefix_buf.extend(key_bytes);
+
+                if self.prefix_buf.len() < k+base_idx {
+                    match child_node {
+                        None => {},
+                        Some(rec) => {
+                            self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
+                            self.focus_node = rec.borrow();
+                            self.focus_iter_token = self.focus_node.new_iter_token();
+                        },
+                    }
+                }
 
                 //Truncate the path if we over-shot
-                if self.path().len() > k+base_idx {
+                if self.prefix_buf.len() > k+base_idx {
                     if self.node_key().len() == 0 {
                         self.ascend_across_nodes();
                     }
 
-                    let overshoot = self.path().len() - (k+base_idx);
+                    let overshoot = self.prefix_buf.len() - (k+base_idx);
                     self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
                 }
 
-                if self.path().len() == k+base_idx {
+                if self.prefix_buf.len() == k+base_idx {
                     return true;
+                }
+            } else {
+                //This branch means we need to ascend or we're finished with the iteration
+                if self.prefix_buf.len() <= base_idx+1 {
+                    self.prefix_buf.truncate(base_idx);
+                    return false
+                }
+
+                if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
+                    self.focus_node = focus_node;
+                    self.focus_iter_token = iter_tok;
+                    self.prefix_buf.truncate(prefix_offset);
+                } else {
+                    let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                    self.prefix_buf.truncate(new_len);
+                    return false
                 }
             }
         }
+
 
 
         // //GOAT, old implementation
