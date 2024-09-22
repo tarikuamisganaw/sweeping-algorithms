@@ -577,7 +577,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     #[inline]
     fn k_path_internal(&mut self, k: usize, base_idx: usize) -> bool {
         loop {
-            let iter_tok = if self.focus_iter_token != NODE_ITER_FINISHED {
+            let iter_tok = if self.focus_iter_token != NODE_ITER_INVALID {
                 self.focus_iter_token
             } else {
                 self.focus_node.iter_token_for_path(self.node_key())
