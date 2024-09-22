@@ -651,18 +651,37 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             debug_assert!(self.prefix_buf.len() >= base_idx);
             debug_assert!(self.focus_iter_token != NODE_ITER_INVALID);
 
-            //Move the zipper to the next sibling position, if we can.  If we can't then we're
-            // going to ascend
-            let (new_tok, key_bytes, child_node, _value) = if self.focus_iter_token != NODE_ITER_FINISHED {
-                self.focus_node.next_items(self.focus_iter_token)
-            } else {
-                (NODE_ITER_FINISHED, &[] as &[u8], None, None)
-            };
+            if self.focus_iter_token == NODE_ITER_FINISHED {
+                //This branch means we need to ascend or we're finished with the iteration and will
+                // return a result at `path_len == base_idx`
+
+                //Have we reached the root of this k_path iteration?
+                let key_start = self.node_key_start();
+                if key_start <= base_idx  {
+                    self.focus_iter_token = NODE_ITER_FINISHED;
+                    self.prefix_buf.truncate(base_idx);
+                    return false
+                }
+
+                if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
+                    self.focus_node = focus_node;
+                    self.focus_iter_token = iter_tok;
+                    self.prefix_buf.truncate(prefix_offset);
+                } else {
+                    let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                    self.focus_iter_token = NODE_ITER_INVALID;
+                    self.prefix_buf.truncate(new_len);
+                    return false
+                }
+            }
+
+            //Move the zipper to the next sibling position, if we can
+            let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
+            self.focus_iter_token = new_tok;
 
             if new_tok != NODE_ITER_FINISHED {
                 //This branch means we're either going to continue to descend, or return a result at
                 // `path_len == base_idx+k`
-                self.focus_iter_token = new_tok;
 
                 let key_start = self.node_key_start();
                 self.prefix_buf.truncate(key_start);
@@ -682,29 +701,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
 
                 if self.prefix_buf.len() == k+base_idx {
                     return true;
-                }
-            } else {
-                //This branch means we need to ascend or we're finished with the iteration and will
-                // return a result at `path_len == base_idx`
-
-                //Have we reached the root of this k_path iteration?
-                let key_start = self.node_key_start();
-                if key_start <= base_idx  {
-                    self.focus_iter_token = NODE_ITER_FINISHED;
-                    self.prefix_buf.truncate(base_idx);
-
-                    return false
-                }
-
-                if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
-                    self.focus_node = focus_node;
-                    self.focus_iter_token = iter_tok;
-                    self.prefix_buf.truncate(prefix_offset);
-                } else {
-                    let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
-                    self.focus_iter_token = NODE_ITER_INVALID;
-                    self.prefix_buf.truncate(new_len);
-                    return false
                 }
             }
         }
