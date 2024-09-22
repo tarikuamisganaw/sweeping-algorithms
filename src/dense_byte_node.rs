@@ -759,6 +759,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             false
         }
     }
+    #[inline(always)]
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         self.get(key[0]).and_then(|cf|
             cf.rec.as_ref().map(|child_node| {
@@ -916,6 +917,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
         Box::new(DenseByteNodeIter::new(self))
     }
+    #[inline(always)]
     fn new_iter_token(&self) -> u128 {
         self.mask[0] as u128
     }

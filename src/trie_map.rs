@@ -104,7 +104,7 @@ impl<V: Clone> BytesTrieMap<V> {
     /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
     pub fn read_zipper(&self) -> ReadZipper<V> {
         let zipper_tracker = self.zipper_tracker.new_read_path(&[]);
-        ReadZipper::new_with_node_and_path_internal(self.root().borrow(), &[], Some(0), None, zipper_tracker)
+        ReadZipper::new_with_node_and_path_internal(self.root().borrow().as_tagged(), &[], Some(0), None, zipper_tracker)
     }
 
     /// Creates a new [ReadZipper] with the specified path from the root of the map

@@ -134,7 +134,7 @@ pub struct ReadZipper<'a, 'k, V> {
     /// A special-case to access a value at the root node, because that value would be otherwise inaccessible
     root_val: Option<&'a V>,
     /// A reference to the root node
-    focus_node: &'a dyn TrieNode<V>,
+    focus_node: TaggedNodeRef<'a, V>,
     /// An iter token corresponding to the location of the `node_key` within the `focus_node`, or NODE_ITER_INVALID
     /// if iteration is not in-process
     focus_iter_token: u128,
@@ -142,7 +142,7 @@ pub struct ReadZipper<'a, 'k, V> {
     prefix_buf: Vec<u8>,
     /// Stores a stack of parent node references.  Does not include the focus_node
     /// The tuple contains: `(node_ref, iter_token, key_offset_in_prefix_buf)`
-    ancestors: Vec<(&'a dyn TrieNode<V>, u128, usize)>,
+    ancestors: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
     /// Tracks the outstanding zippers to ensure there are no conflicts
     zipper_tracker: ZipperTracker,
 }
@@ -157,7 +157,7 @@ impl<'a, 'k, V> Clone for ReadZipper<'a, 'k, V> where V: Clone {
             origin_path: self.origin_path,
             root_key_offset: self.root_key_offset,
             root_val: self.root_val.clone(),
-            focus_node: self.focus_node,
+            focus_node: self.focus_node.clone(),
             focus_iter_token: NODE_ITER_INVALID,
             prefix_buf: self.prefix_buf.clone(),
             ancestors: self.ancestors.clone(),
@@ -208,7 +208,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn val_count(&self) -> usize {
         if self.node_key().len() == 0 {
-            val_count_below_root(self.focus_node) + (self.is_value() as usize)
+            val_count_below_root(self.focus_node.borrow()) + (self.is_value() as usize)
         } else {
             let focus = self.get_focus();
             if focus.is_none() {
@@ -240,8 +240,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         //Step until we get to the end of the key or find a leaf node
         while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
             key_start += consumed_byte_cnt;
-            self.ancestors.push((self.focus_node, self.focus_iter_token, key_start));
-            self.focus_node = next_node;
+            self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, key_start));
+            self.focus_node = next_node.as_tagged();
             self.focus_iter_token = NODE_ITER_INVALID;
             if consumed_byte_cnt < key.len() {
                 key = &key[consumed_byte_cnt..]
@@ -259,8 +259,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
             (Some(prefix), Some(child_node)) => {
                 self.prefix_buf.push(prefix);
-                self.ancestors.push((self.focus_node, self.focus_iter_token, self.prefix_buf.len()));
-                self.focus_node = child_node;
+                self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+                self.focus_node = child_node.as_tagged();
                 self.focus_iter_token = NODE_ITER_INVALID;
                 true
             },
@@ -291,8 +291,8 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
             match self.focus_node.get_sibling_of_child(self.node_key(), next) {
                 (Some(prefix), Some(child_node)) => {
                     *self.prefix_buf.last_mut().unwrap() = prefix;
-                    self.ancestors.push((self.focus_node, self.focus_iter_token, self.prefix_buf.len()));
-                    self.focus_node = child_node;
+                    self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+                    self.focus_node = child_node.as_tagged();
                     self.focus_iter_token = NODE_ITER_INVALID;
                     true
                 },
@@ -310,7 +310,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
                     match parent.get_sibling_of_child(self.parent_key(), next) {
                         (Some(prefix), Some(child_node)) => {
                             *self.prefix_buf.last_mut().unwrap() = prefix;
-                            self.focus_node = child_node;
+                            self.focus_node = child_node.as_tagged();
                             self.focus_iter_token = NODE_ITER_INVALID;
                             true
                         },
@@ -379,7 +379,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
             None => (self.origin_path, None)
         };
         let zipper_tracker = self.zipper_tracker.new_read_path(&self.origin_path);
-        ReadZipper::new_with_node_and_path_internal(self.focus_node, new_root_path, new_root_key_offset, new_root_val, zipper_tracker)
+        ReadZipper::new_with_node_and_path_internal(self.focus_node.clone(), new_root_path, new_root_key_offset, new_root_val, zipper_tracker)
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
@@ -426,14 +426,14 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             None => key
         };
 
-        Self::new_with_node_and_path_internal(node, zipper_path, root_key_offset, val, zipper_tracker)
+        Self::new_with_node_and_path_internal(node.as_tagged(), zipper_path, root_key_offset, val, zipper_tracker)
     }
     /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
     /// the node
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a dyn TrieNode<V>, path: &'k [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, zipper_tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'k [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, zipper_tracker: ZipperTracker) -> Self {
         Self {
             origin_path: path,
             root_key_offset,
@@ -532,14 +532,12 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     pub fn to_next_val(&mut self) -> Option<&'a V> {
         self.prepare_buffers();
         loop {
-            let iter_tok = if self.focus_iter_token != NODE_ITER_INVALID {
-                self.focus_iter_token
-            } else {
-                self.focus_node.iter_token_for_path(self.node_key())
-            };
+            if self.focus_iter_token == NODE_ITER_INVALID {
+                self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+            }
 
-            let (new_tok, key_bytes, child_node, value) = if iter_tok != NODE_ITER_FINISHED {
-                self.focus_node.next_items(iter_tok)
+            let (new_tok, key_bytes, child_node, value) = if self.focus_iter_token != NODE_ITER_FINISHED {
+                self.focus_node.next_items(self.focus_iter_token)
             } else {
                 (NODE_ITER_FINISHED, &[] as &[u8], None, None)
             };
@@ -554,8 +552,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 match child_node {
                     None => {},
                     Some(rec) => {
-                        self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
-                        self.focus_node = rec.borrow();
+                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow().as_tagged();
                         self.focus_iter_token = self.focus_node.new_iter_token();
                     },
                 }
@@ -580,8 +578,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
-    //GOAT, this seems like it should be lifted into a utility layer above PathMap, since it it build
-    // totally on public interfaces
     /// Advances the zipper to visit every existing path within the trie in a depth-first order
     ///
     /// Returns `true` if the position of the zipper has moved, or `false` if the zipper has returned
@@ -691,8 +687,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                     match child_node {
                         None => {},
                         Some(rec) => {
-                            self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
-                            self.focus_node = rec.borrow();
+                            self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                            self.focus_node = rec.borrow().as_tagged();
                             self.focus_iter_token = self.focus_node.new_iter_token();
                         },
                     }
@@ -828,8 +824,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             (Some(prefix), Some(child_node)) => {
                 //Step to a new node
                 self.prefix_buf.extend(prefix);
-                self.ancestors.push((self.focus_node, self.focus_iter_token, self.prefix_buf.len()));
-                self.focus_node = child_node;
+                self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+                self.focus_node = child_node.as_tagged();
                 self.focus_iter_token = NODE_ITER_INVALID;
 
                 //If we're at the root of the new node, descend to the first child
@@ -887,7 +883,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     fn parent_key(&self) -> &[u8] {
         if self.prefix_buf.len() > 0 {
             let key_start = if self.ancestors.len() > 1 {
-                unsafe{ *self.ancestors.get_unchecked(self.ancestors.len()-2) }.2
+                unsafe{ self.ancestors.get_unchecked(self.ancestors.len()-2) }.2
             } else {
                 self.root_key_offset.unwrap_or(0)
             };
