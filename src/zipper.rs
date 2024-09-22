@@ -527,6 +527,21 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
+    /// Identical in effect to [Self::descend_to] with a 1-byte key argument
+    pub fn descend_to_byte(&mut self, k: u8) -> bool {
+        self.prepare_buffers();
+        debug_assert!(self.is_regularized());
+
+        self.prefix_buf.push(k);
+        if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(&[k]) {
+            self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+            self.focus_node = next_node.as_tagged();
+            self.focus_iter_token = NODE_ITER_INVALID;
+            return true;
+        }
+        self.focus_node.node_contains_partial_key(self.node_key())
+    }
+
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
     pub fn to_next_val(&mut self) -> Option<&'a V> {
