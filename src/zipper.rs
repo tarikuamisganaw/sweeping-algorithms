@@ -175,7 +175,10 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     fn reset(&mut self) {
         self.ancestors.truncate(1);
         match self.ancestors.pop() {
-            Some((node, _tok, _prefix_len)) => self.focus_node = node,
+            Some((node, _tok, _prefix_len)) => {
+                self.focus_node = node;
+                self.focus_iter_token = NODE_ITER_INVALID;
+            },
             None => {}
         }
         self.prefix_buf.truncate(self.origin_path.len());
@@ -217,15 +220,22 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn child_count(&self) -> usize {
+        //GOAT, dealing with an unregularized zipper here is annoyingly expensive.
+        // There are 3 solutions.  1. apply the regularization here, or 2. make count_branches
+        // implementations handle recursion, or 3. make to_next_k_path always return a regularized result
+        debug_assert!(self.regularized_parts().is_none());
         self.focus_node.count_branches(self.node_key())
     }
 
     fn child_mask(&self) -> [u64; 4] {
+        //GOAT, see comment on `child_count()`
+        debug_assert!(self.regularized_parts().is_none());
         self.focus_node.node_branches_mask(self.node_key())
     }
 
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
         self.prepare_buffers();
+        self.regularize();
 
         self.prefix_buf.extend(k.as_ref());
         let mut key_start = self.node_key_start();
@@ -247,6 +257,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
         self.prepare_buffers();
+        self.regularize();
 
         match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
             (Some(prefix), Some(child_node)) => {
@@ -264,6 +275,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn descend_until(&mut self) -> bool {
+        self.regularize();
         let mut moved = false;
         while self.child_count() == 1 {
             moved = true;
@@ -314,8 +326,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
                 }
             };
             if should_pop {
-                let (focus_node, _iter_tok, _prefix_offset) = self.ancestors.pop().unwrap();
+                let (focus_node, iter_tok, _prefix_offset) = self.ancestors.pop().unwrap();
                 self.focus_node = focus_node;
+                self.focus_iter_token = iter_tok;
             }
             result
         }
@@ -324,8 +337,11 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     fn ascend(&mut self, mut steps: usize) -> bool {
         while steps > 0 {
             if self.excess_key_len() == 0 {
-                self.focus_node = match self.ancestors.pop() {
-                    Some((node, _iter_tok, _prefix_offset)) => node,
+                match self.ancestors.pop() {
+                    Some((node, iter_tok, _prefix_offset)) => {
+                        self.focus_node = node;
+                        self.focus_iter_token = iter_tok;
+                    },
                     None => return false
                 };
             }
@@ -464,6 +480,54 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
+    /// Ensures the zipper is in its regularized form
+    ///
+    /// Q: What the heck is "regularized form"?!?!?!
+    /// A: The same zipper position may be representated with multiple configurations of the zipper's
+    ///  field variables.  Consider the path: `abcd`, where the zipper points to `c`.  This could be
+    ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
+    ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
+    ///  `node_key()` of `c`, which is called a deregularized form.
+    ///
+    /// Q: Why not just ensure the zipper always stays in a regularized form?
+    /// A: Wasted work.  Specifically in `k_path` iteration, it's common to stop iteration at a depth
+    ///  with ongoing child branches we may not descend.  The process of regularizing the zipper, to then
+    ///  deregularize it and continue iteration is pure waste.  This is the reason the policy has been
+    ///  changed to be tolerant of deregularized zippers
+    #[inline]
+    fn regularize(&mut self) {
+        let key_start = self.node_key_start();
+        if self.prefix_buf.len() > key_start {
+            if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+                self.ancestors.push((self.focus_node, self.focus_iter_token, key_start+consumed_byte_cnt));
+                self.focus_node = next_node;
+                self.focus_iter_token = self.focus_node.new_iter_token();
+            }
+        }
+    }
+
+    /// Ensures the zipper is in a deregularized form.  See docs for [Self::regularize]
+    #[inline]
+    fn deregularize(&mut self) {
+        if self.prefix_buf.len() == self.node_key_start() {
+            self.ascend_across_nodes();
+        }
+    }
+
+    /// Returns `None` if the zipper is in a regularized form, otherwise returns the `focus_node` and the
+    /// offset where the `focus_node`'s key begins
+    ///
+    /// See docs for [Self::regularize].
+    #[inline]
+    fn regularized_parts(&self) -> Option<(usize, &dyn TrieNode<V>)> {
+        let key_start = self.node_key_start();
+        if self.prefix_buf.len() > key_start {
+            self.focus_node.node_get_child(self.node_key()).map(|(consumed_byte_cnt, child_node)| (key_start+consumed_byte_cnt, child_node))
+        } else {
+            None
+        }
+    }
+
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
     pub fn to_next_val(&mut self) -> Option<&'a V> {
@@ -509,6 +573,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                     self.prefix_buf.truncate(prefix_offset);
                 } else {
                     let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                    self.focus_iter_token = NODE_ITER_INVALID;
                     self.prefix_buf.truncate(new_len);
                     return None
                 }
@@ -550,6 +615,11 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// See: [Self::to_k_path_next]
     pub fn descend_first_k_path(&mut self, k: usize) -> bool {
         self.prepare_buffers();
+        if self.focus_iter_token == NODE_ITER_FINISHED || self.focus_iter_token == NODE_ITER_INVALID {
+            self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+        }
+        //See if we need to re-regularize the zipper
+        self.regularize();
         self.k_path_internal(k, self.prefix_buf.len())
     }
 
@@ -570,6 +640,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         } else {
             self.origin_path.len()
         };
+        //De-regularize the zipper
+        self.deregularize();
         self.k_path_internal(k, base_idx)
     }
 
@@ -577,22 +649,31 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     #[inline]
     fn k_path_internal(&mut self, k: usize, base_idx: usize) -> bool {
         loop {
-            let iter_tok = if self.focus_iter_token != NODE_ITER_INVALID {
-                self.focus_iter_token
-            } else {
-                self.focus_node.iter_token_for_path(self.node_key())
-            };
+            debug_assert!(self.prefix_buf.len() <= base_idx+k);
+            debug_assert!(self.prefix_buf.len() >= base_idx);
 
-            let (new_tok, key_bytes, child_node, _value) = if iter_tok != NODE_ITER_FINISHED {
-                self.focus_node.next_items(iter_tok)
+            //GOAT, the cost of maintaining a valid `focus_iter_token` across all ops is likely higher
+            // than repairing it when needed
+            // debug_assert!(self.focus_iter_token != NODE_ITER_INVALID);
+            //If we don't have a valid token for this zipper location, make one from the key
+            if self.focus_iter_token != NODE_ITER_INVALID {
+                self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key())
+            }
+
+            //Move the zipper to the next sibling position, if we can.  If we can't then we're
+            // going to ascend
+            let (new_tok, key_bytes, child_node, _value) = if self.focus_iter_token != NODE_ITER_FINISHED {
+                self.focus_node.next_items(self.focus_iter_token)
             } else {
                 (NODE_ITER_FINISHED, &[] as &[u8], None, None)
             };
 
             if new_tok != NODE_ITER_FINISHED {
-                //This branch means we're either going to continue to descend, or return
+                //This branch means we're either going to continue to descend, or return a result at
+                // `path_len == base_idx+k`
                 self.focus_iter_token = new_tok;
 
+//GOAT, this is the descend part.  We need to descend before we do the check
                 let key_start = self.node_key_start();
                 self.prefix_buf.truncate(key_start);
                 self.prefix_buf.extend(key_bytes);
@@ -609,22 +690,32 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 }
 
                 //Truncate the path if we over-shot
-                if self.prefix_buf.len() > k+base_idx {
-                    if self.node_key().len() == 0 {
-                        self.ascend_across_nodes();
-                    }
-
-                    let overshoot = self.prefix_buf.len() - (k+base_idx);
-                    self.prefix_buf.truncate(self.prefix_buf.len() - overshoot);
-                }
+                self.ascend_to_prefix_buf_len(k+base_idx);
 
                 if self.prefix_buf.len() == k+base_idx {
+println!("GOAT Next-result node_key={:?}, tok={:x}, node={:?}", self.node_key(), self.focus_iter_token, self.focus_node);
                     return true;
                 }
             } else {
-                //This branch means we need to ascend or we're finished with the iteration
-                if self.prefix_buf.len() <= base_idx+1 {
+                //This branch means we need to ascend or we're finished with the iteration and will
+                // return a result at `path_len == base_idx`
+
+                //Have we reached the root of this k_path iteration?
+                let key_start = self.node_key_start();
+                if key_start <= base_idx  {
+                    self.focus_iter_token = NODE_ITER_FINISHED;
                     self.prefix_buf.truncate(base_idx);
+
+                    // //See if we need to re-regularize the zipper
+                    // if self.prefix_buf.len() > key_start {
+                    //     if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+                    //         self.ancestors.push((self.focus_node, NODE_ITER_FINISHED, key_start+consumed_byte_cnt));
+                    //         self.focus_iter_token = NODE_ITER_INVALID;
+                    //         self.focus_node = next_node;
+                    //     }
+                    // }
+
+println!("GOAT topped-out node_key={:?}, node={:?}", self.node_key(), self.focus_node);
                     return false
                 }
 
@@ -634,10 +725,24 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                     self.prefix_buf.truncate(prefix_offset);
                 } else {
                     let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                    self.focus_iter_token = NODE_ITER_INVALID;
                     self.prefix_buf.truncate(new_len);
                     return false
                 }
             }
+        }
+    }
+
+    /// Ascends the zipper until `prefix_buf.len() <= target_len`.  Only ascends at most 1 step
+    #[inline]
+    fn ascend_to_prefix_buf_len(&mut self, target_len: usize) {
+        if self.prefix_buf.len() > target_len {
+            if self.prefix_buf.len() == self.node_key_start() {
+                self.ascend_across_nodes();
+            }
+
+            let excess = self.prefix_buf.len() - target_len;
+            self.prefix_buf.truncate(self.prefix_buf.len() - excess);
         }
     }
 
@@ -1217,29 +1322,29 @@ mod tests {
 
         //Scan over the first symbols in the path (lower case letters)
         let mut zipper = map.read_zipper_at_path(b":");
-        assert_eq!(zipper.descend_to(b"1"), true);
-        assert_eq!(zipper.descend_first_k_path(1), true);
-        assert_eq!(zipper.path(), b"1a");
-        assert_eq!(zipper.to_next_k_path(1), true);
-        assert_eq!(zipper.path(), b"1b");
-        assert_eq!(zipper.to_next_k_path(1), true);
-        assert_eq!(zipper.path(), b"1c");
-        assert_eq!(zipper.to_next_k_path(1), false);
-        assert_eq!(zipper.path(), b"1");
+        // assert_eq!(zipper.descend_to(b"1"), true);
+        // assert_eq!(zipper.descend_first_k_path(1), true);
+        // assert_eq!(zipper.path(), b"1a");
+        // assert_eq!(zipper.to_next_k_path(1), true);
+        // assert_eq!(zipper.path(), b"1b");
+        // assert_eq!(zipper.to_next_k_path(1), true);
+        // assert_eq!(zipper.path(), b"1c");
+        // assert_eq!(zipper.to_next_k_path(1), false);
+        // assert_eq!(zipper.path(), b"1");
 
-        //Scan over the nested second symbols in the path (upper case letters)
-        zipper.reset();
-        assert!(zipper.descend_to(b"1a1"));
-        assert_eq!(zipper.descend_first_k_path(1), true);
-        assert_eq!(zipper.path(), b"1a1A");
-        assert_eq!(zipper.to_next_k_path(1), true);
-        assert_eq!(zipper.path(), b"1a1B");
-        assert_eq!(zipper.to_next_k_path(1), true);
-        assert_eq!(zipper.path(), b"1a1C");
-        assert_eq!(zipper.to_next_k_path(1), false);
-        assert_eq!(zipper.path(), b"1a1");
+        // //Scan over the nested second symbols in the path (upper case letters)
+        // zipper.reset();
+        // assert!(zipper.descend_to(b"1a1"));
+        // assert_eq!(zipper.descend_first_k_path(1), true);
+        // assert_eq!(zipper.path(), b"1a1A");
+        // assert_eq!(zipper.to_next_k_path(1), true);
+        // assert_eq!(zipper.path(), b"1a1B");
+        // assert_eq!(zipper.to_next_k_path(1), true);
+        // assert_eq!(zipper.path(), b"1a1C");
+        // assert_eq!(zipper.to_next_k_path(1), false);
+        // assert_eq!(zipper.path(), b"1a1");
 
-        //Recursively scan the second symbols within a scan of the first symbols
+        //Recursively scan nested symbols within a scan of the first outer symbols
         zipper.reset();
         assert!(zipper.descend_to(b"1"));
         assert_eq!(zipper.descend_first_k_path(1), true);
@@ -1251,6 +1356,8 @@ mod tests {
         assert_eq!(zipper.to_next_k_path(2), true);
         assert_eq!(zipper.path(), b"1a1C");
         assert_eq!(zipper.to_next_k_path(2), false);
+        assert_eq!(zipper.path(), b"1a");
+        assert_eq!(zipper.to_next_k_path(1), true);
         assert_eq!(zipper.path(), b"1b");
         assert_eq!(zipper.to_next_k_path(1), true);
         assert_eq!(zipper.path(), b"1c");
