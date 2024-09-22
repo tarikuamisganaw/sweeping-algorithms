@@ -639,6 +639,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             self.origin_path.len()
         };
         //De-regularize the zipper
+        debug_assert!(self.is_regularized());
         self.deregularize();
         self.k_path_internal(k, base_idx)
     }
@@ -686,34 +687,24 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 self.prefix_buf.truncate(key_start);
                 self.prefix_buf.extend(key_bytes);
 
-                match child_node {
-                    None => {},
-                    Some(rec) => {
-                        self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
-                        self.focus_node = rec.borrow();
-                        self.focus_iter_token = self.focus_node.new_iter_token();
-                    },
+                if self.prefix_buf.len() <= k+base_idx {
+                    match child_node {
+                        None => {},
+                        Some(rec) => {
+                            self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
+                            self.focus_node = rec.borrow();
+                            self.focus_iter_token = self.focus_node.new_iter_token();
+                        },
+                    }
+                } else {
+                    self.prefix_buf.truncate(k+base_idx);
                 }
-
-                //Truncate the path if we over-shot
-                self.ascend_to_prefix_buf_len(k+base_idx);
 
                 //See if we have a result to return
                 if self.prefix_buf.len() == k+base_idx {
                     return true;
                 }
             }
-        }
-    }
-
-    /// Ascends the zipper until `prefix_buf.len() <= target_len`.  Only ascends at most 1 step
-    #[inline]
-    fn ascend_to_prefix_buf_len(&mut self, target_len: usize) {
-        if self.prefix_buf.len() > target_len {
-            if self.prefix_buf.len() == self.node_key_start() {
-                self.ascend_across_nodes();
-            }
-            self.prefix_buf.truncate(target_len);
         }
     }
 
