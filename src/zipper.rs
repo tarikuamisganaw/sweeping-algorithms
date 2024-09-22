@@ -220,22 +220,18 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn child_count(&self) -> usize {
-        //GOAT, dealing with an unregularized zipper here is annoyingly expensive.
-        // There are 3 solutions.  1. apply the regularization here, or 2. make count_branches
-        // implementations handle recursion, or 3. make to_next_k_path always return a regularized result
-        debug_assert!(self.regularized_parts().is_none());
+        debug_assert!(self.is_regularized());
         self.focus_node.count_branches(self.node_key())
     }
 
     fn child_mask(&self) -> [u64; 4] {
-        //GOAT, see comment on `child_count()`
-        debug_assert!(self.regularized_parts().is_none());
+        debug_assert!(self.is_regularized());
         self.focus_node.node_branches_mask(self.node_key())
     }
 
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
         self.prepare_buffers();
-        self.regularize();
+        debug_assert!(self.is_regularized());
 
         self.prefix_buf.extend(k.as_ref());
         let mut key_start = self.node_key_start();
@@ -257,7 +253,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
         self.prepare_buffers();
-        self.regularize();
+        debug_assert!(self.is_regularized());
 
         match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
             (Some(prefix), Some(child_node)) => {
@@ -275,7 +271,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 
     fn descend_until(&mut self) -> bool {
-        self.regularize();
+        debug_assert!(self.is_regularized());
         let mut moved = false;
         while self.child_count() == 1 {
             moved = true;
@@ -480,31 +476,31 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
-    /// Ensures the zipper is in its regularized form
-    ///
-    /// Q: What the heck is "regularized form"?!?!?!
-    /// A: The same zipper position may be representated with multiple configurations of the zipper's
-    ///  field variables.  Consider the path: `abcd`, where the zipper points to `c`.  This could be
-    ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
-    ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
-    ///  `node_key()` of `c`, which is called a deregularized form.
-    ///
-    /// Q: Why not just ensure the zipper always stays in a regularized form?
-    /// A: Wasted work.  Specifically in `k_path` iteration, it's common to stop iteration at a depth
-    ///  with ongoing child branches we may not descend.  The process of regularizing the zipper, to then
-    ///  deregularize it and continue iteration is pure waste.  This is the reason the policy has been
-    ///  changed to be tolerant of deregularized zippers
-    #[inline]
-    fn regularize(&mut self) {
-        let key_start = self.node_key_start();
-        if self.prefix_buf.len() > key_start {
-            if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
-                self.ancestors.push((self.focus_node, self.focus_iter_token, key_start+consumed_byte_cnt));
-                self.focus_node = next_node;
-                self.focus_iter_token = self.focus_node.new_iter_token();
-            }
-        }
-    }
+    // /// Ensures the zipper is in its regularized form
+    // ///
+    // /// Q: What the heck is "regularized form"?!?!?!
+    // /// A: The same zipper position may be representated with multiple configurations of the zipper's
+    // ///  field variables.  Consider the path: `abcd`, where the zipper points to `c`.  This could be
+    // ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
+    // ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
+    // ///  `node_key()` of `c`, which is called a deregularized form.
+    // ///
+    // /// Q: Why not just ensure the zipper always stays in a regularized form?
+    // /// A: Wasted work.  Specifically in `k_path` iteration, it's common to stop iteration at a depth
+    // ///  with ongoing child branches we may not descend.  The process of regularizing the zipper, to then
+    // ///  deregularize it and continue iteration is pure waste.  This is the reason the policy has been
+    // ///  changed to be tolerant of deregularized zippers
+    // #[inline]
+    // fn regularize(&mut self) {
+    //     let key_start = self.node_key_start();
+    //     if self.prefix_buf.len() > key_start {
+    //         if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+    //             self.ancestors.push((self.focus_node, self.focus_iter_token, key_start+consumed_byte_cnt));
+    //             self.focus_node = next_node;
+    //             self.focus_iter_token = self.focus_node.new_iter_token();
+    //         }
+    //     }
+    // }
 
     /// Ensures the zipper is in a deregularized form.  See docs for [Self::regularize]
     #[inline]
@@ -514,17 +510,16 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
-    /// Returns `None` if the zipper is in a regularized form, otherwise returns the `focus_node` and the
-    /// offset where the `focus_node`'s key begins
+    /// Returns `true` if the zipper is in a regularized form, otherwise returns the `false`
     ///
     /// See docs for [Self::regularize].
     #[inline]
-    fn regularized_parts(&self) -> Option<(usize, &dyn TrieNode<V>)> {
+    fn is_regularized(&self) -> bool {
         let key_start = self.node_key_start();
         if self.prefix_buf.len() > key_start {
-            self.focus_node.node_get_child(self.node_key()).map(|(consumed_byte_cnt, child_node)| (key_start+consumed_byte_cnt, child_node))
+            self.focus_node.node_get_child(self.node_key()).is_none()
         } else {
-            None
+            true
         }
     }
 
@@ -615,11 +610,10 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// See: [Self::to_k_path_next]
     pub fn descend_first_k_path(&mut self, k: usize) -> bool {
         self.prepare_buffers();
+        debug_assert!(self.is_regularized());
         if self.focus_iter_token == NODE_ITER_FINISHED || self.focus_iter_token == NODE_ITER_INVALID {
             self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
         }
-        //See if we need to re-regularize the zipper
-        self.regularize();
         self.k_path_internal(k, self.prefix_buf.len())
     }
 
@@ -677,15 +671,13 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 self.prefix_buf.truncate(key_start);
                 self.prefix_buf.extend(key_bytes);
 
-                if self.prefix_buf.len() < k+base_idx {
-                    match child_node {
-                        None => {},
-                        Some(rec) => {
-                            self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
-                            self.focus_node = rec.borrow();
-                            self.focus_iter_token = self.focus_node.new_iter_token();
-                        },
-                    }
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node, new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow();
+                        self.focus_iter_token = self.focus_node.new_iter_token();
+                    },
                 }
 
                 //Truncate the path if we over-shot
