@@ -673,7 +673,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 // `path_len == base_idx+k`
                 self.focus_iter_token = new_tok;
 
-//GOAT, this is the descend part.  We need to descend before we do the check
                 let key_start = self.node_key_start();
                 self.prefix_buf.truncate(key_start);
                 self.prefix_buf.extend(key_bytes);
@@ -693,7 +692,6 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 self.ascend_to_prefix_buf_len(k+base_idx);
 
                 if self.prefix_buf.len() == k+base_idx {
-println!("GOAT Next-result node_key={:?}, tok={:x}, node={:?}", self.node_key(), self.focus_iter_token, self.focus_node);
                     return true;
                 }
             } else {
@@ -706,16 +704,6 @@ println!("GOAT Next-result node_key={:?}, tok={:x}, node={:?}", self.node_key(),
                     self.focus_iter_token = NODE_ITER_FINISHED;
                     self.prefix_buf.truncate(base_idx);
 
-                    // //See if we need to re-regularize the zipper
-                    // if self.prefix_buf.len() > key_start {
-                    //     if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
-                    //         self.ancestors.push((self.focus_node, NODE_ITER_FINISHED, key_start+consumed_byte_cnt));
-                    //         self.focus_iter_token = NODE_ITER_INVALID;
-                    //         self.focus_node = next_node;
-                    //     }
-                    // }
-
-println!("GOAT topped-out node_key={:?}, node={:?}", self.node_key(), self.focus_node);
                     return false
                 }
 
