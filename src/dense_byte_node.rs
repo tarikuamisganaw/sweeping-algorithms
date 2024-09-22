@@ -927,7 +927,11 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             let idx = ((k & 0b11000000) >> 6) as usize;
             let bit_i = k & 0b00111111;
             debug_assert!(idx < 4);
-            let mask: u64 = (0xFFFFFFFFFFFFFFFF << bit_i+1) & unsafe{ self.mask.get_unchecked(idx) };
+            let mask: u64 = if bit_i+1 < 64 {
+                (0xFFFFFFFFFFFFFFFF << bit_i+1) & unsafe{ self.mask.get_unchecked(idx) }
+            } else {
+                0
+            };
             ((idx as u128) << 64) | (mask as u128)
         }
     }

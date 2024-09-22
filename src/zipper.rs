@@ -1310,27 +1310,27 @@ mod tests {
 
         //Scan over the first symbols in the path (lower case letters)
         let mut zipper = map.read_zipper_at_path(b":");
-        // assert_eq!(zipper.descend_to(b"1"), true);
-        // assert_eq!(zipper.descend_first_k_path(1), true);
-        // assert_eq!(zipper.path(), b"1a");
-        // assert_eq!(zipper.to_next_k_path(1), true);
-        // assert_eq!(zipper.path(), b"1b");
-        // assert_eq!(zipper.to_next_k_path(1), true);
-        // assert_eq!(zipper.path(), b"1c");
-        // assert_eq!(zipper.to_next_k_path(1), false);
-        // assert_eq!(zipper.path(), b"1");
+        assert_eq!(zipper.descend_to(b"1"), true);
+        assert_eq!(zipper.descend_first_k_path(1), true);
+        assert_eq!(zipper.path(), b"1a");
+        assert_eq!(zipper.to_next_k_path(1), true);
+        assert_eq!(zipper.path(), b"1b");
+        assert_eq!(zipper.to_next_k_path(1), true);
+        assert_eq!(zipper.path(), b"1c");
+        assert_eq!(zipper.to_next_k_path(1), false);
+        assert_eq!(zipper.path(), b"1");
 
-        // //Scan over the nested second symbols in the path (upper case letters)
-        // zipper.reset();
-        // assert!(zipper.descend_to(b"1a1"));
-        // assert_eq!(zipper.descend_first_k_path(1), true);
-        // assert_eq!(zipper.path(), b"1a1A");
-        // assert_eq!(zipper.to_next_k_path(1), true);
-        // assert_eq!(zipper.path(), b"1a1B");
-        // assert_eq!(zipper.to_next_k_path(1), true);
-        // assert_eq!(zipper.path(), b"1a1C");
-        // assert_eq!(zipper.to_next_k_path(1), false);
-        // assert_eq!(zipper.path(), b"1a1");
+        //Scan over the nested second symbols in the path (upper case letters)
+        zipper.reset();
+        assert!(zipper.descend_to(b"1a1"));
+        assert_eq!(zipper.descend_first_k_path(1), true);
+        assert_eq!(zipper.path(), b"1a1A");
+        assert_eq!(zipper.to_next_k_path(1), true);
+        assert_eq!(zipper.path(), b"1a1B");
+        assert_eq!(zipper.to_next_k_path(1), true);
+        assert_eq!(zipper.path(), b"1a1C");
+        assert_eq!(zipper.to_next_k_path(1), false);
+        assert_eq!(zipper.path(), b"1a1");
 
         //Recursively scan nested symbols within a scan of the first outer symbols
         zipper.reset();
@@ -1375,6 +1375,71 @@ mod tests {
         assert_eq!(zipper.path(), b"1c");
         assert_eq!(zipper.to_next_k_path(1), false);
         assert_eq!(zipper.path(), b"1");
+    }
+
+    #[test]
+    fn k_path_test4() {
+        let keys = vec![
+            vec![100, 74, 37, 218, 90, 211, 23, 84, 226, 59, 193, 236],
+            vec![199, 102, 166, 28, 234, 168, 198, 13],
+            vec![101, 241, 88, 163, 2, 9, 37, 110, 53, 201, 251, 164, 23, 162, 216],
+            vec![237, 8, 108, 15, 63, 3, 249, 78, 200, 154, 103, 191],
+            vec![106, 30, 34, 182, 157, 102, 126, 90, 200, 5, 93, 0, 163, 245, 112],
+            vec![188, 177, 13, 5, 50, 66, 169, 113, 157, 202, 72, 11, 79, 73],
+            vec![250, 96, 103, 31, 32, 104],
+            vec![100, 152, 199, 46, 48, 252, 139, 150, 158, 8, 57, 50, 123],
+            vec![65, 16, 128, 207, 27, 252, 145, 123, 105, 238, 230],
+            vec![244, 34, 40, 224, 11, 125, 102],
+            vec![116, 63, 105, 214, 137, 86, 202],
+            vec![63, 70, 201, 21, 131, 60],
+            vec![139, 209, 149, 73, 172, 12, 139, 80, 184, 105],
+            vec![253, 235, 49, 156, 40, 50, 60, 73, 145, 249],
+            vec![228, 81, 220, 29, 208, 234, 27],
+            vec![116, 109, 134, 122, 15, 78, 126, 240, 158, 42, 221, 229, 93, 200, 194],
+            vec![180, 216, 189, 14, 82, 14, 170, 195, 196, 42, 177, 144, 153, 156, 140, 109, 93, 78, 157],
+            vec![190, 6, 59, 69, 208, 253, 2, 33, 86],
+            vec![245, 168, 144, 122, 243, 111],
+            vec![123, 150, 249, 114, 32, 140, 186, 204, 199, 8, 205, 150, 34, 104, 186, 236],
+            vec![8, 29, 191, 189, 72, 101, 39, 24, 105, 44, 13, 87, 75, 187],
+            vec![14, 201, 29, 151, 113, 10, 175],
+            vec![83, 130, 247, 5, 250, 101, 141, 5, 42, 132, 205, 3, 118, 152, 33, 219, 1, 91, 204],
+            vec![207, 215, 38, 17, 244, 96],
+            vec![34, 132, 138, 222, 250, 162, 231, 68, 142, 162, 152, 172, 244, 102, 179, 111, 161, 95],
+            vec![124, 120, 11, 4, 219, 210, 172, 50, 182, 160, 86, 88, 136, 122, 97, 98],
+            vec![86, 74, 181, 17, 3, 173, 12],
+            vec![18, 234, 66, 134, 20],
+            vec![20, 24, 83, 219, 209, 20, 236, 128, 155, 15, 110, 54, 237, 105, 186, 62],
+            vec![67, 11, 50, 124, 120, 33, 218],
+            vec![89, 248, 169, 97, 245, 98, 230, 53, 114, 198, 227, 148, 22, 127, 198, 153, 238, 59, 223],
+            vec![100, 128, 38, 54, 171, 186, 9, 133, 191, 82, 113, 86, 10, 72, 236, 124, 201, 65],
+            vec![152, 115, 99, 124, 81, 254, 0, 179, 24, 87, 24, 77, 60],
+            vec![107, 117, 222, 38, 162, 193, 48, 44, 140, 162, 104, 139, 90],
+            vec![63, 29, 217, 85, 63, 130, 110, 121, 227, 43, 215, 223, 249, 1, 72, 134, 92, 188],
+            vec![117, 3, 144, 15, 103, 113, 130, 253, 0, 102, 47, 24, 234, 0, 159],
+            vec![38, 60, 197, 120, 53, 94, 202, 137, 116, 27, 12, 181],
+            vec![248, 41, 252, 254, 98, 173, 42, 92, 30, 65, 72],
+            vec![240, 147, 89, 110, 224, 8],
+            vec![199, 86, 108, 195, 62, 169, 61],
+            vec![93, 225, 21, 185, 91, 23, 19, 7, 108, 176, 191, 91],
+            vec![70, 10, 122, 77, 171],
+            vec![32, 161, 24, 162, 112, 152, 21, 226, 149, 253, 212, 246, 175, 182],
+            vec![99, 7, 213, 87, 192, 2, 110, 242, 222, 89, 20, 83, 138, 112],
+            vec![92, 64, 61, 35, 111, 41, 151, 121, 24, 157],
+            vec![115, 201, 114, 124, 135, 246, 93, 230, 210, 164, 213, 254, 108, 181, 77, 19, 103, 166],
+            vec![26, 231, 59, 238, 246],
+            vec![52, 74, 93, 202, 140, 11, 56, 46, 211, 194, 137, 65, 36, 90, 209],
+            vec![56, 245, 179, 40, 190, 168, 116, 115],
+            vec![192, 215, 69, 171, 218, 187, 202, 120, 92, 33, 14, 77, 34, 46, 40, 93, 135, 117, 152],
+        ];
+
+        let map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper();
+        zipper.descend_first_k_path(5);
+        let mut count = 1;
+        while zipper.to_next_k_path(5) {
+            count += 1;
+        }
+        assert_eq!(count, keys.len());
     }
 }
 
