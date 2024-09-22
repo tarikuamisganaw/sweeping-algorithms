@@ -656,8 +656,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 // return a result at `path_len == base_idx`
 
                 //Have we reached the root of this k_path iteration?
-                let key_start = self.node_key_start();
-                if key_start <= base_idx  {
+                if self.node_key_start() <= base_idx  {
                     self.focus_iter_token = NODE_ITER_FINISHED;
                     self.prefix_buf.truncate(base_idx);
                     return false
@@ -699,6 +698,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 //Truncate the path if we over-shot
                 self.ascend_to_prefix_buf_len(k+base_idx);
 
+                //See if we have a result to return
                 if self.prefix_buf.len() == k+base_idx {
                     return true;
                 }
@@ -713,9 +713,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             if self.prefix_buf.len() == self.node_key_start() {
                 self.ascend_across_nodes();
             }
-
-            let excess = self.prefix_buf.len() - target_len;
-            self.prefix_buf.truncate(self.prefix_buf.len() - excess);
+            self.prefix_buf.truncate(target_len);
         }
     }
 
