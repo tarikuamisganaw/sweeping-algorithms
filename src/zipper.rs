@@ -240,8 +240,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         //Step until we get to the end of the key or find a leaf node
         while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
             key_start += consumed_byte_cnt;
-            self.ancestors.push((self.focus_node, NODE_ITER_INVALID, key_start));
+            self.ancestors.push((self.focus_node, self.focus_iter_token, key_start));
             self.focus_node = next_node;
+            self.focus_iter_token = NODE_ITER_INVALID;
             if consumed_byte_cnt < key.len() {
                 key = &key[consumed_byte_cnt..]
             } else {
@@ -258,8 +259,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
         match self.focus_node.nth_child_from_key(self.node_key(), child_idx) {
             (Some(prefix), Some(child_node)) => {
                 self.prefix_buf.push(prefix);
-                self.ancestors.push((self.focus_node, NODE_ITER_INVALID, self.prefix_buf.len()));
+                self.ancestors.push((self.focus_node, self.focus_iter_token, self.prefix_buf.len()));
                 self.focus_node = child_node;
+                self.focus_iter_token = NODE_ITER_INVALID;
                 true
             },
             (Some(prefix), None) => {
@@ -289,8 +291,9 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
             match self.focus_node.get_sibling_of_child(self.node_key(), next) {
                 (Some(prefix), Some(child_node)) => {
                     *self.prefix_buf.last_mut().unwrap() = prefix;
-                    self.ancestors.push((self.focus_node, NODE_ITER_INVALID, self.prefix_buf.len()));
+                    self.ancestors.push((self.focus_node, self.focus_iter_token, self.prefix_buf.len()));
                     self.focus_node = child_node;
+                    self.focus_iter_token = NODE_ITER_INVALID;
                     true
                 },
                 (Some(prefix), None) => {
@@ -308,6 +311,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
                         (Some(prefix), Some(child_node)) => {
                             *self.prefix_buf.last_mut().unwrap() = prefix;
                             self.focus_node = child_node;
+                            self.focus_iter_token = NODE_ITER_INVALID;
                             true
                         },
                         (Some(prefix), None) => {
@@ -645,14 +649,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         loop {
             debug_assert!(self.prefix_buf.len() <= base_idx+k);
             debug_assert!(self.prefix_buf.len() >= base_idx);
-
-            //GOAT, the cost of maintaining a valid `focus_iter_token` across all ops is likely higher
-            // than repairing it when needed
-            // debug_assert!(self.focus_iter_token != NODE_ITER_INVALID);
-            //If we don't have a valid token for this zipper location, make one from the key
-            if self.focus_iter_token != NODE_ITER_INVALID {
-                self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key())
-            }
+            debug_assert!(self.focus_iter_token != NODE_ITER_INVALID);
 
             //Move the zipper to the next sibling position, if we can.  If we can't then we're
             // going to ascend
@@ -749,8 +746,9 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             (Some(prefix), Some(child_node)) => {
                 //Step to a new node
                 self.prefix_buf.extend(prefix);
-                self.ancestors.push((self.focus_node, NODE_ITER_INVALID, self.prefix_buf.len()));
+                self.ancestors.push((self.focus_node, self.focus_iter_token, self.prefix_buf.len()));
                 self.focus_node = child_node;
+                self.focus_iter_token = NODE_ITER_INVALID;
 
                 //If we're at the root of the new node, descend to the first child
                 if prefix.len() == 0 {
