@@ -3,7 +3,6 @@ use std::rc::Rc;
 use std::collections::HashMap;
 use dyn_clone::*;
 
-use crate::old_dense_cursor::DynNodeRef;
 use crate::dense_byte_node::*;
 use crate::line_list_node::LineListNode;
 use crate::empty_node::EmptyNode;
@@ -291,15 +290,18 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
 
-    /// Returns a [DynNodeRef] referencing this node
-    fn as_dyn_ref(&self) -> DynNodeRef<V>;
+    /// Returns a [TaggedNodeRef] referencing this node
+    fn as_tagged(&self) -> TaggedNodeRef<V>;
 
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V>;
 }
 
+/// Special sentinel token value indicating iteration of a node has not been initialized
+pub const NODE_ITER_INVALID: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+
 /// Special sentinel token value indicating iteration of a node has concluded
-pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE;
 
 pub enum ValOrChildRef<'a, V> {
     Val(&'a V),
@@ -385,6 +387,36 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::BorrowedRc(rc) => Some(rc.clone()),
             AbstractNodeRef::BorrowedTiny(tiny) => tiny.into_full().map(|list_node| TrieNodeODRc::new(list_node)),
             AbstractNodeRef::OwnedRc(rc) => Some(rc)
+        }
+    }
+}
+
+/// A reference to a node with a concrete type
+pub enum TaggedNodeRef<'a, V> {
+    DenseByteNode(&'a DenseByteNode<V>),
+    LineListNode(&'a LineListNode<V>),
+}
+
+impl<V> core::fmt::Debug for TaggedNodeRef<'_, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
+            Self::LineListNode(node) => write!(f, "{node:?}"),
+        }
+    }
+}
+
+impl<'a, V: Clone> TaggedNodeRef<'a, V> {
+    pub fn next_items(&self, token: u128) -> (u128, &'a[u8], Option<&'a TrieNodeODRc<V>>, Option<&'a V>) {
+        match self {
+            Self::DenseByteNode(node) => node.next_items(token),
+            Self::LineListNode(node) => node.next_items(token),
+        }
+    }
+    pub fn new_iter_token(&self) -> u128 {
+        match self {
+            Self::DenseByteNode(node) => node.new_iter_token(),
+            Self::LineListNode(node) => node.new_iter_token(),
         }
     }
 }

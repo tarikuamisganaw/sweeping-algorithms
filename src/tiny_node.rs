@@ -250,7 +250,7 @@ impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         None
     }
-    fn as_dyn_ref(&self) -> crate::old_dense_cursor::DynNodeRef<V> {
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
         panic!();
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {

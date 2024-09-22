@@ -2,11 +2,9 @@
 //! Temporary file, porting old cursor to new trie.  ONLY WORKS WITH `all_dense_nodes` feature
 //!
 
-use crate::line_list_node::LineListNode;
 use crate::trie_map::BytesTrieMap;
-use crate::trie_node::TrieNodeODRc;
+use crate::trie_node::{TaggedNodeRef, NODE_ITER_FINISHED};
 use crate::dense_byte_node::{DenseByteNode, CoFree};
-use crate::trie_node::TrieNode;
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
@@ -249,14 +247,14 @@ impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
 
 pub struct AbstractedOldCursor<'a, V> where V : Clone {
     prefix_buf: Vec<u8>,
-    btnis: Vec<(DynNodeRef<'a, V>, u128, usize)>,
+    btnis: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
 }
 
 impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         const EXPECTED_DEPTH: usize = 16;
         const EXPECTED_PATH_LEN: usize = 256;
-        let node = DynNodeRef::DenseByteNode(btm.root().borrow().as_dense().unwrap());
+        let node = TaggedNodeRef::DenseByteNode(btm.root().borrow().as_dense().unwrap());
         let token = node.new_iter_token();
         let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
         btnis.push((node, token, 0));
@@ -275,7 +273,7 @@ impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
                 Some((node, token, key_start)) => {
                     let (new_token, key_bytes, rec, value) = node.next_items(*token);
 
-                    if new_token == 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF {
+                    if new_token == NODE_ITER_FINISHED {
                         self.btnis.pop();
                     } else {
                         *token = new_token;
@@ -286,7 +284,7 @@ impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
                         match rec {
                             None => {},
                             Some(rec) => {
-                                let child_node = rec.borrow().as_dyn_ref();
+                                let child_node = rec.borrow().as_tagged();
                                 let child_token = child_node.new_iter_token();
                                 self.btnis.push((child_node, child_token, self.prefix_buf.len()));
                             },
@@ -299,37 +297,6 @@ impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
                     }
                 }
             }
-        }
-    }
-}
-
-pub enum DynNodeRef<'a, V> {
-    DenseByteNode(&'a DenseByteNode<V>),
-    LineListNode(&'a LineListNode<V>),
-}
-
-impl<V> core::fmt::Debug for DynNodeRef<'_, V> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
-            Self::LineListNode(node) => write!(f, "{node:?}"),
-        }
-    }
-}
-
-impl<'a, V: Clone> DynNodeRef<'a, V> {
-    fn next_items(&self, token: u128) -> (u128, &'a[u8], Option<&'a TrieNodeODRc<V>>, Option<&'a V>) {
-        match self {
-            Self::DenseByteNode(node) => node.next_items(token),
-            Self::LineListNode(node) => node.next_items(token),
-            _ => panic!()
-        }
-    }
-    fn new_iter_token(&self) -> u128 {
-        match self {
-            Self::DenseByteNode(node) => node.new_iter_token(),
-            Self::LineListNode(node) => node.new_iter_token(),
-            _ => panic!()
         }
     }
 }

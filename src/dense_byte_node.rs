@@ -1313,8 +1313,8 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         TrieNodeODRc::new(self.clone())
     }
     #[inline(always)]
-    fn as_dyn_ref(&self) -> crate::old_dense_cursor::DynNodeRef<V> {
-        crate::old_dense_cursor::DynNodeRef::DenseByteNode(self)
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::DenseByteNode(self)
     }
 }
 

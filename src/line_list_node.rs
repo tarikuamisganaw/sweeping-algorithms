@@ -2102,8 +2102,8 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         Some(self)
     }
-    fn as_dyn_ref(&self) -> crate::old_dense_cursor::DynNodeRef<V> {
-        crate::old_dense_cursor::DynNodeRef::LineListNode(self)
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::LineListNode(self)
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
