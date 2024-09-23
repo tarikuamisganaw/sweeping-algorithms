@@ -1633,6 +1633,50 @@ mod tests {
         }
         assert_eq!(count, keys.len());
     }
+
+    #[test]
+    fn zipper_byte_iter_test1() {
+        let keys = [
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "ab",
+        ];
+        let map: BytesTrieMap<u64> = keys.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper();
+
+        assert_eq!(zipper.descend_to_byte(b'A'), true);
+        assert_eq!(zipper.descend_first_byte(), true);
+        assert_eq!(zipper.path(), b"AB");
+        assert_eq!(zipper.to_next_sibling_byte(), false);
+        assert_eq!(zipper.path(), b"AB");
+
+        assert_eq!(zipper.descend_to_byte(b'A'), true);
+        assert_eq!(zipper.descend_first_k_path(1), true);
+        assert_eq!(zipper.path(), b"AB");
+        assert_eq!(zipper.to_next_k_path(1), false);
+        assert_eq!(zipper.path(), b"A");
+    }
+
+    #[test]
+    fn zipper_byte_iter_test2() {
+        let keys = [
+            vec![2, 194, 1, 1, 193, 5],
+            vec![3, 194, 1, 0, 193, 6, 193, 5],
+            vec![3, 193, 4, 193],
+        ];
+        let map: BytesTrieMap<u64> = keys.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper_at_path(&[2, 194]);
+
+        assert_eq!(zipper.descend_first_byte(), true);
+        assert_eq!(zipper.path(), &[1]);
+        assert_eq!(zipper.to_next_sibling_byte(), false);
+        assert_eq!(zipper.path(), &[1]);
+
+        assert_eq!(zipper.descend_first_k_path(1), true);
+        assert_eq!(zipper.path(), &[1]);
+        assert_eq!(zipper.to_next_k_path(1), false);
+        assert_eq!(zipper.path(), &[]);
+    }
+
 }
 
 // GOAT, new zipper API.  "fork_zipper_at_path".  Cheap call to make a new zipper cheaper than descend_to
