@@ -1649,6 +1649,7 @@ mod tests {
         assert_eq!(zipper.to_next_sibling_byte(), false);
         assert_eq!(zipper.path(), b"AB");
 
+        zipper.reset();
         assert_eq!(zipper.descend_to_byte(b'A'), true);
         assert_eq!(zipper.descend_first_k_path(1), true);
         assert_eq!(zipper.path(), b"AB");
@@ -1671,6 +1672,7 @@ mod tests {
         assert_eq!(zipper.to_next_sibling_byte(), false);
         assert_eq!(zipper.path(), &[1]);
 
+        zipper.reset();
         assert_eq!(zipper.descend_first_k_path(1), true);
         assert_eq!(zipper.path(), &[1]);
         assert_eq!(zipper.to_next_k_path(1), false);
