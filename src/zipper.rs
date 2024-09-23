@@ -602,13 +602,13 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         //If we're at a leaf ascend until we're not and jump to the next sibling
         if self.child_count() == 0 {
             //We can stop ascending when we succeed in moving to a sibling
-            while !self.to_sibling(true) {
+            while !self.to_next_sibling_byte() {
                 if !self.ascend(1) {
                     return false;
                 }
             }
         } else {
-            return self.descend_indexed_branch(0)
+            return self.descend_first_byte()
         }
         true
     }
@@ -816,6 +816,110 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     //     true
     // }
 
+    // ///GOAT, ALTERNATIVE IMPLEMENTATION.  Performance is roughly equal between the two, but the other
+    //   implementation was chosen because it initializes the iter_token in preparation for subsequent iteration
+    // pub fn descend_first_byte(&mut self) -> bool {
+    //     self.prepare_buffers();
+    //     debug_assert!(self.is_regularized());
+    //     match self.focus_node.first_child_from_key(self.node_key()) {
+    //         (Some(prefix), Some(child_node)) => {
+    //             match prefix.len() {
+    //                 0 => {
+    //                     panic!(); //GOAT, I don't think we will hit this
+    //                     //If we're at the root of the new node, descend to the first child
+    //                     self.descend_first_byte()
+    //                 },
+    //                 1 => {
+    //                     //Step to a new node
+    //                     self.prefix_buf.push(prefix[0]);
+    //                     self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+    //                     self.focus_iter_token = self.focus_node.new_iter_token();
+    //                     self.focus_node = child_node.as_tagged();
+    //                     true
+    //                 },
+    //                 _ => {
+    //                     //Stay within the same node, and just grow the path
+    //                     self.prefix_buf.push(prefix[0]);
+    //                     true
+    //                 }
+    //             }
+    //         },
+    //         (Some(prefix), None) => {
+    //             //Stay within the same node
+    //             self.prefix_buf.push(prefix[0]);
+    //             true
+    //         },
+    //         (None, _) => false
+    //     }
+    // }
+
+    /// Descends the zipper's focus one step into the first child branch in a depth-first traversal
+    ///
+    /// NOTE: This method should have identical behavior to `descend_indexed_branch(0)`, although with
+    /// slightly less overhead
+    pub fn descend_first_byte(&mut self) -> bool {
+        self.prepare_buffers();
+        debug_assert!(self.is_regularized());
+        if self.focus_iter_token == NODE_ITER_FINISHED || self.focus_iter_token == NODE_ITER_INVALID {
+            self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+        }
+        let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
+        self.focus_iter_token = new_tok;
+        if new_tok != NODE_ITER_FINISHED {
+            self.prefix_buf.push(key_bytes[0]);
+
+            if key_bytes.len() == 1 {
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow().as_tagged();
+                        self.focus_iter_token = self.focus_node.new_iter_token();
+                    },
+                }
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
+    /// GOAT, should unify this with to_sibling
+    ///
+    pub fn to_next_sibling_byte(&mut self) -> bool {
+        self.prepare_buffers();
+        if self.prefix_buf.len() == 0 {
+            return false
+        }
+        debug_assert!(self.is_regularized());
+        self.deregularize();
+        if self.focus_iter_token == NODE_ITER_INVALID {
+            self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+        }
+        let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
+        self.focus_iter_token = new_tok;
+
+        if new_tok != NODE_ITER_FINISHED {
+            *self.prefix_buf.last_mut().unwrap() = key_bytes[0];
+
+            if key_bytes.len() == 1 {
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow().as_tagged();
+                        self.focus_iter_token = NODE_ITER_INVALID
+                    },
+                }
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
     /// Internal method that implements [Self::is_value], but so it can be inlined elsewhere
     #[inline]
     fn is_value_internal(&self) -> bool {
@@ -857,13 +961,18 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     }
 
     /// Internal method to ensure buffers to facilitate movement of zipper are allocated and initialized
-    #[inline]
+    #[inline(always)]
     fn prepare_buffers(&mut self) {
         if self.prefix_buf.capacity() == 0 {
-            self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
-            self.ancestors = Vec::with_capacity(EXPECTED_DEPTH);
-            self.prefix_buf.extend(self.origin_path);
+            self.prepare_buffers_guts()
         }
+    }
+
+    #[inline(never)]
+    fn prepare_buffers_guts(&mut self) {
+        self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
+        self.ancestors = Vec::with_capacity(EXPECTED_DEPTH);
+        self.prefix_buf.extend(self.origin_path);
     }
 
     /// Consumes the zipper and returns a Iterator over the downstream child bytes from the focus branch
@@ -871,7 +980,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// NOTE: This is mainly a convenience to allow the use of `collect` and `for` loops, as the other
     /// zipper methods can do the same thing without consuming the iterator
     pub fn into_child_iter(mut self) -> ReadZipperChildIter<'a, 'k, V> {
-        self.descend_indexed_branch(0);
+        self.descend_first_byte();
         ReadZipperChildIter::<'a, 'k, V>(Some(self))
     }
 
@@ -993,7 +1102,7 @@ impl<'a, 'k, V: Clone> Iterator for ReadZipperChildIter<'a, 'k, V> {
     fn next(&mut self) -> Option<u8> {
         if let Some(zipper) = &mut self.0 {
             let result = zipper.path().last().cloned();
-            if !zipper.to_sibling(true) {
+            if !zipper.to_next_sibling_byte() {
                 self.0 = None;
             }
             result

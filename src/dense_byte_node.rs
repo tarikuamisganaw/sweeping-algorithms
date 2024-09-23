@@ -921,6 +921,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn new_iter_token(&self) -> u128 {
         self.mask[0] as u128
     }
+    #[inline(always)]
     fn iter_token_for_path(&self, key: &[u8]) -> u128 {
         if key.len() != 1 {
             self.new_iter_token()

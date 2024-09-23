@@ -468,6 +468,7 @@ impl<'a, V: Clone> TaggedNodeRef<'a, V> {
             Self::LineListNode(node) => node.new_iter_token(),
         }
     }
+    #[inline(always)]
     pub fn iter_token_for_path(&self, key: &[u8]) -> u128 {
         match self {
             Self::DenseByteNode(node) => node.iter_token_for_path(key),
