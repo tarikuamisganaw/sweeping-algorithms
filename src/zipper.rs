@@ -533,7 +533,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         debug_assert!(self.is_regularized());
 
         self.prefix_buf.push(k);
-        if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(&[k]) {
+        if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
             self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
             self.focus_node = next_node.as_tagged();
             self.focus_iter_token = NODE_ITER_INVALID;
