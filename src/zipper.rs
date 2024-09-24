@@ -548,7 +548,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         self.prepare_buffers();
         loop {
             if self.focus_iter_token == NODE_ITER_INVALID {
-                self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+                let (_full_key, cur_tok) = self.focus_node.iter_token_for_path(self.node_key());
+                self.focus_iter_token = cur_tok;
             }
 
             let (new_tok, key_bytes, child_node, value) = if self.focus_iter_token != NODE_ITER_FINISHED {
@@ -626,9 +627,18 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     pub fn descend_first_k_path(&mut self, k: usize) -> bool {
         self.prepare_buffers();
         debug_assert!(self.is_regularized());
-        if self.focus_iter_token == NODE_ITER_FINISHED || self.focus_iter_token == NODE_ITER_INVALID {
-            self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+
+        let node_key = self.node_key();
+        let node_key_len = node_key.len();
+        let (full_key, cur_tok) = self.focus_node.iter_token_for_path(node_key);
+        self.focus_iter_token = cur_tok;
+
+        //Check if we can descend within this node
+        if full_key.len() >= node_key_len+k {
+            self.prefix_buf.extend(&full_key[node_key_len..node_key_len+k]);
+            return true;
         }
+
         self.k_path_internal(k, self.prefix_buf.len())
     }
 
@@ -688,12 +698,23 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
 
             //Move the zipper to the next sibling position, if we can
             let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
-            self.focus_iter_token = new_tok;
 
             if new_tok != NODE_ITER_FINISHED {
-                //This branch means we're either going to continue to descend, or return a result at
-                // `path_len == base_idx+k`
 
+                //Check to see if the iteration has modified more characters than allowed by `k`
+                let node_key = self.node_key();
+                if node_key.len() > k {
+                    let fixed_len = node_key.len() - k;
+                    if fixed_len > key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
+                        self.prefix_buf.truncate(self.node_key_start()+fixed_len);
+                        return false;
+                    }
+                }
+
+                self.focus_iter_token = new_tok;
+
+                //If we got here, it means we're either going to continue to descend, or return a
+                // result at `path_len == base_idx+k`
                 let key_start = self.node_key_start();
                 self.prefix_buf.truncate(key_start);
                 self.prefix_buf.extend(key_bytes);
@@ -715,6 +736,8 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
                 if self.prefix_buf.len() == k+base_idx {
                     return true;
                 }
+            } else {
+                self.focus_iter_token = NODE_ITER_FINISHED;
             }
         }
     }
@@ -860,11 +883,20 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     pub fn descend_first_byte(&mut self) -> bool {
         self.prepare_buffers();
         debug_assert!(self.is_regularized());
-        if self.focus_iter_token == NODE_ITER_FINISHED || self.focus_iter_token == NODE_ITER_INVALID {
-            self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+        let node_key = self.node_key();
+        let node_key_len = node_key.len();
+        let (full_key, cur_tok) = self.focus_node.iter_token_for_path(node_key);
+        self.focus_iter_token = cur_tok;
+
+        //Check to see if we can descend within this node
+        if full_key.len() > node_key_len {
+            self.prefix_buf.push(full_key[node_key_len]);
+            return true;
         }
+
         let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
         self.focus_iter_token = new_tok;
+
         if new_tok != NODE_ITER_FINISHED {
             self.prefix_buf.push(key_bytes[0]);
 
@@ -895,12 +927,22 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         debug_assert!(self.is_regularized());
         self.deregularize();
         if self.focus_iter_token == NODE_ITER_INVALID {
-            self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+            let (_full_key, cur_tok) = self.focus_node.iter_token_for_path(self.node_key());
+            self.focus_iter_token = cur_tok;
         }
+
         let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
-        self.focus_iter_token = new_tok;
 
         if new_tok != NODE_ITER_FINISHED {
+
+            //Check to see if the iter result has modified more than one byte
+            let node_key = self.node_key();
+            let fixed_len = node_key.len() - 1;
+            if fixed_len > key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
+                return false;
+            }
+
+            self.focus_iter_token = new_tok;
             *self.prefix_buf.last_mut().unwrap() = key_bytes[0];
 
             if key_bytes.len() == 1 {
@@ -916,6 +958,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
 
             true
         } else {
+            self.focus_iter_token = NODE_ITER_FINISHED;
             false
         }
     }

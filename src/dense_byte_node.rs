@@ -922,12 +922,12 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         self.mask[0] as u128
     }
     #[inline(always)]
-    fn iter_token_for_path(&self, key: &[u8]) -> u128 {
+    fn iter_token_for_path(&self, key: &[u8]) -> (&[u8], u128) {
         if key.len() != 1 {
-            self.new_iter_token()
+            (&[], self.new_iter_token())
         } else {
-            let k = *unsafe{ key.get_unchecked(0) };
-            let idx = ((k & 0b11000000) >> 6) as usize;
+            let k = *unsafe{ key.get_unchecked(0) } as usize;
+            let idx = (k & 0b11000000) >> 6;
             let bit_i = k & 0b00111111;
             debug_assert!(idx < 4);
             let mask: u64 = if bit_i+1 < 64 {
@@ -935,7 +935,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             } else {
                 0
             };
-            ((idx as u128) << 64) | (mask as u128)
+            (&ALL_BYTES[k..=k], ((idx as u128) << 64) | (mask as u128))
         }
     }
     fn next_cf(&self, token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
