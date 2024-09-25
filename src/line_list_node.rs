@@ -1346,8 +1346,8 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         (NODE_ITER_FINISHED, &[])
     }
-    //GOAT I think this version with a case for equal key1 bytes might be needed... but I'm not sure
-    // and it breaks the tests, but the tests seem to pass without it...  So my thinking is probably wrong
+    // //GOAT I think this version with a case for equal key1 bytes might be needed... but I'm not sure
+    // // and it breaks the tests, but the tests seem to pass without it...  So my thinking is probably wrong
     // fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
     //     if key.len() == 0 {
     //         return (0, &[])
@@ -1367,7 +1367,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     //     }
     //     (NODE_ITER_FINISHED, &[])
     // }
-    //GOAT, another implementation that might be more correct, but may still have problems
+    // //GOAT, another implementation that might be more correct, but may still have problems
     // fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
     //     if key.len() == 0 {
     //         return (0, &[])
@@ -1379,9 +1379,9 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     //     if key0.len() >= key.len() && key == &key0[..key.len()] {
     //         return (1, key0)
     //     }
-    //     if key1.len() == 0 || key < key1 {
-    //         return (1, key0)
-    //     }
+    //     // if key1.len() == 0 || key < key1 {
+    //     //     return (1, key0)
+    //     // }
     //     if key1.len() >= key.len() && key == &key1[..key.len()] {
     //         return (2, key1)
     //     }

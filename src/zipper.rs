@@ -897,9 +897,10 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         self.focus_iter_token = new_tok;
 
         if new_tok != NODE_ITER_FINISHED {
-            self.prefix_buf.push(key_bytes[0]);
+            let byte_idx = self.node_key().len();
+            self.prefix_buf.push(key_bytes[byte_idx]);
 
-            if key_bytes.len() == 1 {
+            if key_bytes.len() == byte_idx+1 {
                 match child_node {
                     None => {},
                     Some(rec) => {
@@ -1775,8 +1776,9 @@ mod tests {
         assert_eq!(zipper.path(), &[6]);
         assert_eq!(zipper.descend_first_byte(), true);
         assert_eq!(zipper.path(), &[6, 193]);
+        assert_eq!(zipper.descend_first_byte(), true);
+        assert_eq!(zipper.path(), &[6, 193, 7]);
     }
-
 }
 
 // GOAT, new zipper API.  "fork_zipper_at_path".  Cheap call to make a new zipper cheaper than descend_to
