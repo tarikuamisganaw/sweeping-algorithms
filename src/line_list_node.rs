@@ -1330,22 +1330,43 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn new_iter_token(&self) -> u128 {
         0
     }
-    fn iter_token_for_path(&self, key: &[u8]) -> (&[u8], u128) {
+    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
         if key.len() == 0 {
-            return (&[], 0)
+            return (0, &[])
         }
         let (key0, key1) = self.get_both_keys();
         if key0.len() > 0 && key[0] < key0[0] {
-            return (&[], 0)
+            return (0, &[])
         }
         if key1.len() > 0 && key[0] < key1[0] {
-            return (key0, 1)
+            return (1, key0)
         }
         if key1.len() > 0 {
-            return (key1, 2)
+            return (2, key1)
         }
-        (&[], NODE_ITER_FINISHED)
+        (NODE_ITER_FINISHED, &[])
     }
+    //GOAT I think this version with a case for equal key1 bytes might be needed... but I'm not sure
+    // and it breaks the tests, but the tests seem to pass without it...  So my thinking is probably wrong
+    // fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+    //     if key.len() == 0 {
+    //         return (0, &[])
+    //     }
+    //     let (key0, key1) = self.get_both_keys();
+    //     if key0.len() > 0 && key[0] < key0[0] {
+    //         return (0, &[])
+    //     }
+    //     if key0.len() > 0 && key[0] == key0[0] {
+    //         return (1, key0)
+    //     }
+    //     if key1.len() > 0 && key[0] < key1[0] {
+    //         return (1, key0)
+    //     }
+    //     if key1.len() > 0 {
+    //         return (2, key1)
+    //     }
+    //     (NODE_ITER_FINISHED, &[])
+    // }
     fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
         panic!()
     }

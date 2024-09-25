@@ -480,31 +480,24 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         }
     }
 
-    // /// Ensures the zipper is in its regularized form
-    // ///
-    // /// Q: What the heck is "regularized form"?!?!?!
-    // /// A: The same zipper position may be representated with multiple configurations of the zipper's
-    // ///  field variables.  Consider the path: `abcd`, where the zipper points to `c`.  This could be
-    // ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
-    // ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
-    // ///  `node_key()` of `c`, which is called a deregularized form.
-    // ///
-    // /// Q: Why not just ensure the zipper always stays in a regularized form?
-    // /// A: Wasted work.  Specifically in `k_path` iteration, it's common to stop iteration at a depth
-    // ///  with ongoing child branches we may not descend.  The process of regularizing the zipper, to then
-    // ///  deregularize it and continue iteration is pure waste.  This is the reason the policy has been
-    // ///  changed to be tolerant of deregularized zippers
-    // #[inline]
-    // fn regularize(&mut self) {
-    //     let key_start = self.node_key_start();
-    //     if self.prefix_buf.len() > key_start {
-    //         if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
-    //             self.ancestors.push((self.focus_node, self.focus_iter_token, key_start+consumed_byte_cnt));
-    //             self.focus_node = next_node;
-    //             self.focus_iter_token = self.focus_node.new_iter_token();
-    //         }
-    //     }
-    // }
+    /// Ensures the zipper is in its regularized form
+    ///
+    /// Q: What the heck is "regularized form"?!?!?!
+    /// A: The same zipper position may be representated with multiple configurations of the zipper's
+    ///  field variables.  Consider the path: `abcd`, where the zipper points to `c`.  This could be
+    ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
+    ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
+    ///  `node_key()` of `c`, which is called a deregularized form.
+    fn regularize(&mut self) {
+        let key_start = self.node_key_start();
+        if self.prefix_buf.len() > key_start {
+            if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+                self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, key_start+consumed_byte_cnt));
+                self.focus_node = next_node.as_tagged();
+                self.focus_iter_token = self.focus_node.new_iter_token();
+            }
+        }
+    }
 
     /// Ensures the zipper is in a deregularized form.  See docs for [Self::regularize]
     #[inline]
@@ -548,7 +541,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         self.prepare_buffers();
         loop {
             if self.focus_iter_token == NODE_ITER_INVALID {
-                let (_full_key, cur_tok) = self.focus_node.iter_token_for_path(self.node_key());
+                let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
                 self.focus_iter_token = cur_tok;
             }
 
@@ -623,20 +616,26 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
-    /// See: [Self::to_k_path_next]
-    pub fn descend_first_k_path(&mut self, k: usize) -> bool {
+    /// See: [Self::to_next_k_path]
+    pub fn descend_first_k_path(&mut self, mut k: usize) -> bool {
         self.prepare_buffers();
         debug_assert!(self.is_regularized());
 
         let node_key = self.node_key();
         let node_key_len = node_key.len();
-        let (full_key, cur_tok) = self.focus_node.iter_token_for_path(node_key);
+        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
         self.focus_iter_token = cur_tok;
 
         //Check if we can descend within this node
-        if full_key.len() >= node_key_len+k {
-            self.prefix_buf.extend(&full_key[node_key_len..node_key_len+k]);
-            return true;
+        if full_key.len() > node_key_len {
+            if full_key.len() >= node_key_len+k {
+                self.prefix_buf.extend(&full_key[node_key_len..node_key_len+k]);
+                return true;
+            } else {
+                self.prefix_buf.extend(&full_key[node_key_len..]);
+                k -= full_key.len()-node_key_len;
+                self.regularize();
+            }
         }
 
         self.k_path_internal(k, self.prefix_buf.len())
@@ -652,7 +651,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
-    /// See: [Self::descend_k_path_first]
+    /// See: [Self::descend_first_k_path]
     pub fn to_next_k_path(&mut self, k: usize) -> bool {
         let base_idx = if self.path_len() > k {
             self.prefix_buf.len() - k
@@ -702,11 +701,11 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
             if new_tok != NODE_ITER_FINISHED {
 
                 //Check to see if the iteration has modified more characters than allowed by `k`
-                let node_key = self.node_key();
-                if node_key.len() > k {
-                    let fixed_len = node_key.len() - k;
-                    if fixed_len > key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
-                        self.prefix_buf.truncate(self.node_key_start()+fixed_len);
+                let key_start = self.node_key_start();
+                if key_start < base_idx {
+                    let fixed_len = self.prefix_buf.len() - base_idx;
+                    if fixed_len > key_bytes.len() || &key_bytes[..fixed_len] != &self.prefix_buf[key_start..] {
+                        self.prefix_buf.truncate(base_idx);
                         return false;
                     }
                 }
@@ -885,7 +884,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         debug_assert!(self.is_regularized());
         let node_key = self.node_key();
         let node_key_len = node_key.len();
-        let (full_key, cur_tok) = self.focus_node.iter_token_for_path(node_key);
+        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
         self.focus_iter_token = cur_tok;
 
         //Check to see if we can descend within this node
@@ -927,7 +926,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         debug_assert!(self.is_regularized());
         self.deregularize();
         if self.focus_iter_token == NODE_ITER_INVALID {
-            let (_full_key, cur_tok) = self.focus_node.iter_token_for_path(self.node_key());
+            let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
             self.focus_iter_token = cur_tok;
         }
 
@@ -1340,6 +1339,25 @@ mod tests {
     }
 
     #[test]
+    fn zipper_child_mask_test() {
+        let keys = vec![
+            vec![8, 194, 1, 45, 194, 1],
+            vec![34, 193],
+        ];
+        let map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper();
+
+        assert_eq!(zipper.descend_to(&[8, 194, 1]), true);
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.child_mask(), [0x200000000000, 0, 0, 0]);
+
+        zipper.reset();
+        assert_eq!(zipper.descend_to(&[8, 194, 1, 45]), true);
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.child_mask(), [0, 0, 0, 0x4]);
+    }
+
+    #[test]
     fn zipper_iter() {
         let mut btm = BytesTrieMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
@@ -1675,6 +1693,27 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, keys.len());
+    }
+
+    #[test]
+    fn k_path_test5() {
+        //EXPLANATION: This test triggers an edge-case because the first path is 15 bytes long, but
+        // `LineListNode::KEY_BYTES_CNT` is 14.  That means the path spills over to two nodes, 1 bytes
+        // before the end.  Then, we do `descend_first_k_path(2)`, meaning we end up straddling the
+        // node boundary, so `to_next_k_path(2)` needs to step back across to the parent node, and
+        // truncate the zipper's key, but not truncate too much
+        let keys = vec![
+            vec![3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194, 1, 46],
+            vec![3, 193, 4, 194, 1, 43, 3, 193, 34, 193],
+        ];
+
+        let map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper();
+        assert!(zipper.descend_to(&[3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194]));
+        assert_eq!(zipper.descend_first_k_path(2), true);
+        assert_eq!(zipper.path(), &[3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194, 1, 46]);
+        assert_eq!(zipper.to_next_k_path(2), false);
+        assert_eq!(zipper.path(), &[3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194]);
     }
 
     #[test]
