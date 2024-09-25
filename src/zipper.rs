@@ -1761,6 +1761,22 @@ mod tests {
         assert_eq!(zipper.path(), &[]);
     }
 
+    #[test]
+    fn zipper_byte_iter_test3() {
+        let keys = [
+            vec![3, 193, 4, 193, 5, 2, 193, 6, 193, 7],
+            vec![3, 193, 4, 193, 5, 2, 193, 6, 255],
+        ];
+        let map: BytesTrieMap<u64> = keys.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper_at_path(&[3, 193, 4, 193, 5, 2, 193]);
+
+        assert_eq!(zipper.path(), &[]);
+        assert_eq!(zipper.descend_first_byte(), true);
+        assert_eq!(zipper.path(), &[6]);
+        assert_eq!(zipper.descend_first_byte(), true);
+        assert_eq!(zipper.path(), &[6, 193]);
+    }
+
 }
 
 // GOAT, new zipper API.  "fork_zipper_at_path".  Cheap call to make a new zipper cheaper than descend_to

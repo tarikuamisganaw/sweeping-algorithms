@@ -1367,6 +1367,26 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     //     }
     //     (NODE_ITER_FINISHED, &[])
     // }
+    //GOAT, another implementation that might be more correct, but may still have problems
+    // fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+    //     if key.len() == 0 {
+    //         return (0, &[])
+    //     }
+    //     let (key0, key1) = self.get_both_keys();
+    //     if key < key0 {
+    //         return (0, &[])
+    //     }
+    //     if key0.len() >= key.len() && key == &key0[..key.len()] {
+    //         return (1, key0)
+    //     }
+    //     if key1.len() == 0 || key < key1 {
+    //         return (1, key0)
+    //     }
+    //     if key1.len() >= key.len() && key == &key1[..key.len()] {
+    //         return (2, key1)
+    //     }
+    //     (NODE_ITER_FINISHED, &[])
+    // }
     fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
         panic!()
     }
