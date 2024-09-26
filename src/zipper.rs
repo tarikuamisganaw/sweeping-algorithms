@@ -630,6 +630,9 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         if full_key.len() > node_key_len {
             if full_key.len() >= node_key_len+k {
                 self.prefix_buf.extend(&full_key[node_key_len..node_key_len+k]);
+                if full_key.len() == node_key_len+k {
+                    self.regularize();
+                }
                 return true;
             } else {
                 self.prefix_buf.extend(&full_key[node_key_len..]);
