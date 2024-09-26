@@ -8,13 +8,13 @@ use crate::dense_byte_node::{DenseByteNode, CoFree};
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
-pub struct OldCursor<'a, V> where V : Clone {
+pub struct AllDenseCursor<'a, V> where V : Clone {
     prefix: Vec<u8>,
     btnis: Vec<ByteTrieNodeIter<'a, V>>,
     nopush: bool
 }
 
-impl <'a, V : Clone> OldCursor<'a, V> {
+impl <'a, V : Clone> AllDenseCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self {
             prefix: vec![],
@@ -24,7 +24,7 @@ impl <'a, V : Clone> OldCursor<'a, V> {
     }
 }
 
-impl <'a, V : Clone> OldCursor<'a, V> {
+impl <'a, V : Clone> AllDenseCursor<'a, V> {
     pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
         loop {
             match self.btnis.last_mut() {
@@ -245,12 +245,12 @@ impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
 // Abstracted OldCursor
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-pub struct AbstractedOldCursor<'a, V> where V : Clone {
+pub struct PathMapCursor<'a, V> where V : Clone {
     prefix_buf: Vec<u8>,
     btnis: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
 }
 
-impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
+impl <'a, V : Clone> PathMapCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         const EXPECTED_DEPTH: usize = 16;
         const EXPECTED_PATH_LEN: usize = 256;
@@ -265,7 +265,7 @@ impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
     }
 }
 
-impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
+impl <'a, V : Clone> PathMapCursor<'a, V> {
     pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
         loop {
             match self.btnis.last_mut() {

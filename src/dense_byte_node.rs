@@ -74,8 +74,6 @@ impl <V> Debug for DenseByteNode<V> {
 }
 
 impl<V> DenseByteNode<V> {
-    const NULL_COFREE: CoFree<V> = CoFree{ rec: None, value: None };
-
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -672,84 +670,6 @@ impl <V: Clone> DenseByteNode<V> {
     }
 }
 
-pub(crate) struct DenseByteNodeIter<'a, V> {
-    child_link: Option<(usize, &'a dyn TrieNode<V>)>,
-    cf_iter: CfIter<'a, V>,
-}
-
-impl <'a, V> DenseByteNodeIter<'a, V> {
-    fn new(btn: &'a DenseByteNode<V>) -> Self {
-        Self {
-            child_link: None,
-            cf_iter: CfIter::new(btn),
-        }
-    }
-}
-
-impl <'a, V : Clone> Iterator for DenseByteNodeIter<'a, V> {
-    type Item = (&'a[u8], ValOrChildRef<'a, V>);
-
-    fn next(&mut self) -> Option<(&'a[u8], ValOrChildRef<'a, V>)> {
-        if self.child_link.is_none() {
-            match self.cf_iter.next() {
-                None => None,
-                Some((prefix, cf)) => {
-                    let prefix = prefix as usize;
-                    match &cf.value {
-                        None => {
-                            //No value means the cf must be a child-link alone
-                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(&*cf.rec.as_ref().unwrap().borrow())))
-                        },
-                        Some(val) => {
-                            self.child_link = cf.rec.as_ref().map(|node| (prefix, &*node.borrow()));
-                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Val(val)))
-                        }
-                    }
-                }
-            }
-        } else {
-            let (prefix, node) = core::mem::take(&mut self.child_link).unwrap();
-            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(node)))
-        }
-    }
-}
-
-struct CfIter<'a, V> {
-    i: u8,
-    w: u64,
-    btn: &'a DenseByteNode<V>
-}
-
-impl <'a, V> CfIter<'a, V> {
-    fn new(btn: &'a DenseByteNode<V>) -> Self {
-        Self {
-            i: 0,
-            w: btn.mask[0],
-            btn: btn
-        }
-    }
-}
-
-impl <'a, V : Clone> Iterator for CfIter<'a, V> {
-    type Item = (u8, &'a CoFree<V>);
-
-    fn next(&mut self) -> Option<(u8, &'a CoFree<V>)> {
-        loop {
-            if self.w != 0 {
-                let wi = self.w.trailing_zeros() as u8;
-                self.w ^= 1u64 << wi;
-                let index = self.i*64 + wi;
-                return Some((index, unsafe{ self.btn.get_unchecked(index) } ))
-            } else if self.i < 3 {
-                self.i += 1;
-                self.w = *unsafe{ self.btn.mask.get_unchecked(self.i as usize) };
-            } else {
-                return None
-            }
-        }
-    }
-}
-
 impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         debug_assert!(key.len() > 0);
@@ -913,9 +833,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     }
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
-    }
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        Box::new(DenseByteNodeIter::new(self))
     }
     #[inline(always)]
     fn new_iter_token(&self) -> u128 {

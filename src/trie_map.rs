@@ -156,19 +156,18 @@ impl<V: Clone> BytesTrieMap<V> {
         self.read_zipper().into_iter()
     }
 
-    /// Returns a [BytesTrieMapCursor] to traverse all key-value pairs within the map.  This is more efficient
-    /// than using [iter](Self::iter), but is not compatible with the [Iterator] trait
+    /// Returns a [crate::old_cursor::PathMapCursor] to traverse all key-value pairs within the map. This
+    /// is more efficient than using [iter](Self::iter), but is not compatible with the [Iterator] trait
     ///
     /// WARNING: This API will be deprecated in favor of the [read_zipper](Self::read_zipper) method
-    pub fn cursor<'a>(&'a self) -> BytesTrieMapCursor<'a, V> {
-        BytesTrieMapCursor::new(self)
+    pub fn cursor<'a>(&'a self) -> crate::old_cursor::PathMapCursor<'a, V> {
+        crate::old_cursor::PathMapCursor::new(self)
     }
 
-    pub fn old_cursor<'a>(&'a self) -> crate::old_dense_cursor::OldCursor<'a, V> {
-        crate::old_dense_cursor::OldCursor::new(self)
-    }
-    pub fn abstracted_old_cursor<'a>(&'a self) -> crate::old_dense_cursor::AbstractedOldCursor<'a, V> {
-        crate::old_dense_cursor::AbstractedOldCursor::new(self)
+    /// Returns an [crate::old_cursor::AllDenseCursor], which behaves exactly like a [crate::old_cursor::PathMapCursor],
+    /// but is only available with the `all_dense_nodes` feature.  This is mainly kept for benchmarking.
+    pub fn all_dense_cursor<'a>(&'a self) -> crate::old_cursor::AllDenseCursor<'a, V> {
+        crate::old_cursor::AllDenseCursor::new(self)
     }
 
     /// Returns `true` if the map contains a value at the specified key, otherwise returns `false`
@@ -267,71 +266,6 @@ impl<V: Clone> BytesTrieMap<V> {
         match self.root().borrow().prestrict_dyn(other.root().borrow()) {
             Some(new_root) => Self::new_with_root(new_root),
             None => Self::new()
-        }
-    }
-}
-
-/// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
-/// returned reference may exist at a given time
-///
-/// TODO: Soon we may want to deprecate this API entirely, as it is a subset of the functionality
-/// available from the [crate::zipper::Zipper].  However, the current implementation is about 25% faster when comparing
-/// like-for-like workloads that are non-pathological.  And this is including the overhead of allocating
-/// boxed node_iterators.  I haven't investigated why the zipper isn't faster, but my guess is is 
-/// that the probable cause is the higher cost of traversing using inner-paths instead of just treating
-/// all contained sub-nodes as a flat collection of values and onward-links.  I believe it would probably
-/// be possible to exceed the current BytesTrieMapCursor traversal speed with a Zipper, with a little
-/// more work.  Possibly by using a fixed-size "token" that the node may used to encode some data about
-/// its current position and intermediate traversal state.
-pub struct BytesTrieMapCursor<'a, V> where V : Clone {
-    prefix_buf: Vec<u8>,
-    prefix_idx: Vec<usize>,
-    btnis: Vec<Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>>,
-}
-
-impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
-    fn new(btm: &'a BytesTrieMap<V>) -> Self {
-        const EXPECTED_DEPTH: usize = 16;
-        let mut prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
-        prefix_idx.push(0);
-        let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
-        btnis.push(btm.root().borrow().boxed_node_iter());
-        Self {
-            prefix_buf: Vec::with_capacity(256),
-            prefix_idx,
-            btnis,
-        }
-    }
-}
-
-impl <'a, V : Clone> BytesTrieMapCursor<'a, V> {
-    pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
-        loop {
-            match self.btnis.last_mut() {
-                None => { return None }
-                Some(last) => {
-                    match last.next() {
-                        None => {
-                            // decrease view len by one level
-                            self.prefix_idx.pop();
-                            self.btnis.pop();
-                        }
-                        Some((key_bytes, item)) => {
-                            let key_start = *self.prefix_idx.last().unwrap();
-                            self.prefix_buf.truncate(key_start);
-                            self.prefix_buf.extend(key_bytes);
-
-                            match item {
-                                ValOrChildRef::Val(val) => return Some((&self.prefix_buf[..], val)),
-                                ValOrChildRef::Child(child) => {
-                                    self.prefix_idx.push(self.prefix_buf.len());
-                                    self.btnis.push(child.boxed_node_iter())
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -549,7 +483,7 @@ mod tests {
     fn cursor_test() {
         let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
         let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
-        let mut cursor = btm.abstracted_old_cursor();
+        let mut cursor = btm.cursor();
         while let Some((k, v)) = cursor.next() {
             // println!("{}, {v}", std::str::from_utf8(k).unwrap());
             assert_eq!(k, table[*v].as_bytes());

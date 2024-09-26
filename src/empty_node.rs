@@ -87,9 +87,6 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
     fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
     fn node_is_empty(&self) -> bool { true }
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        panic!()
-    }
     fn new_iter_token(&self) -> u128 {
         0
     }

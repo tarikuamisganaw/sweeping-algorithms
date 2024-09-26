@@ -44,6 +44,7 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
 
+    //GOAT, Probably can be removed
     /// Replaces a child-node at `key` with the node provided, returning a `&mut` reference to the newly
     /// added child node
     ///
@@ -125,11 +126,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
 
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;
-
-    /// Returns a boxed iterator over each item contained within the node, both child nodes and values
-    /// TODO, hopefully we can deprecate this method when the zipper iteration gets a little faster.  See
-    /// comments around [crate::trie_map::BytesTrieMapCursor]
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>;
 
     /// Generates a new iter token, to iterate the children and values contained within this node
     fn new_iter_token(&self) -> u128;
@@ -301,11 +297,6 @@ pub const NODE_ITER_INVALID: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
 
 /// Special sentinel token value indicating iteration of a node has concluded
 pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE;
-
-pub enum ValOrChildRef<'a, V> {
-    Val(&'a V),
-    Child(&'a dyn TrieNode<V>)
-}
 
 #[derive(Clone)]
 pub(crate) enum ValOrChild<V> {

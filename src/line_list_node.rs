@@ -1,5 +1,4 @@
 use core::mem::{ManuallyDrop, MaybeUninit};
-use core::iter::Iterator;
 use std::collections::HashMap;
 
 use local_or_heap::LocalOrHeap;
@@ -1325,9 +1324,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         !self.is_used::<0>()
     }
 
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        Box::new(ListNodeIter::new(self))
-    }
     // *==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==*
     // * Explanation of the meaning of iter_tokens for ListNode
     // *
@@ -2133,60 +2129,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
-    }
-}
-
-pub(crate) struct ListNodeIter<'a, V> {
-    node: &'a LineListNode<V>,
-    n: usize,
-}
-
-impl<'a, V> ListNodeIter<'a, V> {
-    fn new(node: &'a LineListNode<V>) -> Self {
-        Self {
-            node,
-            n: 0
-        }
-    }
-}
-
-impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
-    type Item = (&'a[u8], ValOrChildRef<'a, V>);
-
-    fn next(&mut self) -> Option<(&'a[u8], ValOrChildRef<'a, V>)> {
-        match self.n {
-            0 => {
-                self.n += 1;
-                if self.node.is_used::<0>() {
-                    let key = unsafe{ self.node.key_unchecked::<0>() };
-                    if self.node.is_used_child_0() {
-                        let child = unsafe{ self.node.child_in_slot::<0>() };
-                        Some((key, ValOrChildRef::Child(child.borrow())))
-                    } else {
-                        let val = unsafe{ self.node.val_in_slot::<0>() };
-                        Some((key, ValOrChildRef::Val(val)))
-                    }
-                } else {
-                    None
-                }
-            },
-            1 => {
-                self.n += 1;
-                if self.node.is_used::<1>() {
-                    let key = unsafe{ self.node.key_unchecked::<1>() };
-                    if self.node.is_used_child_1() {
-                        let child = unsafe{ self.node.child_in_slot::<1>() };
-                        Some((key, ValOrChildRef::Child(child.borrow())))
-                    } else {
-                        let val = unsafe{ self.node.val_in_slot::<1>() };
-                        Some((key, ValOrChildRef::Val(val)))
-                    }
-                } else {
-                    None
-                }
-            },
-            _ => None
-        }
     }
 }
 
