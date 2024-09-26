@@ -1569,6 +1569,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
     }
 
+    #[inline(always)]
     fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
         let (key0, key1) = self.get_both_keys();
         let mut m = [0u64; 4];

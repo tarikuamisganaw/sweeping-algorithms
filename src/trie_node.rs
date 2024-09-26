@@ -318,7 +318,6 @@ pub fn test_mask(mask: &[u64; 4], k: u8) -> bool {
     let idx = ((k & 0b11000000) >> 6) as usize;
     mask[idx] & 1u64 << (k & 0b00111111) > 0
 }
-
 /// Special sentinel token value indicating iteration of a node has not been initialized
 pub const NODE_ITER_INVALID: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
 
