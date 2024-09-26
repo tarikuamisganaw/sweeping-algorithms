@@ -938,26 +938,6 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             (((idx as u128) << 64) | (mask as u128), &ALL_BYTES[k..=k])
         }
     }
-    fn next_cf(&self, token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
-        let mut i = (token >> 64) as u8;
-        let mut w = token as u64;
-        loop {
-            if w != 0 {
-                let wi = w.trailing_zeros() as u8;
-                w ^= 1u64 << wi;
-                let index = i*64 + wi;
-
-                let new_token = ((i as u128) << 64) | (w as u128);
-                return (new_token, index, unsafe{ self.get_unchecked(index) } )
-            } else if i < 3 {
-                i += 1;
-
-                w = unsafe { *self.mask.get_unchecked(i as usize) };
-            } else {
-                return (0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF, 0, &Self::NULL_COFREE)
-            }
-        }
-    }
     #[inline(always)]
     fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
         let mut i = (token >> 64) as u8;
@@ -1122,6 +1102,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    #[inline(always)]
     fn is_leaf(&self, key: &[u8]) -> bool {
         match key.len() {
             0 => self.values.len() == 0,

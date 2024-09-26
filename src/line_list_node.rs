@@ -1371,9 +1371,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         (NODE_ITER_FINISHED, &[])
     }
-    fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
-        panic!()
-    }
     #[inline(always)]
     fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
         match token {

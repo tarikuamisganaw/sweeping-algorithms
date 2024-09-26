@@ -154,9 +154,6 @@ impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
     fn boxed_node_iter<'n>(&'n self) -> Box<dyn Iterator<Item=(&'n[u8], ValOrChildRef<'n, V>)> + 'n> { unreachable!() }
     fn new_iter_token(&self) -> u128 { unreachable!() }
     fn iter_token_for_path(&self, _key: &[u8]) -> (u128, &[u8]) { unreachable!() }
-    fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
-        panic!()
-    }
     fn next_items(&self, _token: u128) -> (u128, &'a[u8], Option<&TrieNodeODRc<V>>, Option<&V>) { unreachable!() }
     fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         panic!();

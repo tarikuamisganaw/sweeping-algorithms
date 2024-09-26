@@ -93,9 +93,6 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn new_iter_token(&self) -> u128 {
         0
     }
-    fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
-        panic!()
-    }
     fn iter_token_for_path(&self, _key: &[u8]) -> (u128, &[u8]) {
         (0, &[])
     }

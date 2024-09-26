@@ -140,9 +140,6 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns `(new_token, complete_node_key)`
     fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]);
 
-    /// GOAT, trash, remove before merge
-    fn next_cf(&self, token: u128) -> (u128, u8, &CoFree<V>);
-
     /// Steps to the next existing path within the node, in a depth-first order
     ///
     /// Returns `(next_token, path, child_node, value)`
@@ -518,9 +515,13 @@ impl<'a, V: Clone> TaggedNodeRef<'a, V> {
             Self::LineListNode(node) => node.node_branches_mask(key),
         }
     }
-
-    // fn is_leaf(&self, key: &[u8]) -> bool;
-
+    #[inline(always)]
+    pub fn is_leaf(&self, key: &[u8]) -> bool {
+        match self {
+            Self::DenseByteNode(node) => node.is_leaf(key),
+            Self::LineListNode(node) => node.is_leaf(key),
+        }
+    }
     pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
         match self {
             Self::DenseByteNode(node) => node.prior_branch_key(key),
