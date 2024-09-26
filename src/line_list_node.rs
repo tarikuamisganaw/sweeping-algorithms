@@ -1327,6 +1327,16 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
         Box::new(ListNodeIter::new(self))
     }
+    // *==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==*
+    // * Explanation of the meaning of iter_tokens for ListNode
+    // *
+    // * 0 = iteration has not yet begun, so the next call to `next_items` will return the first
+    // *   item(s) within the node.
+    // * 1 = the item in slot0 has already been returned, so the next call to `next_items` will examine
+    // *   slot1.  If slot0 and slot1 have identical keys, iter_tokens==1 will be skipped
+    // * 2 = the item in slot1 has already been returned, so the next call to `next_items` must return
+    // *   NODE_ITER_FINISHED
+    // *==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==*
     fn new_iter_token(&self) -> u128 {
         0
     }
@@ -1335,58 +1345,30 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             return (0, &[])
         }
         let (key0, key1) = self.get_both_keys();
-        if key0.len() > 0 && key[0] < key0[0] {
-            return (0, &[])
+        if key0.len() >= key.len() {
+            let short_key = &key0[..key.len()];
+            if key < short_key {
+                return (0, &[])
+            }
+            if key == short_key {
+                if key0 == key1 {
+                    return (2, key0)
+                } else {
+                    return (1, key0)
+                }
+            }
         }
-        if key1.len() > 0 && key[0] < key1[0] {
-            return (1, key0)
-        }
-        if key1.len() > 0 {
-            return (2, key1)
+        if key1.len() >= key.len() {
+            let short_key = &key1[..key.len()];
+            if key < short_key {
+                return (1, key0)
+            }
+            if key == short_key {
+                return (2, key1)
+            }
         }
         (NODE_ITER_FINISHED, &[])
     }
-    // //GOAT I think this version with a case for equal key1 bytes might be needed... but I'm not sure
-    // // and it breaks the tests, but the tests seem to pass without it...  So my thinking is probably wrong
-    // fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
-    //     if key.len() == 0 {
-    //         return (0, &[])
-    //     }
-    //     let (key0, key1) = self.get_both_keys();
-    //     if key0.len() > 0 && key[0] < key0[0] {
-    //         return (0, &[])
-    //     }
-    //     if key0.len() > 0 && key[0] == key0[0] {
-    //         return (1, key0)
-    //     }
-    //     if key1.len() > 0 && key[0] < key1[0] {
-    //         return (1, key0)
-    //     }
-    //     if key1.len() > 0 {
-    //         return (2, key1)
-    //     }
-    //     (NODE_ITER_FINISHED, &[])
-    // }
-    // //GOAT, another implementation that might be more correct, but may still have problems
-    // fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
-    //     if key.len() == 0 {
-    //         return (0, &[])
-    //     }
-    //     let (key0, key1) = self.get_both_keys();
-    //     if key < key0 {
-    //         return (0, &[])
-    //     }
-    //     if key0.len() >= key.len() && key == &key0[..key.len()] {
-    //         return (1, key0)
-    //     }
-    //     // if key1.len() == 0 || key < key1 {
-    //     //     return (1, key0)
-    //     // }
-    //     if key1.len() >= key.len() && key == &key1[..key.len()] {
-    //         return (2, key1)
-    //     }
-    //     (NODE_ITER_FINISHED, &[])
-    // }
     fn next_cf(&self, _token: u128) -> (u128, u8, &crate::dense_byte_node::CoFree<V>) {
         panic!()
     }

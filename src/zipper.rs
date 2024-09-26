@@ -890,6 +890,9 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         //Check to see if we can descend within this node
         if full_key.len() > node_key_len {
             self.prefix_buf.push(full_key[node_key_len]);
+            if full_key.len() == node_key_len+1 {
+                self.regularize();
+            }
             return true;
         }
 
