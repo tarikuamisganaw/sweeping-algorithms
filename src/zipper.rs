@@ -489,13 +489,11 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
     ///  `node_key()` of `c`, which is called a deregularized form.
     fn regularize(&mut self) {
-        let key_start = self.node_key_start();
-        if self.prefix_buf.len() > key_start {
-            if let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
-                self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, key_start+consumed_byte_cnt));
-                self.focus_node = next_node.as_tagged();
-                self.focus_iter_token = self.focus_node.new_iter_token();
-            }
+        debug_assert!(self.prefix_buf.len() > self.node_key_start()); //If this triggers, we have uninitialized buffers
+        if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+            self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+            self.focus_node = next_node.as_tagged();
+            self.focus_iter_token = self.focus_node.new_iter_token();
         }
     }
 
