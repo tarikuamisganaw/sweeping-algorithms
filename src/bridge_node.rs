@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::line_list_node::{LineListNode, ValOrChildUnion, find_prefix_overlap};
 use crate::dense_byte_node::DenseByteNode;
 use crate::tiny_node::TinyRefNode;
 
@@ -61,24 +60,31 @@ impl<V> BridgeNode<V> {
             ((1 << 7) | key_len) as u8
         }
     }
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.header & (1 << 7) == 0
     }
+    #[inline(always)]
     pub fn is_child_ptr(&self) -> bool {
         self.header & (1 << 6) > 0
     }
+    #[inline(always)]
     fn is_used_child(&self) -> bool {
         self.header & ((1 << 7) | (1 << 6)) == ((1 << 7) | (1 << 6))
     }
+    #[inline(always)]
     fn is_used_val(&self) -> bool {
         self.header & ((1 << 7) | (1 << 6)) == (1 << 7)
     }
+    #[inline(always)]
     pub fn key_len(&self) -> usize {
         (self.header & 0x3f) as usize
     }
+    #[inline(always)]
     pub fn key(&self) -> &[u8] {
         unsafe{ core::slice::from_raw_parts(self.key_bytes.as_ptr().cast(), self.key_len()) }
     }
+    #[inline(always)]
     fn drop_payload(&mut self) {
         if self.is_used_child() {
             unsafe{ ManuallyDrop::drop(&mut self.payload.child) }
@@ -90,6 +96,13 @@ impl<V> BridgeNode<V> {
 }
 
 impl<V: Clone> BridgeNode<V> {
+    pub fn new_empty() -> Self {
+        Self {
+            header: 0,
+            key_bytes: [MaybeUninit::uninit(); KEY_BYTES_CNT],
+            payload: ValOrChildUnion{ _unused: () }
+        }
+    }
     pub fn new(key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) -> Self {
         debug_assert!(key.len() > 0);
         if key.len() <= KEY_BYTES_CNT {
@@ -111,13 +124,21 @@ impl<V: Clone> BridgeNode<V> {
             new_node
         }
     }
-    fn set_payload(&mut self, key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) {
+    fn set_payload(&mut self, key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) -> bool {
         debug_assert!(key.len() > 0);
-        debug_assert!(key.len() < KEY_BYTES_CNT);
         debug_assert!(self.is_empty());
-        self.header = Self::header(is_child, key.len());
-        self.payload = payload;
-        unsafe{ core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len()); }
+        if key.len() <= KEY_BYTES_CNT {
+            self.header = Self::header(is_child, key.len());
+            self.payload = payload;
+            unsafe{ core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len()); }
+            false
+        } else {
+            let child = Self::new(&key[KEY_BYTES_CNT..], is_child, payload);
+            self.header = Self::header(true, KEY_BYTES_CNT);
+            self.payload = TrieNodeODRc::new(child).into();
+            unsafe{ core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), KEY_BYTES_CNT); }
+            true
+        }
     }
     fn splice_new_payload<const IS_CHILD: bool>(&mut self, key: &[u8], mut new_payload: ValOrChildUnion<V>) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         debug_assert_eq!(self.is_empty(), false);
@@ -226,6 +247,35 @@ impl<V: Clone> BridgeNode<V> {
             return TrieNodeODRc::new(split_node)
         }
     }
+
+    /// Converts the node to a DenseByteNode, transplanting the contents and leaving `self` empty
+    pub(crate) fn convert_to_dense(&mut self, capacity: usize) -> TrieNodeODRc<V> where V: Clone {
+        let mut replacement_node = DenseByteNode::<V>::with_capacity(capacity);
+
+        //Transplant the key / value to the new node
+        if !self.is_empty() {
+            let mut payload = ValOrChildUnion{ _unused: () };
+            core::mem::swap(&mut payload, &mut self.payload);
+            let key = self.key();
+            //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
+            // make an intermediate node to hold the rest of the key
+            if key.len() > 1 {
+                let child_node = Self::new(&key[1..], self.is_child_ptr(), payload);
+                replacement_node.set_child(key[0], TrieNodeODRc::new(child_node));
+            } else {
+                if self.is_child_ptr() {
+                    replacement_node.set_child(key[0], unsafe{ payload.into_child() });
+                } else {
+                    replacement_node.set_val(key[0], unsafe{ payload.into_val() });
+                }
+            }
+        }
+
+        //Clear self.header, so we don't double-free anything when this old node gets dropped
+        self.header = 0;
+
+        TrieNodeODRc::new(replacement_node)
+    }
 }
 
 impl<V: Clone> TrieNode<V> for BridgeNode<V> {
@@ -304,7 +354,12 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         None
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
-        self.splice_new_payload::<false>(key, val.into())
+        if !self.is_empty() {
+            self.splice_new_payload::<false>(key, val.into())
+        } else {
+            let created_subnode = self.set_payload(key, false, val.into());
+            Ok((None, created_subnode))
+        }
     }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
         self.splice_new_payload::<true>(key, new_node.into()).map(|(_, created_subnode)| created_subnode)
@@ -338,7 +393,39 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
     fn node_is_empty(&self) -> bool {
         self.is_empty()
     }
-    fn boxed_node_iter<'n>(&'n self) -> Box<dyn Iterator<Item=(&'n[u8], ValOrChildRef<'n, V>)> + 'n> { unreachable!() }
+    #[inline(always)]
+    fn new_iter_token(&self) -> u128 {
+        0
+    }
+    #[inline(always)]
+    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+        let node_key = self.key();
+        if key.len() <= node_key.len() {
+            let short_key = &node_key[..key.len()];
+            if key < short_key {
+                return (0, &[])
+            }
+            if key == short_key {
+                return (1, node_key)
+            }
+        }
+        (NODE_ITER_FINISHED, &[])
+    }
+    #[inline(always)]
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        if token == 0 {
+            let node_key = self.key();
+            if self.is_used_child() {
+                let child = unsafe{ &*self.payload.child };
+                return (1, node_key, Some(child), None)
+            }
+            if self.is_used_val() {
+                let val = unsafe{ &**self.payload.val };
+                return (1, node_key, None, Some(val))
+            }
+        }
+        (NODE_ITER_FINISHED, &[], None, None)
+    }
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         debug_assert!(!self.is_empty());
         if self.is_child_ptr() {
@@ -521,24 +608,44 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         None
     }
-    fn as_list(&self) -> Option<&LineListNode<V>> {
-        None
-    }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
-        None
-    }
+    //This whole file is behind a switch that means these methods aren't available
+    // fn as_list(&self) -> Option<&LineListNode<V>> {
+    //     None
+    // }
+    // fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
+    //     None
+    // }
     fn as_bridge(&self) -> Option<&BridgeNode<V>> {
         Some(self)
+    }
+    fn as_bridge_mut(&mut self) -> Option<&mut crate::bridge_node::BridgeNode<V>> {
+        Some(self)
+    }
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::BridgeNode(self)
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
     }
 }
 
+/// Returns the number of characters shared between two slices
+#[inline]
+pub(crate) fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+    let mut cnt = 0;
+    loop {
+        if cnt == a.len() {break}
+        if cnt == b.len() {break}
+        if a[cnt] != b[cnt] {break}
+        cnt += 1;
+    }
+    cnt
+}
+
 #[test]
 fn test_bridge_node() {
-    //First confirm LineListNode is 48 bytes
-    assert_eq!(std::mem::size_of::<LineListNode::<()>>(), 48);
+    //First confirm BridgeNode is 48 bytes
+    assert_eq!(std::mem::size_of::<BridgeNode::<()>>(), 48);
 
     //Test recursive BridgeNode creation
     let payload: ValOrChildUnion<usize> = 42.into();

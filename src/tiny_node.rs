@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::line_list_node::{LineListNode, ValOrChildUnion, validate_node};
 use crate::dense_byte_node::DenseByteNode;
 
 /// A borrowed reference to a payload with a key stored elsewhere, contained in 16 Bytes
@@ -39,11 +38,11 @@ impl<'a, V: Clone> TinyRefNode<'a, V> {
 
     #[cfg(not(feature = "bridge_nodes"))]
     /// Turn the TinyRefNode into a LineListNode by cloning the payload
-    pub fn into_full(&self) -> Option<LineListNode<V>> {
+    pub fn into_full(&self) -> Option<crate::line_list_node::LineListNode<V>> {
         self.clone_payload().map(|payload| {
-            let mut new_node = LineListNode::new();
+            let mut new_node = crate::line_list_node::LineListNode::new();
             unsafe{ new_node.set_payload_owned::<0>(self.key(), payload); }
-            debug_assert!(validate_node(&new_node));
+            debug_assert!(crate::line_list_node::validate_node(&new_node));
             new_node
         })
     }
@@ -61,6 +60,7 @@ impl<'a, V: Clone> TinyRefNode<'a, V> {
     }
 
     /// Clones the payload from self
+    #[cfg(not(feature = "bridge_nodes"))]
     fn clone_payload(&self) -> Option<ValOrChild<V>> {
         if self.node_is_empty() {
             return None;
@@ -164,7 +164,9 @@ impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
     fn node_is_empty(&self) -> bool {
         self.header & (1 << 7) == 0
     }
-    fn boxed_node_iter<'n>(&'n self) -> Box<dyn Iterator<Item=(&'n[u8], ValOrChildRef<'n, V>)> + 'n> { unreachable!() }
+    fn new_iter_token(&self) -> u128 { unreachable!() }
+    fn iter_token_for_path(&self, _key: &[u8]) -> (u128, &[u8]) { unreachable!() }
+    fn next_items(&self, _token: u128) -> (u128, &'a[u8], Option<&TrieNodeODRc<V>>, Option<&V>) { unreachable!() }
     fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         panic!();
     }
@@ -251,15 +253,24 @@ impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         None
     }
-    fn as_list(&self) -> Option<&LineListNode<V>> {
+    #[cfg(not(feature = "bridge_nodes"))]
+    fn as_list(&self) -> Option<&crate::line_list_node::LineListNode<V>> {
         None
     }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
+    #[cfg(not(feature = "bridge_nodes"))]
+    fn as_list_mut(&mut self) -> Option<&mut crate::line_list_node::LineListNode<V>> {
         None
     }
     #[cfg(feature = "bridge_nodes")]
     fn as_bridge(&self) -> Option<&crate::bridge_node::BridgeNode<V>> {
         None
+    }
+    #[cfg(feature = "bridge_nodes")]
+    fn as_bridge_mut(&mut self) -> Option<&mut crate::bridge_node::BridgeNode<V>> {
+        None
+    }
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        panic!();
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
@@ -270,5 +281,4 @@ impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
 fn test_tiny_node() {
     //First confirm TinyRefNode is 16 bytes
     assert_eq!(std::mem::size_of::<TinyRefNode::<()>>(), 16);
-
 }

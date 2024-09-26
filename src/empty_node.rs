@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::line_list_node::LineListNode;
 use crate::dense_byte_node::DenseByteNode;
 
 pub struct EmptyNode<V> {
@@ -69,7 +68,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         #[cfg(not(feature = "bridge_nodes"))]
         {
-            let mut replacement_node = LineListNode::new();
+            let mut replacement_node = crate::line_list_node::LineListNode::new();
             replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
             Err(TrieNodeODRc::new(replacement_node))
         }
@@ -88,7 +87,7 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
         #[cfg(not(feature = "bridge_nodes"))]
         {
-            let mut replacement_node = LineListNode::new();
+            let mut replacement_node = crate::line_list_node::LineListNode::new();
             replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
             Err(TrieNodeODRc::new(replacement_node))
             }
@@ -103,8 +102,14 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
     fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
     fn node_is_empty(&self) -> bool { true }
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        panic!()
+    fn new_iter_token(&self) -> u128 {
+        0
+    }
+    fn iter_token_for_path(&self, _key: &[u8]) -> (u128, &[u8]) {
+        (0, &[])
+    }
+    fn next_items(&self, _token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        (0, &[], None, None)
     }
     fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         0
@@ -173,15 +178,24 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         None
     }
-    fn as_list(&self) -> Option<&LineListNode<V>> {
+    #[cfg(not(feature = "bridge_nodes"))]
+    fn as_list(&self) -> Option<&crate::line_list_node::LineListNode<V>> {
         None
     }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
+    #[cfg(not(feature = "bridge_nodes"))]
+    fn as_list_mut(&mut self) -> Option<&mut crate::line_list_node::LineListNode<V>> {
         None
     }
     #[cfg(feature = "bridge_nodes")]
     fn as_bridge(&self) -> Option<&crate::bridge_node::BridgeNode<V>> {
         None
+    }
+    #[cfg(feature = "bridge_nodes")]
+    fn as_bridge_mut(&mut self) -> Option<&mut crate::bridge_node::BridgeNode<V>> {
+        None
+    }
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        panic!()
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())

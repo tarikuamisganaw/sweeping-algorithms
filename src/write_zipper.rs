@@ -10,8 +10,6 @@ use crate::zipper_tracking::*;
 use crate::ring::{Lattice, PartialDistributiveLattice};
 #[cfg(feature = "all_dense_nodes")]
 use crate::dense_byte_node::DenseByteNode;
-#[cfg(not(feature = "all_dense_nodes"))]
-use crate::line_list_node::LineListNode;
 
 /// A [Zipper] for editing and adding paths and values in the trie
 pub struct WriteZipper<'a, 'k, V> {
@@ -173,7 +171,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn fork_zipper(&self) -> ReadZipper<V> {
         let new_root_val = self.get_value();
         let zipper_tracker = self.zipper_tracker.new_read_path_no_check(&self.key.root_key);
-        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap(), &self.key.root_key, None, new_root_val, zipper_tracker)
+        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap().as_tagged(), &self.key.root_key, None, new_root_val, zipper_tracker)
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
@@ -787,9 +785,17 @@ fn make_parents<V: Clone>(path: &[u8], child_node: TrieNodeODRc<V>) -> TrieNodeO
 
     #[cfg(not(feature = "all_dense_nodes"))]
     {
-        let mut new_node = LineListNode::new();
-        new_node.node_set_branch(path, child_node).unwrap_or_else(|_| panic!());
-        TrieNodeODRc::new(new_node)
+        #[cfg(not(feature = "bridge_nodes"))]
+        {
+            let mut new_node = crate::line_list_node::LineListNode::new();
+            new_node.node_set_branch(path, child_node).unwrap_or_else(|_| panic!());
+            TrieNodeODRc::new(new_node)
+        }
+        #[cfg(feature = "bridge_nodes")]
+        {
+            let new_node = crate::bridge_node::BridgeNode::new(path, true, child_node.into());
+            TrieNodeODRc::new(new_node)
+        }
     }
 
     #[cfg(feature = "all_dense_nodes")]

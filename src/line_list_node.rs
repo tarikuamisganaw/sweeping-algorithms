@@ -1,5 +1,4 @@
 use core::mem::{ManuallyDrop, MaybeUninit};
-use core::iter::Iterator;
 use std::collections::HashMap;
 
 use local_or_heap::LocalOrHeap;
@@ -29,44 +28,6 @@ pub struct LineListNode<V> {
 // to stay within 1 cache line, or 78 to pack into two.
 //WARNING the length bits mean I will overflow if I go above 63
 const KEY_BYTES_CNT: usize = 14;
-
-pub union ValOrChildUnion<V> {
-    pub child: ManuallyDrop<TrieNodeODRc<V>>,
-    pub val: ManuallyDrop<LocalOrHeap<V>>,
-    pub _unused: ()
-}
-
-impl<V> Default for ValOrChildUnion<V> {
-    fn default() -> Self {
-        Self { _unused: () }
-    }
-}
-impl<V> From<V> for ValOrChildUnion<V> {
-    fn from(val: V) -> Self {
-        Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
-    }
-}
-impl<V> From<TrieNodeODRc<V>> for ValOrChildUnion<V> {
-    fn from(child: TrieNodeODRc<V>) -> Self {
-        Self{ child: ManuallyDrop::new(child) }
-    }
-}
-impl<V> From<ValOrChild<V>> for ValOrChildUnion<V> {
-    fn from(voc: ValOrChild<V>) -> Self {
-        match voc {
-            ValOrChild::Child(child) => Self{ child: ManuallyDrop::new(child) },
-            ValOrChild::Val(val) => Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
-        }
-    }
-}
-impl<V> ValOrChildUnion<V> {
-    pub unsafe fn into_val(self) -> V {
-        LocalOrHeap::into_inner(ManuallyDrop::into_inner(self.val))
-    }
-    pub unsafe fn into_child(self) -> TrieNodeODRc<V> {
-        ManuallyDrop::into_inner(self.child)
-    }
-}
 
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
@@ -1207,6 +1168,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         false
     }
+    #[inline(always)]
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
@@ -1324,10 +1286,94 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         !self.is_used::<0>()
     }
 
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        Box::new(ListNodeIter::new(self))
+    // *==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==*
+    // * Explanation of the meaning of iter_tokens for ListNode
+    // *
+    // * 0 = iteration has not yet begun, so the next call to `next_items` will return the first
+    // *   item(s) within the node.
+    // * 1 = the item in slot0 has already been returned, so the next call to `next_items` will examine
+    // *   slot1.  If slot0 and slot1 have identical keys, iter_tokens==1 will be skipped
+    // * 2 = the item in slot1 has already been returned, so the next call to `next_items` must return
+    // *   NODE_ITER_FINISHED
+    // *==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==*
+    #[inline(always)]
+    fn new_iter_token(&self) -> u128 {
+        0
     }
-
+    #[inline(always)]
+    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+        if key.len() == 0 {
+            return (0, &[])
+        }
+        let (key0, key1) = self.get_both_keys();
+        if key0.len() >= key.len() {
+            let short_key = &key0[..key.len()];
+            if key < short_key {
+                return (0, &[])
+            }
+            if key == short_key {
+                if key0 == key1 {
+                    return (2, key0)
+                } else {
+                    return (1, key0)
+                }
+            }
+        }
+        if key1.len() >= key.len() {
+            let short_key = &key1[..key.len()];
+            if key < short_key {
+                return (1, key0)
+            }
+            if key == short_key {
+                return (2, key1)
+            }
+        }
+        (NODE_ITER_FINISHED, &[])
+    }
+    #[inline(always)]
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        match token {
+            0 => {
+                if !self.is_used::<0>() {
+                    return (NODE_ITER_FINISHED, &[], None, None)
+                }
+                let (key0, key1) = self.get_both_keys();
+                let mut child = None;
+                let mut value = None;
+                let mut next_token = 1;
+                if self.is_child_ptr::<0>() {
+                    child = Some(unsafe{ self.child_in_slot::<0>() })
+                } else {
+                    value = Some(unsafe{ self.val_in_slot::<0>() })
+                };
+                if key0 == key1 {
+                    if self.is_child_ptr::<1>() {
+                        child = Some(unsafe{ self.child_in_slot::<1>() });
+                    } else {
+                        value = Some(unsafe{ self.val_in_slot::<1>() });
+                    }
+                    next_token = 2;
+                }
+                (next_token, key0, child, value)
+            },
+            1 => {
+                if self.is_used::<1>() {
+                    let mut child = None;
+                    let mut value = None;
+                    let key1 = unsafe{ self.key_unchecked::<1>() };
+                    if self.is_child_ptr::<1>() {
+                        child = Some(unsafe{ self.child_in_slot::<1>() });
+                    } else {
+                        value = Some(unsafe{ self.val_in_slot::<1>() });
+                    }
+                    (2, key1, child, value)
+                } else {
+                    (NODE_ITER_FINISHED, &[], None, None)
+                }
+            },
+            _ => (NODE_ITER_FINISHED, &[], None, None)
+        }
+    }
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         let mut result = 0;
         if self.is_used_value_0() {
@@ -2045,62 +2091,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn as_bridge(&self) -> Option<&crate::bridge_node::BridgeNode<V>> {
         None
     }
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::LineListNode(self)
+    }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
-    }
-}
-
-pub(crate) struct ListNodeIter<'a, V> {
-    node: &'a LineListNode<V>,
-    n: usize,
-}
-
-impl<'a, V> ListNodeIter<'a, V> {
-    fn new(node: &'a LineListNode<V>) -> Self {
-        Self {
-            node,
-            n: 0
-        }
-    }
-}
-
-impl<'a, V : Clone> Iterator for ListNodeIter<'a, V> {
-    type Item = (&'a[u8], ValOrChildRef<'a, V>);
-
-    fn next(&mut self) -> Option<(&'a[u8], ValOrChildRef<'a, V>)> {
-        match self.n {
-            0 => {
-                self.n += 1;
-                if self.node.is_used::<0>() {
-                    let key = unsafe{ self.node.key_unchecked::<0>() };
-                    if self.node.is_used_child_0() {
-                        let child = unsafe{ self.node.child_in_slot::<0>() };
-                        Some((key, ValOrChildRef::Child(child.borrow())))
-                    } else {
-                        let val = unsafe{ self.node.val_in_slot::<0>() };
-                        Some((key, ValOrChildRef::Val(val)))
-                    }
-                } else {
-                    None
-                }
-            },
-            1 => {
-                self.n += 1;
-                if self.node.is_used::<1>() {
-                    let key = unsafe{ self.node.key_unchecked::<1>() };
-                    if self.node.is_used_child_1() {
-                        let child = unsafe{ self.node.child_in_slot::<1>() };
-                        Some((key, ValOrChildRef::Child(child.borrow())))
-                    } else {
-                        let val = unsafe{ self.node.val_in_slot::<1>() };
-                        Some((key, ValOrChildRef::Val(val)))
-                    }
-                } else {
-                    None
-                }
-            },
-            _ => None
-        }
     }
 }
 

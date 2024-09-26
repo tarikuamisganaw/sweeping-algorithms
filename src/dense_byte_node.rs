@@ -36,18 +36,15 @@ use std::collections::HashMap;
 #[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
 
-#[cfg(feature = "bridge_nodes")]
-use crate::bridge_node::BridgeNode;
 use crate::ring::*;
 use crate::trie_node::*;
-use crate::line_list_node::{LineListNode, merge_into_dense_node};
 
 //NOTE: This: `core::array::from_fn(|i| i as u8);` ought to work, but https://github.com/rust-lang/rust/issues/109341
 const ALL_BYTES: [u8; 256] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255];
 
 #[derive(Clone)]
 pub struct DenseByteNode<V> {
-    mask: [u64; 4],
+    pub mask: [u64; 4],
     #[cfg(all(feature = "all_dense_nodes", feature = "smallvec"))]
     values: SmallVec<[CoFree<V>; 2]>,
     #[cfg(all(not(feature = "all_dense_nodes"), feature = "smallvec"))]
@@ -241,6 +238,7 @@ impl<V> DenseByteNode<V> {
         }
     }
 
+    #[cfg(not(feature = "bridge_nodes"))]
     /// Sets the payload (child node or V) at the specified key.  Should not be used in situations where
     /// a the child or value may already exist at the key
     #[inline]
@@ -256,6 +254,7 @@ impl<V> DenseByteNode<V> {
         }
     }
 
+    #[cfg(not(feature = "bridge_nodes"))]
     /// Behavior is the same as [set_payload_owned], if the child or value doens't already exist, otherwise
     /// joins the existing entry with the supplied payload
     #[inline]
@@ -339,7 +338,7 @@ impl<V> DenseByteNode<V> {
     }
 
     #[inline]
-    unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
+    pub unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
         let ix = self.left(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
         self.values.get_unchecked(ix)
@@ -673,7 +672,7 @@ impl <V: Clone> DenseByteNode<V> {
     #[cfg(feature = "bridge_nodes")]
     /// Adds a payload (value or CF link) to a given long key, creating BridgeNodes along the way.  If the
     /// value of onward link already exists at the specified byte, it will be replaced
-    pub(crate) fn add_payload(&mut self, key: &[u8], is_child: bool, payload: crate::line_list_node::ValOrChildUnion<V>) {
+    pub(crate) fn add_payload(&mut self, key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) {
         debug_assert!(key.len() > 0);
         //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
         // make an intermediate node to hold the rest of the key
@@ -691,7 +690,7 @@ impl <V: Clone> DenseByteNode<V> {
         }
     }
     #[cfg(feature = "bridge_nodes")]
-    pub(crate) fn merge_payload(&mut self, key: &[u8], is_child: bool, payload: crate::line_list_node::ValOrChildUnion<V>) where V: Lattice {
+    pub(crate) fn merge_payload(&mut self, key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) where V: Lattice {
         debug_assert!(key.len() > 0);
         //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
         // make an intermediate node to hold the rest of the key
@@ -710,84 +709,6 @@ impl <V: Clone> DenseByteNode<V> {
     }
 }
 
-pub(crate) struct DenseByteNodeIter<'a, V> {
-    child_link: Option<(usize, &'a dyn TrieNode<V>)>,
-    cf_iter: CfIter<'a, V>,
-}
-
-impl <'a, V> DenseByteNodeIter<'a, V> {
-    fn new(btn: &'a DenseByteNode<V>) -> Self {
-        Self {
-            child_link: None,
-            cf_iter: CfIter::new(btn),
-        }
-    }
-}
-
-impl <'a, V : Clone> Iterator for DenseByteNodeIter<'a, V> {
-    type Item = (&'a[u8], ValOrChildRef<'a, V>);
-
-    fn next(&mut self) -> Option<(&'a[u8], ValOrChildRef<'a, V>)> {
-        if self.child_link.is_none() {
-            match self.cf_iter.next() {
-                None => None,
-                Some((prefix, cf)) => {
-                    let prefix = prefix as usize;
-                    match &cf.value {
-                        None => {
-                            //No value means the cf must be a child-link alone
-                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(&*cf.rec.as_ref().unwrap().borrow())))
-                        },
-                        Some(val) => {
-                            self.child_link = cf.rec.as_ref().map(|node| (prefix, &*node.borrow()));
-                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Val(val)))
-                        }
-                    }
-                }
-            }
-        } else {
-            let (prefix, node) = core::mem::take(&mut self.child_link).unwrap();
-            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(node)))
-        }
-    }
-}
-
-struct CfIter<'a, V> {
-    i: u8,
-    w: u64,
-    btn: &'a DenseByteNode<V>
-}
-
-impl <'a, V> CfIter<'a, V> {
-    fn new(btn: &'a DenseByteNode<V>) -> Self {
-        Self {
-            i: 0,
-            w: btn.mask[0],
-            btn: btn
-        }
-    }
-}
-
-impl <'a, V : Clone> Iterator for CfIter<'a, V> {
-    type Item = (u8, &'a CoFree<V>);
-
-    fn next(&mut self) -> Option<(u8, &'a CoFree<V>)> {
-        loop {
-            if self.w != 0 {
-                let wi = self.w.trailing_zeros() as u8;
-                self.w ^= 1u64 << wi;
-                let index = self.i*64 + wi;
-                return Some((index, unsafe{ self.btn.get_unchecked(index) } ))
-            } else if self.i < 3 {
-                self.i += 1;
-                self.w = *unsafe{ self.btn.mask.get_unchecked(self.i as usize) };
-            } else {
-                return None
-            }
-        }
-    }
-}
-
 impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         debug_assert!(key.len() > 0);
@@ -797,6 +718,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             false
         }
     }
+    #[inline(always)]
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         self.get(key[0]).and_then(|cf|
             cf.rec.as_ref().map(|child_node| {
@@ -856,13 +778,13 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             if key.len() > 1 {
                 #[cfg(not(feature = "bridge_nodes"))]
                 {
-                    let mut child = LineListNode::new();
+                    let mut child = crate::line_list_node::LineListNode::new();
                     child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
                     self.set_child(key[0], TrieNodeODRc::new(child));
                 }
                 #[cfg(feature = "bridge_nodes")]
                 {
-                    let child = BridgeNode::new(&key[1..], false, val.into());
+                    let child = crate::bridge_node::BridgeNode::new(&key[1..], false, val.into());
                     self.set_child(key[0], TrieNodeODRc::new(child));
                 }
                 Ok((None, true))
@@ -908,9 +830,17 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         {
             //Make a new ListNode to hold everything after the first byte of the key
             if key.len() > 1 {
-                let mut child = LineListNode::new();
-                child.node_set_branch(&key[1..], new_node).unwrap_or_else(|_| panic!());
-                self.set_child(key[0], TrieNodeODRc::new(child));
+                #[cfg(not(feature = "bridge_nodes"))]
+                {
+                    let mut child = crate::line_list_node::LineListNode::new();
+                    child.node_set_branch(&key[1..], new_node).unwrap_or_else(|_| panic!());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
+                #[cfg(feature = "bridge_nodes")]
+                {
+                    let child = crate::bridge_node::BridgeNode::new(&key[1..], true, new_node.into());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
                 Ok(true)
             } else {
                 self.set_child(key[0], new_node);
@@ -959,8 +889,50 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
     }
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        Box::new(DenseByteNodeIter::new(self))
+    #[inline(always)]
+    fn new_iter_token(&self) -> u128 {
+        self.mask[0] as u128
+    }
+    #[inline(always)]
+    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+        if key.len() != 1 {
+            (self.new_iter_token(), &[])
+        } else {
+            let k = *unsafe{ key.get_unchecked(0) } as usize;
+            let idx = (k & 0b11000000) >> 6;
+            let bit_i = k & 0b00111111;
+            debug_assert!(idx < 4);
+            let mask: u64 = if bit_i+1 < 64 {
+                (0xFFFFFFFFFFFFFFFF << bit_i+1) & unsafe{ self.mask.get_unchecked(idx) }
+            } else {
+                0
+            };
+            (((idx as u128) << 64) | (mask as u128), &ALL_BYTES[k..=k])
+        }
+    }
+    #[inline(always)]
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        let mut i = (token >> 64) as u8;
+        let mut w = token as u64;
+        loop {
+            if w != 0 {
+                let wi = w.trailing_zeros() as u8;
+                w ^= 1u64 << wi;
+                let k = i*64 + wi;
+
+                let new_token = ((i as u128) << 64) | (w as u128);
+                let cf = unsafe{ self.get_unchecked(k) };
+                let k = k as usize;
+                return (new_token, &ALL_BYTES[k..=k], cf.rec.as_ref(), cf.value.as_ref())
+
+            } else if i < 3 {
+                i += 1;
+
+                w = unsafe { *self.mask.get_unchecked(i as usize) };
+            } else {
+                return (NODE_ITER_FINISHED, &[], None, None)
+            }
+        }
     }
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         //Discussion: These two implementations do the same thing but with a slightly different ordering of
@@ -1078,6 +1050,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         self.mask = [self.mask[0] & mask[0], self.mask[1] & mask[1], self.mask[2] & mask[2], self.mask[3] & mask[3]];
     }
 
+    #[inline(always)]
     fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
         match key.len() {
             0 => self.mask,
@@ -1089,6 +1062,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    #[inline(always)]
     fn count_branches(&self, key: &[u8]) -> usize {
         match key.len() {
             0 => self.values.len(),
@@ -1100,6 +1074,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    #[inline(always)]
     fn is_leaf(&self, key: &[u8]) -> bool {
         match key.len() {
             0 => self.values.len() == 0,
@@ -1181,7 +1156,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             #[cfg(not(feature = "bridge_nodes"))]
             if let Some(other_list_node) = other.as_list() {
                 let mut new_node = self.clone();
-                merge_into_dense_node(&mut new_node, other_list_node);
+                crate::line_list_node::merge_into_dense_node(&mut new_node, other_list_node);
                 TrieNodeODRc::new(new_node)
             } else {
                 unreachable!()
@@ -1203,13 +1178,17 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         if let Some(other_dense_node) = other_node.as_dense_mut() {
             self.join_into(core::mem::take(other_dense_node));
         } else {
+            #[cfg(not(feature = "bridge_nodes"))]
             if let Some(other_list_node) = other.borrow().as_list() {
                 //GOAT, optimization opportunity to take the contents from the list, rather than cloning
                 // them, to turn around and drop the ListNode and free them / decrement the refcounts
-                merge_into_dense_node(self, other_list_node);
+                crate::line_list_node::merge_into_dense_node(self, other_list_node);
             } else {
                 unreachable!()
             }
+
+            #[cfg(feature = "bridge_nodes")]
+            unreachable!()
         }
     }
 
@@ -1300,18 +1279,28 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         Some(self)
     }
-    fn as_list(&self) -> Option<&LineListNode<V>> {
+    #[cfg(not(feature = "bridge_nodes"))]
+    fn as_list(&self) -> Option<&crate::line_list_node::LineListNode<V>> {
         None
     }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
+    #[cfg(not(feature = "bridge_nodes"))]
+    fn as_list_mut(&mut self) -> Option<&mut crate::line_list_node::LineListNode<V>> {
         None
     }
     #[cfg(feature = "bridge_nodes")]
-    fn as_bridge(&self) -> Option<&BridgeNode<V>> {
+    fn as_bridge(&self) -> Option<&crate::bridge_node::BridgeNode<V>> {
+        None
+    }
+    #[cfg(feature = "bridge_nodes")]
+    fn as_bridge_mut(&mut self) -> Option<&mut crate::bridge_node::BridgeNode<V>> {
         None
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
+    }
+    #[inline(always)]
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::DenseByteNode(self)
     }
 }
 
@@ -1335,7 +1324,7 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
 }
 
 #[derive(Default, Clone, Debug)]
-struct CoFree<V> {
+pub struct CoFree<V> {
     pub(crate) rec: Option<TrieNodeODRc<V>>,
     pub(crate) value: Option<V>
 }
