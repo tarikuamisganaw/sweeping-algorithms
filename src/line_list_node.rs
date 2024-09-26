@@ -1207,6 +1207,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         false
     }
+    #[inline(always)]
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
@@ -1340,6 +1341,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn new_iter_token(&self) -> u128 {
         0
     }
+    #[inline(always)]
     fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
         if key.len() == 0 {
             return (0, &[])

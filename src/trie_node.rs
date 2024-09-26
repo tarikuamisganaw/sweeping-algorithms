@@ -504,12 +504,14 @@ impl<'a, V: Clone> TaggedNodeRef<'a, V> {
             Self::LineListNode(node) => node.first_child_from_key(key),
         }
     }
+    #[inline(always)]
     pub fn count_branches(&self, key: &[u8]) -> usize {
         match self {
             Self::DenseByteNode(node) => node.count_branches(key),
             Self::LineListNode(node) => node.count_branches(key),
         }
     }
+    #[inline(always)]
     pub fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
         match self {
             Self::DenseByteNode(node) => node.node_branches_mask(key),

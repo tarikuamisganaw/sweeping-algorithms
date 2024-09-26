@@ -1098,6 +1098,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         self.mask = [self.mask[0] & mask[0], self.mask[1] & mask[1], self.mask[2] & mask[2], self.mask[3] & mask[3]];
     }
 
+    #[inline(always)]
     fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
         match key.len() {
             0 => self.mask,
@@ -1109,6 +1110,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    #[inline(always)]
     fn count_branches(&self, key: &[u8]) -> usize {
         match key.len() {
             0 => self.values.len(),
