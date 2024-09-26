@@ -533,6 +533,21 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
         self.focus_node.node_contains_partial_key(self.node_key())
     }
 
+    /// Ascends the zipper up a single byte.  Equivalent to `ascend(1)`
+    pub fn ascend_byte(&mut self) -> bool {
+        if self.excess_key_len() == 0 {
+            match self.ancestors.pop() {
+                Some((node, iter_tok, _prefix_offset)) => {
+                    self.focus_node = node;
+                    self.focus_iter_token = iter_tok;
+                },
+                None => return false
+            };
+        }
+        self.prefix_buf.pop();
+        true
+    }
+
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
     pub fn to_next_val(&mut self) -> Option<&'a V> {
