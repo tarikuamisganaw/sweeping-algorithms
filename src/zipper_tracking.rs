@@ -45,12 +45,14 @@ impl core::fmt::Debug for ZipperTracker {
 #[cfg(debug_assertions)]
 impl ZipperTracker {
     pub fn new_write_path(&self, path: &[u8]) -> Self {
-        for existing_path in self.all_paths.read_zippers.read().unwrap().iter().chain(self.all_paths.write_zippers.read().unwrap().iter()) {
+        let read_paths_lock = self.all_paths.read_zippers.read().unwrap();
+        let mut write_paths_lock = self.all_paths.write_zippers.write().unwrap();
+        for existing_path in read_paths_lock.iter().chain(write_paths_lock.iter()) {
             if existing_path.starts_with(path) || existing_path.len() == 0 {
                 panic!("Illegal WriteZipper at {path:?} conflicts with existing zipper at {existing_path:?}");
             }
         }
-        self.all_paths.write_zippers.write().unwrap().push(path.to_vec());
+        write_paths_lock.push(path.to_vec());
         Self{
             all_paths: self.all_paths.clone(),
             this_path: path.to_vec(),
@@ -58,12 +60,18 @@ impl ZipperTracker {
         }
     }
     pub fn new_read_path(&self, path: &[u8]) -> Self {
-        for existing_path in self.all_paths.write_zippers.read().unwrap().iter() {
+        let mut read_paths_lock = self.all_paths.write_zippers.write().unwrap();
+        for existing_path in read_paths_lock.iter() {
             if existing_path.starts_with(path) || existing_path.len() == 0 {
                 panic!("Illegal ReadZipper at {path:?} conflicts with existing WriteZipper at {existing_path:?}");
             }
         }
-        self.new_read_path_no_check(path)
+        read_paths_lock.push(path.to_vec());
+        Self{
+            all_paths: self.all_paths.clone(),
+            this_path: path.to_vec(),
+            is_tracking: IsTracking::ReadZipper,
+        }
     }
     pub fn new_read_path_no_check(&self, path: &[u8]) -> Self {
         self.all_paths.read_zippers.write().unwrap().push(path.to_vec());
