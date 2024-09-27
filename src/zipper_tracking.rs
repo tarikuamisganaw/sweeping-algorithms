@@ -81,12 +81,10 @@ impl Drop for ZipperTracker {
         match self.is_tracking {
             IsTracking::Map => {},
             IsTracking::WriteZipper => {
-                let idx = self.all_paths.write_zippers.read().unwrap().iter().position(|path| *path == self.this_path).unwrap();
-                self.all_paths.write_zippers.write().unwrap().remove(idx);
+                self.all_paths.write_zippers.write().unwrap().retain(|path| *path != self.this_path);
             },
             IsTracking::ReadZipper => {
-                let idx = self.all_paths.read_zippers.read().unwrap().iter().position(|path| *path == self.this_path).unwrap();
-                self.all_paths.read_zippers.write().unwrap().remove(idx);
+                self.all_paths.read_zippers.write().unwrap().retain(|path| *path != self.this_path);
             }
         }
     }
