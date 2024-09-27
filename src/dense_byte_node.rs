@@ -54,13 +54,13 @@ pub struct DenseByteNode<V> {
     values: Vec<CoFree<V>>,
 }
 
-impl<V> Default for DenseByteNode<V> {
+impl<V: Send + Sync> Default for DenseByteNode<V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl <V> Debug for DenseByteNode<V> {
+impl <V: Send + Sync> Debug for DenseByteNode<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
@@ -73,7 +73,7 @@ impl <V> Debug for DenseByteNode<V> {
     }
 }
 
-impl<V> DenseByteNode<V> {
+impl<V: Send + Sync> DenseByteNode<V> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -670,7 +670,7 @@ impl <V: Clone> DenseByteNode<V> {
     }
 }
 
-impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
+impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         debug_assert!(key.len() > 0);
         if key.len() == 1 {
@@ -1307,7 +1307,7 @@ impl <V: Clone> PartialQuantale for CoFree<V> {
     }
 }
 
-impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
+impl<V: Lattice + Clone + Send + Sync> Lattice for DenseByteNode<V> {
     // #[inline(never)]
     fn join(&self, other: &Self) -> Self {
         let jm: [u64; 4] = [self.mask[0] | other.mask[0],
@@ -1512,7 +1512,7 @@ impl<V: Lattice + Clone> Lattice for DenseByteNode<V> {
     }
 }
 
-impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for DenseByteNode<V> {
+impl <V : PartialDistributiveLattice + Clone + Send + Sync> DistributiveLattice for DenseByteNode<V> {
     fn subtract(&self, other: &Self) -> Self {
         let mut btn = self.clone();
 
@@ -1543,7 +1543,7 @@ impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for DenseByteN
     }
 }
 
-impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for DenseByteNode<V> {
+impl <V : PartialDistributiveLattice + Clone + Send + Sync> PartialDistributiveLattice for DenseByteNode<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         let r = self.subtract(other);
         if r.len() == 0 { return None }

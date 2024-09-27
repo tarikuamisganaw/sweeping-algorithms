@@ -14,7 +14,7 @@ pub struct AllDenseCursor<'a, V> where V : Clone {
     nopush: bool
 }
 
-impl <'a, V : Clone> AllDenseCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self {
             prefix: vec![],
@@ -24,7 +24,7 @@ impl <'a, V : Clone> AllDenseCursor<'a, V> {
     }
 }
 
-impl <'a, V : Clone> AllDenseCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
     pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
         loop {
             match self.btnis.last_mut() {
@@ -83,7 +83,7 @@ impl <'a, V> ByteTrieNodeIter<'a, V> {
     }
 }
 
-impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
+impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
     type Item = (u8, &'a CoFree<V>);
 
     fn next(&mut self) -> Option<(u8, &'a CoFree<V>)> {
@@ -250,7 +250,7 @@ pub struct PathMapCursor<'a, V> where V : Clone {
     btnis: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
 }
 
-impl <'a, V : Clone> PathMapCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync> PathMapCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         const EXPECTED_DEPTH: usize = 16;
         const EXPECTED_PATH_LEN: usize = 256;
@@ -265,7 +265,7 @@ impl <'a, V : Clone> PathMapCursor<'a, V> {
     }
 }
 
-impl <'a, V : Clone> PathMapCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync> PathMapCursor<'a, V> {
     pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
         loop {
             match self.btnis.last_mut() {

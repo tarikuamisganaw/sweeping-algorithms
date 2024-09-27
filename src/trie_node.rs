@@ -1,5 +1,5 @@
 
-use std::rc::Rc;
+use std::sync::Arc;
 use std::collections::HashMap;
 use dyn_clone::*;
 
@@ -17,7 +17,7 @@ use crate::tiny_node::TinyRefNode;
 ///
 /// 1. A TrieNode will never have a value or an onward link at a zero-length key.  A value associated with
 /// the path to the root of a TrieNode must be stored in the parent node.
-pub trait TrieNode<V>: DynClone + core::fmt::Debug {
+pub trait TrieNode<V>: DynClone + core::fmt::Debug + Send + Sync {
 
     /// Returns `true` if the node contains a key that begins with `key`, irrespective of whether the key
     /// specifies a child, value, or both
@@ -348,7 +348,7 @@ impl<'a, V> core::fmt::Debug for AbstractNodeRef<'a, V> {
     }
 }
 
-impl<'a, V: Clone> AbstractNodeRef<'a, V> {
+impl<'a, V: Clone + Send + Sync> AbstractNodeRef<'a, V> {
     pub fn is_none(&self) -> bool {
         matches!(self, AbstractNodeRef::None)
     }
@@ -388,7 +388,7 @@ pub enum TaggedNodeRef<'a, V> {
     LineListNode(&'a LineListNode<V>),
 }
 
-impl<V> core::fmt::Debug for TaggedNodeRef<'_, V> {
+impl<V: Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
@@ -397,7 +397,7 @@ impl<V> core::fmt::Debug for TaggedNodeRef<'_, V> {
     }
 }
 
-impl<'a, V: Clone> TaggedNodeRef<'a, V> {
+impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
     pub fn borrow(&self) -> &dyn TrieNode<V> {
         match self {
             Self::DenseByteNode(node) => *node as &dyn TrieNode<V>,
@@ -566,8 +566,8 @@ pub(crate) fn val_count_below_root<V>(node: &dyn TrieNode<V>) -> usize {
 }
 
 pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
-    if Rc::strong_count(node.as_rc()) > 1 {
-        let ptr = Rc::as_ptr(node.as_rc());
+    if Arc::strong_count(node.as_arc()) > 1 {
+        let ptr = Arc::as_ptr(node.as_arc());
         match cache.get(&ptr) {
             Some(cached) => *cached,
             None => {
@@ -585,7 +585,7 @@ pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMa
 ///
 /// Returns `(false, node)` if the node already existed (regardless of whether or not it was upgraded),
 /// and returns `(true, node)` if the node was created.
-pub(crate) fn prepare_exclusive_write_path<'a, V: Clone>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> (bool, &'a mut TrieNodeODRc<V>) {
+pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> (bool, &'a mut TrieNodeODRc<V>) {
     let (remaining_key, parent_node) = node_along_path_mut(root_node, path);
 
     //See below.  Temporary work-around for lack of pononius
@@ -655,7 +655,7 @@ pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>
 /// Ensures the node is a DenseByteNode
 ///
 /// Returns `true` if the node was upgraded and `false` if it already was a DenseByteNode
-fn make_dense<V: Clone>(node: &mut TrieNodeODRc<V>) -> bool {
+fn make_dense<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>) -> bool {
     if node.borrow().as_dense().is_some() {
         false
     } else {
@@ -677,7 +677,7 @@ mod opaque_dyn_rc_trie_node {
 
     #[derive(Clone)]
     #[repr(transparent)]
-    pub struct TrieNodeODRc<V>(std::rc::Rc<dyn TrieNode<V> + 'static>);
+    pub struct TrieNodeODRc<V>(std::sync::Arc<dyn TrieNode<V> + 'static>);
 
     impl<V> TrieNodeODRc<V> {
         #[inline]
@@ -702,7 +702,7 @@ mod opaque_dyn_rc_trie_node {
             unsafe { Self(core::mem::transmute(inner)) }
         }
         #[inline]
-        pub(crate) fn as_rc(&self) -> &std::rc::Rc<dyn TrieNode<V>> {
+        pub(crate) fn as_arc(&self) -> &std::sync::Arc<dyn TrieNode<V>> {
             &self.0
         }
         #[inline]
@@ -712,12 +712,12 @@ mod opaque_dyn_rc_trie_node {
         /// Returns `true` if both internal Rc ptrs point to the same object
         #[inline]
         pub fn ptr_eq(&self, other: &Self) -> bool {
-            std::rc::Rc::ptr_eq(self.as_rc(), other.as_rc())
+            std::sync::Arc::ptr_eq(self.as_arc(), other.as_arc())
         }
         //GOAT, make this contingent on a dyn_clone compile-time feature
         #[inline]
         pub(crate) fn make_mut(&mut self) -> &mut dyn TrieNode<V> {
-            dyn_clone::rc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
+            dyn_clone::arc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
         }
     }
 
@@ -800,7 +800,7 @@ impl <V: Clone> PartialQuantale for TrieNodeODRc<V> {
 }
 
 //See above, pseudo-impl for DistributiveLattice trait
-impl<V: PartialDistributiveLattice + Clone> TrieNodeODRc<V> {
+impl<V: PartialDistributiveLattice + Clone + Send + Sync> TrieNodeODRc<V> {
     pub fn subtract(&self, other: &Self) -> Self {
         if self.ptr_eq(other) {
             TrieNodeODRc::new(EmptyNode::new())

@@ -25,7 +25,7 @@ impl<V> Debug for TinyRefNode<'_, V> {
     }
 }
 
-impl<'a, V: Clone> TinyRefNode<'a, V> {
+impl<'a, V: Clone + Send + Sync> TinyRefNode<'a, V> {
 
     pub fn new(is_child: bool, key: &[u8], payload: &'a ValOrChildUnion<V>) -> Self {
         let mut new_node = Self {
@@ -91,7 +91,7 @@ impl<'a, V: Clone> TinyRefNode<'a, V> {
 
 //GOAT, this implementation is swiss cheese (full of holes for the non-Americans).  This node type will
 // never support mutability, but it may need more support to enable the full range of use cases
-impl<'a, V: Clone> TrieNode<V> for TinyRefNode<'a, V> {
+impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         if self.key().starts_with(key) {
             true

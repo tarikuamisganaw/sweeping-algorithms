@@ -166,7 +166,7 @@ impl<'a, 'k, V> Clone for ReadZipper<'a, 'k, V> where V: Clone {
     }
 }
 
-impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for ReadZipper<'a, 'k, V> {
 
     fn at_root(&self) -> bool {
         self.prefix_buf.len() <= self.origin_path.len()
@@ -387,7 +387,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for ReadZipper<'a, 'k, V> {
     }
 }
 
-impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> {
@@ -395,7 +395,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for ReadZipper<'a, 'k, V> {
     }
 }
 
-impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
 
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8], mut root_key_offset: Option<usize>, zipper_tracker: ZipperTracker) -> Self {
@@ -1008,7 +1008,7 @@ impl<'a, 'k, V : Clone> ReadZipper<'a, 'k, V> {
     }
 }
 
-impl<'a, 'k, V: Clone> std::iter::IntoIterator for ReadZipper<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> std::iter::IntoIterator for ReadZipper<'a, 'k, V> {
     type Item = (Vec<u8>, &'a V);
     type IntoIter = ReadZipperIter<'a, 'k, V>;
 
@@ -1029,7 +1029,7 @@ pub struct ReadZipperIter<'a, 'k, V>{
     zipper: Option<ReadZipper<'a, 'k, V>>,
 }
 
-impl<'a, 'k, V: Clone> Iterator for ReadZipperIter<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> Iterator for ReadZipperIter<'a, 'k, V> {
     type Item = (Vec<u8>, &'a V);
 
     fn next(&mut self) -> Option<(Vec<u8>, &'a V)> {
@@ -1061,7 +1061,7 @@ impl<'a, 'k, V: Clone> Iterator for ReadZipperIter<'a, 'k, V> {
 /// traversal, or just use the [Zipper] methods directly.
 pub struct ReadZipperChildIter<'a, 'k, V>(Option<ReadZipper<'a, 'k, V>>);
 
-impl<'a, 'k, V: Clone> Iterator for ReadZipperChildIter<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> Iterator for ReadZipperChildIter<'a, 'k, V> {
     type Item = u8;
 
     fn next(&mut self) -> Option<u8> {

@@ -19,7 +19,7 @@ pub mod counters;
 mod trie_node;
 mod write_zipper;
 mod dense_byte_node;
-pub mod line_list_node;
+pub(crate) mod line_list_node;
 mod empty_node;
 mod tiny_node;
 

@@ -38,7 +38,7 @@ impl<V> EmptyNode<V> {
     }
 }
 
-impl<V: Clone> TrieNode<V> for EmptyNode<V> {
+impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     fn node_contains_partial_key(&self, _key: &[u8]) -> bool {
         false
     }

@@ -26,13 +26,13 @@ pub struct BytesTrieMap<V> {
     zipper_tracker: ZipperTracker,
 }
 
-impl<V: Clone> Clone for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync> Clone for BytesTrieMap<V> {
     fn clone(&self) -> Self {
         Self::new_with_root(self.root().clone())
     }
 }
 
-impl<V: Clone> BytesTrieMap<V> {
+impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     #[inline]
     pub(crate) fn root(&self) -> &TrieNodeODRc<V> {
         unsafe{ &*self.root.get() }
@@ -270,7 +270,7 @@ impl<V: Clone> BytesTrieMap<V> {
     }
 }
 
-impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
     fn from_iter<I: IntoIterator<Item=(K, V)>>(iter: I) -> Self {
         let mut map = Self::new();
         for (key, val) in iter {
@@ -280,7 +280,7 @@ impl<V: Clone, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
     }
 }
 
-impl<V: Clone + Lattice> Lattice for BytesTrieMap<V> {
+impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
     fn join(&self, other: &Self) -> Self {
         Self::new_with_root(self.root().join(other.root()))
     }
@@ -303,13 +303,13 @@ impl<V: Clone + Lattice> Lattice for BytesTrieMap<V> {
     }
 }
 
-impl<V: Clone + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
     fn subtract(&self, other: &Self) -> Self {
         Self::new_with_root(self.root().subtract(other.root()))
     }
 }
 
-impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         let s = self.root().subtract(other.root());
         if s.borrow().node_is_empty() { None }
@@ -317,7 +317,7 @@ impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for Bytes
     }
 }
 
-impl<V: Clone> PartialQuantale for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync> PartialQuantale for BytesTrieMap<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         self.root().prestrict(other.root()).map(|r| Self::new_with_root(r) )
     }

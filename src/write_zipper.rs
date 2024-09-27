@@ -35,7 +35,7 @@ struct KeyFields<'k> {
     prefix_idx: Vec<usize>,
 }
 
-impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
 
     fn at_root(&self) -> bool {
         self.key.prefix_buf.len() <= self.key.root_key.len()
@@ -189,7 +189,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
     }
 }
 
-impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
+impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
         let (key, node) = node_along_path_mut(root_node, path);
@@ -783,7 +783,7 @@ impl <'a, 'k, V : Clone> WriteZipper<'a, 'k, V> {
 
 /// Internal function to create a parent path leading up to the supplied `child_node`
 #[inline]
-fn make_parents<V: Clone>(path: &[u8], child_node: TrieNodeODRc<V>) -> TrieNodeODRc<V> {
+fn make_parents<V: Clone + Send + Sync>(path: &[u8], child_node: TrieNodeODRc<V>) -> TrieNodeODRc<V> {
 
     #[cfg(not(feature = "all_dense_nodes"))]
     {

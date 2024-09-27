@@ -168,33 +168,6 @@ impl<V> LineListNode<V> {
             val_or_child1: ValOrChildUnion{ _unused: () },
         }
     }
-    fn clone_with_updated_payloads(&self, payload_0: Option<ValOrChildUnion<V>>, payload_1: Option<ValOrChildUnion<V>>) -> Option<Self> {
-        match (payload_0, payload_1) {
-            (Some(slot0_payload), Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let (key0, key1) = self.get_both_keys();
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                debug_assert!(validate_node(&new_node));
-                Some(new_node)
-            },
-            (Some(slot0_payload), None) => {
-                let mut new_node = Self::new();
-                let key0 = unsafe{ self.key_unchecked::<0>() };
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                debug_assert!(validate_node(&new_node));
-                Some(new_node)
-            },
-            (None, Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let key1 = unsafe{ self.key_unchecked::<1>() };
-                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                debug_assert!(validate_node(&new_node));
-                Some(new_node)
-            },
-            (None, None) => None,
-        }
-    }
     #[inline]
     pub fn is_used<const SLOT: usize>(&self) -> bool {
         match SLOT {
@@ -323,25 +296,189 @@ impl<V> LineListNode<V> {
             _ => unreachable!()
         }
     }
-    //Currently unneeded.  May delete
-    // #[inline]
-    // unsafe fn val_in_slot_mut<const SLOT: usize>(&mut self) -> &mut V {
-    //     match SLOT {
-    //         0 => &mut **self.val_or_child0.val,
-    //         1 => &mut **self.val_or_child1.val,
-    //         _ => unreachable!()
-    //     }
-    // }
-    //Currently unneeded.  May delete
-    // #[inline]
-    // unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-    //     self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
-    // }
-    //Currently unneeded.  May delete
-    // #[inline]
-    // unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-    //     self.set_payload_1(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
-    // }
+    fn contains_val(&self, key: &[u8]) -> bool {
+        if self.is_used_value_0() {
+            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+            if node_key_0 == key {
+                return true;
+            }
+        }
+        if self.is_used_value_1() {
+            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+            if node_key_1 == key {
+                return true;
+            }
+        }
+        false
+    }
+    fn get_val(&self, key: &[u8]) -> Option<&V> {
+        if self.is_used_value_0() {
+            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+            if node_key_0 == key {
+                let val = unsafe{ self.val_in_slot::<0>() };
+                return Some(val);
+            }
+        }
+        if self.is_used_value_1() {
+            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+            if node_key_1 == key {
+                let val = unsafe{ self.val_in_slot::<1>() };
+                return Some(val);
+            }
+        }
+        None
+    }
+    fn get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
+        self.get_payload_exact_key_mut::<false>(key)
+            .map(|val_or_child| unsafe{ &mut **val_or_child.val })
+    }
+    fn get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
+        if self.is_used_child_0() {
+            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+            let key_len = self.key_len_0();
+            if key.len() >= key_len {
+                if node_key_0 == &key[..key_len] {
+                    let child = unsafe{ self.child_in_slot_mut::<0>() };
+                    return Some((key_len, child))
+                }
+            }
+        }
+        if self.is_used_child_1() {
+            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+            let key_len = self.key_len_1();
+            if key.len() >= key_len {
+                if node_key_1 == &key[..key_len] {
+                    let child = unsafe{ self.child_in_slot_mut::<1>() };
+                    return Some((key_len, child))
+                }
+            }
+        }
+        None
+    }
+    fn get_payload_exact_key_mut<const IS_CHILD: bool>(&mut self, key: &[u8]) -> Option<&mut ValOrChildUnion<V>> {
+        if self.is_used::<0>() && self.is_child_ptr::<0>() == IS_CHILD {
+            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+            if key == node_key_0 {
+                return Some(&mut self.val_or_child0)
+            }
+        }
+        if self.is_used::<1>() && self.is_child_ptr::<1>() == IS_CHILD {
+            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+            if key == node_key_1 {
+                return Some(&mut self.val_or_child1)
+            }
+        }
+        None
+    }
+    #[inline]
+    pub(crate) fn get_both_keys(&self) -> (&[u8], &[u8]) {
+        let key0 = if self.is_used::<0>() {
+            unsafe{ self.key_unchecked::<0>() }
+        } else {
+            &[]
+        };
+        let key1 = if self.is_used::<1>() {
+            unsafe{ self.key_unchecked::<1>() }
+        } else {
+            &[]
+        };
+        (key0, key1)
+    }
+    #[cfg(feature = "counters")]
+    fn count(&self) -> usize {
+        match (self.is_used::<0>(), self.is_used::<1>()) {
+            (true, false) => 1,
+            (false, false) => 0,
+            (true, true) => 2,
+            (false, true) => unreachable!(),
+        }
+    }
+}
+
+impl<V: Send + Sync> LineListNode<V> {
+
+    #[inline]
+    unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
+        self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
+    }
+    #[inline]
+    unsafe fn set_child_1(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
+        self.set_payload_1(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
+    }
+    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
+    fn split_0(&mut self, idx: usize) where V: Clone {
+        let mut self_payload = ValOrChildUnion{ _unused: () };
+        core::mem::swap(&mut self_payload, &mut self.val_or_child0);
+        let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+
+        let mut child_node = Self::new();
+        unsafe{ child_node.set_payload_0(&node_key_0[idx..], self.is_child_ptr::<0>(), self_payload); }
+
+        //Convert slot_0 to a child ptr
+        self.val_or_child0 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+
+        //Shift the key for slot_1, if there is one
+        let slot_mask_1 = if self.is_used::<1>() {
+            let key_len_1 = self.key_len_1();
+            unsafe {
+                let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
+                let dst_ptr = self.key_bytes.get_unchecked_mut(idx).as_mut_ptr();
+                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
+            }
+            self.flags_and_len_1()
+        } else {
+            0
+        };
+
+        //Re-adjust the length and flags
+        self.header = (0xa000 | (idx << 6) | slot_mask_1) as u16;
+        if idx == KEY_BYTES_CNT {
+            self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
+        }
+    }
+    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
+    fn split_1(&mut self, idx: usize) where V: Clone {
+        let mut self_payload = ValOrChildUnion{ _unused: () };
+        core::mem::swap(&mut self_payload, &mut self.val_or_child1);
+        let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+
+        let mut child_node = Self::new();
+        unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr::<1>(), self_payload); }
+
+        //Convert slot_0 from to a child ptr
+        self.val_or_child1 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+
+        //Re-adjust the length and flags
+        let slot_mask_0 = self.flags_and_len_0();
+        self.header = (slot_mask_0 | 0x5000 | idx) as u16;
+    }
+    fn clone_with_updated_payloads(&self, payload_0: Option<ValOrChildUnion<V>>, payload_1: Option<ValOrChildUnion<V>>) -> Option<Self> {
+        match (payload_0, payload_1) {
+            (Some(slot0_payload), Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let (key0, key1) = self.get_both_keys();
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (Some(slot0_payload), None) => {
+                let mut new_node = Self::new();
+                let key0 = unsafe{ self.key_unchecked::<0>() };
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (None, Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let key1 = unsafe{ self.key_unchecked::<1>() };
+                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (None, None) => None,
+        }
+    }
     /// Sets the payload and key for slot_0, and ensures slot_1 is empty
     #[inline]
     unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
@@ -553,158 +690,6 @@ impl<V> LineListNode<V> {
                 }
             },
             _ => unreachable!()
-        }
-    }
-    #[inline]
-    unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
-        self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
-    }
-    #[inline]
-    unsafe fn set_child_1(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
-        self.set_payload_1(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
-    }
-    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
-    fn split_0(&mut self, idx: usize) where V: Clone {
-        let mut self_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut self_payload, &mut self.val_or_child0);
-        let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-
-        let mut child_node = Self::new();
-        unsafe{ child_node.set_payload_0(&node_key_0[idx..], self.is_child_ptr::<0>(), self_payload); }
-
-        //Convert slot_0 to a child ptr
-        self.val_or_child0 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
-
-        //Shift the key for slot_1, if there is one
-        let slot_mask_1 = if self.is_used::<1>() {
-            let key_len_1 = self.key_len_1();
-            unsafe {
-                let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
-                let dst_ptr = self.key_bytes.get_unchecked_mut(idx).as_mut_ptr();
-                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
-            }
-            self.flags_and_len_1()
-        } else {
-            0
-        };
-
-        //Re-adjust the length and flags
-        self.header = (0xa000 | (idx << 6) | slot_mask_1) as u16;
-        if idx == KEY_BYTES_CNT {
-            self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
-        }
-    }
-    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
-    fn split_1(&mut self, idx: usize) where V: Clone {
-        let mut self_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut self_payload, &mut self.val_or_child1);
-        let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-
-        let mut child_node = Self::new();
-        unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr::<1>(), self_payload); }
-
-        //Convert slot_0 from to a child ptr
-        self.val_or_child1 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
-
-        //Re-adjust the length and flags
-        let slot_mask_0 = self.flags_and_len_0();
-        self.header = (slot_mask_0 | 0x5000 | idx) as u16;
-    }
-    fn contains_val(&self, key: &[u8]) -> bool {
-        if self.is_used_value_0() {
-            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-            if node_key_0 == key {
-                return true;
-            }
-        }
-        if self.is_used_value_1() {
-            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-            if node_key_1 == key {
-                return true;
-            }
-        }
-        false
-    }
-    fn get_val(&self, key: &[u8]) -> Option<&V> {
-        if self.is_used_value_0() {
-            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-            if node_key_0 == key {
-                let val = unsafe{ self.val_in_slot::<0>() };
-                return Some(val);
-            }
-        }
-        if self.is_used_value_1() {
-            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-            if node_key_1 == key {
-                let val = unsafe{ self.val_in_slot::<1>() };
-                return Some(val);
-            }
-        }
-        None
-    }
-    fn get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
-        self.get_payload_exact_key_mut::<false>(key)
-            .map(|val_or_child| unsafe{ &mut **val_or_child.val })
-    }
-    fn get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
-        if self.is_used_child_0() {
-            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-            let key_len = self.key_len_0();
-            if key.len() >= key_len {
-                if node_key_0 == &key[..key_len] {
-                    let child = unsafe{ self.child_in_slot_mut::<0>() };
-                    return Some((key_len, child))
-                }
-            }
-        }
-        if self.is_used_child_1() {
-            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-            let key_len = self.key_len_1();
-            if key.len() >= key_len {
-                if node_key_1 == &key[..key_len] {
-                    let child = unsafe{ self.child_in_slot_mut::<1>() };
-                    return Some((key_len, child))
-                }
-            }
-        }
-        None
-    }
-    fn get_payload_exact_key_mut<const IS_CHILD: bool>(&mut self, key: &[u8]) -> Option<&mut ValOrChildUnion<V>> {
-        if self.is_used::<0>() && self.is_child_ptr::<0>() == IS_CHILD {
-            let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-            if key == node_key_0 {
-                return Some(&mut self.val_or_child0)
-            }
-        }
-        if self.is_used::<1>() && self.is_child_ptr::<1>() == IS_CHILD {
-            let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-            if key == node_key_1 {
-                return Some(&mut self.val_or_child1)
-            }
-        }
-        None
-    }
-    #[inline]
-    pub(crate) fn get_both_keys(&self) -> (&[u8], &[u8]) {
-        let key0 = if self.is_used::<0>() {
-            unsafe{ self.key_unchecked::<0>() }
-        } else {
-            &[]
-        };
-        let key1 = if self.is_used::<1>() {
-            unsafe{ self.key_unchecked::<1>() }
-        } else {
-            &[]
-        };
-        (key0, key1)
-    }
-    #[cfg(feature = "counters")]
-    fn count(&self) -> usize {
-        match (self.is_used::<0>(), self.is_used::<1>()) {
-            (true, false) => 1,
-            (false, false) => 0,
-            (true, true) => 2,
-            (false, true) => unreachable!(),
         }
     }
     /// Sets the payload on the node with the specified key, upgrading the node if necessary.
@@ -1030,7 +1015,7 @@ fn should_swap_keys(key0: &[u8], key1: &[u8]) -> bool {
 
 /// Attempts to merge a specific slot in a ListNode with a specific slot in another ListNode.  Returns the merged
 /// (key, payload) pair if a merge was possible, otherwise None
-fn try_merge<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
+fn try_merge<'a, V: Clone + Lattice + Send + Sync, const ASLOT: usize, const BSLOT: usize>(a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
     //Are there are any common paths between the nodes?
     let overlap = find_prefix_overlap(a_key, b_key);
     if overlap > 0 {
@@ -1041,7 +1026,7 @@ fn try_merge<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(a_k
 }
 
 /// The part of `try_merge` that we probably shouldn't inline
-fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
+fn merge_guts<'a, V: Clone + Lattice + Send + Sync, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
     debug_assert!(overlap > 0);
     let a_key_len = a_key.len();
     let b_key_len = b_key.len();
@@ -1133,7 +1118,7 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
 }
 
 /// Merges the entries in the ListNode into the DenseByteNode
-pub fn merge_into_dense_node<V>(dense_node: &mut DenseByteNode<V>, list_node: &LineListNode<V>) where V: Clone + Lattice {
+pub fn merge_into_dense_node<V: Send + Sync>(dense_node: &mut DenseByteNode<V>, list_node: &LineListNode<V>) where V: Clone + Lattice {
     dense_node.reserve_capacity(2);
 
     if list_node.is_used::<0>() {
@@ -1198,7 +1183,7 @@ fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u
     }
 }
 
-impl<V: Clone> TrieNode<V> for LineListNode<V> {
+impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         let (key0, key1) = self.get_both_keys();
         if key0.starts_with(key) || key1.starts_with(key) {

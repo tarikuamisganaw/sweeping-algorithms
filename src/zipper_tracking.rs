@@ -4,7 +4,7 @@
 #[cfg(debug_assertions)]
 #[derive(Default)]
 pub(crate) struct ZipperTracker {
-    all_paths: std::rc::Rc<ZipperPaths>,
+    all_paths: std::sync::Arc<ZipperPaths>,
     this_path: Vec<u8>,
     is_tracking: IsTracking,
 }
@@ -13,8 +13,8 @@ pub(crate) struct ZipperTracker {
 #[cfg(debug_assertions)]
 #[derive(Default)]
 struct ZipperPaths {
-    read_zippers: core::cell::RefCell<Vec<Vec<u8>>>,
-    write_zippers: core::cell::RefCell<Vec<Vec<u8>>>
+    read_zippers: std::sync::RwLock<Vec<Vec<u8>>>,
+    write_zippers: std::sync::RwLock<Vec<Vec<u8>>>
 }
 
 #[cfg(debug_assertions)]
@@ -31,11 +31,11 @@ impl core::fmt::Debug for ZipperTracker {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let _ = writeln!(f, "ZipperTracker {{ type = {:?}, path = {:?}", self.is_tracking, self.this_path);
         let _ = writeln!(f, "\tRead Zippers:");
-        for rz in self.all_paths.read_zippers.borrow().iter() {
+        for rz in self.all_paths.read_zippers.read().unwrap().iter() {
             let _ = writeln!(f, "\t\t{rz:?}");
         }
         let _ = writeln!(f, "\tWrite Zippers:");
-        for wz in self.all_paths.write_zippers.borrow().iter() {
+        for wz in self.all_paths.write_zippers.read().unwrap().iter() {
             let _ = writeln!(f, "\t\t{wz:?}");
         }
         write!(f, "}}")
@@ -45,12 +45,12 @@ impl core::fmt::Debug for ZipperTracker {
 #[cfg(debug_assertions)]
 impl ZipperTracker {
     pub fn new_write_path(&self, path: &[u8]) -> Self {
-        for existing_path in self.all_paths.read_zippers.borrow().iter().chain(self.all_paths.write_zippers.borrow().iter()) {
+        for existing_path in self.all_paths.read_zippers.read().unwrap().iter().chain(self.all_paths.write_zippers.read().unwrap().iter()) {
             if existing_path.starts_with(path) || existing_path.len() == 0 {
                 panic!("Illegal WriteZipper at {path:?} conflicts with existing zipper at {existing_path:?}");
             }
         }
-        self.all_paths.write_zippers.borrow_mut().push(path.to_vec());
+        self.all_paths.write_zippers.write().unwrap().push(path.to_vec());
         Self{
             all_paths: self.all_paths.clone(),
             this_path: path.to_vec(),
@@ -58,7 +58,7 @@ impl ZipperTracker {
         }
     }
     pub fn new_read_path(&self, path: &[u8]) -> Self {
-        for existing_path in self.all_paths.write_zippers.borrow().iter() {
+        for existing_path in self.all_paths.write_zippers.read().unwrap().iter() {
             if existing_path.starts_with(path) || existing_path.len() == 0 {
                 panic!("Illegal ReadZipper at {path:?} conflicts with existing WriteZipper at {existing_path:?}");
             }
@@ -66,7 +66,7 @@ impl ZipperTracker {
         self.new_read_path_no_check(path)
     }
     pub fn new_read_path_no_check(&self, path: &[u8]) -> Self {
-        self.all_paths.read_zippers.borrow_mut().push(path.to_vec());
+        self.all_paths.read_zippers.write().unwrap().push(path.to_vec());
         Self{
             all_paths: self.all_paths.clone(),
             this_path: path.to_vec(),
@@ -81,12 +81,12 @@ impl Drop for ZipperTracker {
         match self.is_tracking {
             IsTracking::Map => {},
             IsTracking::WriteZipper => {
-                let idx = self.all_paths.write_zippers.borrow().iter().position(|path| *path == self.this_path).unwrap();
-                self.all_paths.write_zippers.borrow_mut().remove(idx);
+                let idx = self.all_paths.write_zippers.read().unwrap().iter().position(|path| *path == self.this_path).unwrap();
+                self.all_paths.write_zippers.write().unwrap().remove(idx);
             },
             IsTracking::ReadZipper => {
-                let idx = self.all_paths.read_zippers.borrow().iter().position(|path| *path == self.this_path).unwrap();
-                self.all_paths.read_zippers.borrow_mut().remove(idx);
+                let idx = self.all_paths.read_zippers.read().unwrap().iter().position(|path| *path == self.this_path).unwrap();
+                self.all_paths.read_zippers.write().unwrap().remove(idx);
             }
         }
     }
