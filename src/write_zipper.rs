@@ -135,19 +135,21 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn ascend(&mut self, mut steps: usize) -> bool {
-        while steps > 0 {
-            if self.key.excess_key_len() == 0 {
-                if self.at_root() {
-                    return false;
-                }
+        loop {
+            if self.key.node_key().len() == 0 {
                 self.ascend_across_nodes();
+            }
+            if steps == 0 {
+                return true
+            }
+            if self.at_root() {
+                return false
             }
             debug_assert!(self.key.node_key().len() > 0);
             let cur_jump = steps.min(self.key.excess_key_len());
             self.key.prefix_buf.truncate(self.key.prefix_buf.len() - cur_jump);
             steps -= cur_jump;
         }
-        true
     }
 
     fn ascend_until(&mut self) -> bool {
@@ -404,7 +406,7 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
 //  to preserve the property of being the inverse of drop_head.
     /// Inserts `prefix` in front of every downstream path at the focus
     ///
-    /// This method does not affect a value at the focus.
+    /// This method does not affect a value at the focus, nor does it move the zipper's focus.
     ///
     /// NOTE: This is the inverse of [Self::drop_head], although it cannot perfectly undo `drop_head` because
     /// `drop_head` loses information about the prior nested structure.  However, `drop_head` will undo this
@@ -420,6 +422,23 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             },
             None => { false }
         }
+    }
+
+    /// Deleted the `n` bytes from the path above the zipper's focus, including any subtries that descend
+    /// from the deleted branches
+    ///
+    /// Returns `true` if n upstream bytes were removed from the path, otherwise returns `false`.
+    //
+    // GOAT: TODO, make a diagram illustrating the behavior
+    pub fn remove_prefix(&mut self, n: usize) -> bool {
+
+        let downstream_node = self.get_focus().into_option()
+            .map(|mut focus_node| core::mem::take(&mut focus_node));
+
+        let fully_ascended = self.ascend(n);
+
+        self.graft_internal(downstream_node);
+        fully_ascended
     }
 
     /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream
@@ -1184,6 +1203,48 @@ mod tests {
         drop(wz);
 
         assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
+    }
+
+    #[test]
+    fn write_zipper_remove_prefix_test() {
+        let keys = [
+            "123:Bob.Fido",
+            "123:Jim.Felix",
+            "123:Pam.Bandit",
+            "123:Sue.Cornelius"];
+
+        //Test where we don't bottom-out the zipper
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wz = map.write_zipper_at_path(b"123");
+
+        wz.descend_to(b":Pam");
+        assert_eq!(wz.remove_prefix(4), true);
+        drop(wz);
+
+        assert_eq!(map.val_count(), 1);
+        assert_eq!(map.get(b"123.Bandit"), Some(&2));
+
+        //Test where we *do* exactly bottom-out the zipper
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wz = map.write_zipper_at_path(b"123:");
+
+        wz.descend_to(b"Pam.");
+        assert_eq!(wz.remove_prefix(4), true);
+        drop(wz);
+
+        assert_eq!(map.val_count(), 1);
+        assert_eq!(map.get(b"123:Bandit"), Some(&2));
+
+        //Now test where we crash into the bottom of the zipper
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wz = map.write_zipper_at_path(b"123:");
+
+        wz.descend_to(b"Pam.");
+        assert_eq!(wz.remove_prefix(9), false);
+        drop(wz);
+
+        assert_eq!(map.val_count(), 1);
+        assert_eq!(map.get(b"123:Bandit"), Some(&2));
     }
 
     #[test]
