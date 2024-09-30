@@ -1208,10 +1208,10 @@ mod tests {
     #[test]
     fn write_zipper_remove_prefix_test() {
         let keys = [
-            "123:Bob:Fido",
-            "123:Jim:Felix",
-            "123:Pam:Bandit",
-            "123:Sue:Cornelius"];
+            "123:Bob.Fido",
+            "123:Jim.Felix",
+            "123:Pam.Bandit",
+            "123:Sue.Cornelius"];
 
         //Test where we don't bottom-out the zipper
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
@@ -1222,13 +1222,13 @@ mod tests {
         drop(wz);
 
         assert_eq!(map.val_count(), 1);
-        assert_eq!(map.get(b"123:Bandit"), Some(&2));
+        assert_eq!(map.get(b"123.Bandit"), Some(&2));
 
         //Test where we *do* exactly bottom-out the zipper
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(b"123:");
 
-        wz.descend_to(b"Pam:");
+        wz.descend_to(b"Pam.");
         assert_eq!(wz.remove_prefix(4), true);
         drop(wz);
 
@@ -1239,7 +1239,7 @@ mod tests {
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(b"123:");
 
-        wz.descend_to(b"Pam:");
+        wz.descend_to(b"Pam.");
         assert_eq!(wz.remove_prefix(9), false);
         drop(wz);
 
