@@ -1,4 +1,5 @@
 use core::cell::UnsafeCell;
+use std::sync::{Mutex, MutexGuard};
 
 use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
@@ -22,8 +23,45 @@ use crate::zipper_tracking::*;
 /// assert!(!map.contains("three"));
 /// ```
 pub struct BytesTrieMap<V> {
-    root: UnsafeCell<TrieNodeODRc<V>>,
+    root: RootWrapper<V>,
     zipper_tracker: ZipperTracker,
+}
+
+/// An internal wrapper to control mutable access to the root node.  Provides zero-overhead for
+/// const access, because all mut access is only taken in some very special circumstances.
+///
+/// WARNING! RootWrapper, by itself, is not safe.  It relies on specific access patterns
+struct RootWrapper<V> {
+    node: UnsafeCell<TrieNodeODRc<V>>,
+    lock: Mutex<()>,
+}
+
+unsafe impl<V: Send + Sync> Send for RootWrapper<V> {}
+unsafe impl<V: Send + Sync> Sync for RootWrapper<V> {}
+
+impl<V> RootWrapper<V> {
+    pub(crate) fn new(node: TrieNodeODRc<V>) -> Self {
+        Self {
+            node: UnsafeCell::new(node),
+            lock: Mutex::new(()),
+        }
+    }
+    #[inline]
+    pub(crate) fn get(&self) -> &TrieNodeODRc<V> {
+        unsafe{ &*self.node.get() }
+    }
+    #[inline]
+    pub(crate) fn get_mut(&mut self) -> &mut TrieNodeODRc<V> {
+        self.node.get_mut()
+    }
+    pub(crate) fn into_inner(self) -> TrieNodeODRc<V> {
+        self.node.into_inner()
+    }
+    pub(crate) fn exclusive_get_mut(&self) -> (&mut TrieNodeODRc<V>, MutexGuard<()>) {
+        let guard = self.lock.lock().unwrap();
+        let node = unsafe{ &mut *self.node.get() };
+        (node, guard)
+    }
 }
 
 impl<V: Clone + Send + Sync> Clone for BytesTrieMap<V> {
@@ -35,7 +73,7 @@ impl<V: Clone + Send + Sync> Clone for BytesTrieMap<V> {
 impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     #[inline]
     pub(crate) fn root(&self) -> &TrieNodeODRc<V> {
-        unsafe{ &*self.root.get() }
+        self.root.get()
     }
     #[inline]
     pub(crate) fn root_mut(&mut self) -> &mut TrieNodeODRc<V> {
@@ -55,7 +93,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     #[inline]
     pub(crate) fn new_with_root(root: TrieNodeODRc<V>) -> Self {
         Self {
-            root: UnsafeCell::new(root),
+            root: RootWrapper::new(root),
             zipper_tracker: ZipperTracker::default(),
         }
     }
@@ -141,12 +179,15 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
             panic!("Fatal Error: Root path cannot be modified without mutable access to the map.  Use TrieMap::write_zipper");
         }
         let zipper_tracker = self.zipper_tracker.new_write_path(path);
-        let (_created_node, parent_node) = prepare_exclusive_write_path(&mut *self.root.get(), &path[..path_len-1]);
-        let _created_cf = parent_node.make_mut().as_dense_mut().unwrap().prepare_cf(path[path_len-1]);
+        let (root_node, root_guard) = self.root.exclusive_get_mut();
+        let (_created_node, parent_node) = prepare_exclusive_write_path(root_node, &path[..path_len-1]);
         //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
-        WriteZipper::new_with_node_and_path_internal(parent_node, &path[path_len-1..], zipper_tracker)
+
+        let zipper = WriteZipper::new_with_node_and_path_internal(parent_node, &path[path_len-1..], zipper_tracker);
+        drop(root_guard);
+        zipper
     }
 
     /// Returns an iterator over all key-value pairs within the map
@@ -488,5 +529,68 @@ mod tests {
             // println!("{}, {v}", std::str::from_utf8(k).unwrap());
             assert_eq!(k, table[*v].as_bytes());
         }
+    }
+
+    use std::thread::{JoinHandle, spawn};
+    use std::sync::Arc;
+    use crate::zipper::Zipper;
+    #[test]
+    fn parallel_insert_test() {
+
+        let thread_cnt = 8;
+        let elements = 1024;
+
+        let elements_per_thread = elements / thread_cnt;
+
+        let mut threads: Vec<JoinHandle<()>> = Vec::with_capacity(thread_cnt);
+        let map = Arc::new(crate::trie_map::BytesTrieMap::<()>::new());
+
+        //Spawn all the threads
+        for n in 0..thread_cnt {
+            let map_ref = map.clone();
+            let thread = spawn(move || {
+                //GOAT, there is currently a bug that means we need 3 unique path bytes instead of 1.
+                // The reason is:
+                // 1. The first byte maps to a node that is shared, so we can't modify it from code outside a critical
+                //   section
+                // 2. The WriteZipper currently holds a mutable reference to a node (in case the root node needs to be upgraded).
+                //   That means the node the writeZipper points into cannot be accessed outside a critical section.
+                //   That node maps to the second byte
+                // 3. The third byte of a WriteZipper's path is on account of the fact that the WriteZipper
+                //   holds a reference to the parent of the path.  This was originally done so the WriteZipper
+                //   could set a value at its root.
+                //
+                // To fix this several changes are needed.
+                // 1. A WriteZipper should hold a reference to a CoFree, (or to a node and a value individually)
+                // 2. We will need a special DenseNode type that wraps each CoFree in its own UnsafeCell
+                // 3. maybe I can get rid of RootWrapper, since I won't need the UnsafeCell at the map root anymore,
+                //  if I have one at each node.  On the other hand, if I get rid of it, then it means I need to
+                //  have one of the special DenseNodes with every CoFree wrapped, at the root.
+                let path = [n as u8, 255, 255];
+
+                let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
+                for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+                    zipper.descend_to(prefix_key(&(i as u64)));
+                    assert!(zipper.set_value(()).is_none());
+                    zipper.reset();
+                }
+            });
+            threads.push(thread);
+        };
+
+        //Wait for them to finish
+        for thread in threads {
+            thread.join().unwrap();
+        }
+
+        //GOAT TODO
+        // * In parallel insert test, make sure the insert did the right thing
+
+    }
+
+    fn prefix_key(k: &u64) -> &[u8] {
+        let bs = (8 - k.leading_zeros()/8) as u8;
+        let kp: *const u64 = k;
+        unsafe { std::slice::from_raw_parts(kp as *const _, (bs as usize).max(1)) }
     }
 }

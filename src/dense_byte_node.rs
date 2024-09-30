@@ -655,7 +655,7 @@ pub(crate) fn _so_range(step: u8, order: u8) -> TrieNodeODRc<()> {
 }
 */
 
-impl <V: Clone> DenseByteNode<V> {
+impl <V: Clone + Send + Sync> DenseByteNode<V> {
     /// Internal method to recursively create all parents to support a value or branch at a given path
     #[cfg(feature = "all_dense_nodes")]
     #[inline]
