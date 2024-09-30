@@ -24,11 +24,64 @@ const TEST_ARGS: [(usize, &str); 50] = [
     (2097152, "000"), (2097152, "001"), (2097152, "002"), (2097152, "004"), (2097152, "008"), (2097152, "016"), (2097152, "032"), (2097152, "064"), (2097152, "128"), (2097152, "256"),
 ];
 
+#[divan::bench(sample_size = 8, args = TEST_ARGS)]
+fn parallel_read_zipper_get(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
+    let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
+    let real_thread_cnt = thread_cnt.max(1);
+
+    let mut map = BytesTrieMap::<usize>::new();
+    let elements_per_thread = elements / real_thread_cnt;
+    for n in 0..real_thread_cnt {
+        let path = [n as u8];
+        let mut zipper = map.write_zipper_at_path(&path);
+        for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+            zipper.descend_to(prefix_key(&(i as u64)));
+            zipper.set_value(i);
+            zipper.reset();
+        }
+    }
+
+    bencher.with_inputs(|| {}).bench_local_values(|()| {
+        if thread_cnt > 0 {
+            let mut threads: Vec<JoinHandle<()>> = Vec::with_capacity(thread_cnt);
+
+            //Spawn all the threads
+            for n in 0..thread_cnt {
+                let map_ref = map.clone();
+                let thread = spawn(move || {
+                    let path = [n as u8];
+                    let mut zipper = map_ref.read_zipper_at_path(&path);
+                    for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+                        zipper.descend_to(prefix_key(&(i as u64)));
+                        assert_eq!(zipper.get_value().unwrap(), &i);
+                        zipper.reset();
+                    }
+                });
+                threads.push(thread);
+            };
+
+            //Wait for them to finish
+            for thread in threads {
+                thread.join().unwrap();
+            }
+        } else {
+            //No-thread case, to measure overhead of sync and spawning vs. 1-thread case
+            let path = [0];
+            let mut zipper = map.read_zipper_at_path(&path);
+            for i in 0..elements {
+                zipper.descend_to(prefix_key(&(i as u64)));
+                assert_eq!(zipper.get_value().unwrap(), &i);
+                zipper.reset();
+            }
+        }
+    });
+}
+
 #[divan::bench(sample_size = 1, args = TEST_ARGS)]
 fn parallel_make_zipper_in_thread_insert(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
     let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
 
-    let mut map = Arc::new(BytesTrieMap::<()>::new());
+    let mut map = Arc::new(BytesTrieMap::<usize>::new());
 
     bencher.with_inputs(|| {}).bench_local_values(|()| {
         if thread_cnt > 0 {
@@ -44,7 +97,7 @@ fn parallel_make_zipper_in_thread_insert(bencher: Bencher, (elements, thread_cnt
                     let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
                     for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                         zipper.descend_to(prefix_key(&(i as u64)));
-                        zipper.set_value(());
+                        zipper.set_value(i);
                         zipper.reset();
                     }
                 });
@@ -61,7 +114,7 @@ fn parallel_make_zipper_in_thread_insert(bencher: Bencher, (elements, thread_cnt
             let mut zipper = Arc::make_mut(&mut map).write_zipper_at_path(&path);
             for i in 0..elements {
                 zipper.descend_to(prefix_key(&(i as u64)));
-                zipper.set_value(());
+                zipper.set_value(i);
                 zipper.reset();
             }
         }
@@ -72,7 +125,7 @@ fn parallel_make_zipper_in_thread_insert(bencher: Bencher, (elements, thread_cnt
 fn parallel_pass_zipper_to_thread_insert(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
     let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
 
-    let mut map = Arc::new(BytesTrieMap::<()>::new());
+    let mut map = Arc::new(BytesTrieMap::<usize>::new());
     let mut zipper_paths: Vec<[u8; 3]> = Vec::with_capacity(thread_cnt);
     for n in 0..thread_cnt {
         zipper_paths.push([n as u8, 0, 0]);
@@ -84,7 +137,7 @@ fn parallel_pass_zipper_to_thread_insert(bencher: Bencher, (elements, thread_cnt
                 let elements_per_thread = elements / thread_cnt;
 
                 //Preallocate all zippers
-                let mut zippers: Vec<WriteZipper<()>> = Vec::with_capacity(thread_cnt);
+                let mut zippers: Vec<WriteZipper<usize>> = Vec::with_capacity(thread_cnt);
                 for n in 0..thread_cnt {
                     let zipper = unsafe{ map.write_zipper_at_exclusive_path_unchecked(&zipper_paths[n]) };
                     zippers.push(zipper);
@@ -99,7 +152,7 @@ fn parallel_pass_zipper_to_thread_insert(bencher: Bencher, (elements, thread_cnt
                     let thread = scope.spawn(move || {
                         for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                             zipper.descend_to(prefix_key(&(i as u64)));
-                            zipper.set_value(());
+                            zipper.set_value(i);
                             zipper.reset();
                         }
                     });
@@ -115,7 +168,7 @@ fn parallel_pass_zipper_to_thread_insert(bencher: Bencher, (elements, thread_cnt
                 let mut zipper = Arc::make_mut(&mut map).write_zipper_at_path(&[0, 0, 0]);
                 for i in 0..elements {
                     zipper.descend_to(prefix_key(&(i as u64)));
-                    zipper.set_value(());
+                    zipper.set_value(i);
                     zipper.reset();
                 }
             }
@@ -132,4 +185,5 @@ fn prefix_key(k: &u64) -> &[u8] {
 
 
 //GOAT TODO:
-// * Make a parallel ReadZipper benchmark
+// * Figure out if I can streamline the TrieNodeODRc::new() -> set -> make_mut.
+// * See what happens to perf if I wrap every DenseNode CoFree in an UnsafeCell
