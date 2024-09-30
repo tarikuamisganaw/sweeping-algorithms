@@ -9,22 +9,23 @@ use pathmap::zipper::{Zipper, WriteZipper};
 
 fn main() {
     let divan = Divan::from_args()
-        .sample_count(1);
+        .sample_count(8);
 
     divan.main();
 }
 
 // The test parameters take the form `(elements, thread_cnt)`
 //NOTE: Using &str for thread_cnt makes sure we can keep leading zeros in the output so it sorts better
-const TEST_ARGS: [(usize, &str); 50] = [
+const TEST_ARGS: [(usize, &str); 60] = [
     (512, "000"), (512, "001"), (512, "002"), (512, "004"), (512, "008"), (512, "016"), (512, "032"), (512, "064"), (512, "128"), (512, "256"),
     (4096, "000"), (4096, "001"), (4096, "002"), (4096, "004"), (4096, "008"), (4096, "016"), (4096, "032"), (4096, "064"), (4096, "128"), (4096, "256"),
     (32768, "000"), (32768, "001"), (32768, "002"), (32768, "004"), (32768, "008"), (32768, "016"), (32768, "032"), (32768, "064"), (32768, "128"), (32768, "256"),
     (262144, "000"), (262144, "001"), (262144, "002"), (262144, "004"), (262144, "008"), (262144, "016"), (262144, "032"), (262144, "064"), (262144, "128"), (262144, "256"),
     (2097152, "000"), (2097152, "001"), (2097152, "002"), (2097152, "004"), (2097152, "008"), (2097152, "016"), (2097152, "032"), (2097152, "064"), (2097152, "128"), (2097152, "256"),
+    (16777216, "000"), (16777216, "001"), (16777216, "002"), (16777216, "004"), (16777216, "008"), (16777216, "016"), (16777216, "032"), (16777216, "064"), (16777216, "128"), (16777216, "256"),
 ];
 
-#[divan::bench(sample_size = 8, args = TEST_ARGS)]
+#[divan::bench(sample_size = 1, args = TEST_ARGS)]
 fn parallel_read_zipper_get(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
     let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
     let real_thread_cnt = thread_cnt.max(1);
