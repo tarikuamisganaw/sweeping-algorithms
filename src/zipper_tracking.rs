@@ -60,8 +60,9 @@ impl ZipperTracker {
         }
     }
     pub fn new_read_path(&self, path: &[u8]) -> Self {
-        let mut read_paths_lock = self.all_paths.write_zippers.write().unwrap();
-        for existing_path in read_paths_lock.iter() {
+        let write_paths_lock = self.all_paths.write_zippers.read().unwrap();
+        let mut read_paths_lock = self.all_paths.read_zippers.write().unwrap();
+        for existing_path in write_paths_lock.iter() {
             if existing_path.starts_with(path) || existing_path.len() == 0 {
                 panic!("Illegal ReadZipper at {path:?} conflicts with existing WriteZipper at {existing_path:?}");
             }
@@ -89,10 +90,14 @@ impl Drop for ZipperTracker {
         match self.is_tracking {
             IsTracking::Map => {},
             IsTracking::WriteZipper => {
-                self.all_paths.write_zippers.write().unwrap().retain(|path| *path != self.this_path);
+                let mut guard = self.all_paths.write_zippers.write().unwrap();
+                let idx = guard.iter().position(|path| *path == self.this_path).unwrap();
+                guard.remove(idx);
             },
             IsTracking::ReadZipper => {
-                self.all_paths.read_zippers.write().unwrap().retain(|path| *path != self.this_path);
+                let mut guard = self.all_paths.read_zippers.write().unwrap();
+                let idx = guard.iter().position(|path| *path == self.this_path).unwrap();
+                guard.remove(idx);
             }
         }
     }
