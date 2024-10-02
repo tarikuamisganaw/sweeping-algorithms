@@ -194,7 +194,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
 impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
-        let (key, node) = node_along_path_mut(root_node, path);
+        let (key, node) = node_along_path_mut(root_node, path, true);
         Self::new_with_node_and_path_internal(node, key, zipper_tracker)
     }
     /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
@@ -743,7 +743,7 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     fn mend_root(&mut self) {
         if self.key.prefix_idx.len() == 0 && self.key.root_key.len() > 1 {
             debug_assert_eq!(self.focus_stack.depth(), 1);
-            let (key, node) = node_along_path_mut(self.focus_stack.take_root().unwrap(), &self.key.root_key);
+            let (key, node) = node_along_path_mut(self.focus_stack.take_root().unwrap(), &self.key.root_key, true);
             self.key.root_key = key;
             self.key.prefix_buf.clear();
             self.key.prefix_buf.extend(self.key.root_key);

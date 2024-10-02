@@ -586,23 +586,7 @@ pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMa
 /// Returns `(false, node)` if the node already existed (regardless of whether or not it was upgraded),
 /// and returns `(true, node)` if the node was created.
 pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> (bool, &'a mut TrieNodeODRc<V>) {
-    let (remaining_key, parent_node) = node_along_path_mut(root_node, path);
-
-    //See below.  Temporary work-around for lack of pononius
-    let parent_node_ptr: *mut TrieNodeODRc<V> = parent_node;
-    let (remaining_key, node) = if remaining_key.len() > 0 {
-        match parent_node.make_mut().node_get_child_mut(remaining_key) {
-            Some((consumed_byte_cnt, node)) => (&remaining_key[consumed_byte_cnt..], node),
-            None => {
-                //SAFETY: The borrow of `parent_node` above is dropped in the case where `node_get_child_mut`
-                // returns `None`. Polonius is ok with this.
-                let parent_node = unsafe{ &mut *parent_node_ptr };
-                (remaining_key, parent_node)
-            }
-        }
-    } else {
-        (remaining_key, parent_node)
-    };
+    let (remaining_key, node) = node_along_path_mut(root_node, path, false);
 
     if remaining_key.len() == 0 {
         let upgraded = make_dense(node);
@@ -614,15 +598,19 @@ pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node
             Ok(_) => { },
             Err(replacement_node) => { *node = replacement_node; }
         }
-        let (remaining_key, node) = node_along_path_mut(node, remaining_key);
-        let (consumed_byte_cnt, new_node) = node.make_mut().node_get_child_mut(remaining_key).unwrap();
-        debug_assert_eq!(consumed_byte_cnt, remaining_key.len());
+        let (remaining_key, new_node) = node_along_path_mut(node, remaining_key, false);
+        debug_assert_eq!(remaining_key.len(), 0);
         (true, new_node)
     }
 }
 
 /// Internal function to walk a mut TrieNodeODRc<V> ref along a path
-pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> (&'k [u8], &'a mut TrieNodeODRc<V>) {
+///
+/// If `stop_early` is `true`, this function will return the parent node of the path and will never return
+/// a zero-length continuation path.  If `stop_early` is `false`, the returned continuation path may be
+/// zero-length and the returned node will represent as much of the path as is possible.
+#[inline]
+pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], stop_early: bool) -> (&'k [u8], &'a mut TrieNodeODRc<V>) {
     let mut key = path;
     let mut node = start_node;
 
@@ -630,16 +618,13 @@ pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>
     let mut node_ptr: *mut TrieNodeODRc<V> = node; //Work-around for lack of polonius
     if key.len() > 0 {
         while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_get_child_mut(key) {
-            if consumed_byte_cnt < key.len() {
+            if consumed_byte_cnt < key.len() || !stop_early {
                 node = next_node;
                 node_ptr = node;
                 key = &key[consumed_byte_cnt..];
-                //NOTE: we could early-out here, except, at most, it saves one step, but introduces a pipeline stall
-                // at every step.  It's a win when the number of steps is about 6 or fewer, but otherwise a cost.
-                // We won't shorten the key anymore, so we can finish here.
-                // if key.len() == 1 {
-                //     break;
-                // }
+                if key.len() == 0 {
+                    break;
+                }
             } else {
                 break;
             };

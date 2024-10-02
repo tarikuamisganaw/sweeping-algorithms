@@ -31,6 +31,10 @@ pub struct BytesTrieMap<V> {
 /// const access, because all mut access is only taken in some very special circumstances.
 ///
 /// WARNING! RootWrapper, by itself, is not safe.  It relies on specific access patterns
+///
+/// NOTE: This mutex itself is likely a stop-gap, since it doesn't scale.  This design imposes a
+/// considerable overhead on making new zippers, even if the zippers themselves are thread-safe
+/// after they are created.
 struct RootWrapper<V> {
     node: UnsafeCell<TrieNodeODRc<V>>,
     lock: Mutex<()>,
@@ -173,19 +177,19 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     // root, and potentially read parts of the trie that a WriteZipper is in the process of modifying.
     //Instead I propose a "ZipperMaker" that takes a mutable borrow of the map, and can dispense both read
     // and write zippers
-    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, 'k>(&'a self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
+    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, 'k>(&'a self, path: &[u8]) -> WriteZipper<'a, 'k, V> {
         let path_len = path.len();
         if path_len == 0 {
             panic!("Fatal Error: Root path cannot be modified without mutable access to the map.  Use TrieMap::write_zipper");
         }
         let zipper_tracker = self.zipper_tracker.new_write_path(path);
-        let (root_node, root_guard) = self.root.exclusive_get_mut();
-        let (_created_node, parent_node) = prepare_exclusive_write_path(root_node, &path[..path_len-1]);
+        let (map_root_node, root_guard) = self.root.exclusive_get_mut();
+        let (_created_node, zipper_root_node) = prepare_exclusive_write_path(map_root_node, &path);
         //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
 
-        let zipper = WriteZipper::new_with_node_and_path_internal(parent_node, &path[path_len-1..], zipper_tracker);
+        let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], zipper_tracker);
         drop(root_guard);
         zipper
     }
@@ -549,7 +553,7 @@ mod tests {
         for n in 0..thread_cnt {
             let map_ref = map.clone();
             let thread = spawn(move || {
-                //GOAT, there is currently a bug that means we need 3 unique path bytes instead of 1.
+                //GOAT, there is currently a bug that means we need 2 unique path bytes instead of 1.
                 // The reason is:
                 // 1. The first byte maps to a node that is shared, so we can't modify it from code outside a critical
                 //   section
@@ -559,6 +563,8 @@ mod tests {
                 // 3. The third byte of a WriteZipper's path is on account of the fact that the WriteZipper
                 //   holds a reference to the parent of the path.  This was originally done so the WriteZipper
                 //   could set a value at its root.
+                //   *UPDATE* Condition 3 is now addressed, but the tradeoff is that setting a root value on this type of zipper
+                //   will cause a problem.
                 //
                 // To fix this several changes are needed.
                 // 1. A WriteZipper should hold a reference to a CoFree, (or to a node and a value individually)
@@ -566,7 +572,7 @@ mod tests {
                 // 3. maybe I can get rid of RootWrapper, since I won't need the UnsafeCell at the map root anymore,
                 //  if I have one at each node.  On the other hand, if I get rid of it, then it means I need to
                 //  have one of the special DenseNodes with every CoFree wrapped, at the root.
-                let path = [n as u8, 255, 255];
+                let path = [n as u8, 255];
 
                 let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
                 for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
@@ -585,6 +591,7 @@ mod tests {
 
         //GOAT TODO
         // * In parallel insert test, make sure the insert did the right thing
+        // * GOAT, decide what to do with root values on a zipper...
 
     }
 
