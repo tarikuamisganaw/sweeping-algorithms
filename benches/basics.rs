@@ -197,9 +197,10 @@ fn prefix_key(k: &u64) -> &[u8] {
 }
 
 fn from_prefix_key(k: Vec<u8>) -> u64 {
-    let kp =  k.as_ptr() as *const u64;
+    let mut buf = [0u8; 8];
+    unsafe { core::ptr::copy_nonoverlapping(k.as_ptr(), buf.as_mut_ptr(), k.len()); }
     let shift = 64usize.saturating_sub(k.len()*8);
-    unsafe { (*kp) & (!0u64 >> shift) }
+    u64::from_le_bytes(buf) & (!0u64 >> shift)
 }
 
 #[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]

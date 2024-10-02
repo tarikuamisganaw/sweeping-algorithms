@@ -370,6 +370,7 @@ impl<V: Clone + Send + Sync> PartialQuantale for BytesTrieMap<V> {
 
 #[cfg(test)]
 mod tests {
+    use crate::tests::prefix_key;
     use crate::trie_map::*;
     use crate::ring::Lattice;
 
@@ -597,12 +598,6 @@ mod tests {
                 assert_eq!(map.get(path), Some(&i));
             }
         }
-    }
-
-    fn prefix_key(k: &u64) -> &[u8] {
-        let bs = (8 - k.leading_zeros()/8) as u8;
-        let kp: *const u64 = k;
-        unsafe { std::slice::from_raw_parts(kp as *const _, (bs as usize).max(1)) }
     }
 }
 

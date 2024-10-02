@@ -31,16 +31,17 @@ mod tests {
     use crate::ring::*;
     use crate::trie_map::BytesTrieMap;
 
-    fn prefix_key(k: &u64) -> &[u8] {
+    pub(crate) fn prefix_key(k: &u64) -> &[u8] {
         let bs = (8 - k.leading_zeros()/8) as u8;
         let kp: *const u64 = k;
         unsafe { std::slice::from_raw_parts(kp as *const _, (bs as usize).max(1)) }
     }
 
-    fn from_prefix_key(k: Vec<u8>) -> u64 {
-        let kp =  k.as_ptr() as *const u64;
+    pub(crate) fn from_prefix_key(k: Vec<u8>) -> u64 {
+        let mut buf = [0u8; 8];
+        unsafe { core::ptr::copy_nonoverlapping(k.as_ptr(), buf.as_mut_ptr(), k.len()); }
         let shift = 64usize.saturating_sub(k.len()*8);
-        unsafe { (*kp) & (!0u64 >> shift) }
+        u64::from_le_bytes(buf) & (!0u64 >> shift)
     }
 
     #[test]

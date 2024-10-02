@@ -656,8 +656,9 @@ impl<V: Send + Sync> LineListNode<V> {
             let key_len_1 = self.key_len_1();
             let is_child_1 = self.is_child_ptr::<1>();
             unsafe {
-                let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
-                let dst_ptr = self.key_bytes.as_mut_ptr().cast();
+                let base_ptr = self.key_bytes.as_mut_ptr().cast::<u8>();
+                let src_ptr = base_ptr.add(self.key_len_0());
+                let dst_ptr = base_ptr;
                 core::ptr::copy(src_ptr, dst_ptr, key_len_1);
             }
             self.header = Self::header0(is_child_1, key_len_1);
@@ -1960,8 +1961,9 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
             if byte_cnt < key_len {
                 let new_key_len = key_len-byte_cnt;
                 unsafe{
-                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    let base_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>();
+                    let src_ptr = base_ptr.add(byte_cnt);
+                    let dst_ptr = base_ptr;
                     core::ptr::copy(src_ptr, dst_ptr, new_key_len);
                 }
                 temp_node.header &= 0xf03f; //Zero out the old length, and reset it
@@ -2001,28 +2003,30 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
             if &key0[byte_cnt..] <= &key1[byte_cnt..] {
                 unsafe {
                     //Shorten key0
-                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    let base_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>();
+                    let src_ptr = base_ptr.add(byte_cnt);
+                    let dst_ptr = base_ptr;
                     core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
                     //Shorten key1
-                    let src_ptr = temp_node.key_bytes.get_unchecked(key0_len+byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.get_unchecked_mut(new_key0_len).as_mut_ptr();
+                    let src_ptr = base_ptr.add(key0_len+byte_cnt);
+                    let dst_ptr = base_ptr.add(new_key0_len);
                     core::ptr::copy(src_ptr, dst_ptr, new_key1_len);
                 }
             } else {
                 unsafe {
                     //Move key0 into a temp buffer
                     let mut tmp_key_buf: [MaybeUninit<u8>; KEY_BYTES_CNT] = [MaybeUninit::new(0); KEY_BYTES_CNT];
-                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt);
-                    let dst_ptr = tmp_key_buf.as_mut_ptr();
+                    let src_ptr = temp_node.key_bytes.as_ptr().cast::<u8>().add(byte_cnt);
+                    let dst_ptr = tmp_key_buf.as_mut_ptr().cast::<u8>();
                     core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
                     //Shorten key1 into the key0 slot
-                    let src_ptr = temp_node.key_bytes.get_unchecked(key0_len+byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    let base_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>();
+                    let src_ptr = base_ptr.add(key0_len+byte_cnt);
+                    let dst_ptr = base_ptr;
                     core::ptr::copy(src_ptr, dst_ptr, new_key1_len);
                     //Move the temp key into the key1 slot
-                    let src_ptr = tmp_key_buf.as_ptr();
-                    let dst_ptr = temp_node.key_bytes.get_unchecked_mut(new_key1_len);
+                    let src_ptr = tmp_key_buf.as_ptr().cast::<u8>();
+                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>().add(new_key1_len);
                     core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
                 }
                 core::mem::swap(&mut new_key0_len, &mut new_key1_len);
