@@ -547,7 +547,7 @@ mod tests {
         let elements_per_thread = elements / thread_cnt;
 
         let mut threads: Vec<JoinHandle<()>> = Vec::with_capacity(thread_cnt);
-        let map = Arc::new(crate::trie_map::BytesTrieMap::<()>::new());
+        let map = Arc::new(crate::trie_map::BytesTrieMap::<usize>::new());
 
         //Spawn all the threads
         for n in 0..thread_cnt {
@@ -577,7 +577,7 @@ mod tests {
                 let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
                 for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                     zipper.descend_to(prefix_key(&(i as u64)));
-                    assert!(zipper.set_value(()).is_none());
+                    assert!(zipper.set_value(i).is_none());
                     zipper.reset();
                 }
             });
@@ -589,8 +589,16 @@ mod tests {
             thread.join().unwrap();
         }
 
+        //Test that the values set by the threads are correct
+        for n in 0..thread_cnt {
+            for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+                let mut path = vec![n as u8, 255];
+                path.extend(prefix_key(&(i as u64)));
+                assert_eq!(map.get(path), Some(&i));
+            }
+        }
+
         //GOAT TODO
-        // * In parallel insert test, make sure the insert did the right thing
         // * GOAT, decide what to do with root values on a zipper...
 
     }

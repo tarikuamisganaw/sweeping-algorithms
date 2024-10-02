@@ -94,7 +94,7 @@ fn parallel_make_zipper_in_thread_insert(bencher: Bencher, (elements, thread_cnt
             for n in 0..thread_cnt {
                 let map_ref = map.clone();
                 let thread = spawn(move || {
-                    let path = [n as u8, 0, 0];
+                    let path = [n as u8, 0];
                     let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
                     for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                         zipper.descend_to(prefix_key(&(i as u64)));
