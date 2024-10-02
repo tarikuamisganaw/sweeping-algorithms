@@ -266,8 +266,8 @@ impl<V> LineListNode<V> {
         match SLOT {
             0 => core::slice::from_raw_parts(self.key_bytes.as_ptr().cast(), self.key_len_0()),
             1 => {
-                let base_ptr = self.key_bytes.get_unchecked(self.key_len_0());
-                core::slice::from_raw_parts(base_ptr.as_ptr().cast(), self.key_len_1())
+                let ptr = self.key_bytes.as_ptr().cast::<u8>().add(self.key_len_0());
+                core::slice::from_raw_parts(ptr, self.key_len_1())
             },
             _ => unreachable!(),
         }
@@ -421,9 +421,11 @@ impl<V: Send + Sync> LineListNode<V> {
         let slot_mask_1 = if self.is_used::<1>() {
             let key_len_1 = self.key_len_1();
             unsafe {
-                let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
-                let dst_ptr = self.key_bytes.get_unchecked_mut(idx).as_mut_ptr();
-                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
+                let mut temp_buf: [MaybeUninit<u8>; KEY_BYTES_CNT] = [MaybeUninit::uninit(); KEY_BYTES_CNT];
+                let src_ptr = self.key_bytes.as_ptr().cast::<u8>().add(self.key_len_0());
+                core::ptr::copy_nonoverlapping(src_ptr, temp_buf.as_mut_ptr().cast(), key_len_1);
+                let dst_ptr = self.key_bytes.as_mut_ptr().cast::<u8>().add(idx);
+                core::ptr::copy_nonoverlapping(temp_buf.as_ptr().cast(), dst_ptr, key_len_1);
             }
             self.flags_and_len_1()
         } else {
@@ -494,8 +496,8 @@ impl<V: Send + Sync> LineListNode<V> {
     unsafe fn set_payload_1(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
         let key_0_used_cnt = self.key_len_0();
         debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
-        let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
-        core::ptr::copy_nonoverlapping(key.as_ptr(), base_ptr.as_mut_ptr().cast(), key.len());
+        let dst_ptr = self.key_bytes.as_mut_ptr().cast::<u8>().add(key_0_used_cnt);
+        core::ptr::copy_nonoverlapping(key.as_ptr(), dst_ptr, key.len());
         self.val_or_child1 = payload;
         self.header |= Self::header1(is_child_ptr, key.len());
     }
@@ -581,10 +583,13 @@ impl<V: Send + Sync> LineListNode<V> {
             debug_assert!(new_key_len + old_key_len <= KEY_BYTES_CNT);
 
             unsafe {
+                let mut temp_buf: [MaybeUninit<u8>; KEY_BYTES_CNT] = [MaybeUninit::uninit(); KEY_BYTES_CNT];
+
                 //Copy the slot_0 key to slot_1, making room for the new key in slot_0
                 let src_ptr: *const u8 = self.key_bytes.as_ptr().cast();
-                let dst_ptr = self.key_bytes.get_unchecked_mut(new_key_len).as_mut_ptr();
-                core::ptr::copy(src_ptr, dst_ptr, old_key_len);
+                core::ptr::copy_nonoverlapping(src_ptr, temp_buf.as_mut_ptr().cast(), old_key_len);
+                let dst_ptr = self.key_bytes.as_mut_ptr().cast::<u8>().add(new_key_len);
+                core::ptr::copy_nonoverlapping(temp_buf.as_ptr().cast(), dst_ptr, old_key_len);
 
                 //Copy new_key into slot_0
                 let src_ptr: *const u8 = new_key.as_ptr();

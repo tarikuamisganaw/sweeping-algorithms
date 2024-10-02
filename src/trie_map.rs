@@ -597,10 +597,6 @@ mod tests {
                 assert_eq!(map.get(path), Some(&i));
             }
         }
-
-        //GOAT TODO
-        // * GOAT, decide what to do with root values on a zipper...
-
     }
 
     fn prefix_key(k: &u64) -> &[u8] {
@@ -609,3 +605,15 @@ mod tests {
         unsafe { std::slice::from_raw_parts(kp as *const _, (bs as usize).max(1)) }
     }
 }
+
+//GOAT, decide what to do with root values on a zipper...  Options are:
+//  1. document that root value access on a threaded WriteZipper will panic, and insert debug_asserts
+//  2. make a special case to handle it.  This will require making an UnsafeCell around the value storage
+//    location in the upstream node.  Since we don't want to pay for the UnsafeCell in every node, the
+//    it's going to introduce a lot of complexity.  There are 2 sub-options to special-case it.
+//   2a. Make a special type of parent with an UnsafeCell around its values, and ensure we always upgrade
+//     the parent to that node type when creating the zipper
+//   2b. Hold a shadow of the value within the WriteZipper, and re-integrate that value when the
+//     WriteZipper is dropped.  Obviously I don't love the complexity of this approach either
+//
+// For code cleanliness reasons, I am strongly leaning towards 1.  Keep it illegal.
