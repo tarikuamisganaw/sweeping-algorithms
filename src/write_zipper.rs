@@ -13,9 +13,39 @@ use crate::dense_byte_node::DenseByteNode;
 #[cfg(not(feature = "all_dense_nodes"))]
 use crate::line_list_node::LineListNode;
 
+//GOAT: Discussion on whether to keep rooted zippers, or streamline the WriteZipper code
+//
+// * Arguments for keeping rooted WriteZippers
+//  - A. An API that allows `let mut z = map.write_zipper_at_path()` folowed by `z.set_value` is convenient and
+//    easy to explain.  Non-rooted zippers can't set values at their root.
+//
+//  - B. A non-rooted WriteZipper cannot modify its parent node, which means it cannot upgrade its root node
+//    which means the root node needs to be able to accomodate any onward path, which means it needs to be
+//    a DenseNode or similar.  This may mean unnuecessary node upgrading, for example at the root of a map;
+//    ultimately this eats into the utility of light-weight maps.
+//
+//  - C. We'd need to reimplement the `PathMap::some_write_method` write methods to operate directly on the map nodes, rather
+//    than do it via a temporarily-created WriteZipper
+//
+// * Arguments for streamlining
+//  - A'. The convenient API isn't possible much of the time anyway, because a WriteZipper at the PathMap's
+//    root, or a WriteZipper created via `write_zipper_at_exclusive_path` can never be rooted.  And therefore
+//    it may be better to just say "WriteZippers cannot modify values at their root", instead of saying:
+//    "WriteZipper created with... modify values at their root".
+//
+//  - B'. Obviously cutting branches and streamlining the WriteZipper code
+//
+//  - C'. The code that fixes up a zipper (WriteZipper::mend_root) is pure waste if the zipper is temporary;
+//    e.g. just part of the implementation of `PathMap::some_write_method`
+//
+
 /// A [Zipper] for editing and adding paths and values in the trie
 pub struct WriteZipper<'a, 'k, V> {
     key: KeyFields<'k>,
+    /// A rooted zipper is able to write to its parent node.  This means it's able to set a value at its
+    /// root or upgrade the root node to a different node type.  I'm on the fence about whether or not
+    /// to expose rooted zippers to clients at all, or get rid of the rooted code path entirely
+    rooted: bool,
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
     focus_stack: MutCursorRootedVec<'a, TrieNodeODRc<V>, dyn TrieNode<V>>,
     zipper_tracker: ZipperTracker,
@@ -37,13 +67,13 @@ struct KeyFields<'k> {
 
 impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
 
+    #[inline]
     fn at_root(&self) -> bool {
         self.key.prefix_buf.len() <= self.key.root_key.len()
     }
 
     fn reset(&mut self) {
-        self.focus_stack.to_root();
-        self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+        self.focus_stack.to_bottom();
         self.key.prefix_buf.truncate(self.key.root_key.len());
         self.key.prefix_idx.clear();
     }
@@ -195,22 +225,44 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
         let (key, node) = node_along_path_mut(root_node, path, true);
-        Self::new_with_node_and_path_internal(node, key, zipper_tracker)
+        Self::new_with_node_and_path_internal(node, key, true, zipper_tracker)
     }
     /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
     /// the node
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, zipper_tracker: ZipperTracker) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(root_node);
         focus_stack.advance_from_root(|root| Some(root.make_mut()));
+        debug_assert!(rooted || path.len() == 0); //A non-rooted zipper must never have a non-zero-length root_path
         Self {
             key: KeyFields::new(path),
+            rooted,
             focus_stack,
             zipper_tracker,
         }
     }
+
+    //GOAT, the concept of a regularized zipper might be very useful for WriteZippers, so I may be able to delete this code
+    // /// Ensures the zipper is in its regularized form
+    // ///
+    // /// Unlike a ReadZipper, a WriteZipper's regularized form is holding the parent node at the top of the
+    // /// `focus_stack`, where `node_key()` contains the key necesary to access the zipper's focus.  The
+    // /// reason is because the most common and expensive operations in a ReadZipper are moves and iteration,
+    // /// while the most common operations in a WriteZipper are sets and grafts.  Therefore the regularized
+    // /// form is the closest to what's needed to perform those ops
+    // ///
+    // /// Therefore, `node_key().len() == 0` is usually deregularized.
+    // ///
+    // /// There is a special case, however, when the `focus_stack.top()` is the zipper's root node.  A
+    // /// "thread-safe" WriteZipper must be able to function without accessing the parent node, because
+    // /// the parent node may be shared among multiple zippers.
+    // #[inline]
+    // fn is_regularized(&self) -> bool {
+    //     let key_start = self.key.node_key_start();
+    //     self.key.prefix_buf.len() > key_start || self.at_root()
+    // }
 
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     pub fn get_value(&self) -> Option<&V> {
@@ -634,6 +686,7 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             Some(src) => {
                 debug_assert!(!src.borrow().node_is_empty());
                 if self.key.node_key().len() > 0 {
+                    //The focus_stack.top() is the parent node of the focus, so we'll replace its child
                     let sub_branch_added = self.in_zipper_mut_static_result(
                         |node, key| {
                             node.node_set_branch(key, src)
@@ -644,6 +697,10 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                         self.descend_to_internal();
                     }
                 } else {
+                    //The zipper is at the root, so we need to replace the root node
+                    debug_assert!(self.at_root());
+                    debug_assert_eq!(self.key.prefix_idx.len(), 0);
+                    debug_assert_eq!(self.key.prefix_buf.len(), self.key.root_key.len());
                     debug_assert_eq!(self.focus_stack.depth(), 1);
                     self.focus_stack.to_root();
                     *self.focus_stack.root_mut().unwrap() = src;
@@ -787,7 +844,7 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     #[inline]
     fn ascend_across_nodes(&mut self) {
         debug_assert!(self.key.node_key().len() == 0);
-        self.focus_stack.backtrack();
+        self.focus_stack.try_backtrack_node();
         self.key.prefix_idx.pop();
     }
     /// Internal method used to impement `ascend_until` when ascending within a node
@@ -1083,7 +1140,7 @@ mod tests {
     }
 
     #[test]
-    fn write_zipper_drop_head_test() {
+    fn write_zipper_drop_head_test1() {
         let keys = [
             "123:abc:Bob",
             "123:def:Jim",

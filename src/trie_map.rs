@@ -158,7 +158,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap
     pub fn write_zipper(&mut self) -> WriteZipper<V> {
         let zipper_tracker = self.zipper_tracker.new_write_path(&[]);
-        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[], zipper_tracker)
+        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[], true, zipper_tracker)
     }
 
     /// Creates a new [WriteZipper] with the specified path from the root of the map
@@ -189,7 +189,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
 
-        let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], zipper_tracker);
+        let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker);
         drop(root_guard);
         zipper
     }
@@ -573,7 +573,7 @@ mod tests {
                 // 3. maybe I can get rid of RootWrapper, since I won't need the UnsafeCell at the map root anymore,
                 //  if I have one at each node.  On the other hand, if I get rid of it, then it means I need to
                 //  have one of the special DenseNodes with every CoFree wrapped, at the root.
-                let path = [n as u8, 255];
+                let path = [n as u8];
 
                 let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
                 for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
@@ -593,7 +593,7 @@ mod tests {
         //Test that the values set by the threads are correct
         for n in 0..thread_cnt {
             for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
-                let mut path = vec![n as u8, 255];
+                let mut path = vec![n as u8];
                 path.extend(prefix_key(&(i as u64)));
                 assert_eq!(map.get(path), Some(&i));
             }
