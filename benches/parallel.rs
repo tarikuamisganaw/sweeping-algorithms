@@ -94,7 +94,7 @@ fn parallel_make_zipper_in_thread_insert(bencher: Bencher, (elements, thread_cnt
             for n in 0..thread_cnt {
                 let map_ref = map.clone();
                 let thread = spawn(move || {
-                    let path = [n as u8, 0];
+                    let path = [n as u8];
                     let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
                     for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                         zipper.descend_to(prefix_key(&(i as u64)));
@@ -111,7 +111,7 @@ fn parallel_make_zipper_in_thread_insert(bencher: Bencher, (elements, thread_cnt
             }
         } else {
             //No-thread case, to measure overhead of sync and spawning vs. 1-thread case
-            let path = [0, 0, 0];
+            let path = [0];
             let mut zipper = Arc::make_mut(&mut map).write_zipper_at_path(&path);
             for i in 0..elements {
                 zipper.descend_to(prefix_key(&(i as u64)));
@@ -136,7 +136,7 @@ fn parallel_pass_zipper_to_thread_insert(bencher: Bencher, (elements, thread_cnt
                 //Preallocate all zippers
                 let mut zippers: Vec<WriteZipper<usize>> = Vec::with_capacity(thread_cnt);
                 for n in 0..thread_cnt {
-                    let path = &[n as u8, 0];
+                    let path = &[n as u8];
                     let zipper = unsafe{ map.write_zipper_at_exclusive_path_unchecked(path) };
                     zippers.push(zipper);
                 };
@@ -163,7 +163,7 @@ fn parallel_pass_zipper_to_thread_insert(bencher: Bencher, (elements, thread_cnt
                 }
             } else {
                 //No-thread case, to measure overhead of sync and spawning vs. 1-thread case
-                let mut zipper = Arc::make_mut(&mut map).write_zipper_at_path(&[0, 0, 0]);
+                let mut zipper = Arc::make_mut(&mut map).write_zipper_at_path(&[0]);
                 for i in 0..elements {
                     zipper.descend_to(prefix_key(&(i as u64)));
                     zipper.set_value(i);

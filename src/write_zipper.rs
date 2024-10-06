@@ -52,6 +52,9 @@ pub struct WriteZipper<'a, 'k, V> {
     _variance: core::marker::PhantomData<&'a mut TrieNodeODRc<V>>,
 }
 
+unsafe impl<V> Send for WriteZipper<'_, '_, V> where V: Send + Sync {}
+unsafe impl<V> Sync for WriteZipper<'_, '_, V> where V: Send + Sync {}
+
 impl<V> Drop for WriteZipper<'_, '_, V> {
     fn drop(&mut self) { }
 }
