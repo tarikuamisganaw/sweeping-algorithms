@@ -701,7 +701,7 @@ mod opaque_dyn_rc_trie_node {
         }
         //GOAT, make this contingent on a dyn_clone compile-time feature
         #[inline]
-        pub(crate) fn make_mut(&mut self) -> &mut dyn TrieNode<V> {
+        pub(crate) fn make_mut(&mut self) -> &mut (dyn TrieNode<V> + 'static) {
             dyn_clone::arc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
         }
     }

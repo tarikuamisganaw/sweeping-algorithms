@@ -47,8 +47,9 @@ pub struct WriteZipper<'a, 'k, V> {
     /// to expose rooted zippers to clients at all, or get rid of the rooted code path entirely
     rooted: bool,
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
-    focus_stack: MutCursorRootedVec<'a, TrieNodeODRc<V>, dyn TrieNode<V>>,
+    focus_stack: MutCursorRootedVec<*mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
     zipper_tracker: ZipperTracker,
+    _variance: core::marker::PhantomData<&'a mut TrieNodeODRc<V>>,
 }
 
 impl<V> Drop for WriteZipper<'_, '_, V> {
@@ -221,7 +222,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
     }
 }
 
-impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
+impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
         let (key, node) = node_along_path_mut(root_node, path, true);
@@ -233,14 +234,15 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
     pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, zipper_tracker: ZipperTracker) -> Self {
-        let mut focus_stack = MutCursorRootedVec::new(root_node);
-        focus_stack.advance_from_root(|root| Some(root.make_mut()));
+        let mut focus_stack = MutCursorRootedVec::new(root_node as *mut TrieNodeODRc<V>);
+        focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
         debug_assert!(rooted || path.len() == 0); //A non-rooted zipper must never have a non-zero-length root_path
         Self {
             key: KeyFields::new(path),
             rooted,
             focus_stack,
             zipper_tracker,
+            _variance: std::marker::PhantomData,
         }
     }
 
@@ -657,14 +659,19 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
             debug_assert!(self.at_root());
-            let mut replacement_node = TrieNodeODRc::new(EmptyNode::new());
-            self.focus_stack.backtrack();
-            core::mem::swap(self.focus_stack.root_mut().unwrap(), &mut replacement_node);
-            self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
-            if !replacement_node.borrow().node_is_empty() {
-                Some(replacement_node)
+            if !self.rooted {
+                panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
             } else {
-                None
+                let mut replacement_node = TrieNodeODRc::new(EmptyNode::new());
+                self.focus_stack.backtrack();
+                let stack_root = unsafe{ &mut **self.focus_stack.root_mut().unwrap() };
+                core::mem::swap(stack_root, &mut replacement_node);
+                self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+                if !replacement_node.borrow().node_is_empty() {
+                    Some(replacement_node)
+                } else {
+                    None
+                }
             }
         } else {
             debug_assert!(node_key.len() > 0);
@@ -698,13 +705,18 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                     }
                 } else {
                     //The zipper is at the root, so we need to replace the root node
-                    debug_assert!(self.at_root());
-                    debug_assert_eq!(self.key.prefix_idx.len(), 0);
-                    debug_assert_eq!(self.key.prefix_buf.len(), self.key.root_key.len());
-                    debug_assert_eq!(self.focus_stack.depth(), 1);
-                    self.focus_stack.to_root();
-                    *self.focus_stack.root_mut().unwrap() = src;
-                    self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+                    if !self.rooted {
+                        panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
+                    } else {
+                        debug_assert!(self.at_root());
+                        debug_assert_eq!(self.key.prefix_idx.len(), 0);
+                        debug_assert_eq!(self.key.prefix_buf.len(), self.key.root_key.len());
+                        debug_assert_eq!(self.focus_stack.depth(), 1);
+                        self.focus_stack.to_root();
+                        let stack_root = unsafe{ &mut **self.focus_stack.root_mut().unwrap() };
+                        *stack_root = src;
+                        self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+                    }
                 }
             },
             None => { self.remove_branch(); }
@@ -731,43 +743,19 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                         self.focus_stack.advance(|node| node.node_get_child_mut(parent_key).map(|(_, child_node)| child_node.make_mut()));
                     },
                     None => {
-                        *self.focus_stack.root_mut().unwrap() = replacement_node;
-                        self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+                        if !self.rooted {
+                            panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
+                        } else {
+                            let stack_root = unsafe{ &mut **self.focus_stack.root_mut().unwrap() };
+                            *stack_root = replacement_node;
+                            self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+                        }
                     }
                 }
                 retry_f(self.focus_stack.top_mut().unwrap(), key)
             },
         }
     }
-
-    // //Ugh... GOAT.  The safety thesis for the MutCursor depends on being able to consume the zipper... Which isn't very convenient here.
-    // #[inline]
-    // fn in_zipper_mut_borrowed_result<NodeF, RetryF, R>(&mut self, node_f: NodeF, retry_f: RetryF) -> &mut R
-    //     where
-    //     NodeF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> Result<&'f mut R, TrieNodeODRc<V>>,
-    //     RetryF: for<'f> FnOnce(&'f mut dyn TrieNode<V>, &[u8]) -> &'f mut R,
-    // {
-    //     let key = self.key.node_key();
-    //     match self.focus_stack.try_map_into_mut(|top_ref| {
-    //         node_f(top_ref, key)
-    //     }) {
-    //         Ok(result) => result,
-    //         Err((mut node, replacement_node)) => {
-    //             match self.focus_stack.top_mut() {
-    //                 Some(parent_node) => {
-    //                     let parent_key = self.key.parent_key();
-    //                     parent_node.node_replace_child(parent_key, replacement_node);
-    //                     self.focus_stack.advance(|node| node.node_get_child_mut(parent_key).map(|(_, child_node)| child_node.make_mut()));
-    //                 },
-    //                 None => {
-    //                     *self.focus_stack.root_mut().unwrap() = replacement_node;
-    //                     self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
-    //                 }
-    //             }
-    //             retry_f(self.focus_stack.top_mut().unwrap(), key)
-    //         }
-    //     }
-    // }
 
     /// Internal method to recursively prune empty nodes from the trie, starting at the focus, and working
     /// upward until a value or branch is encountered.
@@ -799,13 +787,19 @@ impl <'a, 'k, V : Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     #[inline]
     fn mend_root(&mut self) {
         if self.key.prefix_idx.len() == 0 && self.key.root_key.len() > 1 {
-            debug_assert_eq!(self.focus_stack.depth(), 1);
-            let (key, node) = node_along_path_mut(self.focus_stack.take_root().unwrap(), &self.key.root_key, true);
-            self.key.root_key = key;
-            self.key.prefix_buf.clear();
-            self.key.prefix_buf.extend(self.key.root_key);
-            self.focus_stack.replace_root(node);
-            self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+            if !self.rooted {
+                panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
+            } else {
+                debug_assert_eq!(self.focus_stack.depth(), 1);
+                let root_ptr = self.focus_stack.take_root().unwrap();
+                let root_ref = unsafe{ &mut *root_ptr };
+                let (key, node) = node_along_path_mut(root_ref, &self.key.root_key, true);
+                self.key.root_key = key;
+                self.key.prefix_buf.clear();
+                self.key.prefix_buf.extend(self.key.root_key);
+                self.focus_stack.replace_root(node);
+                self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+            }
         }
     }
 
