@@ -45,7 +45,7 @@ const ALL_BYTES: [u8; 256] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 
 
 #[derive(Clone)]
 pub struct DenseByteNode<V> {
-    mask: [u64; 4],
+    pub mask: [u64; 4],
     #[cfg(all(feature = "all_dense_nodes", feature = "smallvec"))]
     values: SmallVec<[CoFree<V>; 2]>,
     #[cfg(all(not(feature = "all_dense_nodes"), feature = "smallvec"))]
@@ -337,7 +337,7 @@ impl<V> DenseByteNode<V> {
     }
 
     #[inline]
-    unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
+    pub unsafe fn get_unchecked(&self, k: u8) -> &CoFree<V> {
         let ix = self.left(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
         self.values.get_unchecked(ix)
@@ -670,84 +670,6 @@ impl <V: Clone> DenseByteNode<V> {
     }
 }
 
-pub(crate) struct DenseByteNodeIter<'a, V> {
-    child_link: Option<(usize, &'a dyn TrieNode<V>)>,
-    cf_iter: CfIter<'a, V>,
-}
-
-impl <'a, V> DenseByteNodeIter<'a, V> {
-    fn new(btn: &'a DenseByteNode<V>) -> Self {
-        Self {
-            child_link: None,
-            cf_iter: CfIter::new(btn),
-        }
-    }
-}
-
-impl <'a, V : Clone> Iterator for DenseByteNodeIter<'a, V> {
-    type Item = (&'a[u8], ValOrChildRef<'a, V>);
-
-    fn next(&mut self) -> Option<(&'a[u8], ValOrChildRef<'a, V>)> {
-        if self.child_link.is_none() {
-            match self.cf_iter.next() {
-                None => None,
-                Some((prefix, cf)) => {
-                    let prefix = prefix as usize;
-                    match &cf.value {
-                        None => {
-                            //No value means the cf must be a child-link alone
-                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(&*cf.rec.as_ref().unwrap().borrow())))
-                        },
-                        Some(val) => {
-                            self.child_link = cf.rec.as_ref().map(|node| (prefix, &*node.borrow()));
-                            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Val(val)))
-                        }
-                    }
-                }
-            }
-        } else {
-            let (prefix, node) = core::mem::take(&mut self.child_link).unwrap();
-            Some((&ALL_BYTES[prefix..=prefix], ValOrChildRef::Child(node)))
-        }
-    }
-}
-
-struct CfIter<'a, V> {
-    i: u8,
-    w: u64,
-    btn: &'a DenseByteNode<V>
-}
-
-impl <'a, V> CfIter<'a, V> {
-    fn new(btn: &'a DenseByteNode<V>) -> Self {
-        Self {
-            i: 0,
-            w: btn.mask[0],
-            btn: btn
-        }
-    }
-}
-
-impl <'a, V : Clone> Iterator for CfIter<'a, V> {
-    type Item = (u8, &'a CoFree<V>);
-
-    fn next(&mut self) -> Option<(u8, &'a CoFree<V>)> {
-        loop {
-            if self.w != 0 {
-                let wi = self.w.trailing_zeros() as u8;
-                self.w ^= 1u64 << wi;
-                let index = self.i*64 + wi;
-                return Some((index, unsafe{ self.btn.get_unchecked(index) } ))
-            } else if self.i < 3 {
-                self.i += 1;
-                self.w = *unsafe{ self.btn.mask.get_unchecked(self.i as usize) };
-            } else {
-                return None
-            }
-        }
-    }
-}
-
 impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         debug_assert!(key.len() > 0);
@@ -757,6 +679,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
             false
         }
     }
+    #[inline(always)]
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         self.get(key[0]).and_then(|cf|
             cf.rec.as_ref().map(|child_node| {
@@ -911,8 +834,50 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn node_is_empty(&self) -> bool {
         self.values.len() == 0
     }
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        Box::new(DenseByteNodeIter::new(self))
+    #[inline(always)]
+    fn new_iter_token(&self) -> u128 {
+        self.mask[0] as u128
+    }
+    #[inline(always)]
+    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+        if key.len() != 1 {
+            (self.new_iter_token(), &[])
+        } else {
+            let k = *unsafe{ key.get_unchecked(0) } as usize;
+            let idx = (k & 0b11000000) >> 6;
+            let bit_i = k & 0b00111111;
+            debug_assert!(idx < 4);
+            let mask: u64 = if bit_i+1 < 64 {
+                (0xFFFFFFFFFFFFFFFF << bit_i+1) & unsafe{ self.mask.get_unchecked(idx) }
+            } else {
+                0
+            };
+            (((idx as u128) << 64) | (mask as u128), &ALL_BYTES[k..=k])
+        }
+    }
+    #[inline(always)]
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        let mut i = (token >> 64) as u8;
+        let mut w = token as u64;
+        loop {
+            if w != 0 {
+                let wi = w.trailing_zeros() as u8;
+                w ^= 1u64 << wi;
+                let k = i*64 + wi;
+
+                let new_token = ((i as u128) << 64) | (w as u128);
+                let cf = unsafe{ self.get_unchecked(k) };
+                let k = k as usize;
+                return (new_token, &ALL_BYTES[k..=k], cf.rec.as_ref(), cf.value.as_ref())
+
+            } else if i < 3 {
+                i += 1;
+
+                w = unsafe { *self.mask.get_unchecked(i as usize) };
+            } else {
+                return (NODE_ITER_FINISHED, &[], None, None)
+            }
+        }
     }
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         //Discussion: These two implementations do the same thing but with a slightly different ordering of
@@ -1030,6 +995,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         self.mask = [self.mask[0] & mask[0], self.mask[1] & mask[1], self.mask[2] & mask[2], self.mask[3] & mask[3]];
     }
 
+    #[inline(always)]
     fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
         match key.len() {
             0 => self.mask,
@@ -1041,6 +1007,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    #[inline(always)]
     fn count_branches(&self, key: &[u8]) -> usize {
         match key.len() {
             0 => self.values.len(),
@@ -1052,6 +1019,7 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
         }
     }
 
+    #[inline(always)]
     fn is_leaf(&self, key: &[u8]) -> bool {
         match key.len() {
             0 => self.values.len() == 0,
@@ -1251,6 +1219,10 @@ impl<V: Clone> TrieNode<V> for DenseByteNode<V> {
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
     }
+    #[inline(always)]
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::DenseByteNode(self)
+    }
 }
 
 /// returns the position of the next/previous active bit in x
@@ -1273,7 +1245,7 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
 }
 
 #[derive(Default, Clone, Debug)]
-struct CoFree<V> {
+pub struct CoFree<V> {
     pub(crate) rec: Option<TrieNodeODRc<V>>,
     pub(crate) value: Option<V>
 }

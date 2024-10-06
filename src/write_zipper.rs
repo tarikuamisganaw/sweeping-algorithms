@@ -175,7 +175,7 @@ impl<'a, 'k, V: Clone> Zipper<'a> for WriteZipper<'a, 'k, V> {
     fn fork_zipper(&self) -> ReadZipper<V> {
         let new_root_val = self.get_value();
         let zipper_tracker = self.zipper_tracker.new_read_path_no_check(&self.key.root_key);
-        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap(), &self.key.root_key, None, new_root_val, zipper_tracker)
+        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap().as_tagged(), &self.key.root_key, None, new_root_val, zipper_tracker)
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {

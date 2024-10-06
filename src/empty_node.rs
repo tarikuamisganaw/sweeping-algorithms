@@ -87,8 +87,14 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
     fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
     fn node_is_empty(&self) -> bool { true }
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a> {
-        panic!()
+    fn new_iter_token(&self) -> u128 {
+        0
+    }
+    fn iter_token_for_path(&self, _key: &[u8]) -> (u128, &[u8]) {
+        (0, &[])
+    }
+    fn next_items(&self, _token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
+        (0, &[], None, None)
     }
     fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         0
@@ -162,6 +168,9 @@ impl<V: Clone> TrieNode<V> for EmptyNode<V> {
     }
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         None
+    }
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        panic!()
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())

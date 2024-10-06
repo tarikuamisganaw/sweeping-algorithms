@@ -44,6 +44,7 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
 
+    //GOAT, Probably can be removed
     /// Replaces a child-node at `key` with the node provided, returning a `&mut` reference to the newly
     /// added child node
     ///
@@ -126,10 +127,24 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;
 
-    /// Returns a boxed iterator over each item contained within the node, both child nodes and values
-    /// TODO, hopefully we can deprecate this method when the zipper iteration gets a little faster.  See
-    /// comments around [crate::trie_map::BytesTrieMapCursor]
-    fn boxed_node_iter<'a>(&'a self) -> Box<dyn Iterator<Item=(&'a[u8], ValOrChildRef<'a, V>)> + 'a>;
+    /// Generates a new iter token, to iterate the children and values contained within this node
+    fn new_iter_token(&self) -> u128;
+
+    /// Generates an iter token that can be passed to [Self::next_items] to continue iteration from the
+    /// specified path
+    ///
+    /// Returns `(new_token, complete_node_key)`
+    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]);
+
+    /// Steps to the next existing path within the node, in a depth-first order
+    ///
+    /// Returns `(next_token, path, child_node, value)`
+    /// - `next_token` is the value to pass to a subsequent call of this method.  Returns
+    ///   [NODE_ITER_FINISHED] when there are no more sub-paths
+    /// - `path` is relative to the start of `node`
+    /// - `child_node` an onward node link, of `None`
+    /// - `value` that exists at the path, or `None`
+    fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>);
 
     /// Returns the total number of leaves contained within the whole subtree defined by the node
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
@@ -270,14 +285,18 @@ pub trait TrieNode<V>: DynClone + core::fmt::Debug {
     /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
 
+    /// Returns a [TaggedNodeRef] referencing this node
+    fn as_tagged(&self) -> TaggedNodeRef<V>;
+
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V>;
 }
 
-pub enum ValOrChildRef<'a, V> {
-    Val(&'a V),
-    Child(&'a dyn TrieNode<V>)
-}
+/// Special sentinel token value indicating iteration of a node has not been initialized
+pub const NODE_ITER_INVALID: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+
+/// Special sentinel token value indicating iteration of a node has concluded
+pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE;
 
 #[derive(Clone)]
 pub(crate) enum ValOrChild<V> {
@@ -360,6 +379,184 @@ impl<'a, V: Clone> AbstractNodeRef<'a, V> {
             AbstractNodeRef::OwnedRc(rc) => Some(rc)
         }
     }
+}
+
+/// A reference to a node with a concrete type
+#[derive(Clone, Copy)]
+pub enum TaggedNodeRef<'a, V> {
+    DenseByteNode(&'a DenseByteNode<V>),
+    LineListNode(&'a LineListNode<V>),
+}
+
+impl<V> core::fmt::Debug for TaggedNodeRef<'_, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
+            Self::LineListNode(node) => write!(f, "{node:?}"),
+        }
+    }
+}
+
+impl<'a, V: Clone> TaggedNodeRef<'a, V> {
+    pub fn borrow(&self) -> &dyn TrieNode<V> {
+        match self {
+            Self::DenseByteNode(node) => *node as &dyn TrieNode<V>,
+            Self::LineListNode(node) => *node as &dyn TrieNode<V>,
+        }
+    }
+    pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
+        match self {
+            Self::DenseByteNode(node) => node.node_contains_partial_key(key),
+            Self::LineListNode(node) => node.node_contains_partial_key(key),
+        }
+    }
+    #[inline(always)]
+    pub fn node_get_child(&self, key: &[u8]) -> Option<(usize, &'a dyn TrieNode<V>)> {
+        match self {
+            Self::DenseByteNode(node) => node.node_get_child(key),
+            Self::LineListNode(node) => node.node_get_child(key),
+        }
+    }
+
+    // fn node_get_child_and_val_mut<'a>(&'a mut self, key: &[u8]) -> Option<(usize, Option<&'a mut V>, Option<&'a mut TrieNodeODRc<V>>)>;
+
+    // fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
+
+    // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V>;
+
+    pub fn node_contains_val(&self, key: &[u8]) -> bool {
+        match self {
+            Self::DenseByteNode(node) => node.node_contains_val(key),
+            Self::LineListNode(node) => node.node_contains_val(key),
+        }
+    }
+    pub fn node_get_val(&self, key: &[u8]) -> Option<&'a V> {
+        match self {
+            Self::DenseByteNode(node) => node.node_get_val(key),
+            Self::LineListNode(node) => node.node_get_val(key),
+        }
+    }
+
+    // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
+
+    // fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>>;
+
+    // fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
+
+    // fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>>;
+
+    // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
+
+    // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]);
+
+    // fn node_is_empty(&self) -> bool;
+
+    #[inline(always)]
+    pub fn new_iter_token(&self) -> u128 {
+        match self {
+            Self::DenseByteNode(node) => node.new_iter_token(),
+            Self::LineListNode(node) => node.new_iter_token(),
+        }
+    }
+    #[inline(always)]
+    pub fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+        match self {
+            Self::DenseByteNode(node) => node.iter_token_for_path(key),
+            Self::LineListNode(node) => node.iter_token_for_path(key),
+        }
+    }
+    #[inline(always)]
+    pub fn next_items(&self, token: u128) -> (u128, &'a[u8], Option<&'a TrieNodeODRc<V>>, Option<&'a V>) {
+        match self {
+            Self::DenseByteNode(node) => node.next_items(token),
+            Self::LineListNode(node) => node.next_items(token),
+        }
+    }
+
+    // fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
+
+    // #[cfg(feature = "counters")]
+    // fn item_count(&self) -> usize;
+
+    // fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize>;
+
+    pub fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&'a dyn TrieNode<V>>) {
+        match self {
+            Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
+            Self::LineListNode(node) => node.nth_child_from_key(key, n),
+        }
+    }
+    pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<&'a dyn TrieNode<V>>) {
+        match self {
+            Self::DenseByteNode(node) => node.first_child_from_key(key),
+            Self::LineListNode(node) => node.first_child_from_key(key),
+        }
+    }
+    #[inline(always)]
+    pub fn count_branches(&self, key: &[u8]) -> usize {
+        match self {
+            Self::DenseByteNode(node) => node.count_branches(key),
+            Self::LineListNode(node) => node.count_branches(key),
+        }
+    }
+    #[inline(always)]
+    pub fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
+        match self {
+            Self::DenseByteNode(node) => node.node_branches_mask(key),
+            Self::LineListNode(node) => node.node_branches_mask(key),
+        }
+    }
+    #[inline(always)]
+    pub fn is_leaf(&self, key: &[u8]) -> bool {
+        match self {
+            Self::DenseByteNode(node) => node.is_leaf(key),
+            Self::LineListNode(node) => node.is_leaf(key),
+        }
+    }
+    pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+        match self {
+            Self::DenseByteNode(node) => node.prior_branch_key(key),
+            Self::LineListNode(node) => node.prior_branch_key(key),
+        }
+    }
+    pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&'a dyn TrieNode<V>>) {
+        match self {
+            Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
+            Self::LineListNode(node) => node.get_sibling_of_child(key, next),
+        }
+    }
+    pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
+        match self {
+            Self::DenseByteNode(node) => node.get_node_at_key(key),
+            Self::LineListNode(node) => node.get_node_at_key(key),
+        }
+    }
+
+    // fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
+
+    // fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
+
+    // fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
+
+    // fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
+
+    // fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
+
+    // fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice;
+
+    // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
+
+    // fn as_dense(&self) -> Option<&DenseByteNode<V>>;
+
+    // fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
+
+    // fn as_list(&self) -> Option<&LineListNode<V>>;
+
+    // fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
+
+    // fn as_tagged(&self) -> TaggedNodeRef<V>;
+
+    // fn clone_self(&self) -> TrieNodeODRc<V>;
 }
 
 /// Returns the count of values in the subtrie descending from the node, caching shared subtries

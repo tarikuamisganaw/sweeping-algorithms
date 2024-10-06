@@ -23,6 +23,8 @@ pub mod line_list_node;
 mod empty_node;
 mod tiny_node;
 
+mod old_cursor;
+
 #[cfg(test)]
 mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -312,17 +314,6 @@ mod tests {
                 for i in o..n { assert_eq!(m.get(prefix_key(&i)), vnl.get(prefix_key(&i)).meet(&vnr.get(prefix_key(&i)))); }
                 // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
             }
-        }
-    }
-
-    #[test]
-    fn btm_cursor_test() {
-        let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
-        let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
-        let mut cursor = btm.cursor();
-        while let Some((k, v)) = cursor.next() {
-            // println!("{}, {v}", std::str::from_utf8(k).unwrap());
-            assert_eq!(k, table[*v].as_bytes());
         }
     }
 }
