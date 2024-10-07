@@ -1,4 +1,4 @@
-
+use core::ptr::NonNull;
 use mutcursor::MutCursorRootedVec;
 
 use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef, node_along_path_mut, val_count_below_root};
@@ -47,7 +47,7 @@ pub struct WriteZipper<'a, 'k, V> {
     /// to expose rooted zippers to clients at all, or get rid of the rooted code path entirely
     rooted: bool,
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
-    focus_stack: MutCursorRootedVec<*mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
+    focus_stack: MutCursorRootedVec<NonNull<TrieNodeODRc<V>>, dyn TrieNode<V> + 'static>,
     zipper_tracker: ZipperTracker,
     _variance: core::marker::PhantomData<&'a mut TrieNodeODRc<V>>,
 }
@@ -237,8 +237,8 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
     pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, zipper_tracker: ZipperTracker) -> Self {
-        let mut focus_stack = MutCursorRootedVec::new(root_node as *mut TrieNodeODRc<V>);
-        focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+        let mut focus_stack = MutCursorRootedVec::new(NonNull::from(root_node));
+        focus_stack.advance_from_root(|root| Some(unsafe{ root.as_mut() }.make_mut()));
         debug_assert!(rooted || path.len() == 0); //A non-rooted zipper must never have a non-zero-length root_path
         Self {
             key: KeyFields::new(path),
@@ -667,9 +667,9 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             } else {
                 let mut replacement_node = TrieNodeODRc::new(EmptyNode::new());
                 self.focus_stack.backtrack();
-                let stack_root = unsafe{ &mut **self.focus_stack.root_mut().unwrap() };
+                let stack_root = unsafe{ self.focus_stack.root_mut().unwrap().as_mut() };
                 core::mem::swap(stack_root, &mut replacement_node);
-                self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+                self.focus_stack.advance_from_root(|root| Some(unsafe{ root.as_mut() }.make_mut()));
                 if !replacement_node.borrow().node_is_empty() {
                     Some(replacement_node)
                 } else {
@@ -716,9 +716,9 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                         debug_assert_eq!(self.key.prefix_buf.len(), self.key.root_key.len());
                         debug_assert_eq!(self.focus_stack.depth(), 1);
                         self.focus_stack.to_root();
-                        let stack_root = unsafe{ &mut **self.focus_stack.root_mut().unwrap() };
+                        let stack_root = unsafe{ self.focus_stack.root_mut().unwrap().as_mut() };
                         *stack_root = src;
-                        self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+                        self.focus_stack.advance_from_root(|root| Some(unsafe{ root.as_mut() }.make_mut()));
                     }
                 }
             },
@@ -749,9 +749,9 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                         if !self.rooted {
                             panic!("Illegal Operation, cannot modify root of non-rooted WriteZipper");
                         } else {
-                            let stack_root = unsafe{ &mut **self.focus_stack.root_mut().unwrap() };
+                            let stack_root = unsafe{ self.focus_stack.root_mut().unwrap().as_mut() };
                             *stack_root = replacement_node;
-                            self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+                            self.focus_stack.advance_from_root(|root| Some(unsafe{ root.as_mut() }.make_mut()));
                         }
                     }
                 }
@@ -794,14 +794,14 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                 panic!("Illegal Operation, cannot modify root of non-rooted WriteZipper");
             } else {
                 debug_assert_eq!(self.focus_stack.depth(), 1);
-                let root_ptr = self.focus_stack.take_root().unwrap();
-                let root_ref = unsafe{ &mut *root_ptr };
+                let mut root_ptr = self.focus_stack.take_root().unwrap();
+                let root_ref = unsafe{ root_ptr.as_mut() };
                 let (key, node) = node_along_path_mut(root_ref, &self.key.root_key, true);
                 self.key.root_key = key;
                 self.key.prefix_buf.clear();
                 self.key.prefix_buf.extend(self.key.root_key);
-                self.focus_stack.replace_root(node);
-                self.focus_stack.advance_from_root(|root| Some(unsafe{ &mut **root }.make_mut()));
+                self.focus_stack.replace_root(NonNull::from(node));
+                self.focus_stack.advance_from_root(|root| Some(unsafe{ root.as_mut() }.make_mut()));
             }
         }
     }
