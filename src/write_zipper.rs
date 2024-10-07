@@ -663,7 +663,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         if node_key.len() == 0 {
             debug_assert!(self.at_root());
             if !self.rooted {
-                panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
+                panic!("Illegal Operation, cannot modify root of non-rooted WriteZipper");
             } else {
                 let mut replacement_node = TrieNodeODRc::new(EmptyNode::new());
                 self.focus_stack.backtrack();
@@ -709,7 +709,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                 } else {
                     //The zipper is at the root, so we need to replace the root node
                     if !self.rooted {
-                        panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
+                        panic!("Illegal Operation, cannot modify root of non-rooted WriteZipper");
                     } else {
                         debug_assert!(self.at_root());
                         debug_assert_eq!(self.key.prefix_idx.len(), 0);
@@ -747,7 +747,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                     },
                     None => {
                         if !self.rooted {
-                            panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
+                            panic!("Illegal Operation, cannot modify root of non-rooted WriteZipper");
                         } else {
                             let stack_root = unsafe{ &mut **self.focus_stack.root_mut().unwrap() };
                             *stack_root = replacement_node;
@@ -791,7 +791,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     fn mend_root(&mut self) {
         if self.key.prefix_idx.len() == 0 && self.key.root_key.len() > 1 {
             if !self.rooted {
-                panic!("Fatal Error, cannot modify focus of non-rooted WriteZipper");
+                panic!("Illegal Operation, cannot modify root of non-rooted WriteZipper");
             } else {
                 debug_assert_eq!(self.focus_stack.depth(), 1);
                 let root_ptr = self.focus_stack.take_root().unwrap();

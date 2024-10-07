@@ -554,25 +554,6 @@ mod tests {
         for n in 0..thread_cnt {
             let map_ref = map.clone();
             let thread = spawn(move || {
-                //GOAT, there is currently a bug that means we need 2 unique path bytes instead of 1.
-                // The reason is:
-                // 1. The first byte maps to a node that is shared, so we can't modify it from code outside a critical
-                //   section
-                // 2. The WriteZipper currently holds a mutable reference to a node (in case the root node needs to be upgraded).
-                //   That means the node the writeZipper points into cannot be accessed outside a critical section.
-                //   That node maps to the second byte
-                // 3. The third byte of a WriteZipper's path is on account of the fact that the WriteZipper
-                //   holds a reference to the parent of the path.  This was originally done so the WriteZipper
-                //   could set a value at its root.
-                //   *UPDATE* Condition 3 is now addressed, but the tradeoff is that setting a root value on this type of zipper
-                //   will cause a problem.
-                //
-                // To fix this several changes are needed.
-                // 1. A WriteZipper should hold a reference to a CoFree, (or to a node and a value individually)
-                // 2. We will need a special DenseNode type that wraps each CoFree in its own UnsafeCell
-                // 3. maybe I can get rid of RootWrapper, since I won't need the UnsafeCell at the map root anymore,
-                //  if I have one at each node.  On the other hand, if I get rid of it, then it means I need to
-                //  have one of the special DenseNodes with every CoFree wrapped, at the root.
                 let path = [n as u8];
 
                 let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
@@ -612,3 +593,8 @@ mod tests {
 //     WriteZipper is dropped.  Obviously I don't love the complexity of this approach either
 //
 // For code cleanliness reasons, I am strongly leaning towards 1.  Keep it illegal.
+//
+//UPDATE: I tried an UnsafeCells in every node.  The perf costs make this a non-starter.  (~30% penalty
+// for almost every benchmark)  If we do need to handle this case, I think I have a preference for a special
+// type of parent node that has an UnsafeCell around each child ptr and each value.
+//
