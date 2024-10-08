@@ -1,14 +1,13 @@
 use core::ptr::NonNull;
 use mutcursor::MutCursorRootedVec;
 
-use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef, node_along_path_mut, val_count_below_root};
+use crate::trie_node::{TrieNode, TrieNodeODRc, AbstractNodeRef, node_along_path_mut, val_count_below_root, make_dense};
 use crate::trie_map::BytesTrieMap;
 use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::zipper_tracking::*;
 use crate::ring::{Lattice, PartialDistributiveLattice};
-#[cfg(feature = "all_dense_nodes")]
 use crate::dense_byte_node::DenseByteNode;
 #[cfg(not(feature = "all_dense_nodes"))]
 use crate::line_list_node::LineListNode;
@@ -338,6 +337,8 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
     /// [Self::path_exists] returning `false`, where it previously returned `true`
     pub fn remove_value(&mut self) -> Option<V> {
+        debug_assert!(self.key.node_key().len() > 0);
+        debug_assert!(!self.at_root());
         let focus_node = self.focus_stack.top_mut().unwrap();
         if let Some(result) = focus_node.node_remove_val(self.key.node_key()) {
             if focus_node.node_is_empty() {
@@ -346,6 +347,50 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             Some(result)
         } else {
             None
+        }
+    }
+
+    /// Creates a [ZipperHead] at the zipper's current focus
+    pub fn zipper_head(&mut self) -> ZipperHead<V> {
+        if self.at_root() {
+            // I don't want to worry about making a ZipperHead for the root of a rooted zipper, since we might
+            // not support rooted zippers anyway
+            debug_assert_eq!(self.rooted, false);
+
+            self.focus_stack.to_root();
+            let stack_root = unsafe{ self.focus_stack.root_mut().unwrap().as_mut() };
+            ZipperHead::new(stack_root)
+        } else {
+            //See if we already have a node in the right spot to act as the ZipperHead's root
+            let focus_stack_ptr: *mut MutCursorRootedVec<NonNull<TrieNodeODRc<V>>, dyn TrieNode<V> + 'static> = &mut self.focus_stack;
+            //SAFETY: This is another "It's ok in Polonius" situation.  The safety thesis is that focus_node
+            // or anything borrowed from focus_node is either dropped or returned
+            let focus_node = unsafe{ &mut *focus_stack_ptr }.top_mut().unwrap();
+            let node_key = self.key.node_key();
+            debug_assert!(node_key.len() > 0);
+            if let Some((consumed_bytes, child_node)) = focus_node.node_get_child_mut(node_key) {
+                debug_assert_eq!(consumed_bytes, node_key.len());
+                make_dense(child_node);
+                return ZipperHead::new(child_node)
+            }
+
+            //If we don't have a node to work from, we are going to need to splice in a new node,
+            // and then try again to generate the ZipperHead by calling this method recursively
+            let sub_branch_added = self.in_zipper_mut_static_result(
+                |node, key| {
+                    let new_node = if let Some(mut remaining) = node.take_node_at_key(key) {
+                        make_dense(&mut remaining);
+                        remaining
+                    } else {
+                        TrieNodeODRc::new(DenseByteNode::new())
+                    };
+                    node.node_set_branch(key, new_node)
+                },
+                |_, _| true);
+            if sub_branch_added {
+                self.descend_to_internal();
+            }
+            self.zipper_head()
         }
     }
 
@@ -677,7 +722,6 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
                 }
             }
         } else {
-            debug_assert!(node_key.len() > 0);
             if let Some(new_node) = focus_node.take_node_at_key(node_key) {
                 if focus_node.node_is_empty() {
                     self.prune_path();
@@ -821,6 +865,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         }
 
         //Step until we get to the end of the key or find a leaf node
+        self.focus_stack.advance_if_empty(|root| unsafe{ root.as_mut() }.make_mut());
         while self.focus_stack.advance(|node| {
             if let Some((consumed_byte_cnt, next_node)) = node.node_get_child_mut(key) {
                 if consumed_byte_cnt < key.len() {

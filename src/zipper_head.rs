@@ -138,6 +138,134 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn hierarchical_zipper_heads1() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make a ZipperHead for the whole map, and two child zippers
+        let map_head = map.zipper_head();
+        let mut a_zipper = map_head.write_zipper_at_exclusive_path(b"a");
+        let mut b_zipper = map_head.write_zipper_at_exclusive_path(b"b");
+
+        //Do some interleaved work with the two zippers
+        a_zipper.descend_to(b"+value");
+        a_zipper.set_value(0);
+        a_zipper.reset();
+        b_zipper.descend_to(b"+value");
+        b_zipper.set_value(1);
+        b_zipper.reset();
+
+        //Try pre-creating trie in the parent that will be visited by the child zipper
+        b_zipper.descend_to(b"-children-0+metadata");
+        b_zipper.set_value(-3);
+        b_zipper.ascend(10);
+
+        //Make a ZipperHead on the WriteZipper, and make two more parallel zippers
+        let b_head = b_zipper.zipper_head();
+        let mut b0_zipper = b_head.write_zipper_at_exclusive_path(b"0");
+        let mut b1_zipper = b_head.write_zipper_at_exclusive_path(b"1");
+
+        //Do some interleaved work with them
+        b0_zipper.descend_to(b"+value");
+        b0_zipper.set_value(4);
+        b1_zipper.descend_to(b"+value");
+        b1_zipper.set_value(-5);
+
+        //Drop the child zippers, so we can move the parent again
+        drop(b0_zipper);
+        drop(b1_zipper);
+
+        //Visit some of the nodes the child zippers poked at, and fix their values with the parent
+        b_zipper.descend_to(b"0+metadata");
+        b_zipper.set_value(3);
+        b_zipper.reset();
+        b_zipper.descend_to(b"-children-1+value");
+        b_zipper.set_value(5);
+
+        //Test chopping an existing non-forking path, and inserting a new ZipperHead in there
+        b_zipper.reset();
+        b_zipper.descend_to(b"-children-0+meta");
+        let b_head = b_zipper.zipper_head();
+        let mut b0_zipper = b_head.write_zipper_at_exclusive_path([]);
+        b0_zipper.descend_to(b"bolic");
+        b0_zipper.set_value(6);
+        drop(b0_zipper);
+
+        //Test making a ZipperHead when the parent WriteZipper is at a location that does not exist yet
+        a_zipper.reset();
+        a_zipper.descend_to(b"-children-");
+        let a_head = a_zipper.zipper_head();
+        let mut a0_zipper = a_head.write_zipper_at_exclusive_path("0");
+        a0_zipper.descend_to(b"+value");
+        a0_zipper.set_value(7);
+        drop(a0_zipper);
+
+        //We're done.
+        drop(a_zipper);
+        drop(b_zipper);
+
+        // for (k, v) in map.iter() {
+        //     println!("{} {v}", String::from_utf8_lossy(&k));
+        // }
+        assert_eq!(map.val_count(), 7);
+        assert_eq!(map.get(b"a+value").unwrap(), &0);
+        assert_eq!(map.get(b"a-children-0+value").unwrap(), &7);
+        assert_eq!(map.get(b"b+value").unwrap(), &1);
+        assert_eq!(map.get(b"b-children-0+metabolic").unwrap(), &6);
+        assert_eq!(map.get(b"b-children-0+metadata").unwrap(), &3);
+        assert_eq!(map.get(b"b-children-0+value").unwrap(), &4);
+        assert_eq!(map.get(b"b-children-1+value").unwrap(), &5);
+    }
+
+    #[test]
+    fn hierarchical_zipper_heads2() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make a ZipperHead for the whole map, and two child zippers
+        let map_head = map.zipper_head();
+        let mut a_zipper = map_head.write_zipper_at_exclusive_path(b"a");
+        let mut b_zipper = map_head.write_zipper_at_exclusive_path(b"b");
+
+        //Make a separate ZipperHead on each WriteZipper
+        let a_head = a_zipper.zipper_head();
+        let b_head = b_zipper.zipper_head();
+
+        //Make some WriteZippers on each head
+        let mut a0_zipper = a_head.write_zipper_at_exclusive_path(b"0");
+        let mut a1_zipper = a_head.write_zipper_at_exclusive_path(b"1");
+        let mut b0_zipper = b_head.write_zipper_at_exclusive_path(b"0");
+        let mut b1_zipper = b_head.write_zipper_at_exclusive_path(b"1");
+
+        //Do some interleaved work with them
+        a0_zipper.descend_to(b"+value");
+        a0_zipper.set_value(0);
+        a1_zipper.descend_to(b"+value");
+        a1_zipper.set_value(1);
+        b0_zipper.descend_to(b"+value");
+        b0_zipper.set_value(2);
+        b1_zipper.descend_to(b"+value");
+        b1_zipper.set_value(3);
+
+        //We're done
+        drop(a0_zipper);
+        drop(a1_zipper);
+        drop(b0_zipper);
+        drop(b1_zipper);
+        drop(a_zipper);
+        drop(b_zipper);
+
+        // for (k, v) in map.iter() {
+        //     println!("{} {v}", String::from_utf8_lossy(&k));
+        // }
+        assert_eq!(map.val_count(), 4);
+        assert_eq!(map.get(b"a0+value").unwrap(), &0);
+        assert_eq!(map.get(b"a1+value").unwrap(), &1);
+        assert_eq!(map.get(b"b0+value").unwrap(), &2);
+        assert_eq!(map.get(b"b1+value").unwrap(), &3);
+    }
 }
 
-//GOAT, TODO, make a test for hierarchical ZipperHeads
+
+//GOAT, Safe zipper_head API should return Option instead of panicking
+//

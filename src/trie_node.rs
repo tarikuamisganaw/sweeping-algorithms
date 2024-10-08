@@ -585,6 +585,11 @@ pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMa
 ///
 /// Returns `(false, node)` if the node already existed (regardless of whether or not it was upgraded),
 /// and returns `(true, node)` if the node was created.
+///
+/// NOTE: I was originally thinking this code could be shared between the PathMap::zipper_head impl and
+/// the WriteZipper::zipper_head impl.  But unfortunately the WriteZipper version is too intertwined with
+/// the logic to keep the zipper in a coherent state.  So maybe this function should just be integrated
+/// into PathMap::zipper_head.
 pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> (bool, &'a mut TrieNodeODRc<V>) {
     let (remaining_key, node) = node_along_path_mut(root_node, path, false);
 
@@ -640,7 +645,7 @@ pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>
 /// Ensures the node is a DenseByteNode
 ///
 /// Returns `true` if the node was upgraded and `false` if it already was a DenseByteNode
-fn make_dense<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>) -> bool {
+pub(crate) fn make_dense<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>) -> bool {
     if node.borrow().as_dense().is_some() {
         false
     } else {
