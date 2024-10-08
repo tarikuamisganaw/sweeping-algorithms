@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use core::cell::Cell;
 use std::marker::PhantomData;
 use crate::trie_node::*;
-use crate::write_zipper::*;
+use crate::zipper::*;
 use crate::zipper_tracking::*;
 
 /// Used to make multiple simultaneous zippers in the same map
@@ -23,41 +23,32 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         }
     }
 
-    //GOAT, probably don't need this API
-    // /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
-    // pub fn read_zipper(&self) -> ReadZipper<V> {
-    //     let zipper_tracker = self.zipper_tracker.new_read_path(&[]);
-    //     ReadZipper::new_with_node_and_path_internal(self.root().borrow().as_tagged(), &[], Some(0), None, zipper_tracker)
-    // }
+    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`
+    pub fn read_zipper_at_path<'k>(&self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
+        let zipper_tracker = self.zipper_tracker.new_read_path(path);
+        let root = unsafe{ self.root.get().as_ref() };
+        ReadZipper::new_with_node_and_path(root.borrow(), path.as_ref(), Some(path.len()), Some(zipper_tracker))
+    }
 
-    // /// Creates a new [ReadZipper] with the specified path from the root of the map
-    // pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
-    //     let zipper_tracker = self.zipper_tracker.new_read_path(path);
-    //     ReadZipper::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()), zipper_tracker)
-    // }
+    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`, where the caller
+    /// guarantees that there will be no conflicts with any WriteZippers at any time in the future
+    pub unsafe fn read_zipper_at_path_unchecked<'k>(&self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
+        let zipper_tracker = self.zipper_tracker.new_read_path_release_only(path);
+        let root = unsafe{ self.root.get().as_ref() };
+        ReadZipper::new_with_node_and_path(root.borrow(), path.as_ref(), Some(path.len()), zipper_tracker)
+    }
 
+    //GOAT, there may be no point to this API method
     // /// Creates a new [WriteZipper] starting at the root of the `ZipperHead``
     // pub fn root_write_zipper(&mut self) -> WriteZipper<V> {
     //     let zipper_tracker = self.zipper_tracker.new_write_path(&[]);
-    //     WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[], true, zipper_tracker)
+    //     let root = unsafe{ self.root.get().as_mut() };
+    //     WriteZipper::new_with_node_and_path_internal(root, &[], true, Some(zipper_tracker))
     // }
 
-    // /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
-    // pub fn write_zipper_at_exclusive_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
-    //     let zipper_tracker = self.zipper_tracker.new_write_path(path);
-    //     WriteZipper::new_with_node_and_path(self.root_mut(), path, zipper_tracker)
-    // }
-
-    //GOAT, read_zipper_at_path_unchecked
-
-    /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the
-    /// caller guarantees that no existing zippers may access the specified path
-//GOAT, think through how to do the checks, but only in debug mode
-    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'k>(&self, path: &[u8]) -> WriteZipper<'a, 'k, V> {
-        let path_len = path.len();
-        if path_len == 0 {
-            panic!("Illegal Operation: WriteZipper can't be created at the root of a ZipperHead without mutable access.  Use ZipperHead::root_write_zipper instead.");
-        }
+    /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
+    pub fn write_zipper_at_exclusive_path<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipper<'a, 'k, V> {
+        let path = path.as_ref();
         let zipper_tracker = self.zipper_tracker.new_write_path(path);
         let root = unsafe{ self.root.get().as_mut() };
         let (_created_node, zipper_root_node) = prepare_exclusive_write_path(root, &path);
@@ -66,6 +57,26 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         // to prune the zipper's path.
 
         let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, Some(zipper_tracker));
+        zipper
+    }
+
+    /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
+    /// that no existing zippers may access the specified path at any time before the `WriteZipper` is dropped
+    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipper<'a, 'k, V> {
+        let path = path.as_ref();
+        //GOAT, there may be no point to this
+        // let path_len = path.len();
+        // if path_len == 0 {
+        //     panic!("Illegal Operation: WriteZipper can't be created at the root of a ZipperHead without mutable access.  Use ZipperHead::root_write_zipper instead.");
+        // }
+        let zipper_tracker = self.zipper_tracker.new_write_path_release_only(path);
+        let root = unsafe{ self.root.get().as_mut() };
+        let (_created_node, zipper_root_node) = prepare_exclusive_write_path(root, &path);
+        //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
+        // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
+        // to prune the zipper's path.
+
+        let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker);
         zipper
     }
 }
@@ -128,3 +139,5 @@ mod tests {
         }
     }
 }
+
+//GOAT, TODO, make a test for hierarchical ZipperHeads

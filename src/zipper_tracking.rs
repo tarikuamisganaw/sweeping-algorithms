@@ -1,7 +1,6 @@
 
 /// Tracks the root path of each zipper, to check for violations against all other outstanding zipper paths.
 /// See [ByteTrieMap::write_zipper_at_exclusive_path_unchecked].
-#[cfg(debug_assertions)]
 #[derive(Default)]
 pub(crate) struct ZipperTracker {
     all_paths: std::sync::Arc<ZipperPaths>,
@@ -10,14 +9,12 @@ pub(crate) struct ZipperTracker {
 }
 
 /// A shared registry of every outstanding zipper
-#[cfg(debug_assertions)]
 #[derive(Default)]
 struct ZipperPaths {
     read_zippers: std::sync::RwLock<Vec<Vec<u8>>>,
     write_zippers: std::sync::RwLock<Vec<Vec<u8>>>
 }
 
-#[cfg(debug_assertions)]
 #[derive(Debug, Default)]
 enum IsTracking {
     #[default]
@@ -26,7 +23,6 @@ enum IsTracking {
     ReadZipper,
 }
 
-#[cfg(debug_assertions)]
 impl core::fmt::Debug for ZipperTracker {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let _ = writeln!(f, "ZipperTracker {{ type = {:?}, path = {:?}", self.is_tracking, self.this_path);
@@ -42,7 +38,6 @@ impl core::fmt::Debug for ZipperTracker {
     }
 }
 
-#[cfg(debug_assertions)]
 impl ZipperTracker {
     pub fn new_write_path(&self, path: &[u8]) -> Self {
         let read_paths_lock = self.all_paths.read_zippers.read().unwrap();
@@ -82,9 +77,24 @@ impl ZipperTracker {
             is_tracking: IsTracking::ReadZipper,
         }
     }
+    #[cfg(debug_assertions)]
+    pub fn new_write_path_release_only(&self, path: &[u8]) -> Option<Self> {
+        Some(self.new_write_path(path))
+    }
+    #[cfg(not(debug_assertions))]
+    pub fn new_write_path_release_only(&self, path: &[u8]) -> Option<Self> {
+        None
+    }
+    #[cfg(debug_assertions)]
+    pub fn new_read_path_release_only(&self, path: &[u8]) -> Option<Self> {
+        Some(self.new_read_path(path))
+    }
+    #[cfg(not(debug_assertions))]
+    pub fn new_read_path_release_only(&self, path: &[u8]) -> Option<Self> {
+        None
+    }
 }
 
-#[cfg(debug_assertions)]
 impl Drop for ZipperTracker {
     fn drop(&mut self) {
         match self.is_tracking {
@@ -103,20 +113,3 @@ impl Drop for ZipperTracker {
     }
 }
 
-//===---***---===---***---===---***---===---***---===---***---===---***---===---***---===---***---===
-// Release Build no-op
-//===---***---===---***---===---***---===---***---===---***---===---***---===---***---===---***---===
-
-#[cfg(not(debug_assertions))]
-#[derive(Default)]
-pub(crate) struct ZipperTracker(());
-
-#[cfg(not(debug_assertions))]
-impl ZipperTracker {
-    #[inline]
-    pub fn new_write_path(&self, _path: &[u8]) -> Self { Self(()) }
-    #[inline]
-    pub fn new_read_path(&self, _path: &[u8]) -> Self { Self(()) }
-    #[inline]
-    pub fn new_read_path_no_check(&self, _path: &[u8]) -> Self { Self(()) }
-}
