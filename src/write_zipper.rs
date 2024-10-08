@@ -48,7 +48,7 @@ pub struct WriteZipper<'a, 'k, V> {
     rooted: bool,
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
     focus_stack: MutCursorRootedVec<NonNull<TrieNodeODRc<V>>, dyn TrieNode<V> + 'static>,
-    zipper_tracker: ZipperTracker,
+    zipper_tracker: Option<ZipperTracker>,
     _variance: core::marker::PhantomData<&'a mut TrieNodeODRc<V>>,
 }
 
@@ -208,7 +208,7 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
 
     fn fork_zipper(&self) -> ReadZipper<V> {
         let new_root_val = self.get_value();
-        let zipper_tracker = self.zipper_tracker.new_read_path_no_check(&self.key.root_key);
+        let zipper_tracker = self.zipper_tracker.as_ref().map(|tracker| tracker.new_read_path_no_check(&self.key.root_key));
         ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap().as_tagged(), &self.key.root_key, None, new_root_val, zipper_tracker)
     }
 
@@ -227,7 +227,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
 
 impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
-    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: Option<ZipperTracker>) -> Self {
         let (key, node) = node_along_path_mut(root_node, path, true);
         Self::new_with_node_and_path_internal(node, key, true, zipper_tracker)
     }
@@ -236,7 +236,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, zipper_tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, zipper_tracker: Option<ZipperTracker>) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(NonNull::from(root_node));
         focus_stack.advance_from_root(|root| Some(unsafe{ root.as_mut() }.make_mut()));
         debug_assert!(rooted || path.len() == 0); //A non-rooted zipper must never have a non-zero-length root_path

@@ -1,11 +1,9 @@
 use core::cell::UnsafeCell;
-use std::sync::{Mutex, MutexGuard};
 
 use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice, PartialQuantale};
-use crate::zipper_tracking::*;
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -23,50 +21,11 @@ use crate::zipper_tracking::*;
 /// assert!(!map.contains("three"));
 /// ```
 pub struct BytesTrieMap<V> {
-    root: RootWrapper<V>,
-    zipper_tracker: ZipperTracker,
+    root: UnsafeCell<TrieNodeODRc<V>>,
 }
 
-/// An internal wrapper to control mutable access to the root node.  Provides zero-overhead for
-/// const access, because all mut access is only taken in some very special circumstances.
-///
-/// WARNING! RootWrapper, by itself, is not safe.  It relies on specific access patterns
-///
-/// NOTE: This mutex itself is likely a stop-gap, since it doesn't scale.  This design imposes a
-/// considerable overhead on making new zippers, even if the zippers themselves are thread-safe
-/// after they are created.
-struct RootWrapper<V> {
-    node: UnsafeCell<TrieNodeODRc<V>>,
-    lock: Mutex<()>,
-}
-
-unsafe impl<V: Send + Sync> Send for RootWrapper<V> {}
-unsafe impl<V: Send + Sync> Sync for RootWrapper<V> {}
-
-impl<V> RootWrapper<V> {
-    pub(crate) fn new(node: TrieNodeODRc<V>) -> Self {
-        Self {
-            node: UnsafeCell::new(node),
-            lock: Mutex::new(()),
-        }
-    }
-    #[inline]
-    pub(crate) fn get(&self) -> &TrieNodeODRc<V> {
-        unsafe{ &*self.node.get() }
-    }
-    #[inline]
-    pub(crate) fn get_mut(&mut self) -> &mut TrieNodeODRc<V> {
-        self.node.get_mut()
-    }
-    pub(crate) fn into_inner(self) -> TrieNodeODRc<V> {
-        self.node.into_inner()
-    }
-    pub(crate) fn exclusive_get_mut(&self) -> (&mut TrieNodeODRc<V>, MutexGuard<()>) {
-        let guard = self.lock.lock().unwrap();
-        let node = unsafe{ &mut *self.node.get() };
-        (node, guard)
-    }
-}
+unsafe impl<V: Send + Sync> Send for BytesTrieMap<V> {}
+unsafe impl<V: Send + Sync> Sync for BytesTrieMap<V> {}
 
 impl<V: Clone + Send + Sync> Clone for BytesTrieMap<V> {
     fn clone(&self) -> Self {
@@ -77,7 +36,7 @@ impl<V: Clone + Send + Sync> Clone for BytesTrieMap<V> {
 impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     #[inline]
     pub(crate) fn root(&self) -> &TrieNodeODRc<V> {
-        self.root.get()
+        unsafe{ &*self.root.get() }
     }
     #[inline]
     pub(crate) fn root_mut(&mut self) -> &mut TrieNodeODRc<V> {
@@ -96,10 +55,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
     #[inline]
     pub(crate) fn new_with_root(root: TrieNodeODRc<V>) -> Self {
-        Self {
-            root: RootWrapper::new(root),
-            zipper_tracker: ZipperTracker::default(),
-        }
+        Self { root: UnsafeCell::new(root) }
     }
 
     pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
@@ -145,53 +101,28 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
 
     /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
     pub fn read_zipper(&self) -> ReadZipper<V> {
-        let zipper_tracker = self.zipper_tracker.new_read_path(&[]);
-        ReadZipper::new_with_node_and_path_internal(self.root().borrow().as_tagged(), &[], Some(0), None, zipper_tracker)
+        ReadZipper::new_with_node_and_path_internal(self.root().borrow().as_tagged(), &[], Some(0), None, None)
     }
 
     /// Creates a new [ReadZipper] with the specified path from the root of the map
     pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
-        let zipper_tracker = self.zipper_tracker.new_read_path(path);
-        ReadZipper::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()), zipper_tracker)
+        ReadZipper::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()), None)
     }
 
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap
     pub fn write_zipper(&mut self) -> WriteZipper<V> {
-        let zipper_tracker = self.zipper_tracker.new_write_path(&[]);
-        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[], true, zipper_tracker)
+        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[], true, None)
     }
 
     /// Creates a new [WriteZipper] with the specified path from the root of the map
     pub fn write_zipper_at_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
-        let zipper_tracker = self.zipper_tracker.new_write_path(path);
-        WriteZipper::new_with_node_and_path(self.root_mut(), path, zipper_tracker)
+        WriteZipper::new_with_node_and_path(self.root_mut(), path, None)
     }
 
-    /// Creates a new [WriteZipper] with the specified path from the root of the map, where the
-    /// caller guarantees that no existing zippers may access the specified path
-    ///
-    /// NOTE: There is no safe version of this method because we don't want to pay the overhead of
-    /// tracking every ReadZipper's path in a release build
-    ///
-    //GOAT!!  I Realized this is unsound because the TrieMap direct methods can still traverse from the
-    // root, and potentially read parts of the trie that a WriteZipper is in the process of modifying.
-    //Instead I propose a "ZipperMaker" that takes a mutable borrow of the map, and can dispense both read
-    // and write zippers
-    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, 'k>(&'a self, path: &[u8]) -> WriteZipper<'a, 'k, V> {
-        let path_len = path.len();
-        if path_len == 0 {
-            panic!("Fatal Error: Root path cannot be modified without mutable access to the map.  Use TrieMap::write_zipper");
-        }
-        let zipper_tracker = self.zipper_tracker.new_write_path(path);
-        let (map_root_node, root_guard) = self.root.exclusive_get_mut();
-        let (_created_node, zipper_root_node) = prepare_exclusive_write_path(map_root_node, &path);
-        //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
-        // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
-        // to prune the zipper's path.
-
-        let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker);
-        drop(root_guard);
-        zipper
+    /// Creates a [ZipperHead] at the root of the map
+    pub fn zipper_head(&mut self) -> ZipperHead<V> {
+        let root = unsafe{ &mut *self.root.get() };
+        ZipperHead::new(root)
     }
 
     /// Returns an iterator over all key-value pairs within the map
@@ -370,7 +301,6 @@ impl<V: Clone + Send + Sync> PartialQuantale for BytesTrieMap<V> {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::prefix_key;
     use crate::trie_map::*;
     use crate::ring::Lattice;
 
@@ -533,51 +463,6 @@ mod tests {
         while let Some((k, v)) = cursor.next() {
             // println!("{}, {v}", std::str::from_utf8(k).unwrap());
             assert_eq!(k, table[*v].as_bytes());
-        }
-    }
-
-    use std::thread::{JoinHandle, spawn};
-    use std::sync::Arc;
-    use crate::zipper::Zipper;
-    #[test]
-    fn parallel_insert_test() {
-
-        let thread_cnt = 8;
-        let elements = 1024;
-
-        let elements_per_thread = elements / thread_cnt;
-
-        let mut threads: Vec<JoinHandle<()>> = Vec::with_capacity(thread_cnt);
-        let map = Arc::new(crate::trie_map::BytesTrieMap::<usize>::new());
-
-        //Spawn all the threads
-        for n in 0..thread_cnt {
-            let map_ref = map.clone();
-            let thread = spawn(move || {
-                let path = [n as u8];
-
-                let mut zipper = unsafe{ map_ref.write_zipper_at_exclusive_path_unchecked(&path) };
-                for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
-                    zipper.descend_to(prefix_key(&(i as u64)));
-                    assert!(zipper.set_value(i).is_none());
-                    zipper.reset();
-                }
-            });
-            threads.push(thread);
-        };
-
-        //Wait for them to finish
-        for thread in threads {
-            thread.join().unwrap();
-        }
-
-        //Test that the values set by the threads are correct
-        for n in 0..thread_cnt {
-            for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
-                let mut path = vec![n as u8];
-                path.extend(prefix_key(&(i as u64)));
-                assert_eq!(map.get(path), Some(&i));
-            }
         }
     }
 }

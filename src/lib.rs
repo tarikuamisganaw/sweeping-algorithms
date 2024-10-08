@@ -12,6 +12,9 @@ pub mod zipper;
 /// Track outstanding zippers to be sure they don't conflict
 pub(crate) mod zipper_tracking;
 
+/// Used to create multiple simultaneous zippers from the same parent
+mod zipper_head;
+
 /// Features to inspect performance properties of trees, for optimizing
 #[cfg(feature = "counters")]
 pub mod counters;

@@ -129,25 +129,28 @@ impl<V: Send + Sync> DenseByteNode<V> {
         self.mask[((k & 0b11000000) >> 6) as usize] &= !(1u64 << (k & 0b00111111));
     }
 
-    /// Ensures that a CoFree exists for the specified key
-    ///
-    /// Returns `true` if a new CoFree was created, and `false` if one already existed
-    ///
-    /// This enables a WriteZipper to modify a specific CoFree without touching the DenseByteNode
-    /// that contains it, and therefore multiple WriteZippers can be rooted at the same parent, so
-    /// long as the first byte of each path is unique
-    #[inline]
-    pub(crate) fn prepare_cf(&mut self, k: u8) -> bool {
-        if self.get(k).is_some() {
-            false
-        } else {
-            let ix = self.left(k) as usize;
-            self.set(k);
-            let new_cf = CoFree {rec: None, value: None };
-            self.values.insert(ix, new_cf);
-            true
-        }
-    }
+    //GOAT.  I don't think we're going to need this.  But a conversation is needed about the need to modify
+    // WriteZipper roots
+    //
+    // /// Ensures that a CoFree exists for the specified key
+    // ///
+    // /// Returns `true` if a new CoFree was created, and `false` if one already existed
+    // ///
+    // /// This enables a WriteZipper to modify a specific CoFree without touching the DenseByteNode
+    // /// that contains it, and therefore multiple WriteZippers can be rooted at the same parent, so
+    // /// long as the first byte of each path is unique
+    // #[inline]
+    // pub(crate) fn prepare_cf(&mut self, k: u8) -> bool {
+    //     if self.get(k).is_some() {
+    //         false
+    //     } else {
+    //         let ix = self.left(k) as usize;
+    //         self.set(k);
+    //         let new_cf = CoFree {rec: None, value: None };
+    //         self.values.insert(ix, new_cf);
+    //         true
+    //     }
+    // }
 
     /// Adds a new child at the specified key byte.  Replaces and returns an existing branch.
     /// Use [join_child_into] to join with the existing branch

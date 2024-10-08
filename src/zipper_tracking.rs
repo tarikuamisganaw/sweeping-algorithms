@@ -21,7 +21,7 @@ struct ZipperPaths {
 #[derive(Debug, Default)]
 enum IsTracking {
     #[default]
-    Map,
+    ZipperHead,
     WriteZipper,
     ReadZipper,
 }
@@ -88,7 +88,7 @@ impl ZipperTracker {
 impl Drop for ZipperTracker {
     fn drop(&mut self) {
         match self.is_tracking {
-            IsTracking::Map => {},
+            IsTracking::ZipperHead => {},
             IsTracking::WriteZipper => {
                 let mut guard = self.all_paths.write_zippers.write().unwrap();
                 let idx = guard.iter().position(|path| *path == self.this_path).unwrap();

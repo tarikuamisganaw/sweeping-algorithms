@@ -27,6 +27,8 @@ use crate::trie_map::BytesTrieMap;
 pub use crate::write_zipper::*;
 use crate::zipper_tracking::*;
 
+pub use crate::zipper_head::*;
+
 /// An interface common to all zippers, to support moving the zipper, reading elements, iterating across
 /// the trie
 pub trait Zipper<'a>: zipper_priv::ZipperPriv {
@@ -144,7 +146,7 @@ pub struct ReadZipper<'a, 'k, V> {
     /// The tuple contains: `(node_ref, iter_token, key_offset_in_prefix_buf)`
     ancestors: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
     /// Tracks the outstanding zippers to ensure there are no conflicts
-    zipper_tracker: ZipperTracker,
+    zipper_tracker: Option<ZipperTracker>,
 }
 
 impl<V> Drop for ReadZipper<'_, '_, V> {
@@ -161,7 +163,7 @@ impl<'a, 'k, V> Clone for ReadZipper<'a, 'k, V> where V: Clone {
             focus_iter_token: NODE_ITER_INVALID,
             prefix_buf: self.prefix_buf.clone(),
             ancestors: self.ancestors.clone(),
-            zipper_tracker: self.zipper_tracker.new_read_path(self.origin_path),
+            zipper_tracker: self.zipper_tracker.as_ref().map(|tracker| tracker.new_read_path(self.origin_path)),
         }
     }
 }
@@ -378,7 +380,7 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for ReadZipper<'a, 'k, V> {
             },
             None => (self.origin_path, None)
         };
-        let zipper_tracker = self.zipper_tracker.new_read_path(&self.origin_path);
+        let zipper_tracker = self.zipper_tracker.as_ref().map(|tracker| tracker.new_read_path(&self.origin_path));
         ReadZipper::new_with_node_and_path_internal(self.focus_node.clone(), new_root_path, new_root_key_offset, new_root_val, zipper_tracker)
     }
 
@@ -398,7 +400,7 @@ impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipper<'a, 
 impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
 
     /// Creates a new zipper, with a path relative to a node
-    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8], mut root_key_offset: Option<usize>, zipper_tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'k [u8], mut root_key_offset: Option<usize>, zipper_tracker: Option<ZipperTracker>) -> Self {
         let mut key = path;
         let mut node = root_node;
         let mut val = None;
@@ -433,7 +435,7 @@ impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'k [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, zipper_tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'k [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, zipper_tracker: Option<ZipperTracker>) -> Self {
         Self {
             origin_path: path,
             root_key_offset,
@@ -1142,7 +1144,7 @@ mod tests {
 
         //Test `descend_to` and `ascend_until`
         let root_key = b"ro";
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()), ZipperTracker::default());
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()), None);
         assert_eq!(zipper.path(), b"");
         assert_eq!(zipper.child_count(), 1);
         zipper.descend_to(b"m");
@@ -1239,14 +1241,14 @@ mod tests {
         rs.iter().for_each(|r| { btm.insert(r.as_bytes(), *r); });
 
         let root_key = b"ro";
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()), ZipperTracker::default());
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()), None);
         assert_eq!(zipper.is_value(), false);
         zipper.descend_to(b"mulus");
         assert_eq!(zipper.is_value(), true);
         assert_eq!(zipper.get_value(), Some(&"romulus"));
 
         let root_key = b"roman";
-        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()), ZipperTracker::default());
+        let mut zipper = ReadZipper::new_with_node_and_path(btm.root().borrow(), root_key, Some(root_key.len()), None);
         assert_eq!(zipper.is_value(), true);
         assert_eq!(zipper.get_value(), Some(&"roman"));
         zipper.descend_to(b"e");
