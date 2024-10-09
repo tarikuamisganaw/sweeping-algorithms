@@ -1,37 +1,46 @@
+use std::sync::Arc;
+use std::sync::RwLock;
 
 /// Tracks the root path of each zipper, to check for violations against all other outstanding zipper paths.
-/// See [ByteTrieMap::write_zipper_at_exclusive_path_unchecked].
-#[derive(Default)]
+/// See [ZipperHead::write_zipper_at_exclusive_path_unchecked].
 pub(crate) struct ZipperTracker {
-    all_paths: std::sync::Arc<ZipperPaths>,
+    all_paths: SharedTrackerPaths,
     this_path: Vec<u8>,
     is_tracking: IsTracking,
 }
 
-/// A shared registry of every outstanding zipper
-#[derive(Default)]
-struct ZipperPaths {
-    read_zippers: std::sync::RwLock<Vec<Vec<u8>>>,
-    write_zippers: std::sync::RwLock<Vec<Vec<u8>>>
+impl Clone for ZipperTracker {
+    fn clone(&self) -> Self {
+        self.clone_read_tracker(&self.this_path[..])
+    }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Default)]
+pub(crate) struct SharedTrackerPaths(Arc<RwLock<ZipperPaths>>);
+
+/// A shared registry of every outstanding zipper
+#[derive(Default)]
+pub(crate) struct ZipperPaths {
+    read_zippers: Vec<Vec<u8>>,
+    write_zippers: Vec<Vec<u8>>
+}
+
+#[derive(Debug)]
 enum IsTracking {
-    #[default]
-    ZipperHead,
     WriteZipper,
     ReadZipper,
 }
 
 impl core::fmt::Debug for ZipperTracker {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let all_paths = self.all_paths.0.read().unwrap();
         let _ = writeln!(f, "ZipperTracker {{ type = {:?}, path = {:?}", self.is_tracking, self.this_path);
         let _ = writeln!(f, "\tRead Zippers:");
-        for rz in self.all_paths.read_zippers.read().unwrap().iter() {
+        for rz in all_paths.read_zippers.iter() {
             let _ = writeln!(f, "\t\t{rz:?}");
         }
         let _ = writeln!(f, "\tWrite Zippers:");
-        for wz in self.all_paths.write_zippers.read().unwrap().iter() {
+        for wz in all_paths.write_zippers.iter() {
             let _ = writeln!(f, "\t\t{wz:?}");
         }
         write!(f, "}}")
@@ -39,77 +48,70 @@ impl core::fmt::Debug for ZipperTracker {
 }
 
 impl ZipperTracker {
-    pub fn new_write_path(&self, path: &[u8]) -> Self {
-        let read_paths_lock = self.all_paths.read_zippers.read().unwrap();
-        let mut write_paths_lock = self.all_paths.write_zippers.write().unwrap();
-        for existing_path in read_paths_lock.iter().chain(write_paths_lock.iter()) {
+    pub fn new_write_tracker(shared_paths: SharedTrackerPaths, path: &[u8]) -> Self {
+        let mut shared_paths_guard = shared_paths.0.write().unwrap();
+        for existing_path in shared_paths_guard.read_zippers.iter().chain(shared_paths_guard.write_zippers.iter()) {
             if existing_path.starts_with(path) || existing_path.len() == 0 {
                 panic!("Illegal WriteZipper at {path:?} conflicts with existing zipper at {existing_path:?}");
             }
         }
-        write_paths_lock.push(path.to_vec());
+        shared_paths_guard.write_zippers.push(path.to_vec());
+        drop(shared_paths_guard);
         Self{
-            all_paths: self.all_paths.clone(),
+            all_paths: shared_paths,
             this_path: path.to_vec(),
             is_tracking: IsTracking::WriteZipper,
         }
     }
-    pub fn new_read_path(&self, path: &[u8]) -> Self {
-        let write_paths_lock = self.all_paths.write_zippers.read().unwrap();
-        let mut read_paths_lock = self.all_paths.read_zippers.write().unwrap();
-        for existing_path in write_paths_lock.iter() {
+    pub fn new_read_tracker(shared_paths: SharedTrackerPaths, path: &[u8]) -> Self {
+        let mut shared_paths_guard = shared_paths.0.write().unwrap();
+        for existing_path in shared_paths_guard.write_zippers.iter() {
             if existing_path.starts_with(path) || existing_path.len() == 0 {
                 panic!("Illegal ReadZipper at {path:?} conflicts with existing WriteZipper at {existing_path:?}");
             }
         }
-        read_paths_lock.push(path.to_vec());
+        shared_paths_guard.read_zippers.push(path.to_vec());
+        drop(shared_paths_guard);
         Self{
-            all_paths: self.all_paths.clone(),
+            all_paths: shared_paths,
             this_path: path.to_vec(),
             is_tracking: IsTracking::ReadZipper,
         }
     }
-    pub fn new_read_path_no_check(&self, path: &[u8]) -> Self {
-        self.all_paths.read_zippers.write().unwrap().push(path.to_vec());
+    pub fn new_read_tracker_no_check(shared_paths: SharedTrackerPaths, path: &[u8]) -> Self {
+        let mut shared_paths_guard = shared_paths.0.write().unwrap();
+        shared_paths_guard.read_zippers.push(path.to_vec());
+        drop(shared_paths_guard);
         Self{
-            all_paths: self.all_paths.clone(),
+            all_paths: shared_paths,
             this_path: path.to_vec(),
             is_tracking: IsTracking::ReadZipper,
         }
     }
-    #[cfg(debug_assertions)]
-    pub fn new_write_path_release_only(&self, path: &[u8]) -> Option<Self> {
-        Some(self.new_write_path(path))
-    }
-    #[cfg(not(debug_assertions))]
-    pub fn new_write_path_release_only(&self, path: &[u8]) -> Option<Self> {
-        None
-    }
-    #[cfg(debug_assertions)]
-    pub fn new_read_path_release_only(&self, path: &[u8]) -> Option<Self> {
-        Some(self.new_read_path(path))
-    }
-    #[cfg(not(debug_assertions))]
-    pub fn new_read_path_release_only(&self, path: &[u8]) -> Option<Self> {
-        None
+    pub fn clone_read_tracker(&self, path: &[u8]) -> Self {
+        debug_assert!(path.starts_with(&self.this_path));
+        match self.is_tracking {
+            IsTracking::ReadZipper => {
+                Self::new_read_tracker_no_check(self.all_paths.clone(), path)
+            },
+            IsTracking::WriteZipper => { unreachable!() }
+        }
     }
 }
 
 impl Drop for ZipperTracker {
     fn drop(&mut self) {
         match self.is_tracking {
-            IsTracking::ZipperHead => {},
             IsTracking::WriteZipper => {
-                let mut guard = self.all_paths.write_zippers.write().unwrap();
-                let idx = guard.iter().position(|path| *path == self.this_path).unwrap();
-                guard.remove(idx);
+                let mut guard = self.all_paths.0.write().unwrap();
+                let idx = guard.write_zippers.iter().position(|path| *path == self.this_path).unwrap();
+                guard.write_zippers.remove(idx);
             },
             IsTracking::ReadZipper => {
-                let mut guard = self.all_paths.read_zippers.write().unwrap();
-                let idx = guard.iter().position(|path| *path == self.this_path).unwrap();
-                guard.remove(idx);
+                let mut guard = self.all_paths.0.write().unwrap();
+                let idx = guard.read_zippers.iter().position(|path| *path == self.this_path).unwrap();
+                guard.read_zippers.remove(idx);
             }
         }
     }
 }
-

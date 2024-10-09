@@ -110,13 +110,27 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     }
 
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap
-    pub fn write_zipper(&mut self) -> WriteZipper<V> {
-        WriteZipper::new_with_node_and_path_internal(self.root_mut(), &[], true, None)
+    pub fn write_zipper(&mut self) -> WriteZipperUntracked<V> {
+        #[cfg(debug_assertions)]
+        {
+            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[], true, None)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[], true)
+        }
     }
 
     /// Creates a new [WriteZipper] with the specified path from the root of the map
-    pub fn write_zipper_at_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipper<'a, 'k, V> {
-        WriteZipper::new_with_node_and_path(self.root_mut(), path, None)
+    pub fn write_zipper_at_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipperUntracked<'a, 'k, V> {
+        #[cfg(debug_assertions)]
+        {
+            WriteZipperUntracked::new_with_node_and_path(self.root_mut(), path, None)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            WriteZipperUntracked::new_with_node_and_path(self.root_mut(), path)
+        }
     }
 
     /// Creates a [ZipperHead] at the root of the map

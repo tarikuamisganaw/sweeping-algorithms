@@ -12,6 +12,411 @@ use crate::dense_byte_node::DenseByteNode;
 #[cfg(not(feature = "all_dense_nodes"))]
 use crate::line_list_node::LineListNode;
 
+//GOAT, This duplicate interface is really ugly.  WriteZipper ought to become a trait too!!
+
+// ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
+// WriteZipper (Default WriteZipper wrapper, supports zipper tracking)
+// ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
+
+/// A [Zipper] for editing and adding paths and values in the trie
+pub struct WriteZipper<'a, 'k, V> {
+    z: WriteZipperCore<'a, 'k, V>,
+    _tracker: ZipperTracker,
+}
+
+//The Drop impl ensures the tracker gets dropped at the right time
+impl<V> Drop for WriteZipper<'_, '_, V> {
+    fn drop(&mut self) { }
+}
+
+impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
+    fn at_root(&self) -> bool { self.z.at_root() }
+    fn reset(&mut self) { self.z.reset() }
+    fn path(&self) -> &[u8] { self.z.path() }
+    fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_value(&self) -> bool { self.z.is_value() }
+    fn val_count(&self) -> usize { self.z.val_count() }
+    fn child_count(&self) -> usize { self.z.child_count() }
+    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
+    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
+    fn descend_until(&mut self) -> bool { self.z.descend_until() }
+    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
+    fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
+    fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
+    fn fork_zipper(&self) -> ReadZipper<V> { self.z.fork_zipper() }
+    fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
+}
+
+impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
+    type V = V;
+    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+}
+
+impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
+    //GOAT, this method currently isn't called
+    // /// Creates a new zipper, with a path relative to a node
+    // pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], tracker: ZipperTracker) -> Self {
+    //     let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path(root_node, path);
+    //     Self { z: core, tracker, }
+    // }
+    /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
+    /// the node
+    ///
+    /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
+    /// guarantee the path is within the supplied node.
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, tracker: ZipperTracker) -> Self {
+        let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path_internal(root_node, path, rooted);
+        Self { z: core, _tracker: tracker, }
+    }
+    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
+    pub fn get_value(&self) -> Option<&V> {
+        self.z.get_value()
+    }
+    /// Returns a mutable reference to a value at the zipper's focus, or None if no value exists
+    pub fn get_value_mut(&mut self) -> Option<&mut V> {
+        self.z.get_value_mut()
+    }
+    /// Returns a mutable reference to the value at the zipper's focus, inserting `default` if no value exists
+    pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
+        self.z.get_value_or_insert(default)
+    }
+    /// Returns a mutable reference to the value at the zipper's focus, inserting the result of `func` if no
+    /// value exists
+    pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
+        where F: FnOnce() -> V
+    {
+        self.z.get_value_or_insert_with(func)
+    }
+    /// Sets the value at the zipper's focus
+    ///
+    /// Returns `Some(replaced_val)` if an existing value was replaced, otherwise returns `None` if
+    /// the value was added without replacing anything.
+    ///
+    /// Panics if the zipper's focus is unable to hold a value
+    pub fn set_value(&mut self, val: V) -> Option<V> {
+        self.z.set_value(val)
+    }
+    /// Removes the value at the zipper's focus.  Does not affect any onward branches.  Returns `Some(val)`
+    /// with the value that was removed, otherwise returns `None`
+    ///
+    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
+    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    pub fn remove_value(&mut self) -> Option<V> {
+        self.z.remove_value()
+    }
+    /// Creates a [ZipperHead] at the zipper's current focus
+    pub fn zipper_head(&mut self) -> ZipperHead<V> {
+        self.z.zipper_head()
+    }
+    /// Replaces the trie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
+    ///
+    /// If there is a value at the zipper's focus, it will not be affected.
+    ///
+    /// WARNING: If the `read_zipper` is not on an existing path (according to [Zipper::path_exists]) then the
+    /// effect will be the same as [Self::remove_branch] causing the trie to be pruned below the graft location.
+    /// Since dangling paths aren't allowed, This method may cause the trie to be pruned above the zipper's focus,
+    /// and may lead to [Self::path_exists] returning `false`, where it previously returned `true`
+    pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
+        self.z.graft(read_zipper)
+    }
+    /// Replaces the trie below the zipper's focus with the contents of a [BytesTrieMap], consuming the map
+    ///
+    /// If there is a value at the zipper's focus, it will not be affected.
+    ///
+    /// WARNING: If the `map` is empty then the effect will be the same as [Self::remove_branch] causing the
+    /// trie to be pruned below the graft location.  Since dangling paths aren't allowed, This method may cause
+    /// the trie to be pruned above the zipper's focus, and may lead to [Self::path_exists] returning `false`,
+    /// where it previously returned `true`
+    pub fn graft_map(&mut self, map: BytesTrieMap<V>) {
+        self.z.graft_map(map)
+    }
+    /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of
+    /// `read_zipper`
+    ///
+    /// Returns `true` if the join was sucessful, or `false` if `read_zipper` was at a nonexistent path.
+    ///
+    /// If the &self zipper is at a path that does not exist, this method behaves like graft.
+    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+        self.z.join(read_zipper)
+    }
+    /// Joins (union of) the trie below the zipper's focus with the contents of a [BytesTrieMap],
+    /// consuming the map
+    ///
+    /// Returns `true` if the join was sucessful, or `false` if `map` was empty.
+    pub fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice {
+        self.z.join_map(map)
+    }
+    /// GOAT!! This method needs to take a WriteZipper.  Taking a ReadZipper should not be allowed...
+    /// The ReadZipper should not have the ability to modify the paths its reading from.
+    /// This ends up being safe in a Rust sense (memory integrity is preserved), because exclusivity on
+    /// the node is checked at runtime, but I think it violates the expectation that ReadZippers don't
+    /// modify the trie, and also it could lead to a panic if one ReadZipper ends up editing a tree that
+    /// another ReadZipper is traversing.
+    pub fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+        self.z.join_into(read_zipper)
+    }
+    /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
+    /// each path and joining together all of the downstream sub-paths
+    ///
+    /// Returns `true` if the focus has at least one downstream continuation, otherwise returns `false`.
+    ///
+    /// NOTE: This method may prune the path upstream of the focus of the operation resulted in removing all
+    /// downstream paths.  This means that [Zipper::path_exists] may return `false` after this operation.
+    pub fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice {
+        self.z.drop_head(byte_cnt)
+    }
+// GOAT, should we rename `drop_head` to `drop_prefix`?  Or rename `insert_prefix` to `insert_head`?
+// GOAT QUESTION: Do we want to change the behavior to move the value as well?  Or do we want a variant
+//  of this method that moves the value?  The main guiding idea behind not shifting the value was the desire
+//  to preserve the property of being the inverse of drop_head.
+    /// Inserts `prefix` in front of every downstream path at the focus
+    ///
+    /// This method does not affect a value at the focus, nor does it move the zipper's focus.
+    ///
+    /// NOTE: This is the inverse of [Self::drop_head], although it cannot perfectly undo `drop_head` because
+    /// `drop_head` loses information about the prior nested structure.  However, `drop_head` will undo this
+    /// operation.
+    pub fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool {
+        self.z.insert_prefix(prefix)
+    }
+    /// Deleted the `n` bytes from the path above the zipper's focus, including any subtries that descend
+    /// from the deleted branches
+    ///
+    /// Returns `true` if n upstream bytes were removed from the path, otherwise returns `false`.
+    //
+    // GOAT: TODO, make a diagram illustrating the behavior
+    pub fn remove_prefix(&mut self, n: usize) -> bool {
+        self.z.remove_prefix(n)
+    }
+    /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream
+    /// from the focus of `read_zipper`
+    ///
+    /// Returns `true` if the meet was sucessful, or `false` if either `self` of `read_zipper` is at a
+    /// nonexistent path.
+    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+        self.z.meet(read_zipper)
+    }
+    /// Experiment.  GOAT, document this
+    pub fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
+        self.z.meet_2(rz_a, rz_b)
+    }
+    /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's
+    /// focus
+    ///
+    /// Returns `true` if the subtraction was sucessful, or `false` if either `self` of `read_zipper` is at a
+    /// nonexistent path.
+    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+        self.z.subtract(read_zipper)
+    }
+    /// Restricts paths in the subtrie downstream of the `self` focus to paths prefixed by a path to a value in
+    /// `read_zipper`
+    ///
+    /// Returns `true` if the restriction was sucessful, or `false` if either `self` or `read_zipper` is at a
+    /// nonexistent path.
+    pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
+        self.z.restrict(read_zipper)
+    }
+    /// Populates the "stem" paths in `self` with the corresponding subtries in `read_zipper`
+    ///
+    /// NOTE: Any stem path without a corresponding path in `read_zipper` will be removed from `self`.
+    ///
+    /// GOAT, I feel like `restricting` might not be a very evocative name here.  The way I think of this
+    /// operation is as a bunch of "stems" in the WriteZipper, that get their downstream contents populated
+    /// by the corresponding paths in the ReadZipper.  Ideas for names are: "blossom", "fill_in", "expound",
+    /// "populate", etc.  I avoided "bloom" and "expand" because those both have other connotations.
+    pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
+        self.z.restricting(read_zipper)
+    }
+    /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
+    /// if a branch was removed, otherwise returns `false`
+    ///
+    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
+    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    pub fn remove_branch(&mut self) -> bool {
+        self.z.remove_branch()
+    }
+    /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
+    pub fn take_map(&mut self) -> Option<BytesTrieMap<V>> {
+        self.z.take_map()
+    }
+    /// Uses a 256-bit mask to remove multiple branches below the zipper's focus
+    ///
+    /// Key bytes for which the corresponding `mask` bit is `0` will be removed.
+    ///
+    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
+    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    pub fn remove_unmasked_branches(&mut self, mask: [u64; 4]) {
+        self.z.remove_unmasked_branches(mask)
+    }
+}
+
+// ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
+// WriteZipperUntracked
+// ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
+
+/// A [Zipper] for editing and adding paths and values in the trie used when it is possible to statically
+/// guarantee non-interference between zippers
+pub struct WriteZipperUntracked<'a, 'k, V> {
+    z: WriteZipperCore<'a, 'k, V>,
+    /// We will still track the zipper in debug mode, because unsafe isn't permission to break the rules
+    #[cfg(debug_assertions)]
+    _tracker: Option<ZipperTracker>,
+}
+
+//We only want a custom drop when we have a tracker
+#[cfg(debug_assertions)]
+impl<V> Drop for WriteZipperUntracked<'_, '_, V> {
+    fn drop(&mut self) { }
+}
+
+impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperUntracked<'a, 'k, V> {
+    fn at_root(&self) -> bool { self.z.at_root() }
+    fn reset(&mut self) { self.z.reset() }
+    fn path(&self) -> &[u8] { self.z.path() }
+    fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_value(&self) -> bool { self.z.is_value() }
+    fn val_count(&self) -> usize { self.z.val_count() }
+    fn child_count(&self) -> usize { self.z.child_count() }
+    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
+    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
+    fn descend_until(&mut self) -> bool { self.z.descend_until() }
+    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
+    fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
+    fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
+    fn fork_zipper(&self) -> ReadZipper<V> { self.z.fork_zipper() }
+    fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
+}
+
+impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k, V> {
+    type V = V;
+    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+}
+
+impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
+    /// Creates a new zipper, with a path relative to a node
+    #[cfg(debug_assertions)]
+    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], tracker: Option<ZipperTracker>) -> Self {
+        let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path(root_node, path);
+        Self { z: core, _tracker: tracker }
+    }
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> Self {
+        let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path(root_node, path);
+        Self { z: core }
+    }
+    /// See [WriteZipper::new_with_node_and_path_internal]
+    #[cfg(debug_assertions)]
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, tracker: Option<ZipperTracker>) -> Self {
+        let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path_internal(root_node, path, rooted);
+        Self { z: core, _tracker: tracker }
+    }
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool) -> Self {
+        let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path_internal(root_node, path, rooted);
+        Self { z: core }
+    }
+    /// See [WriteZipper::get_value]
+    pub fn get_value(&self) -> Option<&V> {
+        self.z.get_value()
+    }
+    /// See [WriteZipper::get_value_mut]
+    pub fn get_value_mut(&mut self) -> Option<&mut V> {
+        self.z.get_value_mut()
+    }
+    /// See [WriteZipper::get_value_or_insert]
+    pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
+        self.z.get_value_or_insert(default)
+    }
+    /// See [WriteZipper::get_value_or_insert_with]
+    pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
+        where F: FnOnce() -> V
+    {
+        self.z.get_value_or_insert_with(func)
+    }
+    /// See [WriteZipper::set_value]
+    pub fn set_value(&mut self, val: V) -> Option<V> {
+        self.z.set_value(val)
+    }
+    /// See [WriteZipper::remove_value]
+    pub fn remove_value(&mut self) -> Option<V> {
+        self.z.remove_value()
+    }
+    /// See [WriteZipper::zipper_head]
+    pub fn zipper_head(&mut self) -> ZipperHead<V> {
+        self.z.zipper_head()
+    }
+    /// See [WriteZipper::graft]
+    pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
+        self.z.graft(read_zipper)
+    }
+    /// See [WriteZipper::graft_map]
+    pub fn graft_map(&mut self, map: BytesTrieMap<V>) {
+        self.z.graft_map(map)
+    }
+    /// See [WriteZipper::join]
+    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+        self.z.join(read_zipper)
+    }
+    /// See [WriteZipper::join_map]
+    pub fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice {
+        self.z.join_map(map)
+    }
+    /// See [WriteZipper::join_into]
+    pub fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+        self.z.join_into(read_zipper)
+    }
+    /// See [WriteZipper::drop_head]
+    pub fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice {
+        self.z.drop_head(byte_cnt)
+    }
+    /// See [WriteZipper::insert_prefix]
+    pub fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool {
+        self.z.insert_prefix(prefix)
+    }
+    /// See [WriteZipper::remove_prefix]
+    pub fn remove_prefix(&mut self, n: usize) -> bool {
+        self.z.remove_prefix(n)
+    }
+    /// See [WriteZipper::meet]
+    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+        self.z.meet(read_zipper)
+    }
+    /// See [WriteZipper::meet_2]
+    pub fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
+        self.z.meet_2(rz_a, rz_b)
+    }
+    /// See [WriteZipper::subtract]
+    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+        self.z.subtract(read_zipper)
+    }
+    /// See [WriteZipper::restrict]
+    pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
+        self.z.restrict(read_zipper)
+    }
+    /// See [WriteZipper::restricting]
+    pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
+        self.z.restricting(read_zipper)
+    }
+    /// See [WriteZipper::remove_branch]
+    pub fn remove_branch(&mut self) -> bool {
+        self.z.remove_branch()
+    }
+    /// See [WriteZipper::take_map]
+    pub fn take_map(&mut self) -> Option<BytesTrieMap<V>> {
+        self.z.take_map()
+    }
+    /// See [WriteZipper::remove_unmasked_branches]
+    pub fn remove_unmasked_branches(&mut self, mask: [u64; 4]) {
+        self.z.remove_unmasked_branches(mask)
+    }
+}
+
+// ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
+// WriteZipperCore (the actual implementation)
+// ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
+
 //GOAT: Discussion on whether to keep rooted zippers, or streamline the WriteZipper code
 //
 // * Arguments for keeping rooted WriteZippers
@@ -38,8 +443,8 @@ use crate::line_list_node::LineListNode;
 //    e.g. just part of the implementation of `PathMap::some_write_method`
 //
 
-/// A [Zipper] for editing and adding paths and values in the trie
-pub struct WriteZipper<'a, 'k, V> {
+/// The core implementation of WriteZipper
+struct WriteZipperCore<'a, 'k, V> {
     key: KeyFields<'k>,
     /// A rooted zipper is able to write to its parent node.  This means it's able to set a value at its
     /// root or upgrade the root node to a different node type.  I'm on the fence about whether or not
@@ -47,16 +452,11 @@ pub struct WriteZipper<'a, 'k, V> {
     rooted: bool,
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
     focus_stack: MutCursorRootedVec<NonNull<TrieNodeODRc<V>>, dyn TrieNode<V> + 'static>,
-    zipper_tracker: Option<ZipperTracker>,
     _variance: core::marker::PhantomData<&'a mut TrieNodeODRc<V>>,
 }
 
-unsafe impl<V> Send for WriteZipper<'_, '_, V> where V: Send + Sync {}
-unsafe impl<V> Sync for WriteZipper<'_, '_, V> where V: Send + Sync {}
-
-impl<V> Drop for WriteZipper<'_, '_, V> {
-    fn drop(&mut self) { }
-}
+unsafe impl<V> Send for WriteZipperCore<'_, '_, V> where V: Send + Sync {}
+unsafe impl<V> Sync for WriteZipperCore<'_, '_, V> where V: Send + Sync {}
 
 /// The part of the [WriteZipper] that contains the key-related fields.  So it can be borrowed separately
 struct KeyFields<'k> {
@@ -68,7 +468,7 @@ struct KeyFields<'k> {
     prefix_idx: Vec<usize>,
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperCore<'a, 'k, V> {
 
     #[inline]
     fn at_root(&self) -> bool {
@@ -206,9 +606,11 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 
     fn fork_zipper(&self) -> ReadZipper<V> {
-        let new_root_val = self.get_value();
-        let zipper_tracker = self.zipper_tracker.as_ref().map(|tracker| tracker.new_read_path_no_check(&self.key.root_key));
-        ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap().as_tagged(), &self.key.root_key, None, new_root_val, zipper_tracker)
+//GOAT, I think fork_zipper maybe needs to be deprecated or moved outside the basic Zipper trait
+panic!()
+        // let new_root_val = self.get_value();
+        // let new_tracker = self.tracker.new_read_path_no_check(&self.key.root_key);
+        // ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap().as_tagged(), &self.key.root_key, None, new_root_val, new_tracker)
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
@@ -216,7 +618,7 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipper<'a, 'k, V> {
     }
 }
 
-impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
+impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> {
@@ -224,18 +626,14 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipper<'a, 'k, V> {
     }
 }
 
-impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
+impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
-    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], zipper_tracker: Option<ZipperTracker>) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8]) -> Self {
         let (key, node) = node_along_path_mut(root_node, path, true);
-        Self::new_with_node_and_path_internal(node, key, true, zipper_tracker)
+        Self::new_with_node_and_path_internal(node, key, true)
     }
-    /// Creates a new zipper, with a path relative to a node, assuming the path is fully-contained within
-    /// the node
-    ///
-    /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
-    /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, zipper_tracker: Option<ZipperTracker>) -> Self {
+    /// See [WriteZipper::new_with_node_and_path_internal]
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(NonNull::from(root_node));
         focus_stack.advance_from_root(|root| Some(unsafe{ root.as_mut() }.make_mut()));
         debug_assert!(rooted || path.len() == 0); //A non-rooted zipper must never have a non-zero-length root_path
@@ -243,7 +641,6 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             key: KeyFields::new(path),
             rooted,
             focus_stack,
-            zipper_tracker,
             _variance: std::marker::PhantomData,
         }
     }
@@ -268,15 +665,15 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
     //     self.key.prefix_buf.len() > key_start || self.at_root()
     // }
 
-    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
+    /// See [WriteZipper::get_value]
     pub fn get_value(&self) -> Option<&V> {
         self.focus_stack.top().unwrap().node_get_val(self.key.node_key())
     }
-    /// Returns a mutable reference to a value at the zipper's focus, or None if no value exists
+    /// See [WriteZipper::get_value_mut]
     pub fn get_value_mut(&mut self) -> Option<&mut V> {
         self.focus_stack.top_mut().unwrap().node_get_val_mut(self.key.node_key())
     }
-    /// Returns a mutable reference to the value at the zipper's focus, inserting `default` if no value exists
+    /// See [WriteZipper::get_value_or_insert]
     pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
         let created_subnode = self.in_zipper_mut_static_result(
             |node, key| {
@@ -293,8 +690,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         }
         self.get_value_mut().unwrap()
     }
-    /// Returns a mutable reference to the value at the zipper's focus, inserting the result of `func` if no
-    /// value exists
+    /// See [WriteZipper::get_value_or_insert_with]
     pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
         where F: FnOnce() -> V
     {
@@ -313,13 +709,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         }
         self.get_value_mut().unwrap()
     }
-
-    /// Sets the value at the zipper's focus
-    ///
-    /// Returns `Some(replaced_val)` if an existing value was replaced, otherwise returns `None` if
-    /// the value was added without replacing anything.
-    ///
-    /// Panics if the zipper's focus is unable to hold a value
+    /// See [WriteZipper::set_value]
     pub fn set_value(&mut self, val: V) -> Option<V> {
         let (old_val, created_subnode) = self.in_zipper_mut_static_result(
             |node, remaining_key| node.node_set_val(remaining_key, val),
@@ -330,12 +720,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         }
         old_val
     }
-
-    /// Removes the value at the zipper's focus.  Does not affect any onward branches.  Returns `Some(val)`
-    /// with the value that was removed, otherwise returns `None`
-    ///
-    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
-    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    /// See [WriteZipper::remove_value]
     pub fn remove_value(&mut self) -> Option<V> {
         debug_assert!(self.key.node_key().len() > 0);
         debug_assert!(!self.at_root());
@@ -349,8 +734,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None
         }
     }
-
-    /// Creates a [ZipperHead] at the zipper's current focus
+    /// See [WriteZipper::zipper_head]
     pub fn zipper_head(&mut self) -> ZipperHead<V> {
         if self.at_root() {
             // I don't want to worry about making a ZipperHead for the root of a rooted zipper, since we might
@@ -393,37 +777,15 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             self.zipper_head()
         }
     }
-
-    /// Replaces the trie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
-    ///
-    /// If there is a value at the zipper's focus, it will not be affected.
-    ///
-    /// WARNING: If the `read_zipper` is not on an existing path (according to [Zipper::path_exists]) then the
-    /// effect will be the same as [Self::remove_branch] causing the trie to be pruned below the graft location.
-    /// Since dangling paths aren't allowed, This method may cause the trie to be pruned above the zipper's focus,
-    /// and may lead to [Self::path_exists] returning `false`, where it previously returned `true`
+    /// See [WriteZipper::graft]
     pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
         self.graft_internal(read_zipper.get_focus().into_option())
     }
-
-    /// Replaces the trie below the zipper's focus with the contents of a [BytesTrieMap], consuming the map
-    ///
-    /// If there is a value at the zipper's focus, it will not be affected.
-    ///
-    /// WARNING: If the `map` is empty then the effect will be the same as [Self::remove_branch] causing the
-    /// trie to be pruned below the graft location.  Since dangling paths aren't allowed, This method may cause
-    /// the trie to be pruned above the zipper's focus, and may lead to [Self::path_exists] returning `false`,
-    /// where it previously returned `true`
+    /// See [WriteZipper::graft_map]
     pub fn graft_map(&mut self, map: BytesTrieMap<V>) {
         self.graft_internal(map.into_root());
     }
-
-    /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of
-    /// `read_zipper`
-    ///
-    /// Returns `true` if the join was sucessful, or `false` if `read_zipper` was at a nonexistent path.
-    ///
-    /// If the &self zipper is at a path that does not exist, this method behaves like graft.
+    /// See [WriteZipper::join]
     pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
@@ -438,11 +800,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None => { self.graft_internal(src.into_option()); true }
         }
     }
-
-    /// Joins (union of) the trie below the zipper's focus with the contents of a [BytesTrieMap],
-    /// consuming the map
-    ///
-    /// Returns `true` if the join was sucessful, or `false` if `map` was empty.
+    /// See [WriteZipper::join_map]
     pub fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice {
         let src = match map.into_root() {
             Some(src) => src,
@@ -457,13 +815,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None => { self.graft_internal(Some(src)); true }
         }
     }
-
-    /// GOAT!! This method needs to take a WriteZipper.  Taking a ReadZipper should not be allowed...
-    /// The ReadZipper should not have the ability to modify the paths its reading from.
-    /// This ends up being safe in a Rust sense (memory integrity is preserved), because exclusivity on
-    /// the node is checked at runtime, but I think it violates the expectation that ReadZippers don't
-    /// modify the trie, and also it could lead to a panic if one ReadZipper ends up editing a tree that
-    /// another ReadZipper is traversing.
+    /// See [WriteZipper::join_into]
     pub fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
@@ -478,14 +830,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         }
         //GOAT!!!!!  We should prune the path at the source zipper, since we're effectively leaving behind an empty node
     }
-
-    /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
-    /// each path and joining together all of the downstream sub-paths
-    ///
-    /// Returns `true` if the focus has at least one downstream continuation, otherwise returns `false`.
-    ///
-    /// NOTE: This method may prune the path upstream of the focus of the operation resulted in removing all
-    /// downstream paths.  This means that [Zipper::path_exists] may return `false` after this operation.
+    /// See [WriteZipper::drop_head]
     pub fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice {
         match self.get_focus().into_option() {
             Some(mut self_node) => {
@@ -501,18 +846,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         }
         //GOAT!!!!!  We should prune the path upstream, if we ended up removing all downstream paths
     }
-
-// GOAT, should we rename `drop_head` to `drop_prefix`?  Or rename `insert_prefix` to `insert_head`?
-// GOAT QUESTION: Do we want to change the behavior to move the value as well?  Or do we want a variant
-//  of this method that moves the value?  The main guiding idea behind not shifting the value was the desire
-//  to preserve the property of being the inverse of drop_head.
-    /// Inserts `prefix` in front of every downstream path at the focus
-    ///
-    /// This method does not affect a value at the focus, nor does it move the zipper's focus.
-    ///
-    /// NOTE: This is the inverse of [Self::drop_head], although it cannot perfectly undo `drop_head` because
-    /// `drop_head` loses information about the prior nested structure.  However, `drop_head` will undo this
-    /// operation.
+    /// See [WriteZipper::insert_prefix]
     pub fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool {
         let prefix = prefix.as_ref();
         match self.get_focus().into_option() {
@@ -525,13 +859,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None => { false }
         }
     }
-
-    /// Deleted the `n` bytes from the path above the zipper's focus, including any subtries that descend
-    /// from the deleted branches
-    ///
-    /// Returns `true` if n upstream bytes were removed from the path, otherwise returns `false`.
-    //
-    // GOAT: TODO, make a diagram illustrating the behavior
+    /// See [WriteZipper::remove_prefix]
     pub fn remove_prefix(&mut self, n: usize) -> bool {
 
         let downstream_node = self.get_focus().into_option()
@@ -542,12 +870,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         self.graft_internal(downstream_node);
         fully_ascended
     }
-
-    /// Meets (retains the intersection of) the subtrie below the zipper's focus with the subtrie downstream
-    /// from the focus of `read_zipper`
-    ///
-    /// Returns `true` if the meet was sucessful, or `false` if either `self` of `read_zipper` is at a
-    /// nonexistent path.
+    /// See [WriteZipper::meet]
     pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
@@ -562,8 +885,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None => false
         }
     }
-
-    /// Experiment.  GOAT, document this
+    /// See [WriteZipper::meet_2]
     pub fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
         let a_focus = rz_a.get_focus();
         let a = match a_focus.try_borrow() {
@@ -579,12 +901,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
         self.graft_internal(joined);
         true
     }
-
-    /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's
-    /// focus
-    ///
-    /// Returns `true` if the subtraction was sucessful, or `false` if either `self` of `read_zipper` is at a
-    /// nonexistent path.
+    /// See [WriteZipper::subtract]
     pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
@@ -601,12 +918,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None => false
         }
     }
-
-    /// Restricts paths in the subtrie downstream of the `self` focus to paths prefixed by a path to a value in
-    /// `read_zipper`
-    ///
-    /// Returns `true` if the restriction was sucessful, or `false` if either `self` or `read_zipper` is at a
-    /// nonexistent path.
+    /// See [WriteZipper::restrict]
     pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
         let src = read_zipper.get_focus();
         if src.is_none() {
@@ -621,15 +933,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None => false
         }
     }
-
-    /// Populates the "stem" paths in `self` with the corresponding subtries in `read_zipper`
-    ///
-    /// NOTE: Any stem path without a corresponding path in `read_zipper` will be removed from `self`.
-    ///
-    /// GOAT, I feel like `restricting` might not be a very evocative name here.  The way I think of this
-    /// operation is as a bunch of "stems" in the WriteZipper, that get their downstream contents populated
-    /// by the corresponding paths in the ReadZipper.  Ideas for names are: "blossom", "fill_in", "expound",
-    /// "populate", etc.  I avoided "bloom" and "expand" because those both have other connotations.
+    /// See [WriteZipper::restricting]
     pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
         let src = read_zipper.get_focus();
         if src.is_none() {
@@ -644,12 +948,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             None => false
         }
     }
-
-    /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
-    /// if a branch was removed, otherwise returns `false`
-    ///
-    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
-    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    /// See [WriteZipper::remove_branch]
     pub fn remove_branch(&mut self) -> bool {
         let focus_node = self.focus_stack.top_mut().unwrap();
         if focus_node.node_remove_all_branches(self.key.node_key()) {
@@ -661,18 +960,11 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipper<'a, 'k, V> {
             false
         }
     }
-
-    /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
+    /// See [WriteZipper::take_map]
     pub fn take_map(&mut self) -> Option<BytesTrieMap<V>> {
         self.take_focus().map(|node| BytesTrieMap::new_with_root(node))
     }
-
-    /// Uses a 256-bit mask to remove multiple branches below the zipper's focus
-    ///
-    /// Key bytes for which the corresponding `mask` bit is `0` will be removed.
-    ///
-    /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
-    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    /// See [WriteZipper::remove_unmasked_branches]
     pub fn remove_unmasked_branches(&mut self, mask: [u64; 4]) {
         let focus_node = self.focus_stack.top_mut().unwrap();
         let node_key = self.key.node_key();

@@ -4,7 +4,7 @@ use std::{thread, thread::spawn, thread::JoinHandle};
 use divan::{Divan, Bencher};
 
 use pathmap::trie_map::BytesTrieMap;
-use pathmap::zipper::{Zipper, WriteZipper};
+use pathmap::zipper::Zipper;
 
 fn main() {
     let divan = Divan::from_args()
@@ -90,7 +90,7 @@ fn parallel_insert(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
 
                 //Preallocate all zippers
                 let zipper_head = map.zipper_head();
-                let mut zippers: Vec<WriteZipper<usize>> = Vec::with_capacity(thread_cnt);
+                let mut zippers = Vec::with_capacity(thread_cnt);
                 for n in (0..thread_cnt).into_iter().rev() {
                     let path = &[n as u8];
                     let zipper = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(path) };

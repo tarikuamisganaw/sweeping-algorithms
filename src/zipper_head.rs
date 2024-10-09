@@ -9,7 +9,7 @@ use crate::zipper_tracking::*;
 /// Used to make multiple simultaneous zippers in the same map
 pub struct ZipperHead<'a, V> {
     root: Cell<NonNull<TrieNodeODRc<V>>>,
-    zipper_tracker: ZipperTracker,
+    tracker_paths: SharedTrackerPaths,
     _variance: PhantomData<&'a mut TrieNodeODRc<V>>
 }
 
@@ -18,14 +18,14 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
     pub(crate) fn new(root: &'a mut TrieNodeODRc<V>) -> Self {
         Self {
             root: Cell::new(NonNull::from(root)),
-            zipper_tracker: ZipperTracker::default(),
+            tracker_paths: SharedTrackerPaths::default(),
             _variance: PhantomData
         }
     }
 
     /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`
     pub fn read_zipper_at_path<'k>(&self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
-        let zipper_tracker = self.zipper_tracker.new_read_path(path);
+        let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
         let root = unsafe{ self.root.get().as_ref() };
         ReadZipper::new_with_node_and_path(root.borrow(), path.as_ref(), Some(path.len()), Some(zipper_tracker))
     }
@@ -33,9 +33,9 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
     /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`, where the caller
     /// guarantees that there will be no conflicts with any WriteZippers at any time in the future
     pub unsafe fn read_zipper_at_path_unchecked<'k>(&self, path: &'k[u8]) -> ReadZipper<'a, 'k, V> {
-        let zipper_tracker = self.zipper_tracker.new_read_path_release_only(path);
+//GOAT, should still include a tracker in debug mode!!!!
         let root = unsafe{ self.root.get().as_ref() };
-        ReadZipper::new_with_node_and_path(root.borrow(), path.as_ref(), Some(path.len()), zipper_tracker)
+        ReadZipper::new_with_node_and_path(root.borrow(), path.as_ref(), Some(path.len()), None)
     }
 
     //GOAT, there may be no point to this API method
@@ -49,35 +49,40 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
     pub fn write_zipper_at_exclusive_path<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipper<'a, 'k, V> {
         let path = path.as_ref();
-        let zipper_tracker = self.zipper_tracker.new_write_path(path);
+        let zipper_tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
         let root = unsafe{ self.root.get().as_mut() };
         let (_created_node, zipper_root_node) = prepare_exclusive_write_path(root, &path);
         //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
 
-        let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, Some(zipper_tracker));
-        zipper
+        WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker)
     }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
     /// that no existing zippers may access the specified path at any time before the `WriteZipper` is dropped
-    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipper<'a, 'k, V> {
+    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipperUntracked<'a, 'k, V> {
         let path = path.as_ref();
         //GOAT, there may be no point to this
         // let path_len = path.len();
         // if path_len == 0 {
         //     panic!("Illegal Operation: WriteZipper can't be created at the root of a ZipperHead without mutable access.  Use ZipperHead::root_write_zipper instead.");
         // }
-        let zipper_tracker = self.zipper_tracker.new_write_path_release_only(path);
         let root = unsafe{ self.root.get().as_mut() };
         let (_created_node, zipper_root_node) = prepare_exclusive_write_path(root, &path);
         //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
 
-        let zipper = WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker);
-        zipper
+        #[cfg(debug_assertions)]
+        {
+            let tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
+            WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, &[], false, Some(tracker))
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, &[], false)
+        }
     }
 }
 
@@ -86,7 +91,7 @@ mod tests {
     use std::{thread, thread::ScopedJoinHandle};
     use crate::tests::prefix_key;
     use crate::trie_map::BytesTrieMap;
-    use crate::zipper::{Zipper, WriteZipper};
+    use crate::zipper::Zipper;
 
     #[test]
     fn parallel_insert_test() {
@@ -101,7 +106,7 @@ mod tests {
 
             //Preallocate all zippers
             let zipper_head = map.zipper_head();
-            let mut zippers: Vec<WriteZipper<usize>> = Vec::with_capacity(thread_cnt);
+            let mut zippers = Vec::with_capacity(thread_cnt);
             for n in (0..thread_cnt).into_iter().rev() {
                 let path = &[n as u8];
                 let zipper = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(path) };
@@ -264,8 +269,16 @@ mod tests {
         assert_eq!(map.get(b"b0+value").unwrap(), &2);
         assert_eq!(map.get(b"b1+value").unwrap(), &3);
     }
+
+    #[test]
+    fn goat() {
+        println!("GOAT {}", core::mem::size_of::<crate::zipper_head::ZipperTracker>());
+    }
 }
 
 
 //GOAT, Safe zipper_head API should return Option instead of panicking
 //
+//GOAT, should think harder about a way to avoid carrying around the empty ZipperTracker.
+// Maybe try boxing it? A: Boxing doesn't help!!  I should verify that the runtime ZipperTracker is really the issue
+// Maybe it's as simple as having a Drop impl?????

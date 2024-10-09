@@ -163,7 +163,7 @@ impl<'a, 'k, V> Clone for ReadZipper<'a, 'k, V> where V: Clone {
             focus_iter_token: NODE_ITER_INVALID,
             prefix_buf: self.prefix_buf.clone(),
             ancestors: self.ancestors.clone(),
-            zipper_tracker: self.zipper_tracker.as_ref().map(|tracker| tracker.new_read_path(self.origin_path)),
+            zipper_tracker: self.zipper_tracker.clone(),
         }
     }
 }
@@ -380,7 +380,7 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for ReadZipper<'a, 'k, V> {
             },
             None => (self.origin_path, None)
         };
-        let zipper_tracker = self.zipper_tracker.as_ref().map(|tracker| tracker.new_read_path(&self.origin_path));
+        let zipper_tracker = self.zipper_tracker.as_ref().map(|tracker| tracker.clone_read_tracker(&self.origin_path));
         ReadZipper::new_with_node_and_path_internal(self.focus_node.clone(), new_root_path, new_root_key_offset, new_root_val, zipper_tracker)
     }
 
