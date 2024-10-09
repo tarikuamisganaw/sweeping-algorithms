@@ -4,7 +4,7 @@ use std::{thread, thread::spawn, thread::JoinHandle};
 use divan::{Divan, Bencher};
 
 use pathmap::trie_map::BytesTrieMap;
-use pathmap::zipper::Zipper;
+use pathmap::zipper::*;
 
 fn main() {
     let divan = Divan::from_args()

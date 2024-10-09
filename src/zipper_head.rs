@@ -47,7 +47,7 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
     // }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
-    pub fn write_zipper_at_exclusive_path<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipper<'a, 'k, V> {
+    pub fn write_zipper_at_exclusive_path<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipperTracked<'a, 'k, V> {
         let path = path.as_ref();
         let zipper_tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
         let root = unsafe{ self.root.get().as_mut() };
@@ -56,7 +56,7 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
 
-        WriteZipper::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker)
+        WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker)
     }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
@@ -91,7 +91,7 @@ mod tests {
     use std::{thread, thread::ScopedJoinHandle};
     use crate::tests::prefix_key;
     use crate::trie_map::BytesTrieMap;
-    use crate::zipper::Zipper;
+    use crate::zipper::*;
 
     #[test]
     fn parallel_insert_test() {
