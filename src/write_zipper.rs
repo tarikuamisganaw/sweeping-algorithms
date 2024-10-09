@@ -203,8 +203,11 @@ impl<V: Clone + Send + Sync> Zipper for WriteZipperTracked<'_, '_, V> {
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
+    fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
     fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
+    fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
+    fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
@@ -292,8 +295,11 @@ impl<V: Clone + Send + Sync> Zipper for WriteZipperUntracked<'_, '_, V> {
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
+    fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
     fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
+    fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
+    fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
@@ -507,11 +513,23 @@ impl<V: Clone + Send + Sync> Zipper for WriteZipperCore<'_, '_, V> {
         panic!()
     }
 
+    fn descend_first_byte(&mut self) -> bool {
+        panic!()
+    }
+
     fn descend_until(&mut self) -> bool {
         panic!()
     }
 
     fn to_sibling(&mut self, next: bool) -> bool {
+        panic!()
+    }
+
+    fn to_next_sibling_byte(&mut self) -> bool {
+        panic!()
+    }
+
+    fn to_prev_sibling_byte(&mut self) -> bool {
         panic!()
     }
 

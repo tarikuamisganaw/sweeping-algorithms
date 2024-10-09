@@ -13,6 +13,7 @@
 //! The stepping methods are:
 //! - [descend_to_byte](zipper::Zipper::descend_to_byte)
 //! - [descend_indexed_branch](zipper::Zipper::descend_indexed_branch)
+//! - [descend_first_byte](zipper::Zipper::descend_first_byte)
 //! - [ascend](zipper::Zipper::ascend)
 //! - [ascend_byte](zipper::Zipper::ascend_byte)
 //! - [to_sibling](zipper::Zipper::to_sibling)
@@ -74,7 +75,8 @@ pub trait Zipper: zipper_priv::ZipperPriv {
     /// with a 1-byte key argument
     fn descend_to_byte(&mut self, k: u8) -> bool;
 
-    /// Descends the zipper's focus one step into a child branch uniquely identified by `child_idx`
+//GOAT, I think we should rename this to `descend_indexed_byte` for consistency
+    /// Descends the zipper's focus one byte into a child branch uniquely identified by `child_idx`
     ///
     /// `child_idx` must within the range `0..child_count()` or this method will do nothing and return `false`
     ///
@@ -82,6 +84,12 @@ pub trait Zipper: zipper_priv::ZipperPriv {
     /// to the trie.  This method should only be used as part of a directed traversal operation, but
     /// index-based paths may not be stored as locations within the trie.
     fn descend_indexed_branch(&mut self, idx: usize) -> bool;
+
+    /// Descends the zipper's focus one step into the first child branch in a depth-first traversal
+    ///
+    /// NOTE: This method should have identical behavior to passing `0` to [descend_indexed_branch](Zipper::descend_indexed_branch),
+    /// although with less overhead
+    fn descend_first_byte(&mut self) -> bool;
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
     /// moved otherwise returns `false`
@@ -100,6 +108,7 @@ pub trait Zipper: zipper_priv::ZipperPriv {
     /// focus moved upwards, otherwise returns `false` if the zipper was already at the root
     fn ascend_until(&mut self) -> bool;
 
+//GOAT, this should be deprecated in favor of to_next_sibling_byte and to_prev_sibling_byte
     /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
     /// otherwise returns `false`
     ///
@@ -108,6 +117,24 @@ pub trait Zipper: zipper_priv::ZipperPriv {
     ///
     /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
     fn to_sibling(&mut self, next: bool) -> bool;
+
+    /// Moves the zipper's focus to the next sibling byte with the same parent
+    ///
+    /// Returns `true` if the focus was moved.  If the focus is already on the last byte among its siblings,
+    /// this method returns false, leving the focus unmodified.
+    ///
+    /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
+    /// where the index passed is 1 more than the index of the current focus position.
+    fn to_next_sibling_byte(&mut self) -> bool;
+
+    /// Moves the zipper's focus to the previous sibling byte with the same parent
+    ///
+    /// Returns `true` if the focus was moved.  If the focus is already on the first byte among its siblings,
+    /// this method returns false, leving the focus unmodified.
+    ///
+    /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
+    /// where the index passed is 1 less than the index of the current focus position.
+    fn to_prev_sibling_byte(&mut self) -> bool;
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     fn fork_zipper(&self) -> ReadZipper<Self::V>;
@@ -342,6 +369,47 @@ impl<V: Clone + Send + Sync> Zipper for ReadZipper<'_, '_, V> {
         }
     }
 
+    fn descend_first_byte(&mut self) -> bool {
+        self.prepare_buffers();
+        debug_assert!(self.is_regularized());
+        let node_key = self.node_key();
+        let node_key_len = node_key.len();
+        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
+        self.focus_iter_token = cur_tok;
+
+        //Check to see if we can descend within this node
+        if full_key.len() > node_key_len {
+            self.prefix_buf.push(full_key[node_key_len]);
+            if full_key.len() == node_key_len+1 {
+                self.regularize();
+            }
+            return true;
+        }
+
+        let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
+        self.focus_iter_token = new_tok;
+
+        if new_tok != NODE_ITER_FINISHED {
+            let byte_idx = self.node_key().len();
+            self.prefix_buf.push(key_bytes[byte_idx]);
+
+            if key_bytes.len() == byte_idx+1 {
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow().as_tagged();
+                        self.focus_iter_token = self.focus_node.new_iter_token();
+                    },
+                }
+            }
+
+            true
+        } else {
+            false
+        }
+    }
+
     fn descend_until(&mut self) -> bool {
         debug_assert!(self.is_regularized());
         let mut moved = false;
@@ -402,6 +470,54 @@ impl<V: Clone + Send + Sync> Zipper for ReadZipper<'_, '_, V> {
             }
             result
         }
+    }
+
+    fn to_next_sibling_byte(&mut self) -> bool {
+        self.prepare_buffers();
+        if self.prefix_buf.len() == 0 {
+            return false
+        }
+        debug_assert!(self.is_regularized());
+        self.deregularize();
+        if self.focus_iter_token == NODE_ITER_INVALID {
+            let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
+            self.focus_iter_token = cur_tok;
+        }
+
+        let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
+
+        if new_tok != NODE_ITER_FINISHED {
+
+            //Check to see if the iter result has modified more than one byte
+            let node_key = self.node_key();
+            let fixed_len = node_key.len() - 1;
+            if fixed_len > key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
+                return false;
+            }
+
+            self.focus_iter_token = new_tok;
+            *self.prefix_buf.last_mut().unwrap() = key_bytes[0];
+
+            if key_bytes.len() == 1 {
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow().as_tagged();
+                        self.focus_iter_token = NODE_ITER_INVALID
+                    },
+                }
+            }
+
+            true
+        } else {
+            self.focus_iter_token = NODE_ITER_FINISHED;
+            false
+        }
+    }
+
+    fn to_prev_sibling_byte(&mut self) -> bool {
+        self.to_sibling(false)
     }
 
     fn ascend(&mut self, mut steps: usize) -> bool {
@@ -820,97 +936,6 @@ impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
     //         (None, _) => false
     //     }
     // }
-
-    /// Descends the zipper's focus one step into the first child branch in a depth-first traversal
-    ///
-    /// NOTE: This method should have identical behavior to `descend_indexed_branch(0)`, although with
-    /// slightly less overhead
-    pub fn descend_first_byte(&mut self) -> bool {
-        self.prepare_buffers();
-        debug_assert!(self.is_regularized());
-        let node_key = self.node_key();
-        let node_key_len = node_key.len();
-        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
-        self.focus_iter_token = cur_tok;
-
-        //Check to see if we can descend within this node
-        if full_key.len() > node_key_len {
-            self.prefix_buf.push(full_key[node_key_len]);
-            if full_key.len() == node_key_len+1 {
-                self.regularize();
-            }
-            return true;
-        }
-
-        let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
-        self.focus_iter_token = new_tok;
-
-        if new_tok != NODE_ITER_FINISHED {
-            let byte_idx = self.node_key().len();
-            self.prefix_buf.push(key_bytes[byte_idx]);
-
-            if key_bytes.len() == byte_idx+1 {
-                match child_node {
-                    None => {},
-                    Some(rec) => {
-                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
-                        self.focus_node = rec.borrow().as_tagged();
-                        self.focus_iter_token = self.focus_node.new_iter_token();
-                    },
-                }
-            }
-
-            true
-        } else {
-            false
-        }
-    }
-
-    /// GOAT, should unify this with to_sibling
-    ///
-    pub fn to_next_sibling_byte(&mut self) -> bool {
-        self.prepare_buffers();
-        if self.prefix_buf.len() == 0 {
-            return false
-        }
-        debug_assert!(self.is_regularized());
-        self.deregularize();
-        if self.focus_iter_token == NODE_ITER_INVALID {
-            let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
-            self.focus_iter_token = cur_tok;
-        }
-
-        let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
-
-        if new_tok != NODE_ITER_FINISHED {
-
-            //Check to see if the iter result has modified more than one byte
-            let node_key = self.node_key();
-            let fixed_len = node_key.len() - 1;
-            if fixed_len > key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
-                return false;
-            }
-
-            self.focus_iter_token = new_tok;
-            *self.prefix_buf.last_mut().unwrap() = key_bytes[0];
-
-            if key_bytes.len() == 1 {
-                match child_node {
-                    None => {},
-                    Some(rec) => {
-                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
-                        self.focus_node = rec.borrow().as_tagged();
-                        self.focus_iter_token = NODE_ITER_INVALID
-                    },
-                }
-            }
-
-            true
-        } else {
-            self.focus_iter_token = NODE_ITER_FINISHED;
-            false
-        }
-    }
 
     /// Internal method that implements [Self::is_value], but so it can be inlined elsewhere
     #[inline]
