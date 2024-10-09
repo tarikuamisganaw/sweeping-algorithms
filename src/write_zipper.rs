@@ -177,13 +177,13 @@ pub trait WriteZipper<V> {
 }
 
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
-// WriteZipper (Default WriteZipper wrapper, supports zipper tracking)
+// WriteZipperTracked
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 
 /// A [WriteZipper] for editing and adding paths and values in the trie
 pub struct WriteZipperTracked<'a, 'k, V> {
     z: WriteZipperCore<'a, 'k, V>,
-    _tracker: ZipperTracker,
+    tracker: ZipperTracker,
 }
 
 //The Drop impl ensures the tracker gets dropped at the right time
@@ -192,6 +192,8 @@ impl<V> Drop for WriteZipperTracked<'_, '_, V> {
 }
 
 impl<V: Clone + Send + Sync> Zipper for WriteZipperTracked<'_, '_, V> {
+    type ReadZipperT<'a> = ReadZipperCore<'a, 'a, V> where Self: 'a;
+
     fn at_root(&self) -> bool { self.z.at_root() }
     fn reset(&mut self) { self.z.reset() }
     fn path(&self) -> &[u8] { self.z.path() }
@@ -211,7 +213,13 @@ impl<V: Clone + Send + Sync> Zipper for WriteZipperTracked<'_, '_, V> {
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
-    fn fork_zipper(&self) -> ReadZipper<V> { self.z.fork_zipper() }
+    fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
+        let new_root_val = self.get_value();
+        //Actually it's not necessary to track these, because we know the WriteZipper has permissions, regardless of its
+        // tracking status, and it's effectively immobilized.  So no tracking is ever needed with this method
+        // let new_tracker = self.tracker.clone_read_tracker(&self.z.key.node_key());
+        ReadZipperCore::new_with_node_and_path_internal(self.z.focus_stack.top().unwrap().as_tagged(), &self.z.key.node_key(), None, new_root_val, None)
+    }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
 }
 
@@ -234,7 +242,7 @@ impl<'a, 'k, V: Clone + Send + Sync> WriteZipperTracked<'a, 'k, V> {
     /// guarantee the path is within the supplied node.
     pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], rooted: bool, tracker: ZipperTracker) -> Self {
         let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path_internal(root_node, path, rooted);
-        Self { z: core, _tracker: tracker, }
+        Self { z: core, tracker: tracker, }
     }
 }
 
@@ -284,6 +292,8 @@ impl<V> Drop for WriteZipperUntracked<'_, '_, V> {
 }
 
 impl<V: Clone + Send + Sync> Zipper for WriteZipperUntracked<'_, '_, V> {
+    type ReadZipperT<'a> = ReadZipperCore<'a, 'a, V> where Self: 'a;
+
     fn at_root(&self) -> bool { self.z.at_root() }
     fn reset(&mut self) { self.z.reset() }
     fn path(&self) -> &[u8] { self.z.path() }
@@ -303,7 +313,11 @@ impl<V: Clone + Send + Sync> Zipper for WriteZipperUntracked<'_, '_, V> {
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
-    fn fork_zipper(&self) -> ReadZipper<V> { self.z.fork_zipper() }
+    fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
+        let new_root_val = self.get_value();
+        // let new_tracker = self.tracker.clone_read_tracker(&self.z.key.node_key());
+        ReadZipperCore::new_with_node_and_path_internal(self.z.focus_stack.top().unwrap().as_tagged(), &self.z.key.node_key(), None, new_root_val, None)
+    }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
 }
 
@@ -419,6 +433,7 @@ struct KeyFields<'k> {
 }
 
 impl<V: Clone + Send + Sync> Zipper for WriteZipperCore<'_, '_, V> {
+    type ReadZipperT<'a> = () where Self: 'a;
 
     #[inline]
     fn at_root(&self) -> bool {
@@ -575,12 +590,8 @@ impl<V: Clone + Send + Sync> Zipper for WriteZipperCore<'_, '_, V> {
         true
     }
 
-    fn fork_zipper(&self) -> ReadZipper<V> {
-//GOAT, I think fork_zipper maybe needs to be deprecated or moved outside the basic Zipper trait
-panic!()
-        // let new_root_val = self.get_value();
-        // let new_tracker = self.tracker.new_read_path_no_check(&self.key.root_key);
-        // ReadZipper::new_with_node_and_path_internal(self.focus_stack.top().unwrap().as_tagged(), &self.key.root_key, None, new_root_val, new_tracker)
+    fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
+        panic!() //Don't fork the WriteZipperCore, fork the WriteZipperTracker or WriteZipperUntracked
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {

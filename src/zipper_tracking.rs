@@ -11,7 +11,12 @@ pub(crate) struct ZipperTracker {
 
 impl Clone for ZipperTracker {
     fn clone(&self) -> Self {
-        self.clone_read_tracker(&self.this_path[..])
+        match self.is_tracking {
+            IsTracking::ReadZipper => {
+                Self::new_read_tracker_no_check(self.all_paths.clone(), &self.this_path[..])
+            },
+            IsTracking::WriteZipper => { unreachable!() } //Write Zipper should *never* be cloned
+        }
     }
 }
 
@@ -88,14 +93,10 @@ impl ZipperTracker {
             is_tracking: IsTracking::ReadZipper,
         }
     }
+    /// Makes a ReadTracker from an existing tracker.  The source can be a WriteTracker or a ReadTracker
     pub fn clone_read_tracker(&self, path: &[u8]) -> Self {
         debug_assert!(path.starts_with(&self.this_path));
-        match self.is_tracking {
-            IsTracking::ReadZipper => {
-                Self::new_read_tracker_no_check(self.all_paths.clone(), path)
-            },
-            IsTracking::WriteZipper => { unreachable!() }
-        }
+        Self::new_read_tracker_no_check(self.all_paths.clone(), path)
     }
 }
 
