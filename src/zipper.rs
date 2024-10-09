@@ -124,8 +124,43 @@ pub trait ReadOnlyZipper<'a, V> {
     fn get_value(&self) -> Option<&'a V>;
 }
 
-pub trait ZipperIteration {
+/// An interface for advanced zipper movements used for various types of iteration; such as iterating
+/// every value, or iterating all paths descending from a common root at a certain depth
+pub trait ZipperIteration<'a, V> {
+    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
+    /// order.  Returns a reference to the value
+    fn to_next_val(&mut self) -> Option<&'a V>;
 
+    /// Advances the zipper to visit every existing path within the trie in a depth-first order
+    ///
+    /// Returns `true` if the position of the zipper has moved, or `false` if the zipper has returned
+    /// to the root
+    fn to_next_step(&mut self) -> bool;
+
+    /// Descends the zipper's focus 'k' bytes, following the first child at each branch, and continuing
+    /// with depth-first exploration until a path that is `k` bytes from the focus has been found
+    ///
+    /// Returns `true` if the zipper has sucessfully descended `k` steps, or `false` otherwise.  If this
+    /// method returns `false` then the zipper will be in its original position.
+    ///
+    /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
+    /// below the zipper's focus.  Although a typical cost is `order log n` or better.
+    ///
+    /// See: [to_next_k_path](ZipperIteration::to_next_k_path)
+    fn descend_first_k_path(&mut self, k: usize) -> bool;
+
+    /// Moves the zipper's focus to the next location with the same path length as the current focus,
+    /// following a depth-first exploration from a common root `k` steps above the current focus
+    ///
+    /// Returns `true` if the zipper has sucessfully moved to a new location at the same level, or `false`
+    /// if no further locations exist.  If this method returns `false` then the zipper will be ascended `k`
+    /// steps to the common root.  (The focus position when [descend_first_k_path](ZipperIteration::descend_first_k_path) was called)
+    ///
+    /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
+    /// below the zipper's focus.  Although a typical cost is `order log n` or better.
+    ///
+    /// See: [descend_first_k_path](ZipperIteration::descend_first_k_path)
+    fn to_next_k_path(&mut self, k: usize) -> bool;
 }
 
 pub(crate) mod zipper_priv {
@@ -459,6 +494,110 @@ impl<'a, V: Clone + Send + Sync> ReadOnlyZipper<'a, V> for ReadZipper<'a, '_, V>
     }
 }
 
+impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipper<'a, '_, V> {
+    fn to_next_val(&mut self) -> Option<&'a V> {
+        self.prepare_buffers();
+        loop {
+            if self.focus_iter_token == NODE_ITER_INVALID {
+                let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
+                self.focus_iter_token = cur_tok;
+            }
+
+            let (new_tok, key_bytes, child_node, value) = if self.focus_iter_token != NODE_ITER_FINISHED {
+                self.focus_node.next_items(self.focus_iter_token)
+            } else {
+                (NODE_ITER_FINISHED, &[] as &[u8], None, None)
+            };
+
+            if new_tok != NODE_ITER_FINISHED {
+                self.focus_iter_token = new_tok;
+
+                let key_start = self.node_key_start();
+                self.prefix_buf.truncate(key_start);
+                self.prefix_buf.extend(key_bytes);
+
+                match child_node {
+                    None => {},
+                    Some(rec) => {
+                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                        self.focus_node = rec.borrow().as_tagged();
+                        self.focus_iter_token = self.focus_node.new_iter_token();
+                    },
+                }
+
+                match value {
+                    Some(v) => return Some(v),
+                    None => {}
+                }
+            } else {
+                //Ascend
+                if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
+                    self.focus_node = focus_node;
+                    self.focus_iter_token = iter_tok;
+                    self.prefix_buf.truncate(prefix_offset);
+                } else {
+                    let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                    self.focus_iter_token = NODE_ITER_INVALID;
+                    self.prefix_buf.truncate(new_len);
+                    return None
+                }
+            }
+        }
+    }
+    fn to_next_step(&mut self) -> bool {
+
+        //If we're at a leaf ascend until we're not and jump to the next sibling
+        if self.child_count() == 0 {
+            //We can stop ascending when we succeed in moving to a sibling
+            while !self.to_next_sibling_byte() {
+                if !self.ascend(1) {
+                    return false;
+                }
+            }
+        } else {
+            return self.descend_first_byte()
+        }
+        true
+    }
+    fn descend_first_k_path(&mut self, mut k: usize) -> bool {
+        self.prepare_buffers();
+        debug_assert!(self.is_regularized());
+
+        let node_key = self.node_key();
+        let node_key_len = node_key.len();
+        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
+        self.focus_iter_token = cur_tok;
+
+        //Check if we can descend within this node
+        if full_key.len() > node_key_len {
+            if full_key.len() >= node_key_len+k {
+                self.prefix_buf.extend(&full_key[node_key_len..node_key_len+k]);
+                if full_key.len() == node_key_len+k {
+                    self.regularize();
+                }
+                return true;
+            } else {
+                self.prefix_buf.extend(&full_key[node_key_len..]);
+                k -= full_key.len()-node_key_len;
+                self.regularize();
+            }
+        }
+
+        self.k_path_internal(k, self.prefix_buf.len())
+    }
+    fn to_next_k_path(&mut self, k: usize) -> bool {
+        let base_idx = if self.path_len() > k {
+            self.prefix_buf.len() - k
+        } else {
+            self.origin_path.len()
+        };
+        //De-regularize the zipper
+        debug_assert!(self.is_regularized());
+        self.deregularize();
+        self.k_path_internal(k, base_idx)
+    }
+}
+
 impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
 
     /// Creates a new zipper, with a path relative to a node
@@ -566,138 +705,6 @@ impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
         } else {
             true
         }
-    }
-
-    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
-    /// order.  Returns a reference to the value
-    pub fn to_next_val(&mut self) -> Option<&'a V> {
-        self.prepare_buffers();
-        loop {
-            if self.focus_iter_token == NODE_ITER_INVALID {
-                let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
-                self.focus_iter_token = cur_tok;
-            }
-
-            let (new_tok, key_bytes, child_node, value) = if self.focus_iter_token != NODE_ITER_FINISHED {
-                self.focus_node.next_items(self.focus_iter_token)
-            } else {
-                (NODE_ITER_FINISHED, &[] as &[u8], None, None)
-            };
-
-            if new_tok != NODE_ITER_FINISHED {
-                self.focus_iter_token = new_tok;
-
-                let key_start = self.node_key_start();
-                self.prefix_buf.truncate(key_start);
-                self.prefix_buf.extend(key_bytes);
-
-                match child_node {
-                    None => {},
-                    Some(rec) => {
-                        self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
-                        self.focus_node = rec.borrow().as_tagged();
-                        self.focus_iter_token = self.focus_node.new_iter_token();
-                    },
-                }
-
-                match value {
-                    Some(v) => return Some(v),
-                    None => {}
-                }
-            } else {
-                //Ascend
-                if let Some((focus_node, iter_tok, prefix_offset)) = self.ancestors.pop() {
-                    self.focus_node = focus_node;
-                    self.focus_iter_token = iter_tok;
-                    self.prefix_buf.truncate(prefix_offset);
-                } else {
-                    let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
-                    self.focus_iter_token = NODE_ITER_INVALID;
-                    self.prefix_buf.truncate(new_len);
-                    return None
-                }
-            }
-        }
-    }
-
-    /// Advances the zipper to visit every existing path within the trie in a depth-first order
-    ///
-    /// Returns `true` if the position of the zipper has moved, or `false` if the zipper has returned
-    /// to the root
-    pub fn to_next_step(&mut self) -> bool {
-
-        //If we're at a leaf ascend until we're not and jump to the next sibling
-        if self.child_count() == 0 {
-            //We can stop ascending when we succeed in moving to a sibling
-            while !self.to_next_sibling_byte() {
-                if !self.ascend(1) {
-                    return false;
-                }
-            }
-        } else {
-            return self.descend_first_byte()
-        }
-        true
-    }
-
-    /// Descends the zipper's focus 'k' bytes, following the first child at each branch, and continuing with
-    /// depth-first exploration until a path that is `k` bytes from the focus has been found
-    ///
-    /// Returns `true` if the zipper has sucessfully descended `k` steps, or `false` otherwise.  If this method
-    /// returns `false` then the zipper will be in its original position.
-    ///
-    /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
-    /// below the zipper's focus.  Although a typical cost is `order log n` or better.
-    ///
-    /// See: [Self::to_next_k_path]
-    pub fn descend_first_k_path(&mut self, mut k: usize) -> bool {
-        self.prepare_buffers();
-        debug_assert!(self.is_regularized());
-
-        let node_key = self.node_key();
-        let node_key_len = node_key.len();
-        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
-        self.focus_iter_token = cur_tok;
-
-        //Check if we can descend within this node
-        if full_key.len() > node_key_len {
-            if full_key.len() >= node_key_len+k {
-                self.prefix_buf.extend(&full_key[node_key_len..node_key_len+k]);
-                if full_key.len() == node_key_len+k {
-                    self.regularize();
-                }
-                return true;
-            } else {
-                self.prefix_buf.extend(&full_key[node_key_len..]);
-                k -= full_key.len()-node_key_len;
-                self.regularize();
-            }
-        }
-
-        self.k_path_internal(k, self.prefix_buf.len())
-    }
-
-    /// Moves the zipper's focus to the next location with the same path length as the current focus, following
-    /// a depth-first exploration from a common root `k` steps above the current focus
-    ///
-    /// Returns `true` if the zipper has sucessfully moved to a new location at the same level, or `false` if
-    /// no further locations exist.  If this method returns `false` then the zipper will be ascended `k` stept
-    /// to the common root.
-    ///
-    /// WARNING: This is not a constant-time operation, and may be as bad as `order n` with respect to the paths
-    /// below the zipper's focus.  Although a typical cost is `order log n` or better.
-    ///
-    /// See: [Self::descend_first_k_path]
-    pub fn to_next_k_path(&mut self, k: usize) -> bool {
-        let base_idx = if self.path_len() > k {
-            self.prefix_buf.len() - k
-        } else {
-            self.origin_path.len()
-        };
-        //De-regularize the zipper
-        debug_assert!(self.is_regularized());
-        self.deregularize();
-        self.k_path_internal(k, base_idx)
     }
 
     /// Internal method that implements both `k_path...` methods above
