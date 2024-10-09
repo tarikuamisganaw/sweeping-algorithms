@@ -11,8 +11,10 @@
 //! such as branches and values.  In general, moving by jumping will be faster.
 //!
 //! The stepping methods are:
+//! - [descend_to_byte](zipper::Zipper::descend_to_byte)
 //! - [descend_indexed_branch](zipper::Zipper::descend_indexed_branch)
 //! - [ascend](zipper::Zipper::ascend)
+//! - [ascend_byte](zipper::Zipper::ascend_byte)
 //! - [to_sibling](zipper::Zipper::to_sibling)
 //!
 //! The jumping methods are:
@@ -29,9 +31,8 @@ use crate::zipper_tracking::*;
 
 pub use crate::zipper_head::*;
 
-/// An interface common to all zippers, to support moving the zipper, reading elements, iterating across
-/// the trie
-pub trait Zipper<'a>: zipper_priv::ZipperPriv {
+/// An interface common to all zippers, to support basic movement of the zipper and inspecting paths
+pub trait Zipper: zipper_priv::ZipperPriv {
 
     /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
     fn at_root(&self) -> bool;
@@ -63,11 +64,15 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// Returns an empty mask if the focus is on a leaf or non-existent path
     fn child_mask(&self) -> [u64; 4];
 
-    /// Moves the zipper deeper into the tree, to the `key` specified relative to the current zipper focus
+    /// Moves the zipper deeper into the trie, to the `key` specified relative to the current zipper focus
     ///
     /// Returns `true` if the zipper points to an existing path within the tree, otherwise `false`.  The
     /// zipper's location will be updated, regardless of whether or not the path exists within the tree.
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool;
+
+    /// Moves the zipper one byte deeper into the trie.  Identical in effect to [descend_to](Self::descend_to)
+    /// with a 1-byte key argument
+    fn descend_to_byte(&mut self, k: u8) -> bool;
 
     /// Descends the zipper's focus one step into a child branch uniquely identified by `child_idx`
     ///
@@ -88,6 +93,9 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
     /// the root and return `false`
     fn ascend(&mut self, steps: usize) -> bool;
 
+    /// Ascends the zipper up a single byte.  Equivalent to passing `1` to [ascend](Self::ascend)
+    fn ascend_byte(&mut self) -> bool;
+
     /// Ascends the zipper to the nearest upstream branch point or value.  Returns `true` if the zipper
     /// focus moved upwards, otherwise returns `false` if the zipper was already at the root
     fn ascend_until(&mut self) -> bool;
@@ -106,6 +114,17 @@ pub trait Zipper<'a>: zipper_priv::ZipperPriv {
 
     /// Returns a new [BytesTrieMap] containing everything below the zipper's focus
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>>;
+
+}
+
+/// An interface for zippers that cannot modify the trie.  Allows values to be read from the trie with
+/// a lifetime that may outlive the zipper
+pub trait ReadOnlyZipper<'a, V> {
+    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
+    fn get_value(&self) -> Option<&'a V>;
+}
+
+pub trait ZipperIteration {
 
 }
 
@@ -168,7 +187,7 @@ impl<'a, 'k, V> Clone for ReadZipper<'a, 'k, V> where V: Clone {
     }
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for ReadZipper<'a, 'k, V> {
+impl<V: Clone + Send + Sync> Zipper for ReadZipper<'_, '_, V> {
 
     fn at_root(&self) -> bool {
         self.prefix_buf.len() <= self.origin_path.len()
@@ -252,6 +271,20 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for ReadZipper<'a, 'k, V> {
             };
         }
         self.focus_node.node_contains_partial_key(key)
+    }
+
+    fn descend_to_byte(&mut self, k: u8) -> bool {
+        self.prepare_buffers();
+        debug_assert!(self.is_regularized());
+
+        self.prefix_buf.push(k);
+        if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+            self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+            self.focus_node = next_node.as_tagged();
+            self.focus_iter_token = NODE_ITER_INVALID;
+            return true;
+        }
+        self.focus_node.node_contains_partial_key(self.node_key())
     }
 
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
@@ -354,6 +387,20 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for ReadZipper<'a, 'k, V> {
         true
     }
 
+    fn ascend_byte(&mut self) -> bool {
+        if self.excess_key_len() == 0 {
+            match self.ancestors.pop() {
+                Some((node, iter_tok, _prefix_offset)) => {
+                    self.focus_node = node;
+                    self.focus_iter_token = iter_tok;
+                },
+                None => return false
+            };
+        }
+        self.prefix_buf.pop();
+        true
+    }
+
     fn ascend_until(&mut self) -> bool {
         if self.at_root() {
             return false;
@@ -394,6 +441,21 @@ impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipper<'a, 
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> {
         self.focus_node.get_node_at_key(self.node_key())
+    }
+}
+
+impl<'a, V: Clone + Send + Sync> ReadOnlyZipper<'a, V> for ReadZipper<'a, '_, V>{
+    fn get_value(&self) -> Option<&'a V> {
+        let key = self.node_key();
+        if key.len() > 0 {
+            self.focus_node.node_get_val(key)
+        } else {
+            if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
+                parent.node_get_val(self.parent_key())
+            } else {
+                self.root_val.clone() //Just clone the ref, not the value itself
+            }
+        }
     }
 }
 
@@ -454,20 +516,6 @@ impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
         self.prefix_buf.len() - self.origin_path.len()
     }
 
-    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
-    pub fn get_value(&self) -> Option<&'a V> {
-        let key = self.node_key();
-        if key.len() > 0 {
-            self.focus_node.node_get_val(key)
-        } else {
-            if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
-                parent.node_get_val(self.parent_key())
-            } else {
-                self.root_val.clone() //Just clone the ref, not the value itself
-            }
-        }
-    }
-
     /// Returns the path beginning from the origin to the current focus.  Returns `None` if the zipper
     /// is relative and does not have an origin path
     pub fn origin_path(&self) -> Option<&[u8]> {
@@ -518,36 +566,6 @@ impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
         } else {
             true
         }
-    }
-
-    /// Identical in effect to [Self::descend_to] with a 1-byte key argument
-    pub fn descend_to_byte(&mut self, k: u8) -> bool {
-        self.prepare_buffers();
-        debug_assert!(self.is_regularized());
-
-        self.prefix_buf.push(k);
-        if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
-            self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
-            self.focus_node = next_node.as_tagged();
-            self.focus_iter_token = NODE_ITER_INVALID;
-            return true;
-        }
-        self.focus_node.node_contains_partial_key(self.node_key())
-    }
-
-    /// Ascends the zipper up a single byte.  Equivalent to `ascend(1)`
-    pub fn ascend_byte(&mut self) -> bool {
-        if self.excess_key_len() == 0 {
-            match self.ancestors.pop() {
-                Some((node, iter_tok, _prefix_offset)) => {
-                    self.focus_node = node;
-                    self.focus_iter_token = iter_tok;
-                },
-                None => return false
-            };
-        }
-        self.prefix_buf.pop();
-        true
     }
 
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
@@ -942,6 +960,7 @@ impl<'a, 'k, V: Clone + Send + Sync> ReadZipper<'a, 'k, V> {
         self.prefix_buf.extend(self.origin_path);
     }
 
+    //GOAT, Consider deleting.  I feel like this API isn't very useful and leads people away from the better-performing options
     /// Consumes the zipper and returns a Iterator over the downstream child bytes from the focus branch
     ///
     /// NOTE: This is mainly a convenience to allow the use of `collect` and `for` loops, as the other
@@ -1053,6 +1072,7 @@ impl<'a, 'k, V: Clone + Send + Sync> Iterator for ReadZipperIter<'a, 'k, V> {
     }
 }
 
+//GOAT, Consider deleting.  I feel like this API just isn't that convenient and might lead people away from better-performing options
 /// An Iterator returned by [into_child_iter](ReadZipper::into_child_iter) to iterate over the children from
 /// a branch of the trie
 ///

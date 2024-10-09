@@ -59,7 +59,7 @@ pub trait WriteZipper<V> {
     /// effect will be the same as [Self::remove_branch] causing the trie to be pruned below the graft location.
     /// Since dangling paths aren't allowed, This method may cause the trie to be pruned above the zipper's focus,
     /// and may lead to [Self::path_exists] returning `false`, where it previously returned `true`
-    fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z);
+    fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z);
 
     /// Replaces the trie below the zipper's focus with the contents of a [BytesTrieMap], consuming the map
     ///
@@ -77,7 +77,7 @@ pub trait WriteZipper<V> {
     /// Returns `true` if the join was sucessful, or `false` if `read_zipper` was at a nonexistent path.
     ///
     /// If the &self zipper is at a path that does not exist, this method behaves like graft.
-    fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice;
+    fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice;
 
     /// Joins (union of) the trie below the zipper's focus with the contents of a [BytesTrieMap],
     /// consuming the map
@@ -91,7 +91,7 @@ pub trait WriteZipper<V> {
     /// the node is checked at runtime, but I think it violates the expectation that ReadZippers don't
     /// modify the trie, and also it could lead to a panic if one ReadZipper ends up editing a tree that
     /// another ReadZipper is traversing.
-    fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice;
+    fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice;
 
     /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
     /// each path and joining together all of the downstream sub-paths
@@ -128,24 +128,24 @@ pub trait WriteZipper<V> {
     ///
     /// Returns `true` if the meet was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
-    fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice;
+    fn meet<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice;
 
     /// Experiment.  GOAT, document this
-    fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice;
+    fn meet_2<'z, ZA: Zipper<V=V>, ZB: Zipper<V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice;
 
     /// Subtracts the subtrie downstream of the focus of `read_zipper` from the subtrie below the zipper's
     /// focus
     ///
     /// Returns `true` if the subtraction was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
-    fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice;
+    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice;
 
     /// Restricts paths in the subtrie downstream of the `self` focus to paths prefixed by a path to a value in
     /// `read_zipper`
     ///
     /// Returns `true` if the restriction was sucessful, or `false` if either `self` or `read_zipper` is at a
     /// nonexistent path.
-    fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool;
+    fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool;
 
     /// Populates the "stem" paths in `self` with the corresponding subtries in `read_zipper`
     ///
@@ -155,7 +155,7 @@ pub trait WriteZipper<V> {
     /// operation is as a bunch of "stems" in the WriteZipper, that get their downstream contents populated
     /// by the corresponding paths in the ReadZipper.  Ideas for names are: "blossom", "fill_in", "expound",
     /// "populate", etc.  I avoided "bloom" and "expand" because those both have other connotations.
-    fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool;
+    fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool;
 
     /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
     /// if a branch was removed, otherwise returns `false`
@@ -191,7 +191,7 @@ impl<V> Drop for WriteZipperTracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperTracked<'a, 'k, V> {
+impl<V: Clone + Send + Sync> Zipper for WriteZipperTracked<'_, '_, V> {
     fn at_root(&self) -> bool { self.z.at_root() }
     fn reset(&mut self) { self.z.reset() }
     fn path(&self) -> &[u8] { self.z.path() }
@@ -201,10 +201,12 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperTracked<'a, 'k, V
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
+    fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
     fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
+    fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
     fn fork_zipper(&self) -> ReadZipper<V> { self.z.fork_zipper() }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
@@ -241,19 +243,19 @@ impl<V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'_, '_, V> {
     fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head(&mut self) -> ZipperHead<V> { self.z.zipper_head() }
-    fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
+    fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
-    fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
+    fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice { self.z.join_map(map) }
-    fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join_into(read_zipper) }
+    fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join_into(read_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
-    fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.meet(read_zipper) }
-    fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice { self.z.meet_2(rz_a, rz_b) }
-    fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
-    fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
-    fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
+    fn meet<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.meet(read_zipper) }
+    fn meet_2<ZA: Zipper<V=V>, ZB: Zipper<V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice { self.z.meet_2(rz_a, rz_b) }
+    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
+    fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
+    fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branch(&mut self) -> bool { self.z.remove_branch() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
@@ -278,7 +280,7 @@ impl<V> Drop for WriteZipperUntracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperUntracked<'a, 'k, V> {
+impl<V: Clone + Send + Sync> Zipper for WriteZipperUntracked<'_, '_, V> {
     fn at_root(&self) -> bool { self.z.at_root() }
     fn reset(&mut self) { self.z.reset() }
     fn path(&self) -> &[u8] { self.z.path() }
@@ -288,10 +290,12 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperUntracked<'a, 'k,
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
+    fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
     fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
+    fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
     fn fork_zipper(&self) -> ReadZipper<V> { self.z.fork_zipper() }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
@@ -335,19 +339,19 @@ impl<V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'_, '_, V> 
     fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head(&mut self) -> ZipperHead<V> { self.z.zipper_head() }
-    fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
+    fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
-    fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
+    fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice { self.z.join_map(map) }
-    fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join_into(read_zipper) }
+    fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join_into(read_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
-    fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.meet(read_zipper) }
-    fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice { self.z.meet_2(rz_a, rz_b) }
-    fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
-    fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
-    fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
+    fn meet<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.meet(read_zipper) }
+    fn meet_2<ZA: Zipper<V=V>, ZB: Zipper<V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice { self.z.meet_2(rz_a, rz_b) }
+    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
+    fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
+    fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branch(&mut self) -> bool { self.z.remove_branch() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
@@ -408,7 +412,7 @@ struct KeyFields<'k> {
     prefix_idx: Vec<usize>,
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperCore<'a, 'k, V> {
+impl<V: Clone + Send + Sync> Zipper for WriteZipperCore<'_, '_, V> {
 
     #[inline]
     fn at_root(&self) -> bool {
@@ -495,6 +499,10 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperCore<'a, 'k, V> {
         self.focus_stack.top().unwrap().node_contains_partial_key(self.key.node_key())
     }
 
+    fn descend_to_byte(&mut self, k: u8) -> bool {
+        self.descend_to(&[k])
+    }
+
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
         panic!()
     }
@@ -523,6 +531,10 @@ impl<'a, 'k, V: Clone + Send + Sync> Zipper<'a> for WriteZipperCore<'a, 'k, V> {
             self.key.prefix_buf.truncate(self.key.prefix_buf.len() - cur_jump);
             steps -= cur_jump;
         }
+    }
+
+    fn ascend_byte(&mut self) -> bool {
+        self.ascend(1)
     }
 
     fn ascend_until(&mut self) -> bool {
@@ -718,7 +730,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         }
     }
     /// See [WriteZipper::graft]
-    pub fn graft<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) {
+    pub fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) {
         self.graft_internal(read_zipper.get_focus().into_option())
     }
     /// See [WriteZipper::graft_map]
@@ -726,7 +738,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         self.graft_internal(map.into_root());
     }
     /// See [WriteZipper::join]
-    pub fn join<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+    pub fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
@@ -756,7 +768,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         }
     }
     /// See [WriteZipper::join_into]
-    pub fn join_into<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+    pub fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
@@ -811,7 +823,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         fully_ascended
     }
     /// See [WriteZipper::meet]
-    pub fn meet<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
+    pub fn meet<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
@@ -826,7 +838,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         }
     }
     /// See [WriteZipper::meet_2]
-    pub fn meet_2<'z, ZA: Zipper<'z, V=V>, ZB: Zipper<'z, V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
+    pub fn meet_2<ZA: Zipper<V=V>, ZB: Zipper<V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice {
         let a_focus = rz_a.get_focus();
         let a = match a_focus.try_borrow() {
             Some(src) => src,
@@ -842,7 +854,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         true
     }
     /// See [WriteZipper::subtract]
-    pub fn subtract<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+    pub fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
@@ -859,7 +871,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         }
     }
     /// See [WriteZipper::restrict]
-    pub fn restrict<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
+    pub fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
@@ -874,7 +886,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         }
     }
     /// See [WriteZipper::restricting]
-    pub fn restricting<'z, Z: Zipper<'z, V=V>>(&mut self, read_zipper: &Z) -> bool {
+    pub fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false
