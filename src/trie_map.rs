@@ -100,13 +100,27 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     }
 
     /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
-    pub fn read_zipper(&self) -> ReadZipperCore<V> {
-        ReadZipperCore::new_with_node_and_path_internal(self.root().borrow().as_tagged(), &[], Some(0), None, None)
+    pub fn read_zipper(&self) -> ReadZipperUntracked<V> {
+        #[cfg(debug_assertions)]
+        {
+            ReadZipperUntracked::new_with_node_and_path_internal(self.root().borrow().as_tagged(), &[], Some(0), None, None)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            ReadZipperUntracked::new_with_node_and_path_internal(self.root().borrow().as_tagged(), &[], Some(0), None)
+        }
     }
 
     /// Creates a new [ReadZipper] with the specified path from the root of the map
-    pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipperCore<'a, 'k, V> {
-        ReadZipperCore::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()), None)
+    pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipperUntracked<'a, 'k, V> {
+        #[cfg(debug_assertions)]
+        {
+            ReadZipperUntracked::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()), None)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            ReadZipperUntracked::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()))
+        }
     }
 
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap

@@ -93,11 +93,13 @@ impl ZipperTracker {
             is_tracking: IsTracking::ReadZipper,
         }
     }
-    /// Makes a ReadTracker from an existing tracker.  The source can be a WriteTracker or a ReadTracker
-    pub fn clone_read_tracker(&self, path: &[u8]) -> Self {
-        debug_assert!(path.starts_with(&self.this_path));
-        Self::new_read_tracker_no_check(self.all_paths.clone(), path)
-    }
+    //GOAT, it seems we may not need this method after all, because forked ReadZippers never need to be
+    // tracked, because they always exist within the footprint of their parent's permissions
+    // /// Makes a ReadTracker from an existing tracker.  The source can be a WriteTracker or a ReadTracker
+    // pub fn clone_read_tracker(&self, path: &[u8]) -> Self {
+    //     debug_assert!(path.starts_with(&self.this_path));
+    //     Self::new_read_tracker_no_check(self.all_paths.clone(), path)
+    // }
 }
 
 impl Drop for ZipperTracker {
