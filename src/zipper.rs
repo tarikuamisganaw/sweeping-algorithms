@@ -1347,6 +1347,7 @@ impl<'a, V: Clone + Send + Sync> Iterator for ReadZipperIter<'a, '_, V> {
 #[cfg(test)]
 mod tests {
     use crate::trie_map::*;
+    use crate::utils::IntoByteMaskIter;
     use super::*;
 
     #[test]
@@ -1373,29 +1374,29 @@ mod tests {
         assert!(rz.descend_to(&[b'\''])); // focus = rom'  (' is the lowest byte)
         assert!(rz.to_sibling(true)); // focus = roma  (a is the second byte), but we can't actually guarantee whether we land on 'a' or 'u'
         assert_in_list(rz.path(), &[b"roma", b"romu"]);
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']); // both follow-ups romane and romanus have n following a
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'n']); // both follow-ups romane and romanus have n following a
         assert!(rz.to_sibling(true)); // focus = romu  (u is the third byte)
         assert_in_list(rz.path(), &[b"roma", b"romu"]);
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']); // and romu is followed by lus
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'l']); // and romu is followed by lus
         assert!(!rz.to_sibling(true)); // fails because there were only 3 children ['\'', 'a', 'u']
         assert!(rz.to_sibling(false)); // focus = roma or romu (we stepped back)
         assert_in_list(rz.path(), &[b"roma", b"romu"]);
         assert!(rz.to_sibling(false)); // focus = rom' (we stepped back to where we began)
         assert_eq!(rz.path(), b"rom'");
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'i']);
         assert!(rz.ascend(1)); // focus = rom
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'\'', b'a', b'u']); // all three options we visited
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'\'', b'a', b'u']); // all three options we visited
         assert!(rz.descend_indexed_branch(0)); // focus = rom'
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'i']);
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'i']);
         assert!(rz.ascend(1)); // focus = rom
         assert!(rz.descend_indexed_branch(1)); // focus = roma
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'n']);
         assert!(rz.ascend(1));
         assert!(rz.descend_indexed_branch(2)); // focus = romu
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'l']);
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'l']);
         assert!(rz.ascend(1));
         assert!(rz.descend_indexed_branch(1)); // focus = roma
-        assert_eq!(rz.fork_read_zipper().into_child_iter().collect::<Vec<_>>(), vec![b'n']);
+        assert_eq!(rz.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'n']);
         assert!(rz.ascend(1));
         // ' < a < u
         // 39 105 117

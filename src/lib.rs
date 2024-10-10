@@ -9,8 +9,11 @@ pub mod trie_map;
 /// Cursors that can move over a trie, to inspect and modify contained elements or entire branches
 pub mod zipper;
 
+/// Handy conveniences and utilities to use with a [PathMap]
+pub mod utils;
+
 /// Track outstanding zippers to be sure they don't conflict
-pub(crate) mod zipper_tracking;
+mod zipper_tracking;
 
 /// Used to create multiple simultaneous zippers from the same parent
 mod zipper_head;
