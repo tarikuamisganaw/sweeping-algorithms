@@ -146,16 +146,16 @@ pub trait Zipper: zipper_priv::ZipperPriv {
 
 }
 
-/// An interface for zippers that cannot modify the trie.  Allows values to be read from the trie with
+/// An interface for a [Zipper] that cannot modify the trie.  Allows values to be read from the trie with
 /// a lifetime that may outlive the zipper
-pub trait ReadOnlyZipper<'a, V> {
+pub trait ReadOnlyZipper<'a, V>: Zipper {
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     fn get_value(&self) -> Option<&'a V>;
 }
 
-/// An interface for advanced zipper movements used for various types of iteration; such as iterating
+/// An interface for advanced [Zipper] movements used for various types of iteration; such as iterating
 /// every value, or iterating all paths descending from a common root at a certain depth
-pub trait ZipperIteration<'a, V> {
+pub trait ZipperIteration<'a, V>: Zipper {
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order.  Returns a reference to the value
     fn to_next_val(&mut self) -> Option<&'a V>;
@@ -192,8 +192,8 @@ pub trait ZipperIteration<'a, V> {
     fn to_next_k_path(&mut self, k: usize) -> bool;
 }
 
-/// An interface for zippers to support accessing the full path buffer used to create the zipper
-pub trait ZipperAbsolutePath {
+/// An interface for a [Zipper] to support accessing the full path buffer used to create the zipper
+pub trait ZipperAbsolutePath: Zipper {
 //GOAT, should this be renamed to `absolute_path`?
     /// Returns the path beginning from the origin to the current focus.  Returns `None` if the zipper
     /// is relative and does not have an origin path
@@ -274,7 +274,7 @@ impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipperTracked<'a
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
 }
 
-impl<V> ZipperAbsolutePath for ReadZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync> ZipperAbsolutePath for ReadZipperTracked<'_, '_, V> {
     fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
 }
 
@@ -373,7 +373,7 @@ impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipperUntracked<
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
 }
 
-impl<V> ZipperAbsolutePath for ReadZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync> ZipperAbsolutePath for ReadZipperUntracked<'_, '_, V> {
     fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
 }
 
@@ -975,7 +975,7 @@ impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipperCore<'a, '
     }
 }
 
-impl<V> ZipperAbsolutePath for ReadZipperCore<'_, '_, V> {
+impl<V: Clone + Send + Sync> ZipperAbsolutePath for ReadZipperCore<'_, '_, V> {
     fn origin_path(&self) -> Option<&[u8]> {
         if self.root_key_offset.is_some() {
             if self.prefix_buf.len() > 0 {

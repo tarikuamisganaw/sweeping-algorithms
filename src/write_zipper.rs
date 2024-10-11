@@ -13,7 +13,7 @@ use crate::dense_byte_node::DenseByteNode;
 use crate::line_list_node::LineListNode;
 
 /// Implemented on [Zipper] types that allow modification of the trie
-pub trait WriteZipper<V> {
+pub trait WriteZipper<V>: Zipper {
 
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     ///
