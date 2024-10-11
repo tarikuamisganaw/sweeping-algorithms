@@ -290,6 +290,11 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperTracked<'a, 'path, V> {
     //     let core = ReadZipperCore::new_with_node_and_path_internal(root_node, path, root_key_offset, root_val);
     //     Self { z: core, _tracker: tracker }
     // }
+    /// See [ReadZipperCore::new_with_node_and_cloned_path]
+    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>, tracker: ZipperTracker) -> Self {
+        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, path, root_key_offset);
+        Self { z: core, _tracker: tracker }
+    }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync> std::iter::IntoIterator for ReadZipperTracked<'a, 'path, V> {
@@ -395,6 +400,17 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperUntracked<'a, 'path, V> {
         let core = ReadZipperCore::new_with_node_and_path_internal(root_node, path, root_key_offset, root_val);
         Self { z: core }
     }
+    /// See [ReadZipperCore::new_with_node_and_cloned_path]
+    #[cfg(debug_assertions)]
+    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>, tracker: Option<ZipperTracker>) -> Self {
+        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, path, root_key_offset);
+        Self { z: core, _tracker: tracker }
+    }
+    #[cfg(not(debug_assertions))]
+    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>) -> Self {
+        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, path, root_key_offset);
+        Self { z: core }
+    }
     /// Makes a new `ReadZipperUntracked` for use in the implementation of [Zipper::fork_read_zipper].
     /// Forked zippers never need to be tracked because they are always fully covered by their parent's permissions
     pub(crate) fn new_forked_with_inner_zipper(core: ReadZipperCore<'a, 'path, V>) -> Self {
@@ -431,7 +447,7 @@ pub(crate) const EXPECTED_PATH_LEN: usize = 64;
 /// A [Zipper] that is unable to modify the trie
 pub(crate) struct ReadZipperCore<'a, 'path, V> {
     /// A reference to the entire origin path, of which `root_key` is the final subset, or None for a relative zipper
-    origin_path: &'path [u8],
+    origin_path: SliceOrLen<'path>,
     /// The byte offset in `origin_path` from the root node to the zipper's root.
     /// `root_key = origin_path[root_key_offset..]`
     root_key_offset: Option<usize>,
@@ -449,10 +465,41 @@ pub(crate) struct ReadZipperCore<'a, 'path, V> {
     ancestors: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
 }
 
+/// The origin path, if it's outside the Zipper, or the length of the origin path if the origin has already
+/// been copied into the `prefix_buf`
+#[derive(Clone, Copy)]
+enum SliceOrLen<'a> {
+    Slice(&'a [u8]),
+    Len(usize),
+}
+
+impl<'a> From<&'a [u8]> for SliceOrLen<'a> {
+    fn from(slice: &'a [u8]) -> Self {
+        Self::Slice(slice)
+    }
+}
+
+impl SliceOrLen<'_> {
+    #[inline]
+    fn len(&self) -> usize {
+        match self {
+            Self::Slice(slice) => slice.len(),
+            Self::Len(len) => *len,
+        }
+    }
+    #[inline]
+    unsafe fn as_slice_unchecked(&self) -> &[u8] {
+        match self {
+            Self::Slice(slice) => slice,
+            Self::Len(_) => core::hint::unreachable_unchecked()
+        }
+    }
+}
+
 impl<V> Clone for ReadZipperCore<'_, '_, V> where V: Clone {
     fn clone(&self) -> Self {
         Self {
-            origin_path: self.origin_path,
+            origin_path: self.origin_path.clone(),
             root_key_offset: self.root_key_offset,
             root_val: self.root_val.clone(),
             focus_node: self.focus_node.clone(),
@@ -791,7 +838,7 @@ impl<V: Clone + Send + Sync> Zipper for ReadZipperCore<'_, '_, V> {
                 let new_root_key_offset = new_root_path.len() - self.node_key().len();
                 (new_root_path, Some(new_root_key_offset))
             },
-            None => (self.origin_path, None)
+            None => (self.node_key(), None)
         };
         Self::ReadZipperT::new_with_node_and_path_internal(self.focus_node.clone(), new_root_path, new_root_key_offset, new_root_val)
     }
@@ -934,7 +981,7 @@ impl<V> ZipperAbsolutePath for ReadZipperCore<'_, '_, V> {
             if self.prefix_buf.len() > 0 {
                 Some(&self.prefix_buf)
             } else {
-                Some(&self.origin_path)
+                Some(unsafe{ &self.origin_path.as_slice_unchecked() })
             }
         } else {
             None
@@ -942,28 +989,35 @@ impl<V> ZipperAbsolutePath for ReadZipperCore<'_, '_, V> {
     }
 }
 
+/// Internal function to walk along a path to the final node reference
+fn node_along_path<'a, 'path, V>(root_node: &'a dyn TrieNode<V>, path: &'path [u8]) -> (&'a dyn TrieNode<V>, &'path [u8], Option<&'a V>) {
+    let mut key = path;
+    let mut node = root_node;
+    let mut val = None;
+
+    //Step until we get to the end of the key or find a leaf node
+    if key.len() > 0 {
+        while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
+            if consumed_byte_cnt < key.len() {
+                node = next_node;
+                key = &key[consumed_byte_cnt..];
+            } else {
+                val = node.node_get_val(key);
+                node = next_node;
+                key = &[];
+                break;
+            };
+        }
+    }
+
+    (node, key, val)
+}
+
 impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
 
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], mut root_key_offset: Option<usize>) -> Self {
-        let mut key = path;
-        let mut node = root_node;
-        let mut val = None;
-
-        //Step until we get to the end of the key or find a leaf node
-        if key.len() > 0 {
-            while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
-                if consumed_byte_cnt < key.len() {
-                    node = next_node;
-                    key = &key[consumed_byte_cnt..];
-                } else {
-                    val = node.node_get_val(key);
-                    node = next_node;
-                    key = &[];
-                    break;
-                };
-            }
-        }
+        let (node, key, val) = node_along_path(root_node, path);
 
         let zipper_path = match root_key_offset.as_mut() {
             Some(root_key_offset) => {
@@ -982,13 +1036,38 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
     /// guarantee the path is within the supplied node.
     pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
         Self {
-            origin_path: path,
+            origin_path: SliceOrLen::from(path),
             root_key_offset,
             root_val,
             focus_node: root_node,
             focus_iter_token: NODE_ITER_INVALID,
             prefix_buf: vec![],
             ancestors: vec![],
+        }
+    }
+    /// Same as [Self::new_with_node_and_path], but inits the zipper stack ahead of time, allowing a zipper
+    /// that isn't bound by `'path`
+    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], mut root_key_offset: Option<usize>) -> Self {
+        let (node, key, val) = node_along_path(root_node, path);
+
+        let zipper_path = match root_key_offset.as_mut() {
+            Some(root_key_offset) => {
+                *root_key_offset -= key.len();
+                path
+            },
+            None => key
+        };
+
+        let mut prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
+        prefix_buf.extend(zipper_path);
+        Self {
+            origin_path: SliceOrLen::Len(zipper_path.len()),
+            root_key_offset,
+            root_val: val,
+            focus_node: node.as_tagged(),
+            focus_iter_token: NODE_ITER_INVALID,
+            prefix_buf,
+            ancestors: Vec::with_capacity(EXPECTED_DEPTH),
         }
     }
 
@@ -1198,11 +1277,11 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
         }
     }
 
-    #[inline(never)]
+    #[cold]
     fn prepare_buffers_guts(&mut self) {
         self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
         self.ancestors = Vec::with_capacity(EXPECTED_DEPTH);
-        self.prefix_buf.extend(self.origin_path);
+        self.prefix_buf.extend(unsafe{ self.origin_path.as_slice_unchecked() });
     }
 
     // //GOAT, Consider deleting.  I feel like this API isn't very useful and leads people away from the better-performing options
@@ -1228,7 +1307,7 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
         if self.prefix_buf.len() > 0 {
             &self.prefix_buf[key_start..]
         } else {
-            &self.origin_path[key_start..]
+            unsafe{ &self.origin_path.as_slice_unchecked()[key_start..] }
         }
     }
     /// Internal method returning the key that leads to `self.focus_node` within the parent

@@ -1,5 +1,6 @@
-use std::thread::ScopedJoinHandle;
-use std::{thread, thread::spawn, thread::JoinHandle};
+
+use std::{thread, thread::ScopedJoinHandle};
+use std::sync::mpsc;
 
 use divan::{Divan, Bencher};
 
@@ -41,39 +42,69 @@ fn parallel_read_zipper_get(bencher: Bencher, (elements, thread_cnt): (usize, &s
         }
     }
 
-    bencher.with_inputs(|| {}).bench_local_values(|()| {
-        if thread_cnt > 0 {
-            let mut threads: Vec<JoinHandle<()>> = Vec::with_capacity(thread_cnt);
+    thread::scope(|scope| {
 
-            //Spawn all the threads
-            for n in 0..thread_cnt {
-                let map_ref = map.clone();
-                let thread = spawn(move || {
-                    let path = [n as u8];
-                    let mut zipper = map_ref.read_zipper_at_path(&path);
-                    for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
-                        zipper.descend_to(prefix_key(&(i as u64)));
-                        assert_eq!(zipper.get_value().unwrap(), &i);
-                        zipper.reset();
+        let mut zipper_senders: Vec<mpsc::Sender<ReadZipperUntracked<'_, '_, usize>>> = Vec::with_capacity(thread_cnt);
+        let mut signal_receivers: Vec<mpsc::Receiver<bool>> = Vec::with_capacity(thread_cnt);
+
+        //Spawn all the threads
+        for n in 0..thread_cnt {
+            let (zipper_tx, zipper_rx) = mpsc::channel::<ReadZipperUntracked<'_, '_, usize>>();
+            zipper_senders.push(zipper_tx);
+            let (signal_tx, signal_rx) = mpsc::channel::<bool>();
+            signal_receivers.push(signal_rx);
+
+            scope.spawn(move || {
+                loop {
+                    //The thread will block here waiting for the zipper to be sent
+                    match zipper_rx.recv() {
+                        Ok(mut zipper) => {
+                            //We got the zipper, do the stuff
+                            for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+                                zipper.descend_to(prefix_key(&(i as u64)));
+                                assert_eq!(zipper.get_value().unwrap(), &i);
+                                zipper.reset();
+                            }
+
+                            //Tell the main thread we're done
+                            signal_tx.send(true).unwrap();
+                        },
+                        Err(_) => {
+                            //The zipper_sender channel is closed, meaning it's time to shut down
+                            break;
+                        }
                     }
-                });
-                threads.push(thread);
-            };
 
-            //Wait for them to finish
-            for thread in threads {
-                thread.join().unwrap();
-            }
-        } else {
-            //No-thread case, to measure overhead of sync and spawning vs. 1-thread case
-            let path = [0];
-            let mut zipper = map.read_zipper_at_path(&path);
-            for i in 0..elements {
-                zipper.descend_to(prefix_key(&(i as u64)));
-                assert_eq!(zipper.get_value().unwrap(), &i);
-                zipper.reset();
-            }
+                }
+            });
         }
+
+        bencher.with_inputs(|| {}).bench_local_values(|()| {
+            if thread_cnt > 0 {
+
+                //Dispatch a zipper to each thread
+                for n in 0..thread_cnt {
+                    let path = [n as u8];
+                    let zipper = map.read_zipper_at_path(&path);
+                    zipper_senders[n].send(zipper).unwrap();
+                };
+
+                //Wait for the threads to all be done
+                for n in 0..thread_cnt {
+                    assert_eq!(signal_receivers[n].recv().unwrap(), true);
+                };
+
+            } else {
+                //No-thread case, to measure overhead of sync and spawning vs. 1-thread case
+                let path = [0];
+                let mut zipper = map.read_zipper_at_path(&path);
+                for i in 0..elements {
+                    zipper.descend_to(prefix_key(&(i as u64)));
+                    assert_eq!(zipper.get_value().unwrap(), &i);
+                    zipper.reset();
+                }
+            }
+        });
     });
 }
 

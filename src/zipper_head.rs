@@ -23,16 +23,17 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         }
     }
 
-    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`
-    pub fn read_zipper_at_path<'k>(&self, path: &'k[u8]) -> ReadZipperTracked<'a, 'k, V> {
+    /// A more efficient version of [read_zipper_at_path](Self::read_zipper_at_path), where the returned
+    /// zipper is constrained by the `'path` lifetime
+    pub fn read_zipper_at_borrowed_path<'path>(&self, path: &'path[u8]) -> ReadZipperTracked<'a, 'path, V> {
         let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
         let root = unsafe{ self.root.get().as_ref() };
         ReadZipperTracked::new_with_node_and_path(root.borrow(), path.as_ref(), Some(path.len()), zipper_tracker)
     }
 
-    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`, where the caller
-    /// guarantees that there will be no conflicts with any WriteZippers at any time in the future
-    pub unsafe fn read_zipper_at_path_unchecked<'k>(&self, path: &'k[u8]) -> ReadZipperUntracked<'a, 'k, V> {
+    /// A more efficient version of [read_zipper_at_path_unchecked](Self::read_zipper_at_path_unchecked),
+    /// where the returned zipper is constrained by the `'path` lifetime
+    pub unsafe fn read_zipper_at_borrowed_path_unchecked<'path>(&self, path: &'path[u8]) -> ReadZipperUntracked<'a, 'path, V> {
         let root = unsafe{ self.root.get().as_ref() };
         #[cfg(debug_assertions)]
         {
@@ -45,13 +46,27 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         }
     }
 
-    //GOAT, there may be no point to this API method
-    // /// Creates a new [WriteZipper] starting at the root of the `ZipperHead``
-    // pub fn root_write_zipper(&mut self) -> WriteZipper<V> {
-    //     let zipper_tracker = self.zipper_tracker.new_write_path(&[]);
-    //     let root = unsafe{ self.root.get().as_mut() };
-    //     WriteZipper::new_with_node_and_path_internal(root, &[], true, Some(zipper_tracker))
-    // }
+    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`
+    pub fn read_zipper_at_path(&self, path: &[u8]) -> ReadZipperTracked<'a, 'static, V> {
+        let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
+        let root = unsafe{ self.root.get().as_ref() };
+        ReadZipperTracked::new_with_node_and_cloned_path(root.borrow(), path.as_ref(), Some(path.len()), zipper_tracker)
+    }
+
+    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`, where the caller
+    /// guarantees that there will be no conflicts with any WriteZippers at any time in the future
+    pub unsafe fn read_zipper_at_path_unchecked(&self, path: &[u8]) -> ReadZipperUntracked<'a, 'static, V> {
+        let root = unsafe{ self.root.get().as_ref() };
+        #[cfg(debug_assertions)]
+        {
+            let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
+            ReadZipperUntracked::new_with_node_and_cloned_path(root.borrow(), path.as_ref(), Some(path.len()), Some(zipper_tracker))
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            ReadZipperUntracked::new_with_node_and_cloned_path(root.borrow(), path.as_ref(), Some(path.len()))
+        }
+    }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
     pub fn write_zipper_at_exclusive_path<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipperTracked<'a, 'k, V> {

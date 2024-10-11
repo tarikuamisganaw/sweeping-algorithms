@@ -111,8 +111,9 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         }
     }
 
-    /// Creates a new [ReadZipper] with the specified path from the root of the map
-    pub fn read_zipper_at_path<'a, 'k>(&'a self, path: &'k[u8]) -> ReadZipperUntracked<'a, 'k, V> {
+    /// Creates a new [ReadZipper] with the specified path from the root of the map; This method is much more
+    /// efficient than read_zipper_at_path, but means the resulting zipper is bound by the `'path` lifetime
+    pub fn read_zipper_at_borrowed_path<'a, 'path>(&'a self, path: &'path[u8]) -> ReadZipperUntracked<'a, 'path, V> {
         #[cfg(debug_assertions)]
         {
             ReadZipperUntracked::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()), None)
@@ -120,6 +121,18 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         #[cfg(not(debug_assertions))]
         {
             ReadZipperUntracked::new_with_node_and_path(self.root().borrow(), path.as_ref(), Some(path.len()))
+        }
+    }
+
+    /// Creates a new [ReadZipper] with the specified path from the root of the map
+    pub fn read_zipper_at_path<'a>(&'a self, path: &[u8]) -> ReadZipperUntracked<'a, 'static, V> {
+        #[cfg(debug_assertions)]
+        {
+            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().borrow(), path.as_ref(), Some(path.len()), None)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().borrow(), path.as_ref(), Some(path.len()))
         }
     }
 
@@ -136,7 +149,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     }
 
     /// Creates a new [WriteZipper] with the specified path from the root of the map
-    pub fn write_zipper_at_path<'a, 'k>(&'a mut self, path: &'k[u8]) -> WriteZipperUntracked<'a, 'k, V> {
+    pub fn write_zipper_at_path<'a, 'path>(&'a mut self, path: &'path[u8]) -> WriteZipperUntracked<'a, 'path, V> {
         #[cfg(debug_assertions)]
         {
             WriteZipperUntracked::new_with_node_and_path(self.root_mut(), path, None)
@@ -184,14 +197,14 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         // let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
         // node.node_contains_val(remaining_key)
 
-        let zipper = self.read_zipper_at_path(k);
+        let zipper = self.read_zipper_at_borrowed_path(k);
         zipper.is_value()
     }
 
     /// Returns `true` if a path is contained within the map, or `false` otherwise
     pub fn contains_path<K: AsRef<[u8]>>(&self, k: K) -> bool {
         let k = k.as_ref();
-        let zipper = self.read_zipper_at_path(k);
+        let zipper = self.read_zipper_at_borrowed_path(k);
         zipper.path_exists()
     }
 
@@ -253,7 +266,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         // let (node, remaining_key) = traverse_to_leaf(self.root.borrow(), k);
         // node.node_get_val(remaining_key)
 
-        let zipper = self.read_zipper_at_path(k);
+        let zipper = self.read_zipper_at_borrowed_path(k);
         zipper.get_value()
     }
 
