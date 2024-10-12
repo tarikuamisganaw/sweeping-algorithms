@@ -43,7 +43,7 @@ impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
                                 self.prefix.push(b);
                             }
 
-                            match &cf.rec {
+                            match cf.rec() {
                                 None => {
                                     self.nopush = true;
                                 }
@@ -53,7 +53,7 @@ impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
                                 }
                             }
 
-                            match &cf.value {
+                            match cf.val() {
                                 None => {}
                                 Some(v) => {
                                     return Some((&self.prefix, v))

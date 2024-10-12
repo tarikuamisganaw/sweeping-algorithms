@@ -3,6 +3,8 @@ use core::fmt::{Debug, Formatter};
 use core::ptr;
 use std::collections::HashMap;
 
+use crate::ring::*;
+
 //OPTIMIZATION QUESTION 2, a note on Rc vs. rclite: Rc's payload bloat is 16 bytes, while rclite's is much smaller <8 Bytes.
 // That's a big deal on a DenseByteNode because it pushes it from a single cache line onto two.
 // However, rclite doesn't currently support DSTs. (like &dyn)  Therefore there are two options if we
@@ -36,7 +38,6 @@ use std::collections::HashMap;
 #[cfg(feature = "smallvec")]
 use smallvec::SmallVec;
 
-use crate::ring::*;
 use crate::trie_node::*;
 use crate::line_list_node::{LineListNode, merge_into_dense_node};
 
@@ -159,12 +160,10 @@ impl<V: Send + Sync> DenseByteNode<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            let mut old_child = Some(node);
-            core::mem::swap(&mut old_child, &mut cf.rec);
-            old_child
+            cf.swap_rec(node)
         } else {
             self.set(k);
-            let new_cf = CoFree {rec: Some(node), value: None };
+            let new_cf = CoFree::new(Some(node), None);
             self.values.insert(ix, new_cf);
             None
         }
@@ -177,16 +176,16 @@ impl<V: Send + Sync> DenseByteNode<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            match &mut cf.rec {
+            match cf.rec_mut() {
                 Some(existing_node) => {
                     let joined = existing_node.join(&node);
                     *existing_node = joined;
                 },
-                None => { cf.rec = Some(node); }
+                None => { cf.set_rec(node) }
             }
         } else {
             self.set(k);
-            let new_cf = CoFree {rec: Some(node), value: None };
+            let new_cf = CoFree::new(Some(node), None);
             self.values.insert(ix, new_cf);
         }
     }
@@ -196,12 +195,10 @@ impl<V: Send + Sync> DenseByteNode<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            let result = core::mem::take(&mut cf.value);
-            cf.value = Some(val);
-            result
+            cf.swap_val(val)
         } else {
             self.set(k);
-            let new_cf = CoFree {rec: None, value: Some(val) };
+            let new_cf = CoFree::new(None, Some(val));
             self.values.insert(ix, new_cf);
             None
         }
@@ -213,7 +210,7 @@ impl<V: Send + Sync> DenseByteNode<V> {
         debug_assert!(self.contains(k));
 
         let cf = unsafe { self.values.get_unchecked_mut(ix) };
-        let result = core::mem::take(&mut cf.value);
+        let result = cf.take_val();
 
         if cf.rec.is_none() {
             self.clear(k);
@@ -228,16 +225,16 @@ impl<V: Send + Sync> DenseByteNode<V> {
         let ix = self.left(k) as usize;
         if self.contains(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
-            match &mut cf.value {
+            match cf.val_mut() {
                 Some(existing_val) => {
                     let joined = existing_val.join(&val);
                     *existing_val = joined;
                 }
-                None => { cf.value = Some(val); }
+                None => { cf.set_val(val) }
             }
         } else {
             self.set(k);
-            let new_cf = CoFree {rec: None, value: Some(val) };
+            let new_cf = CoFree::new(None, Some(val));
             self.values.insert(ix, new_cf);
         }
     }
@@ -336,7 +333,7 @@ impl<V: Send + Sync> DenseByteNode<V> {
 
     #[inline]
     fn get_child_mut(&mut self, k: u8) -> Option<&mut TrieNodeODRc<V>> {
-        self.get_mut(k).and_then(|cf| cf.rec.as_mut())
+        self.get_mut(k).and_then(|cf| cf.rec_mut())
     }
 
     #[inline]
@@ -432,29 +429,29 @@ impl<V: Send + Sync> DenseByteNode<V> {
         self.for_each_item(|self_node, key_byte, cf_idx| {
             if other.node_contains_partial_key(&[key_byte]) {
                 let cf = unsafe{ self_node.values.get_unchecked(cf_idx) };
-                let mut new_cf = CoFree::new();
+                let mut new_cf = CoFree::new(None, None);
 
                 //If there is a value at this key_byte, and the other node contains a value, subtract them
-                if let Some(self_val) = &cf.value {
+                if let Some(self_val) = cf.val() {
                     if let Some(other_val) = other.node_get_val(&[key_byte]) {
-                        new_cf.value = self_val.psubtract(other_val);
+                        new_cf.set_val_option(self_val.psubtract(other_val));
                     }
                 }
 
                 //If there is an onward link, see if there is a matching link in other, and subtract them
-                if let Some(self_child) = &cf.rec {
+                if let Some(self_child) = cf.rec() {
                     let other_child = other.get_node_at_key(&[key_byte]);
                     match other_child.try_borrow() {
                         Some(other_child) => {
                             let difference = self_child.borrow().psubtract_dyn(other_child);
                             if difference.0 {
-                                new_cf.rec = Some(self_child.clone());
+                                new_cf.set_rec(self_child.clone());
                             } else {
-                                new_cf.rec = difference.1;
+                                new_cf.set_rec_option(difference.1);
                             }
                         },
                         None => {
-                            new_cf.rec = Some(self_child.clone());
+                            new_cf.set_rec(self_child.clone())
                         }
                     }
                 }
@@ -495,18 +492,18 @@ impl<V: Send + Sync> DenseByteNode<V> {
                 } else {
 
                     //If there is an onward link in the CF and other node, continue the restriction recursively
-                    if let Some(self_child) = &cf.rec {
+                    if let Some(self_child) = cf.rec() {
                         let other_child = other.get_node_at_key(&[key_byte]);
                         match other_child.try_borrow() {
                             Some(other_child) => {
                                 let restricted = self_child.borrow().prestrict_dyn(other_child);
-                                let mut new_cf = CoFree::new();
+                                let mut new_cf = CoFree::new(None, None);
                                 // if restricted.0 {
                                 //     new_cf.rec = Some(self_child.clone());
                                 // } else {
                                 //     new_cf.rec = restricted.1;
                                 // }
-                                new_cf.rec = restricted; //GOAT, optimization opportunity to track when we can reuse a whole node unmodified. See commented out code above.
+                                new_cf.set_rec_option(restricted); //GOAT, optimization opportunity to track when we can reuse a whole node unmodified. See commented out code above.
                                 if new_cf.rec.is_some() {
                                     new_node.set(key_byte);
                                     new_node.values.push(new_cf);
@@ -685,7 +682,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
     #[inline(always)]
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
         self.get(key[0]).and_then(|cf|
-            cf.rec.as_ref().map(|child_node| {
+            cf.rec().map(|child_node| {
                 (1, &*child_node.borrow())
             })
         )
@@ -693,7 +690,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
     fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> {
         self.get_mut(key[0]).and_then(|cf|
             if cf.rec.is_some() || cf.value.is_some() {
-                Some((1, cf.value.as_mut(), cf.rec.as_mut()))
+                let (rec, val) = cf.both_mut();
+                Some((1, val, rec))
             } else {
                 None
             }
@@ -708,8 +706,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         debug_assert!(key.len() == 1);
         let cf = self.get_mut(key[0]).unwrap();
-        *cf.rec.as_mut().unwrap() = new_node;
-        cf.rec.as_mut().unwrap().make_mut()
+        *cf.rec_mut().unwrap() = new_node;
+        cf.rec_mut().unwrap().make_mut()
     }
     fn node_contains_val(&self, key: &[u8]) -> bool {
         if key.len() == 1 {
@@ -723,14 +721,14 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
     }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         if key.len() == 1 {
-            self.get(key[0]).and_then(|cf| cf.value.as_ref() )
+            self.get(key[0]).and_then(|cf| cf.val() )
         } else {
             None
         }
     }
     fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
         if key.len() == 1 {
-            self.get_mut(key[0]).and_then(|cf| cf.value.as_mut() )
+            self.get_mut(key[0]).and_then(|cf| cf.val_mut() )
         } else {
             None
         }
@@ -871,7 +869,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
                 let new_token = ((i as u128) << 64) | (w as u128);
                 let cf = unsafe{ self.get_unchecked(k) };
                 let k = k as usize;
-                return (new_token, &ALL_BYTES[k..=k], cf.rec.as_ref(), cf.value.as_ref())
+                return (new_token, &ALL_BYTES[k..=k], cf.rec(), cf.val())
 
             } else if i < 3 {
                 i += 1;
@@ -903,7 +901,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
 
         //IMPL B "Arithmetic"
         return self.values.iter().rfold(0, |t, cf| {
-            t + cf.value.is_some() as usize + cf.rec.as_ref().map(|r| val_count_below_node(r, cache)).unwrap_or(0)
+            t + cf.value.is_some() as usize + cf.rec().map(|r| val_count_below_node(r, cache)).unwrap_or(0)
         });
     }
     #[cfg(feature = "counters")]
@@ -954,7 +952,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
         match pair {
             None => { return (None, None) }
             Some((item, cf)) => {
-                (self.item_idx_to_prefix::<FORWARD>(item), cf.rec.as_ref().map(|cf| &*cf.borrow()))
+                (self.item_idx_to_prefix::<FORWARD>(item), cf.rec().map(|cf| &*cf.borrow()))
             }
         }
     }
@@ -965,7 +963,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
 
         let cf = unsafe{ self.values.get_unchecked(0) };
         let prefix = self.item_idx_to_prefix::<true>(0).unwrap() as usize;
-        (Some(&ALL_BYTES[prefix..=prefix]), cf.rec.as_ref().map(|cf| &*cf.borrow()))
+        (Some(&ALL_BYTES[prefix..=prefix]), cf.rec().map(|cf| &*cf.borrow()))
     }
 
     fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
@@ -1062,7 +1060,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
         // println!("candidate {}", sk);
         debug_assert!(self.contains(sibling_key_char));
         let cf = unsafe{ self.get_unchecked(sibling_key_char) };
-        (Some(sibling_key_char), cf.rec.as_ref().map(|node| &*node.borrow()))
+        (Some(sibling_key_char), cf.rec().map(|node| &*node.borrow()))
     }
 
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
@@ -1070,7 +1068,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
             if key.len() == 0 {
                 AbstractNodeRef::BorrowedDyn(self)
             } else {
-                match self.get(key[0]).and_then(|cf| cf.rec.as_ref()) {
+                match self.get(key[0]).and_then(|cf| cf.rec()) {
                     Some(link) => AbstractNodeRef::BorrowedRc(link),
                     None => AbstractNodeRef::None
                 }
@@ -1084,11 +1082,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
         if key.len() < 2 {
             debug_assert!(key.len() == 1);
             match self.get_mut(key[0]) {
-                Some(cf) => {
-                    let mut result = None;
-                    core::mem::swap(&mut result, &mut cf.rec);
-                    result
-                },
+                Some(cf) => cf.take_rec(),
                 None => None
             }
         } else {
@@ -1133,7 +1127,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
                 //WARNING: Don't be tempted to swap the node itself with its first child.  This feels like it
                 // might be an optimization, but it would be a memory leak because the other node will now
                 // hold an Rc to itself.
-                match self.values.pop().unwrap().rec {
+                match self.values.pop().unwrap().into_rec() {
                     Some(mut child) => {
                         if byte_cnt > 1 {
                             child.make_mut().drop_head_dyn(byte_cnt-1)
@@ -1148,9 +1142,9 @@ impl<V: Clone + Send + Sync> TrieNode<V> for DenseByteNode<V> {
                 let mut new_node = Self::new();
                 while let Some(cf) = self.values.pop() {
                     let child = if byte_cnt > 1 {
-                        cf.rec.and_then(|mut child| child.make_mut().drop_head_dyn(byte_cnt-1))
+                        cf.into_rec().and_then(|mut child| child.make_mut().drop_head_dyn(byte_cnt-1))
                     } else {
-                        cf.rec
+                        cf.into_rec()
                     };
                     match child {
                         Some(child) => {
@@ -1247,62 +1241,187 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
     }
 }
 
-#[derive(Default, Clone, Debug)]
+//GOAT UnsafeCell in CoFree
+// use core::cell::UnsafeCell;
+
+#[derive(Default, Debug)]
 pub struct CoFree<V> {
-    pub(crate) rec: Option<TrieNodeODRc<V>>,
-    pub(crate) value: Option<V>
+    //GOAT UnsafeCell in CoFree
+    // rec: Option<UnsafeCell<TrieNodeODRc<V>>>,
+    // value: Option<UnsafeCell<V>>
+    rec: Option<TrieNodeODRc<V>>,
+    value: Option<V>
+}
+
+//GOAT UnsafeCell in CoFree
+// unsafe impl<V: Send + Sync> Send for CoFree<V> {}
+// unsafe impl<V: Send + Sync> Sync for CoFree<V> {}
+
+impl<V: Clone> Clone for CoFree<V> {
+    fn clone(&self) -> Self {
+        Self {
+            //GOAT UnsafeCell in CoFree
+            // rec: self.rec().map(|rec| UnsafeCell::new(rec.clone())),
+            // value: self.val().map(|val| UnsafeCell::new(val.clone())),
+            rec: self.rec().map(|rec| rec.clone()),
+            value: self.val().map(|val| val.clone()),
+        }
+    }
 }
 
 impl<V> CoFree<V> {
-    fn new() -> Self {
-        Self {rec: None, value: None}
+    fn new(rec: Option<TrieNodeODRc<V>>, val: Option<V>) -> Self {
+        Self {
+            //GOAT UnsafeCell in CoFree
+            // rec: rec.map(|node| UnsafeCell::new(node)),
+            // value: val.map(|val| UnsafeCell::new(val))
+            rec: rec,
+            value: val,
+        }
+    }
+    pub fn rec(&self) -> Option<&TrieNodeODRc<V>> {
+        //GOAT UnsafeCell in CoFree
+        // self.rec.as_ref().map(|cell| unsafe{ &*cell.get() })
+        self.rec.as_ref()
+    }
+    pub fn rec_mut(&mut self) -> Option<&mut TrieNodeODRc<V>> {
+        //GOAT UnsafeCell in CoFree
+        // self.rec.as_mut().map(|cell| unsafe{ &mut *cell.get() })
+        self.rec.as_mut()
+    }
+    pub fn take_rec(&mut self) -> Option<TrieNodeODRc<V>> {
+        //GOAT UnsafeCell in CoFree
+        // let rec = core::mem::take(&mut self.rec);
+        // rec.map(|cell| cell.into_inner())
+        core::mem::take(&mut self.rec)
+    }
+    pub fn into_rec(self) -> Option<TrieNodeODRc<V>> {
+        //GOAT UnsafeCell in CoFree
+        // self.rec.map(|cell| cell.into_inner())
+        self.rec
+    }
+    pub fn set_rec(&mut self, node: TrieNodeODRc<V>) {
+        //GOAT UnsafeCell in CoFree
+        // self.rec = Some(UnsafeCell::new(node))
+        self.rec = Some(node)
+    }
+    pub fn set_rec_option(&mut self, rec: Option<TrieNodeODRc<V>>) {
+        //GOAT UnsafeCell in CoFree
+        // self.rec = rec.map(|rec| UnsafeCell::new(rec))
+        self.rec = rec
+    }
+    pub fn swap_rec(&mut self, node: TrieNodeODRc<V>) -> Option<TrieNodeODRc<V>> {
+        //GOAT UnsafeCell in CoFree
+        // let mut old_child = Some(UnsafeCell::new(node));
+        // core::mem::swap(&mut old_child, &mut self.rec);
+        // old_child.map(|cell| cell.into_inner())
+        let mut old_child = Some(node);
+        core::mem::swap(&mut old_child, &mut self.rec);
+        old_child
+    }
+    pub fn val(&self) -> Option<&V> {
+        //GOAT UnsafeCell in CoFree
+        // self.value.as_ref().map(|cell| unsafe{ &*cell.get() })
+        self.value.as_ref()
+    }
+    pub fn val_mut(&mut self) -> Option<&mut V> {
+        //GOAT UnsafeCell in CoFree
+        // self.value.as_mut().map(|cell| unsafe{ &mut *cell.get() })
+        self.value.as_mut()
+    }
+    pub fn set_val(&mut self, val: V) {
+        //GOAT UnsafeCell in CoFree
+        // self.value = Some(UnsafeCell::new(val))
+        self.value = Some(val)
+    }
+    pub fn set_val_option(&mut self, val: Option<V>) {
+        //GOAT UnsafeCell in CoFree
+        // self.value = val.map(|val| UnsafeCell::new(val))
+        self.value = val
+    }
+    pub fn swap_val(&mut self, val: V) -> Option<V> {
+        //GOAT UnsafeCell in CoFree
+        // let mut old_val = Some(UnsafeCell::new(val));
+        // core::mem::swap(&mut old_val, &mut self.value);
+        // old_val.map(|cell| cell.into_inner())
+        let mut old_val = Some(val);
+        core::mem::swap(&mut old_val, &mut self.value);
+        old_val
+    }
+    pub fn take_val(&mut self) -> Option<V> {
+        //GOAT UnsafeCell in CoFree
+        // let val = core::mem::take(&mut self.value);
+        // val.map(|cell| cell.into_inner())
+        core::mem::take(&mut self.value)
+    }
+    pub fn both_mut(&mut self) -> (Option<&mut TrieNodeODRc<V>>, Option<&mut V>) {
+        //GOAT UnsafeCell in CoFree
+        // let rec = self.rec.as_mut().map(|cell| unsafe{ &mut *cell.get() });
+        // let val = self.value.as_mut().map(|cell| unsafe{ &mut *cell.get() });
+        // (rec, val)
+        (self.rec.as_mut(), self.value.as_mut())
+    }
+    pub fn into_both(self) -> (Option<TrieNodeODRc<V>>, Option<V>) {
+        //GOAT UnsafeCell in CoFree
+        // let rec = self.rec.map(|cell| cell.into_inner());
+        // let val = self.value.map(|cell| cell.into_inner());
+        // (rec, val)
+        (self.rec, self.value)
     }
 }
 
-impl<V : Clone + Lattice> Lattice for CoFree<V> {
+impl<V: Clone + Lattice> Lattice for CoFree<V> {
     fn join(&self, other: &Self) -> Self {
-        CoFree {
-            rec: self.rec.join(&other.rec),
-            value: self.value.join(&other.value)
-        }
+        let rec = self.rec().join(&other.rec());
+        let val = self.val().join(&other.val());
+        CoFree::new(rec, val)
     }
-
     fn join_into(&mut self, other: Self) {
-        self.rec.join_into(other.rec);
-        self.value.join_into(other.value);
+        let (other_rec, other_val) = other.into_both();
+
+        self.set_rec_option(self.rec().join(&other_rec.as_ref()));
+        self.set_val_option(self.val().join(&other_val.as_ref()));
+
+        //GOAT, the below implementation **Should** be more efficient, but there are some unimplemented code paths
+        // match self.rec_mut() {
+        //     Some(self_rec) => { other_rec.map(|other_rec| self_rec.join_into(other_rec)); },
+        //     None => self.set_rec_option(other_rec)
+        // }
+        // match self.val_mut() {
+        //     Some(self_val) => { other_val.map(|other_val| self_val.join_into(other_val)); },
+        //     None => self.set_val_option(other_val)
+        // }
     }
 
     fn meet(&self, other: &Self) -> Self {
-        CoFree {
-            rec: self.rec.meet(&other.rec),
-            value: self.value.meet(&other.value)
-        }
+        let rec = self.rec().meet(&other.rec());
+        let val = self.val().meet(&other.val());
+        CoFree::new(rec, val)
     }
-
     fn bottom() -> Self {
-        CoFree::new()
+        CoFree::new(None, None)
     }
 }
 
 impl<V: Clone + PartialDistributiveLattice> PartialDistributiveLattice for CoFree<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
-        let r = self.rec.psubtract(&other.rec);
-        let v = self.value.subtract(&other.value);
+        let r = self.rec().psubtract(&other.rec());
+        let v = self.val().psubtract(&other.val()).unwrap_or(None);
         match r {
-            None => { if v.is_none() { None } else { Some(CoFree{ rec: None, value: v }) } }
-            Some(sr) => { Some(CoFree{ rec: sr, value: v }) }
+            None => { if v.is_none() { None } else { Some(CoFree::new(None, v)) } }
+            Some(sr) => { Some(CoFree::new(sr, v)) }
         }
     }
 }
 
 impl <V: Clone> PartialQuantale for CoFree<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        // unsafe { println!("prestrict cofree {:?} {:?}", std::mem::transmute::<&CoFree<V>, &CoFree<u64>>(self), std::mem::transmute::<&CoFree<V>, &CoFree<u64>>(other)); }
+        debug_assert!(self.rec.is_some() || self.value.is_some());
         if other.value.is_some() { Some(self.clone()) } // assumes self can not be CoFree{None, None}
         else {
-            match (&self.rec, &other.rec) {
+            match (self.rec(), other.rec()) {
                 (Some(l), Some(r)) => {
-                    l.prestrict(r).map(|n| CoFree { rec: Some(n), value: None })
+                    l.prestrict(r).map(|n| CoFree::new(Some(n), None) )
                 }
                 _ => { None }
             }

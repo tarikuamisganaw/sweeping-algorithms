@@ -804,7 +804,7 @@ impl<V: PartialDistributiveLattice + Clone + Send + Sync> TrieNodeODRc<V> {
     }
 }
 
-impl <V : Lattice + Clone> Lattice for Option<TrieNodeODRc<V>> {
+impl<V: Lattice + Clone> Lattice for Option<TrieNodeODRc<V>> {
     fn join(&self, other: &Option<TrieNodeODRc<V>>) -> Option<TrieNodeODRc<V>> {
         match self {
             None => { match other {
@@ -846,7 +846,34 @@ impl <V : Lattice + Clone> Lattice for Option<TrieNodeODRc<V>> {
     }
 }
 
-impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<TrieNodeODRc<V>> {
+impl<V: Lattice + Clone> LatticeRef for Option<&TrieNodeODRc<V>> {
+    type T = Option<TrieNodeODRc<V>>;
+    fn join(&self, other: &Option<&TrieNodeODRc<V>>) -> Option<TrieNodeODRc<V>> {
+        match self {
+            None => { match other {
+                None => { None }
+                Some(r) => { Some((*r).clone()) }
+            } }
+            Some(l) => match other {
+                None => { Some((*l).clone()) }
+                Some(r) => { Some(l.join(r)) }
+            }
+        }
+    }
+    fn meet(&self, other: &Option<&TrieNodeODRc<V>>) -> Option<TrieNodeODRc<V>> {
+        match self {
+            None => { None }
+            Some(l) => {
+                match other {
+                    None => { None }
+                    Some(r) => l.meet(r)
+                }
+            }
+        }
+    }
+}
+
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<TrieNodeODRc<V>> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         match self {
             None => { None }
@@ -858,13 +885,20 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Opt
     }
 }
 
-impl <V: Clone> PartialQuantale for Option<TrieNodeODRc<V>> {
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        panic!()
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLatticeRef for Option<&TrieNodeODRc<V>> {
+    type T = Option<TrieNodeODRc<V>>;
+    fn psubtract(&self, other: &Self) -> Option<Self::T> {
+        match self {
+            None => { None }
+            Some(s) => { match other {
+                None => { Some(Some((*s).clone())) }
+                Some(o) => { Some(s.psubtract(o)) }
+            } }
+        }
     }
 }
 
-impl <V : PartialDistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc<V>> {
+impl<V: PartialDistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc<V>> {
     fn subtract(&self, other: &Self) -> Self {
         match self {
             None => { None }

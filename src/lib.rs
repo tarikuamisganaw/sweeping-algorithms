@@ -317,8 +317,8 @@ mod tests {
                 for i in n..(n+o) { assert!(!vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i))); }
                 for i in 0..(2*n) { assert_eq!(j.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) || vnr.contains(prefix_key(&i)))); }
                 for i in 0..(2*n) { assert_eq!(m.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i)))); }
-                for i in 0..(n+o) { assert_eq!(j.get(prefix_key(&i)), vnl.get(prefix_key(&i)).join(&vnr.get(prefix_key(&i)))); }
-                for i in o..n { assert_eq!(m.get(prefix_key(&i)), vnl.get(prefix_key(&i)).meet(&vnr.get(prefix_key(&i)))); }
+                for i in 0..(n+o) { assert_eq!(j.get(prefix_key(&i)).map(|v| *v), vnl.get(prefix_key(&i)).join(&vnr.get(prefix_key(&i)))); }
+                for i in o..n { assert_eq!(m.get(prefix_key(&i)).map(|v| *v), vnl.get(prefix_key(&i)).meet(&vnr.get(prefix_key(&i)))); }
                 // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
             }
         }

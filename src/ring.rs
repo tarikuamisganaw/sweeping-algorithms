@@ -2,34 +2,54 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-pub trait Lattice: Sized {
+/// Implements basic algebraic behavior (union & intersection) for a type
+pub trait Lattice {
     fn join(&self, other: &Self) -> Self;
-    fn join_into(&mut self, other: Self) {
+    fn join_into(&mut self, other: Self) where Self: Sized {
         *self = self.join(&other);
     }
     fn meet(&self, other: &Self) -> Self;
     fn bottom() -> Self;
-    fn join_all(xs: &[&Self]) -> Self {
+    fn join_all(xs: &[&Self]) -> Self where Self: Sized {
         xs.iter().rfold(Self::bottom(), |x, y| x.join(y))
     }
+}
+
+/// Implements algebraic behavior on a reference to a [Lattice] type, such as a smart pointer that can't
+/// hold ownership
+pub trait LatticeRef {
+    type T;
+    fn join(&self, other: &Self) -> Self::T;
+    fn meet(&self, other: &Self) -> Self::T;
 }
 
 pub trait DistributiveLattice: Lattice {
     fn subtract(&self, other: &Self) -> Self;
 }
 
+/// Used to implement restrict operation.  TODO, come up with a better math-explanation about how this
+/// is a quantale
+///
+/// Currently this trait isn't exposed because it's unclear what we degrees of felxibility really want
+/// from restrict, and what performance we are willing to trade to get them
 pub(crate) trait PartialQuantale {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 
+/// Implements subtract behavior for a type
 pub trait PartialDistributiveLattice: Lattice {
     /// GOAT, gotta document this.  `None` means complete subtraction, leaving an empty result
     //GOAT, we are also going to want a way to communicate "perfect copy of self"
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 
+/// Implements subtract behavior on a reference to a [PartialDistributiveLattice] type
+pub trait PartialDistributiveLatticeRef {
+    type T;
+    fn psubtract(&self, other: &Self) -> Option<Self::T>;
+}
 
-impl <V : Lattice + Clone> Lattice for Option<V> {
+impl<V: Lattice + Clone> Lattice for Option<V> {
     fn join(&self, other: &Option<V>) -> Option<V> {
         match self {
             None => { match other {
@@ -70,7 +90,34 @@ impl <V : Lattice + Clone> Lattice for Option<V> {
     }
 }
 
-impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<V> {
+impl<V: Lattice + Clone> LatticeRef for Option<&V> {
+    type T = Option<V>;
+    fn join(&self, other: &Option<&V>) -> Option<V> {
+        match self {
+            None => { match other {
+                None => { None }
+                Some(r) => { Some((*r).clone()) }
+            } }
+            Some(l) => match other {
+                None => { Some((*l).clone()) }
+                Some(r) => { Some(l.join(r)) }
+            }
+        }
+    }
+    fn meet(&self, other: &Option<&V>) -> Option<V> {
+        match self {
+            None => { None }
+            Some(l) => {
+                match other {
+                    None => { None }
+                    Some(r) => Some(l.meet(r))
+                }
+            }
+        }
+    }
+}
+
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         match self {
             None => { None }
@@ -82,9 +129,16 @@ impl <V : PartialDistributiveLattice + Clone> PartialDistributiveLattice for Opt
     }
 }
 
-impl <V: Clone + Lattice> PartialQuantale for Option<V> {
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        panic!()
+impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLatticeRef for Option<&V> {
+    type T = Option<V>;
+    fn psubtract(&self, other: &Self) -> Option<Self::T> {
+        match self {
+            None => { None }
+            Some(s) => { match other {
+                None => { Some(Some((*s).clone())) }
+                Some(o) => { Some(s.psubtract(o)) }
+            } }
+        }
     }
 }
 
@@ -142,34 +196,16 @@ impl Lattice for () {
     fn bottom() -> Self { () }
 }
 
-impl Lattice for &() {
-    fn join(&self, _other: &Self) -> Self { &() }
-    fn meet(&self, _other: &Self) -> Self { &() }
-    fn bottom() -> Self { &() }
-}
-
 impl Lattice for usize {
     fn join(&self, _other: &usize) -> usize { *self }
     fn meet(&self, _other: &usize) -> usize { *self }
     fn bottom() -> Self { 0 }
 }
 
-impl Lattice for &usize {
-    fn join(&self, _other: &Self) -> Self { self }
-    fn meet(&self, _other: &Self) -> Self { self }
-    fn bottom() -> Self { &0 }
-}
-
 impl Lattice for u64 {
     fn join(&self, _other: &u64) -> u64 { *self }
     fn meet(&self, _other: &u64) -> u64 { *self }
     fn bottom() -> Self { 0 }
-}
-
-impl Lattice for &u64 {
-    fn join(&self, _other: &Self) -> Self { self }
-    fn meet(&self, _other: &Self) -> Self { self }
-    fn bottom() -> Self { &0 }
 }
 
 impl PartialDistributiveLattice for u64 {
@@ -185,22 +221,10 @@ impl Lattice for u32 {
     fn bottom() -> Self { 0 }
 }
 
-impl Lattice for &u32 {
-    fn join(&self, _other: &Self) -> Self { self }
-    fn meet(&self, _other: &Self) -> Self { self }
-    fn bottom() -> Self { &0 }
-}
-
 impl Lattice for u16 {
     fn join(&self, _other: &u16) -> u16 { *self }
     fn meet(&self, other: &u16) -> u16 { *other }
     fn bottom() -> Self { 0 }
-}
-
-impl Lattice for &u16 {
-    fn join(&self, _other: &Self) -> Self { self }
-    fn meet(&self, other: &Self) -> Self { other }
-    fn bottom() -> Self { &0 }
 }
 
 impl PartialDistributiveLattice for u16 {
@@ -214,12 +238,6 @@ impl Lattice for u8 {
     fn join(&self, _other: &u8) -> u8 { *self }
     fn meet(&self, _other: &u8) -> u8 { *self }
     fn bottom() -> Self { 0 }
-}
-
-impl Lattice for &u8 {
-    fn join(&self, _other: &Self) -> Self { self }
-    fn meet(&self, _other: &Self) -> Self { self }
-    fn bottom() -> Self { &0 }
 }
 
 impl <K: Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
