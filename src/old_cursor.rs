@@ -4,7 +4,7 @@
 
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::{TaggedNodeRef, NODE_ITER_FINISHED};
-use crate::dense_byte_node::{DenseByteNode, CoFree};
+use crate::dense_byte_node::{DenseByteNode, OrdinaryCoFree, CoFree};
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
@@ -84,9 +84,9 @@ impl <'a, V> ByteTrieNodeIter<'a, V> {
 }
 
 impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
-    type Item = (u8, &'a CoFree<V>);
+    type Item = (u8, &'a OrdinaryCoFree<V>);
 
-    fn next(&mut self) -> Option<(u8, &'a CoFree<V>)> {
+    fn next(&mut self) -> Option<(u8, &'a OrdinaryCoFree<V>)> {
         loop {
             if self.w != 0 {
                 let wi = self.w.trailing_zeros() as u8;

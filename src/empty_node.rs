@@ -156,7 +156,12 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
         None
     }
+    fn clone_self(&self) -> TrieNodeODRc<V> {
+        TrieNodeODRc::new(self.clone())
+    }
+}
 
+impl<V> TrieNodeDowncast<V> for EmptyNode<V> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         None
     }
@@ -172,7 +177,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         panic!()
     }
-    fn clone_self(&self) -> TrieNodeODRc<V> {
-        TrieNodeODRc::new(self.clone())
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+        panic!()
     }
 }

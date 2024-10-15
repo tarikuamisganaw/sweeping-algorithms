@@ -234,6 +234,12 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().prestrict_dyn(other)
     }
+    fn clone_self(&self) -> TrieNodeODRc<V> {
+        TrieNodeODRc::new(self.clone())
+    }
+}
+
+impl<V> TrieNodeDowncast<V> for TinyRefNode<'_, V> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         None
     }
@@ -247,10 +253,10 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         None
     }
     fn as_tagged(&self) -> TaggedNodeRef<V> {
-        panic!();
+        panic!()
     }
-    fn clone_self(&self) -> TrieNodeODRc<V> {
-        TrieNodeODRc::new(self.clone())
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+        panic!()
     }
 }
 

@@ -262,7 +262,7 @@ impl<V> LineListNode<V> {
     //     KEY_BYTES_CNT - self.key_len_0()
     // }
     #[inline]
-    unsafe fn key_unchecked<const SLOT: usize>(&self) -> &[u8] {
+    pub(crate) unsafe fn key_unchecked<const SLOT: usize>(&self) -> &[u8] {
         match SLOT {
             0 => core::slice::from_raw_parts(self.key_bytes.as_ptr().cast(), self.key_len_0()),
             1 => {
@@ -667,7 +667,7 @@ impl<V: Send + Sync> LineListNode<V> {
         }
     }
     /// Returns the clone of the value or child in the slot
-    fn clone_payload<const SLOT: usize>(&self) -> Option<ValOrChild<V>> where V: Clone {
+    pub(crate) fn clone_payload<const SLOT: usize>(&self) -> Option<ValOrChild<V>> where V: Clone {
         if !self.is_used::<SLOT>() {
             return None;
         }
@@ -1117,35 +1117,6 @@ fn merge_guts<'a, V: Clone + Lattice + Send + Sync, const ASLOT: usize, const BS
         Some((&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node))))
     } else {
         None
-    }
-}
-
-/// Merges the entries in the ListNode into the DenseByteNode
-pub fn merge_into_dense_node<V: Send + Sync>(dense_node: &mut DenseByteNode<V>, list_node: &LineListNode<V>) where V: Clone + Lattice {
-    dense_node.reserve_capacity(2);
-
-    if list_node.is_used::<0>() {
-        let key = unsafe{ list_node.key_unchecked::<0>() };
-        let payload = list_node.clone_payload::<0>().unwrap();
-        if key.len() > 1 {
-            let mut child_node = LineListNode::<V>::new();
-            unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
-            dense_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
-        } else {
-            dense_node.join_payload_into(key[0], payload);
-        }
-    }
-
-    if list_node.is_used::<1>() {
-        let key = unsafe{ list_node.key_unchecked::<1>() };
-        let payload = list_node.clone_payload::<1>().unwrap();
-        if key.len() > 1 {
-            let mut child_node = LineListNode::<V>::new();
-            unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
-            dense_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
-        } else {
-            dense_node.join_payload_into(key[0], payload);
-        }
     }
 }
 
@@ -1924,7 +1895,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         } else {
             if let Some(other_dense_node) = other.as_dense() {
                 let mut new_node = other_dense_node.clone();
-                merge_into_dense_node(&mut new_node, self);
+                new_node.merge_from_list_node(self);
                 TrieNodeODRc::new(new_node)
             } else {
                 unreachable!();
@@ -2103,7 +2074,12 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
         new_node.map(|node| TrieNodeODRc::new(node))
     }
+    fn clone_self(&self) -> TrieNodeODRc<V> {
+        TrieNodeODRc::new(self.clone())
+    }
+}
 
+impl<V> TrieNodeDowncast<V> for LineListNode<V> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         None
     }
@@ -2119,8 +2095,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::LineListNode(self)
     }
-    fn clone_self(&self) -> TrieNodeODRc<V> {
-        TrieNodeODRc::new(self.clone())
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+        TaggedNodeRefMut::LineListNode(self)
     }
 }
 
