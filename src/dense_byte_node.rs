@@ -1429,8 +1429,8 @@ use core::cell::UnsafeCell;
 
 #[derive(Default, Debug)]
 pub struct CellCoFree<V> {
-    rec: Option<UnsafeCell<TrieNodeODRc<V>>>,
-    value: Option<UnsafeCell<V>>
+    rec: UnsafeCell<Option<TrieNodeODRc<V>>>,
+    value: UnsafeCell<Option<V>>
 }
 
 unsafe impl<V: Send + Sync> Send for CellCoFree<V> {}
@@ -1439,8 +1439,8 @@ unsafe impl<V: Send + Sync> Sync for CellCoFree<V> {}
 impl<V: Clone + Send + Sync> Clone for CellCoFree<V> {
     fn clone(&self) -> Self {
         Self {
-            rec: self.rec().map(|rec| UnsafeCell::new(rec.clone())),
-            value: self.val().map(|val| UnsafeCell::new(val.clone())),
+            rec: UnsafeCell::new(self.rec().cloned()),
+            value: UnsafeCell::new(self.val().cloned()),
         }
     }
 }
@@ -1449,8 +1449,8 @@ impl<V: Clone + Send + Sync> CoFree for CellCoFree<V> {
     type V = V;
     fn new(rec: Option<TrieNodeODRc<V>>, val: Option<V>) -> Self {
         Self {
-            rec: rec.map(|node| UnsafeCell::new(node)),
-            value: val.map(|val| UnsafeCell::new(val))
+            rec: UnsafeCell::new(rec),
+            value: UnsafeCell::new(val)
         }
     }
     fn from_cf<OtherCf: CoFree<V=Self::V>>(cf: OtherCf) -> Self {
@@ -1458,64 +1458,62 @@ impl<V: Clone + Send + Sync> CoFree for CellCoFree<V> {
         Self::new(rec, val)
     }
     fn rec(&self) -> Option<&TrieNodeODRc<V>> {
-        self.rec.as_ref().map(|cell| unsafe{ &*cell.get() })
+        unsafe{ &*self.rec.get() }.as_ref()
     }
     fn has_rec(&self) -> bool {
-        self.rec.is_some()
+        unsafe{ &*self.rec.get() }.is_some()
     }
     fn rec_mut(&mut self) -> Option<&mut TrieNodeODRc<V>> {
-        self.rec.as_mut().map(|cell| unsafe{ &mut *cell.get() })
+        unsafe{ &mut *self.rec.get() }.as_mut()
     }
     fn take_rec(&mut self) -> Option<TrieNodeODRc<V>> {
-        let rec = core::mem::take(&mut self.rec);
-        rec.map(|cell| cell.into_inner())
+        core::mem::take(&mut self.rec).into_inner()
     }
     fn into_rec(self) -> Option<TrieNodeODRc<V>> {
-        self.rec.map(|cell| cell.into_inner())
+        self.rec.into_inner()
     }
     fn set_rec(&mut self, node: TrieNodeODRc<V>) {
-        self.rec = Some(UnsafeCell::new(node))
+        self.rec = UnsafeCell::new(Some(node))
     }
     fn set_rec_option(&mut self, rec: Option<TrieNodeODRc<V>>) {
-        self.rec = rec.map(|rec| UnsafeCell::new(rec))
+        self.rec = UnsafeCell::new(rec)
     }
     fn swap_rec(&mut self, node: TrieNodeODRc<V>) -> Option<TrieNodeODRc<V>> {
-        let mut old_child = Some(UnsafeCell::new(node));
+        let mut old_child = UnsafeCell::new(Some(node));
         core::mem::swap(&mut old_child, &mut self.rec);
-        old_child.map(|cell| cell.into_inner())
+        old_child.into_inner()
     }
     fn val(&self) -> Option<&V> {
-        self.value.as_ref().map(|cell| unsafe{ &*cell.get() })
+        unsafe{ &*self.value.get() }.as_ref()
     }
     fn has_val(&self) -> bool {
-        self.value.is_some()
+        unsafe{ &*self.value.get() }.is_some()
     }
     fn val_mut(&mut self) -> Option<&mut V> {
-        self.value.as_mut().map(|cell| unsafe{ &mut *cell.get() })
-    }
-    fn set_val(&mut self, val: V) {
-        self.value = Some(UnsafeCell::new(val))
-    }
-    fn set_val_option(&mut self, val: Option<V>) {
-        self.value = val.map(|val| UnsafeCell::new(val))
-    }
-    fn swap_val(&mut self, val: V) -> Option<V> {
-        let mut old_val = Some(UnsafeCell::new(val));
-        core::mem::swap(&mut old_val, &mut self.value);
-        old_val.map(|cell| cell.into_inner())
+        unsafe{ &mut *self.value.get() }.as_mut()
     }
     fn take_val(&mut self) -> Option<V> {
-        let val = core::mem::take(&mut self.value);
-        val.map(|cell| cell.into_inner())
+        core::mem::take(&mut self.value).into_inner()
+    }
+    fn set_val(&mut self, val: V) {
+        self.value = UnsafeCell::new(Some(val))
+    }
+    fn set_val_option(&mut self, val: Option<V>) {
+        self.value = UnsafeCell::new(val)
+    }
+    fn swap_val(&mut self, val: V) -> Option<V> {
+        let mut old_val = UnsafeCell::new(Some(val));
+        core::mem::swap(&mut old_val, &mut self.value);
+        old_val.into_inner()
     }
     fn both_mut(&mut self) -> (Option<&mut TrieNodeODRc<V>>, Option<&mut V>) {
-        let rec = self.rec.as_mut().map(|cell| unsafe{ &mut *cell.get() });
-        let val = self.value.as_mut().map(|cell| unsafe{ &mut *cell.get() });
+        let rec = unsafe{ &mut *self.rec.get() }.as_mut();
+        let val = unsafe{ &mut *self.value.get() }.as_mut();
         (rec, val)
     }
     fn into_both(self) -> (Option<TrieNodeODRc<V>>, Option<V>) {
-        let rec = self.rec.map(|cell| cell.into_inner());
-        let val = self.value.map(|cell| cell.into_inner());
+        let rec = self.rec.into_inner();
+        let val = self.value.into_inner();
         (rec, val)
     }
 }
