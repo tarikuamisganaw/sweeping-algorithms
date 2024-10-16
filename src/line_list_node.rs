@@ -2291,7 +2291,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok((None, false)));
         let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
-        assert!(replacement_node.borrow().as_dense().is_some());
+        if let TaggedNodeRef::DenseByteNode(_) = replacement_node.borrow().as_tagged() { } else { panic!("expected node would be a byte node"); }
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("pple".as_bytes()), Some(&1));

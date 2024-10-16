@@ -393,14 +393,14 @@ impl<'a, V: Clone + Send + Sync> AbstractNodeRef<'a, V> {
 pub enum TaggedNodeRef<'a, V> {
     DenseByteNode(&'a DenseByteNode<V>),
     LineListNode(&'a LineListNode<V>),
-    // CellByteNode(&'a CellByteNode<V>),
+    CellByteNode(&'a CellByteNode<V>),
 }
 
 /// A mutable reference to a node with a concrete type
 pub enum TaggedNodeRefMut<'a, V> {
     DenseByteNode(&'a mut DenseByteNode<V>),
     LineListNode(&'a mut LineListNode<V>),
-    // CellByteNode(&'a mut CellByteNode<V>),
+    CellByteNode(&'a mut CellByteNode<V>),
 }
 
 impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
@@ -408,7 +408,7 @@ impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
         match self {
             Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
             Self::LineListNode(node) => write!(f, "{node:?}"),
-            // Self::CellByteNode(node) => write!(f, "{node:?}"),
+            Self::CellByteNode(node) => write!(f, "{node:?}"),
         }
     }
 }
@@ -418,14 +418,14 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => *node as &dyn TrieNode<V>,
             Self::LineListNode(node) => *node as &dyn TrieNode<V>,
-            // Self::CellByteNode(node) => *node as &dyn TrieNode<V>,
+            Self::CellByteNode(node) => *node as &dyn TrieNode<V>,
         }
     }
     pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         match self {
             Self::DenseByteNode(node) => node.node_contains_partial_key(key),
             Self::LineListNode(node) => node.node_contains_partial_key(key),
-            // Self::CellByteNode(node) => node.node_contains_partial_key(key),
+            Self::CellByteNode(node) => node.node_contains_partial_key(key),
         }
     }
     #[inline(always)]
@@ -433,7 +433,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_get_child(key),
             Self::LineListNode(node) => node.node_get_child(key),
-            // Self::CellByteNode(node) => node.node_get_child(key),
+            Self::CellByteNode(node) => node.node_get_child(key),
         }
     }
 
@@ -447,14 +447,14 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_contains_val(key),
             Self::LineListNode(node) => node.node_contains_val(key),
-            // Self::CellByteNode(node) => node.node_contains_val(key),
+            Self::CellByteNode(node) => node.node_contains_val(key),
         }
     }
     pub fn node_get_val(&self, key: &[u8]) -> Option<&'a V> {
         match self {
             Self::DenseByteNode(node) => node.node_get_val(key),
             Self::LineListNode(node) => node.node_get_val(key),
-            // Self::CellByteNode(node) => node.node_get_val(key),
+            Self::CellByteNode(node) => node.node_get_val(key),
         }
     }
 
@@ -477,7 +477,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.new_iter_token(),
             Self::LineListNode(node) => node.new_iter_token(),
-            // Self::CellByteNode(node) => node.new_iter_token(),
+            Self::CellByteNode(node) => node.new_iter_token(),
         }
     }
     #[inline(always)]
@@ -485,7 +485,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.iter_token_for_path(key),
             Self::LineListNode(node) => node.iter_token_for_path(key),
-            // Self::CellByteNode(node) => node.iter_token_for_path(key),
+            Self::CellByteNode(node) => node.iter_token_for_path(key),
         }
     }
     #[inline(always)]
@@ -493,7 +493,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.next_items(token),
             Self::LineListNode(node) => node.next_items(token),
-            // Self::CellByteNode(node) => node.next_items(token),
+            Self::CellByteNode(node) => node.next_items(token),
         }
     }
 
@@ -508,14 +508,14 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
             Self::LineListNode(node) => node.nth_child_from_key(key, n),
-            // Self::CellByteNode(node) => node.nth_child_from_key(key, n),
+            Self::CellByteNode(node) => node.nth_child_from_key(key, n),
         }
     }
     pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<&'a dyn TrieNode<V>>) {
         match self {
             Self::DenseByteNode(node) => node.first_child_from_key(key),
             Self::LineListNode(node) => node.first_child_from_key(key),
-            // Self::CellByteNode(node) => node.first_child_from_key(key),
+            Self::CellByteNode(node) => node.first_child_from_key(key),
         }
     }
     #[inline(always)]
@@ -523,7 +523,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.count_branches(key),
             Self::LineListNode(node) => node.count_branches(key),
-            // Self::CellByteNode(node) => node.count_branches(key),
+            Self::CellByteNode(node) => node.count_branches(key),
         }
     }
     #[inline(always)]
@@ -531,7 +531,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_branches_mask(key),
             Self::LineListNode(node) => node.node_branches_mask(key),
-            // Self::CellByteNode(node) => node.node_branches_mask(key),
+            Self::CellByteNode(node) => node.node_branches_mask(key),
         }
     }
     #[inline(always)]
@@ -539,28 +539,28 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.is_leaf(key),
             Self::LineListNode(node) => node.is_leaf(key),
-            // Self::CellByteNode(node) => node.is_leaf(key),
+            Self::CellByteNode(node) => node.is_leaf(key),
         }
     }
     pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
         match self {
             Self::DenseByteNode(node) => node.prior_branch_key(key),
             Self::LineListNode(node) => node.prior_branch_key(key),
-            // Self::CellByteNode(node) => node.prior_branch_key(key),
+            Self::CellByteNode(node) => node.prior_branch_key(key),
         }
     }
     pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&'a dyn TrieNode<V>>) {
         match self {
             Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
             Self::LineListNode(node) => node.get_sibling_of_child(key, next),
-            // Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
+            Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
         }
     }
     pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
         match self {
             Self::DenseByteNode(node) => node.get_node_at_key(key),
             Self::LineListNode(node) => node.get_node_at_key(key),
-            // Self::CellByteNode(node) => node.get_node_at_key(key),
+            Self::CellByteNode(node) => node.get_node_at_key(key),
         }
     }
 

@@ -1149,10 +1149,10 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 new_node.merge_from_list_node(other_list_node);
                 TrieNodeODRc::new(new_node)
             },
-            // TaggedNodeRef::CellByteNode(other_byte_node) => {
-            //     let new_node = self.join(other_byte_node);
-            //     TrieNodeODRc::new(new_node)
-            // },
+            TaggedNodeRef::CellByteNode(other_byte_node) => {
+                let new_node = self.join(other_byte_node);
+                TrieNodeODRc::new(new_node)
+            },
         }
     }
 
@@ -1167,9 +1167,9 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 // them, to turn around and drop the ListNode and free them / decrement the refcounts
                 self.merge_from_list_node(other_list_node);
             },
-            // TaggedNodeRefMut::CellByteNode(other_byte_node) => {
-            //     self.join_into(core::mem::take(other_byte_node));
-            // },
+            TaggedNodeRefMut::CellByteNode(other_byte_node) => {
+                self.join_into(core::mem::take(other_byte_node));
+            },
         } 
     }
 
@@ -1230,14 +1230,14 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::LineListNode(other_list_node) => {
                 other_list_node.meet_dyn(self)
             },
-            // TaggedNodeRef::CellByteNode(other_byte_node) => {
-            //     let new_node = self.meet(other_byte_node);
-            //     if !new_node.is_empty() {
-            //         Some(TrieNodeODRc::new(new_node))
-            //     } else {
-            //         None
-            //     }
-            // }
+            TaggedNodeRef::CellByteNode(other_byte_node) => {
+                let new_node = self.meet(other_byte_node);
+                if !new_node.is_empty() {
+                    Some(TrieNodeODRc::new(new_node))
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -1257,16 +1257,16 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::LineListNode(other_list_node) => {
                 self.psubtract_abstract(other_list_node)
             },
-            // TaggedNodeRef::CellByteNode(other_byte_node) => {
-            //     let new_node = self.subtract(other_byte_node);
-            //     if new_node.is_empty() {
-            //         (false, None)
-            //     } else {
-            //         //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
-            //         // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
-            //         (false, Some(TrieNodeODRc::new(new_node)))
-            //     }
-            // }
+            TaggedNodeRef::CellByteNode(other_byte_node) => {
+                let new_node = self.subtract(other_byte_node);
+                if new_node.is_empty() {
+                    (false, None)
+                } else {
+                    //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
+                    // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
+                    (false, Some(TrieNodeODRc::new(new_node)))
+                }
+            }
         }
     }
 
@@ -1281,9 +1281,9 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 // GOAT, Optimization opportunity to return a "reuse node unmodified" flag
                 restricted
             },
-            // TaggedNodeRef::CellByteNode(other_byte_node) => {
-            //     self.prestrict(other_byte_node).map(|node| TrieNodeODRc::new(node))
-            // }
+            TaggedNodeRef::CellByteNode(other_byte_node) => {
+                self.prestrict(other_byte_node).map(|node| TrieNodeODRc::new(node))
+            }
         }
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
@@ -1293,7 +1293,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
 
 impl<V> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        //panic!() //GOAT get rid of these in favor of as_tagged
+        // panic!() //GOAT get rid of these in favor of as_tagged
         Some(self)
     }
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
@@ -1331,15 +1331,11 @@ impl<V> TrieNodeDowncast<V> for ByteNode<CellCoFree<V>> {
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         None
     }
-    #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
-        panic!()
-        // TaggedNodeRef::CellByteNode(self)
+        TaggedNodeRef::CellByteNode(self)
     }
-    #[inline(always)]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
-        panic!()
-        // TaggedNodeRefMut::CellByteNode(self)
+        TaggedNodeRefMut::CellByteNode(self)
     }
 }
 
