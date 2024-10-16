@@ -1754,152 +1754,156 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
 
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         debug_assert!(validate_node(self));
-        if let Some(other_list_node) = other.as_list() {
-            debug_assert!(validate_node(other_list_node));
+        match other.as_tagged() {
+            TaggedNodeRef::LineListNode(other_list_node) => {
+                debug_assert!(validate_node(other_list_node));
 
-            let (self_key0, self_key1) = self.get_both_keys();
-            let (other_key0, other_key1) = other_list_node.get_both_keys();
-            let mut entries: [MaybeUninit<(&[u8], ValOrChild<V>)>; 4] = [MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()];
-            let mut entry_cnt = 0;
-            let mut used: [bool; 4] = [false; 4]; //[self_0, self_1, other_0, other_1]
+                let (self_key0, self_key1) = self.get_both_keys();
+                let (other_key0, other_key1) = other_list_node.get_both_keys();
+                let mut entries: [MaybeUninit<(&[u8], ValOrChild<V>)>; 4] = [MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()];
+                let mut entry_cnt = 0;
+                let mut used: [bool; 4] = [false; 4]; //[self_0, self_1, other_0, other_1]
 
-            // Try each pairing in self and other, to see if there is a key-join that can happen
-            // We can assume two keys in the same node can't merge, because they would have already been merged,
-            // and therefore we can also assume that if a key can be merged with one key of a node it can't be
-            // merged with the other
-            match try_merge::<V, 0, 0>(self_key0, self, other_key0, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    used[0] = true;
-                    used[2] = true;
-                },
-                None => {}
-            }
-            match try_merge::<V, 0, 1>(self_key0, self, other_key1, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    debug_assert!(used[0] == false); //If we create multiple joined entries from the same source, it's a bug somewhere
-                    used[0] = true;
-                    used[3] = true;
-                },
-                None => {}
-            }
-            match try_merge::<V, 1, 0>(self_key1, self, other_key0, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    debug_assert!(used[2] == false); //See above
-                    used[1] = true;
-                    used[2] = true;
-                },
-                None => {}
-            }
-            match try_merge::<V, 1, 1>(self_key1, self, other_key1, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    debug_assert!(used[1] == false); //See above
-                    debug_assert!(used[3] == false); //See above
-                    used[1] = true;
-                    used[3] = true;
-                },
-                None => {}
-            }
-
-            //Add the single entries that didn't merge
-            if !used[0] {
-                match self.clone_payload::<0>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((self_key0, payload));
+                // Try each pairing in self and other, to see if there is a key-join that can happen
+                // We can assume two keys in the same node can't merge, because they would have already been merged,
+                // and therefore we can also assume that if a key can be merged with one key of a node it can't be
+                // merged with the other
+                match try_merge::<V, 0, 0>(self_key0, self, other_key0, other_list_node) {
+                    Some(joined) => {
+                        entries[entry_cnt] = MaybeUninit::new(joined);
                         entry_cnt += 1;
+                        used[0] = true;
+                        used[2] = true;
                     },
                     None => {}
                 }
-            }
-            if !used[1] {
-                match self.clone_payload::<1>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((self_key1, payload));
+                match try_merge::<V, 0, 1>(self_key0, self, other_key1, other_list_node) {
+                    Some(joined) => {
+                        entries[entry_cnt] = MaybeUninit::new(joined);
                         entry_cnt += 1;
+                        debug_assert!(used[0] == false); //If we create multiple joined entries from the same source, it's a bug somewhere
+                        used[0] = true;
+                        used[3] = true;
                     },
                     None => {}
                 }
-            }
-            if !used[2] {
-                match other_list_node.clone_payload::<0>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((other_key0, payload));
+                match try_merge::<V, 1, 0>(self_key1, self, other_key0, other_list_node) {
+                    Some(joined) => {
+                        entries[entry_cnt] = MaybeUninit::new(joined);
                         entry_cnt += 1;
+                        debug_assert!(used[2] == false); //See above
+                        used[1] = true;
+                        used[2] = true;
                     },
                     None => {}
                 }
-            }
-            if !used[3] {
-                match other_list_node.clone_payload::<1>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((other_key1, payload));
+                match try_merge::<V, 1, 1>(self_key1, self, other_key1, other_list_node) {
+                    Some(joined) => {
+                        entries[entry_cnt] = MaybeUninit::new(joined);
                         entry_cnt += 1;
+                        debug_assert!(used[1] == false); //See above
+                        debug_assert!(used[3] == false); //See above
+                        used[1] = true;
+                        used[3] = true;
                     },
                     None => {}
                 }
-            }
 
-            //Do we have two or fewer paths, that can fit into a new ListNode? 
-            if entry_cnt <= 2 {
-                let mut joined_node = Self::new();
-                let mut pair0: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
-                core::mem::swap(&mut pair0, &mut entries[0]);
-                let (key0, payload0) = unsafe{ pair0.assume_init() };
+                //Add the single entries that didn't merge
+                if !used[0] {
+                    match self.clone_payload::<0>() {
+                        Some(payload) => {
+                            entries[entry_cnt] = MaybeUninit::new((self_key0, payload));
+                            entry_cnt += 1;
+                        },
+                        None => {}
+                    }
+                }
+                if !used[1] {
+                    match self.clone_payload::<1>() {
+                        Some(payload) => {
+                            entries[entry_cnt] = MaybeUninit::new((self_key1, payload));
+                            entry_cnt += 1;
+                        },
+                        None => {}
+                    }
+                }
+                if !used[2] {
+                    match other_list_node.clone_payload::<0>() {
+                        Some(payload) => {
+                            entries[entry_cnt] = MaybeUninit::new((other_key0, payload));
+                            entry_cnt += 1;
+                        },
+                        None => {}
+                    }
+                }
+                if !used[3] {
+                    match other_list_node.clone_payload::<1>() {
+                        Some(payload) => {
+                            entries[entry_cnt] = MaybeUninit::new((other_key1, payload));
+                            entry_cnt += 1;
+                        },
+                        None => {}
+                    }
+                }
 
-                match entry_cnt {
-                    1 => {
-                        unsafe{ joined_node.set_payload_owned::<0>(key0, payload0); }
-                    },
-                    2 => {
-                        let mut pair1: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
-                        core::mem::swap(&mut pair1, &mut entries[1]);
-                        let (key1, payload1) = unsafe{ pair1.assume_init() };
-                        if should_swap_keys(key0, key1) {
-                            unsafe{ joined_node.set_payload_owned::<0>(key1, payload1); }
-                            unsafe{ joined_node.set_payload_owned::<1>(key0, payload0); }
-                        } else {
+                //Do we have two or fewer paths, that can fit into a new ListNode? 
+                if entry_cnt <= 2 {
+                    let mut joined_node = Self::new();
+                    let mut pair0: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+                    core::mem::swap(&mut pair0, &mut entries[0]);
+                    let (key0, payload0) = unsafe{ pair0.assume_init() };
+
+                    match entry_cnt {
+                        1 => {
                             unsafe{ joined_node.set_payload_owned::<0>(key0, payload0); }
-                            unsafe{ joined_node.set_payload_owned::<1>(key1, payload1); }
-                        }
-                    },
-                    _ => unreachable!()
+                        },
+                        2 => {
+                            let mut pair1: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+                            core::mem::swap(&mut pair1, &mut entries[1]);
+                            let (key1, payload1) = unsafe{ pair1.assume_init() };
+                            if should_swap_keys(key0, key1) {
+                                unsafe{ joined_node.set_payload_owned::<0>(key1, payload1); }
+                                unsafe{ joined_node.set_payload_owned::<1>(key0, payload0); }
+                            } else {
+                                unsafe{ joined_node.set_payload_owned::<0>(key0, payload0); }
+                                unsafe{ joined_node.set_payload_owned::<1>(key1, payload1); }
+                            }
+                        },
+                        _ => unreachable!()
+                    }
+                    debug_assert!(validate_node(&joined_node));
+                    return TrieNodeODRc::new(joined_node)
                 }
-                debug_assert!(validate_node(&joined_node));
-                return TrieNodeODRc::new(joined_node)
-            }
 
-            //Otherwise, create a DenseByteNode
-            let mut joined_node = DenseByteNode::<V>::with_capacity(entry_cnt);
-            for i in 0..entry_cnt {
-                let mut pair: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
-                core::mem::swap(&mut pair, &mut entries[i]);
-                let (key, payload) = unsafe{ pair.assume_init() };
-                debug_assert!(key.len() > 0);
-                if key.len() > 1 {
-                    let mut child_node = Self::new();
-                    unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
-                    debug_assert!(validate_node(&child_node));
-                    joined_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
-                } else {
-                    joined_node.set_payload_owned(key[0], payload);
+                //Otherwise, create a DenseByteNode
+                let mut joined_node = DenseByteNode::<V>::with_capacity(entry_cnt);
+                for i in 0..entry_cnt {
+                    let mut pair: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+                    core::mem::swap(&mut pair, &mut entries[i]);
+                    let (key, payload) = unsafe{ pair.assume_init() };
+                    debug_assert!(key.len() > 0);
+                    if key.len() > 1 {
+                        let mut child_node = Self::new();
+                        unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
+                        debug_assert!(validate_node(&child_node));
+                        joined_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
+                    } else {
+                        joined_node.set_payload_owned(key[0], payload);
+                    }
                 }
-            }
-            TrieNodeODRc::new(joined_node)
-        } else {
-            if let Some(other_dense_node) = other.as_dense() {
+                TrieNodeODRc::new(joined_node)
+            },
+            TaggedNodeRef::DenseByteNode(other_dense_node) => {
                 let mut new_node = other_dense_node.clone();
                 new_node.merge_from_list_node(self);
                 TrieNodeODRc::new(new_node)
-            } else {
-                unreachable!();
-            }
+            },
+            TaggedNodeRef::CellByteNode(other_dense_node) => {
+                let mut new_node = other_dense_node.clone();
+                new_node.merge_from_list_node(self);
+                TrieNodeODRc::new(new_node)
+            },
         }
     }
 

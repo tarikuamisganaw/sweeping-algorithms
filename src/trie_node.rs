@@ -578,7 +578,13 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
 
     // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
 
-    // fn as_dense(&self) -> Option<&DenseByteNode<V>>;
+    pub fn as_dense(&self) -> Option<&DenseByteNode<V>> {
+        match self {
+            Self::DenseByteNode(node) => Some(node),
+            Self::LineListNode(_) => None,
+            Self::CellByteNode(_) => None,
+        }
+    }
 
     // fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
 
@@ -678,7 +684,7 @@ pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>
 ///
 /// Returns `true` if the node was upgraded and `false` if it already was a DenseByteNode
 pub(crate) fn make_dense<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>) -> bool {
-    if node.borrow().as_dense().is_some() {
+    if node.borrow().as_tagged().as_dense().is_some() {
         false
     } else {
         let replacement = node.make_mut().as_list_mut().unwrap().convert_to_dense(3);

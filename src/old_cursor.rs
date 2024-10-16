@@ -254,7 +254,7 @@ impl <'a, V : Clone + Send + Sync> PathMapCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         const EXPECTED_DEPTH: usize = 16;
         const EXPECTED_PATH_LEN: usize = 256;
-        let node = TaggedNodeRef::DenseByteNode(btm.root().borrow().as_dense().unwrap());
+        let node = btm.root().borrow().as_tagged();
         let token = node.new_iter_token();
         let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
         btnis.push((node, token, 0));

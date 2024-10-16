@@ -1293,8 +1293,8 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
 
 impl<V> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
     fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        // panic!() //GOAT get rid of these in favor of as_tagged
-        Some(self)
+        panic!() //GOAT get rid of these in favor of as_tagged
+        // Some(self)
     }
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
         // panic!() //GOAT get rid of these in favor of as_tagged
