@@ -781,10 +781,7 @@ impl<V: Send + Sync> LineListNode<V> {
         //We couldn't store the value in either of the slots, so upgrade the node
         //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
         let mut replacement_node = self.convert_to_dense(3);
-        let dense_node = match replacement_node.make_mut().as_tagged_mut() {
-            TaggedNodeRefMut::DenseByteNode(dense_node) => dense_node,
-            _ => unreachable!()
-        };
+        let dense_node = replacement_node.make_mut().as_tagged_mut().into_dense().unwrap();
 
         //Add the new key-value pair to the new DenseByteNode
         if key.len() > 1 {
@@ -931,7 +928,7 @@ impl<V: Send + Sync> LineListNode<V> {
                         None => return (true, None) //We can keep the child that is already here
                     }
                 };
-                debug_assert!(difference.1.as_ref().map(|node| node.borrow().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true));
+                debug_assert!(difference.1.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true));
                 (difference.0, difference.1.map(|node| ValOrChildUnion::from(node)))
             } else {
                 debug_assert!(onward_key.len() > 0);
@@ -1636,7 +1633,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                     if key1_last_byte != key.last().unwrap() {
                         let sib_node = if key1.len() == key.len() && self.is_child_ptr::<1>() {
                             let sib_node = unsafe{ self.child_in_slot::<1>().borrow() };
-                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
+                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None
@@ -1658,7 +1655,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                     if key0_last_byte != key.last().unwrap() {
                         let sib_node = if key0.len() == key.len() && self.is_child_ptr::<0>() {
                             let sib_node = unsafe{ self.child_in_slot::<0>().borrow() };
-                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
+                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None
@@ -2087,18 +2084,6 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
 }
 
 impl<V> TrieNodeDowncast<V> for LineListNode<V> {
-    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        None
-    }
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        None
-    }
-    fn as_list(&self) -> Option<&Self> {
-        Some(self)
-    }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
-        Some(self)
-    }
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::LineListNode(self)
@@ -2320,7 +2305,7 @@ mod tests {
         b.node_set_val("banana".as_bytes(), 1).unwrap_or_else(|_| panic!());
 
         let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
+        debug_assert!(validate_node(joined.borrow().as_tagged().as_list().unwrap()));
         assert_eq!(joined.borrow().node_get_val("apple".as_bytes()), Some(&0));
         assert_eq!(joined.borrow().node_get_val("banana".as_bytes()), Some(&1));
 
@@ -2338,7 +2323,7 @@ mod tests {
 
         //u64's default impl of Lattice::join just takes the value from self
         let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
+        debug_assert!(validate_node(joined.borrow().as_tagged().as_list().unwrap()));
         assert_eq!(joined.borrow().node_get_val("apple".as_bytes()), Some(&42));
 
         //re-run join, just to make sure the source maps didn't get modified 
@@ -2353,7 +2338,7 @@ mod tests {
         let mut b = LineListNode::<u64>::new();
         b.node_set_val("apricot".as_bytes(), 24).unwrap_or_else(|_| panic!());
         let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
+        debug_assert!(validate_node(joined.borrow().as_tagged().as_list().unwrap()));
 
         let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), joined.borrow());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&42));
@@ -2376,7 +2361,7 @@ mod tests {
         b.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
 
         let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
+        debug_assert!(validate_node(joined.borrow().as_tagged().as_list().unwrap()));
         assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
 
@@ -2397,7 +2382,7 @@ mod tests {
         debug_assert!(validate_node(&b));
 
         let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
+        debug_assert!(validate_node(joined.borrow().as_tagged().as_list().unwrap()));
         assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
 

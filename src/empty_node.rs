@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::line_list_node::LineListNode;
-use crate::dense_byte_node::DenseByteNode;
 
 pub struct EmptyNode<V> {
     phantom: PhantomData<V>
@@ -162,18 +161,6 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
 }
 
 impl<V> TrieNodeDowncast<V> for EmptyNode<V> {
-    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        None
-    }
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        None
-    }
-    fn as_list(&self) -> Option<&LineListNode<V>> {
-        None
-    }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
-        None
-    }
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         panic!()
     }

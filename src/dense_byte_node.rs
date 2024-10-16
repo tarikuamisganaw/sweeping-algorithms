@@ -704,11 +704,11 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
     pub(crate) fn create_parent_path(&mut self, path: &[u8]) -> &mut DenseByteNode<V> {
         let new_node = DenseByteNode::new();
         self.set_child(path[0], TrieNodeODRc::new(new_node));
-        let mut cur = self.get_child_mut(path[0]).unwrap().make_mut().as_dense_mut().unwrap();
+        let mut cur = self.get_child_mut(path[0]).unwrap().make_mut().as_tagged_mut().into_dense().unwrap();
         for i in 1..path.len() - 1 {
             let new_node = DenseByteNode::new();
             cur.set_child(path[i], TrieNodeODRc::new(new_node));
-            cur = cur.get_child_mut(path[i]).unwrap().make_mut().as_dense_mut().unwrap();
+            cur = cur.get_child_mut(path[i]).unwrap().make_mut().as_tagged_mut().into_dense().unwrap();
         }
         cur
     }
@@ -1292,20 +1292,6 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
 }
 
 impl<V> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
-    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        panic!() //GOAT get rid of these in favor of as_tagged
-        // Some(self)
-    }
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        panic!() //GOAT get rid of these in favor of as_tagged
-        // Some(self)
-    }
-    fn as_list(&self) -> Option<&LineListNode<V>> {
-        None
-    }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
-        None
-    }
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::DenseByteNode(self)
@@ -1317,20 +1303,6 @@ impl<V> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
 }
 
 impl<V> TrieNodeDowncast<V> for ByteNode<CellCoFree<V>> {
-    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        panic!() //GOAT get rid of these in favor of as_tagged
-        // Some(self)
-    }
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        panic!() //GOAT get rid of these in favor of as_tagged
-        // Some(self)
-    }
-    fn as_list(&self) -> Option<&LineListNode<V>> {
-        None
-    }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
-        None
-    }
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::CellByteNode(self)
     }

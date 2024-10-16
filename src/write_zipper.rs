@@ -1454,7 +1454,6 @@ mod tests {
 
     #[test]
     fn write_zipper_drop_head_test1() {
-//GOAT, put this test back to the way it was!!
         let keys = [
             "123:abc:Bob",
             "123:def:Jim",
@@ -1468,18 +1467,18 @@ mod tests {
         let mut wz = map.write_zipper_at_path(b"123:");
 
         wz.drop_head(4);
-        // drop(wz);
+        drop(wz);
 
-        // let ref_keys: Vec<&[u8]> = vec![
-        //     b"123:Bob",
-        //     b"123:Bob:Fido",
-        //     b"123:Jim",
-        //     b"123:Jim:Felix",
-        //     b"123:Pam",
-        //     b"123:Pam:Bandit",
-        //     b"123:Sue",
-        //     b"123:Sue:Cornelius"];
-        // assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
+        let ref_keys: Vec<&[u8]> = vec![
+            b"123:Bob",
+            b"123:Bob:Fido",
+            b"123:Jim",
+            b"123:Jim:Felix",
+            b"123:Pam",
+            b"123:Pam:Bandit",
+            b"123:Sue",
+            b"123:Sue:Cornelius"];
+        assert_eq!(map.iter().map(|(k, _v)| k).collect::<Vec<Vec<u8>>>(), ref_keys);
     }
 
     #[test]

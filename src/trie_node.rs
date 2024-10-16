@@ -276,22 +276,6 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
 
 /// Implements methods to get the concrete type from a dynamic TrieNode
 pub trait TrieNodeDowncast<V> {
-//GOAT!!! Should remove all `as_dense`, `as_list`, etc. trait methods, in favor of `as_tagged`
-    /// Returns a reference to the node as a specific concrete type or None if it is not that type
-    ///
-    /// NOTE: If we end up checking more than one concrete type in the same implementation, it probably
-    /// makes sense to define a type enum.
-    fn as_dense(&self) -> Option<&DenseByteNode<V>>;
-
-    /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
-
-    /// Returns a reference to the node as a specific concrete type or None if it is not that type
-    fn as_list(&self) -> Option<&LineListNode<V>>;
-
-    /// Returns a mutable reference to the node as a specific concrete type, or None if the node is another tyepe
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
-
     /// Returns a [TaggedNodeRef] referencing this node
     fn as_tagged(&self) -> TaggedNodeRef<V>;
 
@@ -579,7 +563,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
     // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
 
     #[inline(always)]
-    pub fn as_dense(&self) -> Option<&DenseByteNode<V>> {
+    pub fn as_dense(&self) -> Option<&'a DenseByteNode<V>> {
         match self {
             Self::DenseByteNode(node) => Some(node),
             Self::LineListNode(_) => None,
@@ -589,13 +573,39 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
 
     // fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
 
-    // fn as_list(&self) -> Option<&LineListNode<V>>;
+    #[inline(always)]
+    pub fn as_list(&self) -> Option<&'a LineListNode<V>> {
+        match self {
+            Self::DenseByteNode(_) => None,
+            Self::LineListNode(node) => Some(node),
+            Self::CellByteNode(_) => None,
+        }
+    }
 
     // fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
 
     // fn as_tagged(&self) -> TaggedNodeRef<V>;
 
     // fn clone_self(&self) -> TrieNodeODRc<V>;
+}
+
+impl<'a, V: Clone + Send + Sync> TaggedNodeRefMut<'a, V> {
+    #[inline(always)]
+    pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V>> {
+        match self {
+            Self::DenseByteNode(node) => Some(node),
+            Self::LineListNode(_) => None,
+            Self::CellByteNode(_) => None,
+        }
+    }
+    #[inline(always)]
+    pub fn into_list(self) -> Option<&'a mut LineListNode<V>> {
+        match self {
+            Self::DenseByteNode(_) => None,
+            Self::LineListNode(node) => Some(node),
+            Self::CellByteNode(_) => None,
+        }
+    }
 }
 
 /// Returns the count of values in the subtrie descending from the node, caching shared subtries
@@ -685,12 +695,14 @@ pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>
 ///
 /// Returns `true` if the node was upgraded and `false` if it already was a DenseByteNode
 pub(crate) fn make_dense<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>) -> bool {
-    if node.borrow().as_tagged().as_dense().is_some() {
-        false
-    } else {
-        let replacement = node.make_mut().as_list_mut().unwrap().convert_to_dense(3);
-        *node = replacement;
-        true
+    match node.borrow().as_tagged() {
+        TaggedNodeRef::DenseByteNode(_) => false,
+        TaggedNodeRef::LineListNode(_) => {
+            let replacement = node.make_mut().as_tagged_mut().into_list().unwrap().convert_to_dense(3);
+            *node = replacement;
+            true
+        },
+        _ => {unreachable!()}
     }
 }
 

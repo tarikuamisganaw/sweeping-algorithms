@@ -18,7 +18,7 @@ impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         Self {
             prefix: vec![],
-            btnis: vec![ByteTrieNodeIter::new(btm.root().borrow().as_dense().unwrap())],
+            btnis: vec![ByteTrieNodeIter::new(btm.root().borrow().as_tagged().as_dense().unwrap())],
             nopush: false
         }
     }
@@ -49,7 +49,7 @@ impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
                                 }
                                 Some(rec) => {
                                     self.nopush = false;
-                                    self.btnis.push(ByteTrieNodeIter::new(rec.borrow().as_dense().unwrap()));
+                                    self.btnis.push(ByteTrieNodeIter::new(rec.borrow().as_tagged().as_dense().unwrap()));
                                 }
                             }
 
