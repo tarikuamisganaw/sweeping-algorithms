@@ -781,7 +781,10 @@ impl<V: Send + Sync> LineListNode<V> {
         //We couldn't store the value in either of the slots, so upgrade the node
         //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
         let mut replacement_node = self.convert_to_dense(3);
-        let dense_node = replacement_node.make_mut().as_dense_mut().unwrap();
+        let dense_node = match replacement_node.make_mut().as_tagged_mut() {
+            TaggedNodeRefMut::DenseByteNode(dense_node) => dense_node,
+            _ => unreachable!()
+        };
 
         //Add the new key-value pair to the new DenseByteNode
         if key.len() > 1 {
@@ -2096,9 +2099,11 @@ impl<V> TrieNodeDowncast<V> for LineListNode<V> {
     fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
         Some(self)
     }
+    #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::LineListNode(self)
     }
+    #[inline(always)]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
         TaggedNodeRefMut::LineListNode(self)
     }

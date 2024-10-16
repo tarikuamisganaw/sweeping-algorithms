@@ -1297,8 +1297,8 @@ impl<V> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
         // Some(self)
     }
     fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        // panic!() //GOAT get rid of these in favor of as_tagged
-        Some(self)
+        panic!() //GOAT get rid of these in favor of as_tagged
+        // Some(self)
     }
     fn as_list(&self) -> Option<&LineListNode<V>> {
         None

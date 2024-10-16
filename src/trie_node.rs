@@ -578,6 +578,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
 
     // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
 
+    #[inline(always)]
     pub fn as_dense(&self) -> Option<&DenseByteNode<V>> {
         match self {
             Self::DenseByteNode(node) => Some(node),
