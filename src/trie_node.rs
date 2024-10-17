@@ -257,8 +257,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// the logic to promote nodes to other node types.
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
-    /// Allows for the implementation of the PartialDistributiveLattice trait on different node
-    /// implementations, and the logic to promote nodes to other node types
+    /// Allows for the implementation of the PartialDistributiveLattice algebraic operations
     ///
     /// If this method returns `(false, None)`, it means the original value should be "annihilated",
     ///   e.g. complete subtraction, with nothing left behind
@@ -266,8 +265,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// If it returns `(false, Some(_))` then a new node was created
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice;
 
-    /// Allows for the implementation of the PartialDistributiveLattice trait on different node
-    /// implementations, and the logic to promote nodes to other node types
+    /// Allows for the implementation of the PartialQuantale algebraic operations
     fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
 
     /// Returns a clone of the node in its own Rc
@@ -281,6 +279,9 @@ pub trait TrieNodeDowncast<V> {
 
     /// Returns a [TaggedNodeRefMut] referencing this node
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V>;
+
+    /// Migrates the contents of the node into a new CellByteNode.  After this method, `self` will be empty
+    fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V>;
 }
 
 /// Special sentinel token value indicating iteration of a node has not been initialized
@@ -378,6 +379,7 @@ pub enum TaggedNodeRef<'a, V> {
     DenseByteNode(&'a DenseByteNode<V>),
     LineListNode(&'a LineListNode<V>),
     CellByteNode(&'a CellByteNode<V>),
+    EmptyNode(&'a EmptyNode<V>),
 }
 
 /// A mutable reference to a node with a concrete type
@@ -393,6 +395,7 @@ impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
             Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
             Self::LineListNode(node) => write!(f, "{node:?}"),
             Self::CellByteNode(node) => write!(f, "{node:?}"),
+            Self::EmptyNode(node) => write!(f, "{node:?}"),
         }
     }
 }
@@ -403,6 +406,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => *node as &dyn TrieNode<V>,
             Self::LineListNode(node) => *node as &dyn TrieNode<V>,
             Self::CellByteNode(node) => *node as &dyn TrieNode<V>,
+            Self::EmptyNode(node) => *node as &dyn TrieNode<V>,
         }
     }
     pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
@@ -410,6 +414,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.node_contains_partial_key(key),
             Self::LineListNode(node) => node.node_contains_partial_key(key),
             Self::CellByteNode(node) => node.node_contains_partial_key(key),
+            Self::EmptyNode(_) => false
         }
     }
     #[inline(always)]
@@ -418,6 +423,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.node_get_child(key),
             Self::LineListNode(node) => node.node_get_child(key),
             Self::CellByteNode(node) => node.node_get_child(key),
+            Self::EmptyNode(_) => None,
         }
     }
 
@@ -432,6 +438,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.node_contains_val(key),
             Self::LineListNode(node) => node.node_contains_val(key),
             Self::CellByteNode(node) => node.node_contains_val(key),
+            Self::EmptyNode(_) => false,
         }
     }
     pub fn node_get_val(&self, key: &[u8]) -> Option<&'a V> {
@@ -439,6 +446,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.node_get_val(key),
             Self::LineListNode(node) => node.node_get_val(key),
             Self::CellByteNode(node) => node.node_get_val(key),
+            Self::EmptyNode(_) => None,
         }
     }
 
@@ -462,6 +470,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.new_iter_token(),
             Self::LineListNode(node) => node.new_iter_token(),
             Self::CellByteNode(node) => node.new_iter_token(),
+            Self::EmptyNode(node) => node.new_iter_token(),
         }
     }
     #[inline(always)]
@@ -470,6 +479,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.iter_token_for_path(key),
             Self::LineListNode(node) => node.iter_token_for_path(key),
             Self::CellByteNode(node) => node.iter_token_for_path(key),
+            Self::EmptyNode(node) => node.iter_token_for_path(key),
         }
     }
     #[inline(always)]
@@ -478,6 +488,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.next_items(token),
             Self::LineListNode(node) => node.next_items(token),
             Self::CellByteNode(node) => node.next_items(token),
+            Self::EmptyNode(node) => node.next_items(token),
         }
     }
 
@@ -493,6 +504,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
             Self::LineListNode(node) => node.nth_child_from_key(key, n),
             Self::CellByteNode(node) => node.nth_child_from_key(key, n),
+            Self::EmptyNode(node) => node.nth_child_from_key(key, n),
         }
     }
     pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<&'a dyn TrieNode<V>>) {
@@ -500,6 +512,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.first_child_from_key(key),
             Self::LineListNode(node) => node.first_child_from_key(key),
             Self::CellByteNode(node) => node.first_child_from_key(key),
+            Self::EmptyNode(node) => node.first_child_from_key(key),
         }
     }
     #[inline(always)]
@@ -508,6 +521,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.count_branches(key),
             Self::LineListNode(node) => node.count_branches(key),
             Self::CellByteNode(node) => node.count_branches(key),
+            Self::EmptyNode(node) => node.count_branches(key),
         }
     }
     #[inline(always)]
@@ -516,6 +530,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.node_branches_mask(key),
             Self::LineListNode(node) => node.node_branches_mask(key),
             Self::CellByteNode(node) => node.node_branches_mask(key),
+            Self::EmptyNode(node) => node.node_branches_mask(key),
         }
     }
     #[inline(always)]
@@ -524,6 +539,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.is_leaf(key),
             Self::LineListNode(node) => node.is_leaf(key),
             Self::CellByteNode(node) => node.is_leaf(key),
+            Self::EmptyNode(node) => node.is_leaf(key),
         }
     }
     pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
@@ -531,6 +547,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.prior_branch_key(key),
             Self::LineListNode(node) => node.prior_branch_key(key),
             Self::CellByteNode(node) => node.prior_branch_key(key),
+            Self::EmptyNode(node) => node.prior_branch_key(key),
         }
     }
     pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&'a dyn TrieNode<V>>) {
@@ -538,6 +555,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
             Self::LineListNode(node) => node.get_sibling_of_child(key, next),
             Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
+            Self::EmptyNode(node) => node.get_sibling_of_child(key, next),
         }
     }
     pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
@@ -545,6 +563,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => node.get_node_at_key(key),
             Self::LineListNode(node) => node.get_node_at_key(key),
             Self::CellByteNode(node) => node.get_node_at_key(key),
+            Self::EmptyNode(node) => node.get_node_at_key(key),
         }
     }
 
@@ -568,6 +587,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(node) => Some(node),
             Self::LineListNode(_) => None,
             Self::CellByteNode(_) => None,
+            Self::EmptyNode(_) => None,
         }
     }
 
@@ -579,6 +599,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::DenseByteNode(_) => None,
             Self::LineListNode(node) => Some(node),
             Self::CellByteNode(_) => None,
+            Self::EmptyNode(_) => None,
         }
     }
 
@@ -601,9 +622,17 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRefMut<'a, V> {
     #[inline(always)]
     pub fn into_list(self) -> Option<&'a mut LineListNode<V>> {
         match self {
-            Self::DenseByteNode(_) => None,
             Self::LineListNode(node) => Some(node),
+            Self::DenseByteNode(_) => None,
             Self::CellByteNode(_) => None,
+        }
+    }
+    #[inline(always)]
+    pub fn into_cell_node(self) -> Option<&'a mut CellByteNode<V>> {
+        match self {
+            Self::CellByteNode(node) => Some(node),
+            Self::DenseByteNode(_) => None,
+            Self::LineListNode(_) => None,
         }
     }
 }
@@ -640,21 +669,38 @@ pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMa
 /// the logic to keep the zipper in a coherent state.  So maybe this function should just be integrated
 /// into PathMap::zipper_head.
 pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> (bool, &'a mut TrieNodeODRc<V>) {
-    let (remaining_key, node) = node_along_path_mut(root_node, path, false);
-
-    if remaining_key.len() == 0 {
-        let upgraded = make_dense(node);
-        return (upgraded, node)
+    if path.len() == 0 {
+        debug_assert!({
+            match root_node.borrow().as_tagged() {
+                TaggedNodeRef::CellByteNode(_) => true,
+                _ => false,
+            }
+        });
+        (false, root_node)
     } else {
-        let new_node = DenseByteNode::new();
-        let result = node.make_mut().node_set_branch(remaining_key, TrieNodeODRc::new(new_node));
-        match result {
-            Ok(_) => { },
-            Err(replacement_node) => { *node = replacement_node; }
+        let (mut remaining_key, mut node) = node_along_path_mut(root_node, path, true);
+        debug_assert!(remaining_key.len() > 0);
+
+        //See if we need to make an intermediary parent node
+        if remaining_key.len() > 1 {
+            let new_node = CellByteNode::new();
+            let result = node.make_mut().node_set_branch(&remaining_key[..remaining_key.len()-1], TrieNodeODRc::new(new_node));
+            match result {
+                Ok(_) => { },
+                Err(replacement_node) => { *node = replacement_node; }
+            }
+            let (consumed_bytes, child_node) = node.make_mut().node_get_child_mut(&remaining_key[..remaining_key.len()-1]).unwrap();
+            debug_assert_eq!(consumed_bytes, remaining_key.len()-1);
+            remaining_key = &remaining_key[consumed_bytes..];
+            node = child_node;
         }
-        let (remaining_key, new_node) = node_along_path_mut(node, remaining_key, false);
-        debug_assert_eq!(remaining_key.len(), 0);
-        (true, new_node)
+
+        debug_assert_eq!(remaining_key.len(), 1);
+        let upgraded = make_cell_node(node);
+        let cell_node = node.make_mut().as_tagged_mut().into_cell_node().unwrap();
+        let (created, child, val) = cell_node.prepare_cf(remaining_key[0]);
+        //GOAT, gotta use the val for the zipper's root value
+        (upgraded || created, child)
     }
 }
 
@@ -691,18 +737,17 @@ pub(crate) fn node_along_path_mut<'a, 'k, V>(start_node: &'a mut TrieNodeODRc<V>
     (key, node)
 }
 
-/// Ensures the node is a DenseByteNode
+/// Ensures the node is a CellByteNode
 ///
-/// Returns `true` if the node was upgraded and `false` if it already was a DenseByteNode
-pub(crate) fn make_dense<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>) -> bool {
+/// Returns `true` if the node was upgraded and `false` if it already was a CellByteNode
+pub(crate) fn make_cell_node<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>) -> bool {
     match node.borrow().as_tagged() {
-        TaggedNodeRef::DenseByteNode(_) => false,
-        TaggedNodeRef::LineListNode(_) => {
-            let replacement = node.make_mut().as_tagged_mut().into_list().unwrap().convert_to_dense(3);
+        TaggedNodeRef::CellByteNode(_) => false,
+        _ => {
+            let replacement = node.make_mut().convert_to_cell_node();
             *node = replacement;
             true
         },
-        _ => {unreachable!()}
     }
 }
 

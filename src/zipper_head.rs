@@ -78,7 +78,7 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
         // to prune the zipper's path.
 
-        WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, &[], false, zipper_tracker)
+        WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, &[], zipper_tracker)
     }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
@@ -99,11 +99,11 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         #[cfg(debug_assertions)]
         {
             let tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
-            WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, &[], false, Some(tracker))
+            WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, &[], Some(tracker))
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, &[], false)
+            WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, &[])
         }
     }
 }
@@ -131,7 +131,7 @@ mod tests {
             let mut zippers = Vec::with_capacity(thread_cnt);
             for n in (0..thread_cnt).into_iter().rev() {
                 let path = &[n as u8];
-                let zipper = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(path) };
+                let zipper = zipper_head.write_zipper_at_exclusive_path(path);
                 zippers.push(zipper);
             };
 
@@ -290,11 +290,6 @@ mod tests {
         assert_eq!(map.get(b"a1+value").unwrap(), &1);
         assert_eq!(map.get(b"b0+value").unwrap(), &2);
         assert_eq!(map.get(b"b1+value").unwrap(), &3);
-    }
-
-    #[test]
-    fn goat() {
-        println!("GOAT {}", core::mem::size_of::<crate::zipper_head::ZipperTracker>());
     }
 }
 

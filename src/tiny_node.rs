@@ -245,6 +245,9 @@ impl<V> TrieNodeDowncast<V> for TinyRefNode<'_, V> {
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
         panic!()
     }
+    fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
+        panic!();
+    }
 }
 
 #[test]

@@ -140,11 +140,11 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     pub fn write_zipper(&mut self) -> WriteZipperUntracked<V> {
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[], true, None)
+            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[], None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[], true)
+            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[])
         }
     }
 
@@ -524,3 +524,7 @@ mod tests {
 // for almost every benchmark)  If we do need to handle this case, I think I have a preference for a special
 // type of parent node that has an UnsafeCell around each child ptr and each value.
 //
+
+//GOAT, Consider refactor of zipper traits.  `WriteZipper` -> `PathWriter`.  Zipper is split into the zipper
+// movement traits and a `PathReader` trait.  Then `PathWriter` and `PathReader` can both be implemented on
+// the map, and we can get rid of duplicate methods like `graft_map`

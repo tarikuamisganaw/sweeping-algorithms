@@ -136,29 +136,6 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
         self.mask[((k & 0b11000000) >> 6) as usize] &= !(1u64 << (k & 0b00111111));
     }
 
-    //GOAT.  I don't think we're going to need this.  But a conversation is needed about the need to modify
-    // WriteZipper roots
-    //
-    // /// Ensures that a CoFree exists for the specified key
-    // ///
-    // /// Returns `true` if a new CoFree was created, and `false` if one already existed
-    // ///
-    // /// This enables a WriteZipper to modify a specific CoFree without touching the DenseByteNode
-    // /// that contains it, and therefore multiple WriteZippers can be rooted at the same parent, so
-    // /// long as the first byte of each path is unique
-    // #[inline]
-    // pub(crate) fn prepare_cf(&mut self, k: u8) -> bool {
-    //     if self.get(k).is_some() {
-    //         false
-    //     } else {
-    //         let ix = self.left(k) as usize;
-    //         self.set(k);
-    //         let new_cf = CoFree {rec: None, value: None };
-    //         self.values.insert(ix, new_cf);
-    //         true
-    //     }
-    // }
-
     /// Adds a new child at the specified key byte.  Replaces and returns an existing branch.
     /// Use [join_child_into] to join with the existing branch
     #[inline]
@@ -561,6 +538,40 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
                 self.join_payload_into(key[0], payload);
             }
         }
+    }
+}
+
+impl<V: Clone + Send + Sync> CellByteNode<V> {
+
+    /// Ensures that a CoFree exists for the specified key
+    ///
+    /// Returns `true` if a new CoFree was created, and `false` if one already existed
+    ///
+    /// This enables a WriteZipper to modify a specific CoFree without touching the DenseByteNode
+    /// that contains it, and therefore multiple WriteZippers can be rooted at the same parent, so
+    /// long as the first byte of each path is unique
+    #[inline]
+    pub(crate) fn prepare_cf(&mut self, k: u8) -> (bool, &mut TrieNodeODRc<V>, &mut Option<V>) {
+        let created = match self.contains(k) {
+            true => false,
+            false => {
+                let ix = self.left(k) as usize;
+                self.set(k);
+                let new_cf = CellCoFree::new(None, None);
+                self.values.insert(ix, new_cf);
+                true
+            }
+        };
+        let cf = self.get_mut(k).unwrap();
+        let (rec, val) = cf.both_mut_refs();
+        let rec = match rec {
+            Some(rec) => rec,
+            None => {
+                *rec = Some(TrieNodeODRc::new(crate::empty_node::EmptyNode::new()));
+                rec.as_mut().unwrap()
+            }
+        };
+        (created, rec, val)
     }
 }
 
@@ -1153,6 +1164,11 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 let new_node = self.join(other_byte_node);
                 TrieNodeODRc::new(new_node)
             },
+            TaggedNodeRef::EmptyNode(_) => {
+                //GOAT, optimization opportunity.  Could communicate here that the resultant node is a clone
+                // so we could just bump the refcount rather than make a new TrieNodeODRc pointer
+                TrieNodeODRc::new(self.clone())
+            }
         }
     }
 
@@ -1237,7 +1253,8 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 } else {
                     None
                 }
-            }
+            },
+            TaggedNodeRef::EmptyNode(_) => None
         }
     }
 
@@ -1266,7 +1283,8 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                     // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
                     (false, Some(TrieNodeODRc::new(new_node)))
                 }
-            }
+            },
+            TaggedNodeRef::EmptyNode(_) => (true, None), //Preserve original value unmodified
         }
     }
 
@@ -1283,7 +1301,8 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.prestrict(other_byte_node).map(|node| TrieNodeODRc::new(node))
-            }
+            },
+            TaggedNodeRef::EmptyNode(_) => None,
         }
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
@@ -1291,7 +1310,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
     }
 }
 
-impl<V> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
+impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::DenseByteNode(self)
@@ -1299,6 +1318,17 @@ impl<V> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
     #[inline(always)]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
         TaggedNodeRefMut::DenseByteNode(self)
+    }
+    fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
+        let mut replacement_node = CellByteNode::<V>::with_capacity(self.values.len());
+        debug_assert_eq!(self.mask, [0u64; 4]);
+        core::mem::swap(&mut replacement_node.mask, &mut self.mask);
+        let mut values = vec![];
+        core::mem::swap(&mut values, &mut self.values);
+        for cf in values.into_iter() {
+            replacement_node.values.push(cf.into())
+        }
+        TrieNodeODRc::new(replacement_node)
     }
 }
 
@@ -1308,6 +1338,10 @@ impl<V> TrieNodeDowncast<V> for ByteNode<CellCoFree<V>> {
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
         TaggedNodeRefMut::CellByteNode(self)
+    }
+    fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
+        //Already is a cell_node, and that fact should have been detected before calling this method
+        unreachable!()
     }
 }
 
@@ -1426,17 +1460,109 @@ impl<V: Clone + Send + Sync> CoFree for OrdinaryCoFree<V> {
 }
 
 use core::cell::UnsafeCell;
+use core::pin::Pin;
 
-#[derive(Default, Debug)]
-pub struct CellCoFree<V> {
+#[derive(Debug)]
+pub struct CellCoFree<V>(Pin<Box<CellCoFreeInsides<V>>>);
+
+impl<V: Clone + Send + Sync> Default for CellCoFree<V> {
+    fn default() -> Self {
+        Self(Box::pin(CellCoFreeInsides::new(None, None)))
+    }
+}
+
+impl<V: Clone + Send + Sync> Clone for CellCoFree<V> {
+    fn clone(&self) -> Self {
+        Self(Box::pin((*self.0).clone()))
+    }
+}
+
+impl<V: Clone + Send + Sync> From<OrdinaryCoFree<V>> for CellCoFree<V> {
+    fn from(cf: OrdinaryCoFree<V>) -> Self {
+        let (rec, val) = cf.into_both();
+        Self::new(rec, val)
+    }
+}
+
+impl<V> CellCoFree<V> {
+    fn both_mut_refs(&mut self) -> (&mut Option<TrieNodeODRc<V>>, &mut Option<V>) {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.both_mut_refs()
+    }
+}
+
+impl<V: Clone + Send + Sync> CoFree for CellCoFree<V> {
+    type V = V;
+    fn new(rec: Option<TrieNodeODRc<V>>, val: Option<V>) -> Self {
+        let insides = CellCoFreeInsides::new(rec, val);
+        Self(Box::pin(insides))
+    }
+    fn from_cf<OtherCf: CoFree<V=Self::V>>(cf: OtherCf) -> Self {
+        let (rec, val) = cf.into_both();
+        Self::new(rec, val)
+    }
+    fn rec(&self) -> Option<&TrieNodeODRc<V>> {
+        self.0.rec()
+    }
+    fn has_rec(&self) -> bool {
+        self.0.has_rec()
+    }
+    fn rec_mut(&mut self) -> Option<&mut TrieNodeODRc<V>> {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.rec_mut()
+    }
+    fn take_rec(&mut self) -> Option<TrieNodeODRc<V>> {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.take_rec()
+    }
+    fn into_rec(self) -> Option<TrieNodeODRc<V>> {
+        unsafe{ Pin::into_inner_unchecked(self.0) }.take_rec()
+    }
+    fn set_rec(&mut self, node: TrieNodeODRc<V>) {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.set_rec(node)
+    }
+    fn set_rec_option(&mut self, rec: Option<TrieNodeODRc<V>>) {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.set_rec_option(rec)
+    }
+    fn swap_rec(&mut self, node: TrieNodeODRc<V>) -> Option<TrieNodeODRc<V>> {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.swap_rec(node)
+    }
+    fn val(&self) -> Option<&V> {
+        self.0.val()
+    }
+    fn has_val(&self) -> bool {
+        self.0.has_val()
+    }
+    fn val_mut(&mut self) -> Option<&mut V> {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.val_mut()
+    }
+    fn take_val(&mut self) -> Option<V> {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.take_val()
+    }
+    fn set_val(&mut self, val: V) {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.set_val(val)
+    }
+    fn set_val_option(&mut self, val: Option<V>) {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.set_val_option(val)
+    }
+    fn swap_val(&mut self, val: V) -> Option<V> {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.swap_val(val)
+    }
+    fn both_mut(&mut self) -> (Option<&mut TrieNodeODRc<V>>, Option<&mut V>) {
+        unsafe{ self.0.as_mut().get_unchecked_mut() }.both_mut()
+    }
+    fn into_both(self) -> (Option<TrieNodeODRc<V>>, Option<V>) {
+        unsafe{ Pin::into_inner_unchecked(self.0) }.into_both()
+    }
+}
+
+#[derive(Debug)]
+struct CellCoFreeInsides<V> {
     rec: UnsafeCell<Option<TrieNodeODRc<V>>>,
     value: UnsafeCell<Option<V>>
 }
 
-unsafe impl<V: Send + Sync> Send for CellCoFree<V> {}
-unsafe impl<V: Send + Sync> Sync for CellCoFree<V> {}
+unsafe impl<V: Send + Sync> Send for CellCoFreeInsides<V> {}
+unsafe impl<V: Send + Sync> Sync for CellCoFreeInsides<V> {}
 
-impl<V: Clone + Send + Sync> Clone for CellCoFree<V> {
+impl<V: Clone + Send + Sync> Clone for CellCoFreeInsides<V> {
     fn clone(&self) -> Self {
         Self {
             rec: UnsafeCell::new(self.rec().cloned()),
@@ -1445,7 +1571,15 @@ impl<V: Clone + Send + Sync> Clone for CellCoFree<V> {
     }
 }
 
-impl<V: Clone + Send + Sync> CoFree for CellCoFree<V> {
+impl<V> CellCoFreeInsides<V> {
+    fn both_mut_refs(&mut self) -> (&mut Option<TrieNodeODRc<V>>, &mut Option<V>) {
+        let rec = unsafe{ &mut *self.rec.get() };
+        let val = unsafe{ &mut *self.value.get() };
+        (rec, val)
+    }
+}
+
+impl<V: Clone + Send + Sync> CoFree for CellCoFreeInsides<V> {
     type V = V;
     fn new(rec: Option<TrieNodeODRc<V>>, val: Option<V>) -> Self {
         Self {
