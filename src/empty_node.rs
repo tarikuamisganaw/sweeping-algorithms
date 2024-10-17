@@ -94,7 +94,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
         (0, &[])
     }
     fn next_items(&self, _token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
-        (0, &[], None, None)
+        (NODE_ITER_FINISHED, &[], None, None)
     }
     fn node_val_count(&self, _cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize {
         0

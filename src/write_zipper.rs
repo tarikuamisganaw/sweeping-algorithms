@@ -683,6 +683,10 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
     }
     /// See [WriteZipper::set_value]
     pub fn set_value(&mut self, val: V) -> Option<V> {
+        if self.key.node_key().len() == 0 {
+            debug_assert!(self.at_root());
+            panic!("Unimplemented set_value on zipper root");
+        }
         let (old_val, created_subnode) = self.in_zipper_mut_static_result(
             |node, remaining_key| node.node_set_val(remaining_key, val),
             |_new_leaf_node, _remaining_key| (None, false));

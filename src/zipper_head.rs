@@ -85,11 +85,6 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
     /// that no existing zippers may access the specified path at any time before the `WriteZipper` is dropped
     pub unsafe fn write_zipper_at_exclusive_path_unchecked<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipperUntracked<'a, 'k, V> {
         let path = path.as_ref();
-        //GOAT, there may be no point to this
-        // let path_len = path.len();
-        // if path_len == 0 {
-        //     panic!("Illegal Operation: WriteZipper can't be created at the root of a ZipperHead without mutable access.  Use ZipperHead::root_write_zipper instead.");
-        // }
         let root = unsafe{ self.root.get().as_mut() };
         let (_created_node, zipper_root_node) = prepare_exclusive_write_path(root, &path);
         //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
@@ -164,6 +159,79 @@ mod tests {
                 assert_eq!(map.get(path), Some(&i));
             }
         }
+    }
+
+    #[test]
+    fn zipper_head1() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make a ZipperHead for the whole map, and make a WriteZipper for a branch within the map
+        let map_head = map.zipper_head();
+        let mut zipper = map_head.write_zipper_at_exclusive_path(&[0]);
+        zipper.set_value(0);
+        drop(zipper);
+        assert_eq!(map.get(&[0]), Some(&0));
+    }
+
+    #[test]
+    fn zipper_head2() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make a ZipperHead for the whole map, and then a zipper at the root
+        //This degenerate case should be identical to making a WriteZipper from the map root
+        let map_head = map.zipper_head();
+        let mut zipper = map_head.write_zipper_at_exclusive_path(&[]);
+        assert!(zipper.descend_to(b"test"));
+        zipper.set_value(0);
+        drop(zipper);
+        assert_eq!(map.get("test"), Some(&0));
+    }
+
+    #[test]
+    fn zipper_head3() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make a WriteZipper in a plece that will require creating multiple nodes
+        let map_head = map.zipper_head();
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test");
+        zipper.descend_to(b":2");
+        zipper.set_value(2);
+        drop(zipper);
+        assert_eq!(map.get("test:2"), Some(&2));
+    }
+
+    #[test]
+    fn zipper_head4() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make a WriteZipper in a plece that will require splitting an existing path
+        map.insert(b"test:3", 3);
+        let map_head = map.zipper_head();
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test");
+        zipper.descend_to(b":3");
+        assert_eq!(zipper.get_value(), Some(&3));
+        zipper.ascend_byte();
+        zipper.descend_to_byte(b'2');
+        zipper.set_value(2);
+        drop(zipper);
+
+// for (k, v) in map.iter() {
+//     println!("{} = {v}", String::from_utf8_lossy(&k));
+// }
+        assert_eq!(map.get("test:2"), Some(&2));
+        assert_eq!(map.get("test:3"), Some(&3));
+    }
+
+    #[test]
+    fn zipper_head5() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Work around a "stump" (aka a zipper root, aka a CellByteNodes that belonged to a zipper was dropped)
+        let map_head = map.zipper_head();
+        let zipper = map_head.write_zipper_at_exclusive_path([3]);
+        drop(zipper);
+        let zipper = map_head.write_zipper_at_exclusive_path([3, 193, 49]);
+        drop(zipper);
     }
 
     #[test]
@@ -290,6 +358,33 @@ mod tests {
         assert_eq!(map.get(b"a1+value").unwrap(), &1);
         assert_eq!(map.get(b"b0+value").unwrap(), &2);
         assert_eq!(map.get(b"b1+value").unwrap(), &3);
+    }
+
+    #[test]
+    fn hierarchical_zipper_heads3() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make a ZipperHead for the whole map, and then a zipper for a branch within the map
+        let map_head = map.zipper_head();
+        let mut top_zipper = map_head.write_zipper_at_exclusive_path(b"0");
+        top_zipper.descend_to(b":test:");
+
+        //Make a sub-head at a path that doesn't exist yet
+        let sub_head = top_zipper.zipper_head();
+        let mut sub_zipper = sub_head.write_zipper_at_exclusive_path(b"5");
+
+        //Set the value at the zipper's root
+        sub_zipper.set_value(5);
+
+        //Set a value below the zipper's root
+        sub_zipper.descend_to(b":next:1");
+        sub_zipper.set_value(1);
+
+        drop(sub_zipper);
+        drop(top_zipper);
+
+        assert_eq!(map.get("0:test:5"), Some(&5));
+        assert_eq!(map.get("0:test:5:next:1"), Some(&1));
     }
 }
 

@@ -157,7 +157,9 @@ pub trait ReadOnlyZipper<'a, V>: Zipper {
 /// every value, or iterating all paths descending from a common root at a certain depth
 pub trait ZipperIteration<'a, V>: Zipper {
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
-    /// order.  Returns a reference to the value
+    /// order
+    ///
+    /// Returns a reference to the value or `None` if the zipper has encountered the root.
     fn to_next_val(&mut self) -> Option<&'a V>;
 
     /// Advances the zipper to visit every existing path within the trie in a depth-first order
@@ -1628,7 +1630,7 @@ mod tests {
     }
 
     #[test]
-    fn zipper_iter() {
+    fn zipper_iter_test1() {
         let mut btm = BytesTrieMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
@@ -1658,6 +1660,26 @@ mod tests {
             // println!("{val}  {} = {}", std::str::from_utf8(&path).unwrap(), std::str::from_utf8(rs[val].as_bytes()).unwrap());
             assert_eq!(rs[val].as_bytes(), path);
         }
+    }
+
+    #[test]
+    fn zipper_iter_test2() {
+        //This tests iteration over an empty map, with no activity at all
+        let mut map = BytesTrieMap::<u64>::new();
+
+        let mut zipper = map.read_zipper();
+        assert_eq!(zipper.to_next_val(), None);
+        assert_eq!(zipper.to_next_val(), None);
+        drop(zipper);
+
+        //Now test some operations that create nodes, but not values
+        let map_head = map.zipper_head();
+        let _wz = map_head.write_zipper_at_exclusive_path(b"0");
+        drop(_wz);
+
+        let mut zipper = map.read_zipper();
+        assert_eq!(zipper.to_next_val(), None);
+        assert_eq!(zipper.to_next_val(), None);
     }
 
     #[test]
