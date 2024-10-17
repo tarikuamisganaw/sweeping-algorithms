@@ -1321,7 +1321,7 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>>
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
         let mut replacement_node = CellByteNode::<V>::with_capacity(self.values.len());
-        debug_assert_eq!(self.mask, [0u64; 4]);
+        debug_assert_eq!(replacement_node.mask, [0u64; 4]);
         core::mem::swap(&mut replacement_node.mask, &mut self.mask);
         let mut values = vec![];
         core::mem::swap(&mut values, &mut self.values);
