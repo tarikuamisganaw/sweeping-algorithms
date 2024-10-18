@@ -1903,6 +1903,9 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                 new_node.merge_from_list_node(self);
                 TrieNodeODRc::new(new_node)
             },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                tiny_node.join_dyn(self)
+            },
             TaggedNodeRef::CellByteNode(other_dense_node) => {
                 let mut new_node = other_dense_node.clone();
                 new_node.merge_from_list_node(self);

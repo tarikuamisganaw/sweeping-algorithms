@@ -1158,6 +1158,9 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 new_node.merge_from_list_node(other_list_node);
                 TrieNodeODRc::new(new_node)
             },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                tiny_node.join_dyn(self)
+            },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 let new_node = self.join(other_byte_node);
                 TrieNodeODRc::new(new_node)
@@ -1244,6 +1247,9 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::LineListNode(other_list_node) => {
                 other_list_node.meet_dyn(self)
             },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                tiny_node.meet_dyn(self)
+            },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 let new_node = self.meet(other_byte_node);
                 if !new_node.is_empty() {
@@ -1272,6 +1278,9 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::LineListNode(other_list_node) => {
                 self.psubtract_abstract(other_list_node)
             },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                self.psubtract_abstract(tiny_node)
+            },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 let new_node = self.subtract(other_byte_node);
                 if new_node.is_empty() {
@@ -1294,6 +1303,11 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             },
             TaggedNodeRef::LineListNode(other_list_node) => {
                 let (_, restricted) = self.prestrict_abstract(other_list_node);
+                // GOAT, Optimization opportunity to return a "reuse node unmodified" flag
+                restricted
+            },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                let (_, restricted) = self.prestrict_abstract(tiny_node);
                 // GOAT, Optimization opportunity to return a "reuse node unmodified" flag
                 restricted
             },

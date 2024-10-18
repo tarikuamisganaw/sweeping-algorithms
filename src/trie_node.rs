@@ -378,6 +378,7 @@ impl<'a, V: Clone + Send + Sync> AbstractNodeRef<'a, V> {
 pub enum TaggedNodeRef<'a, V> {
     DenseByteNode(&'a DenseByteNode<V>),
     LineListNode(&'a LineListNode<V>),
+    TinyRefNode(&'a TinyRefNode<'a, V>),
     CellByteNode(&'a CellByteNode<V>),
     EmptyNode(&'a EmptyNode<V>),
 }
@@ -394,6 +395,7 @@ impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
         match self {
             Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
             Self::LineListNode(node) => write!(f, "{node:?}"),
+            Self::TinyRefNode(node) => write!(f, "{node:?}"),
             Self::CellByteNode(node) => write!(f, "{node:?}"),
             Self::EmptyNode(node) => write!(f, "{node:?}"),
         }
@@ -405,6 +407,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => *node as &dyn TrieNode<V>,
             Self::LineListNode(node) => *node as &dyn TrieNode<V>,
+            Self::TinyRefNode(node) => *node as &dyn TrieNode<V>,
             Self::CellByteNode(node) => *node as &dyn TrieNode<V>,
             Self::EmptyNode(node) => *node as &dyn TrieNode<V>,
         }
@@ -413,6 +416,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_contains_partial_key(key),
             Self::LineListNode(node) => node.node_contains_partial_key(key),
+            Self::TinyRefNode(node) => node.node_contains_partial_key(key),
             Self::CellByteNode(node) => node.node_contains_partial_key(key),
             Self::EmptyNode(_) => false
         }
@@ -422,6 +426,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_get_child(key),
             Self::LineListNode(node) => node.node_get_child(key),
+            Self::TinyRefNode(node) => node.node_get_child(key),
             Self::CellByteNode(node) => node.node_get_child(key),
             Self::EmptyNode(_) => None,
         }
@@ -437,6 +442,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_contains_val(key),
             Self::LineListNode(node) => node.node_contains_val(key),
+            Self::TinyRefNode(node) => node.node_contains_val(key),
             Self::CellByteNode(node) => node.node_contains_val(key),
             Self::EmptyNode(_) => false,
         }
@@ -445,6 +451,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_get_val(key),
             Self::LineListNode(node) => node.node_get_val(key),
+            Self::TinyRefNode(node) => node.node_get_val(key),
             Self::CellByteNode(node) => node.node_get_val(key),
             Self::EmptyNode(_) => None,
         }
@@ -469,6 +476,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.new_iter_token(),
             Self::LineListNode(node) => node.new_iter_token(),
+            Self::TinyRefNode(node) => node.new_iter_token(),
             Self::CellByteNode(node) => node.new_iter_token(),
             Self::EmptyNode(node) => node.new_iter_token(),
         }
@@ -478,6 +486,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.iter_token_for_path(key),
             Self::LineListNode(node) => node.iter_token_for_path(key),
+            Self::TinyRefNode(node) => node.iter_token_for_path(key),
             Self::CellByteNode(node) => node.iter_token_for_path(key),
             Self::EmptyNode(node) => node.iter_token_for_path(key),
         }
@@ -487,6 +496,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.next_items(token),
             Self::LineListNode(node) => node.next_items(token),
+            Self::TinyRefNode(node) => node.next_items(token),
             Self::CellByteNode(node) => node.next_items(token),
             Self::EmptyNode(node) => node.next_items(token),
         }
@@ -503,6 +513,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
             Self::LineListNode(node) => node.nth_child_from_key(key, n),
+            Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
             Self::CellByteNode(node) => node.nth_child_from_key(key, n),
             Self::EmptyNode(node) => node.nth_child_from_key(key, n),
         }
@@ -511,6 +522,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.first_child_from_key(key),
             Self::LineListNode(node) => node.first_child_from_key(key),
+            Self::TinyRefNode(node) => node.first_child_from_key(key),
             Self::CellByteNode(node) => node.first_child_from_key(key),
             Self::EmptyNode(node) => node.first_child_from_key(key),
         }
@@ -520,6 +532,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.count_branches(key),
             Self::LineListNode(node) => node.count_branches(key),
+            Self::TinyRefNode(node) => node.count_branches(key),
             Self::CellByteNode(node) => node.count_branches(key),
             Self::EmptyNode(node) => node.count_branches(key),
         }
@@ -529,6 +542,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_branches_mask(key),
             Self::LineListNode(node) => node.node_branches_mask(key),
+            Self::TinyRefNode(node) => node.node_branches_mask(key),
             Self::CellByteNode(node) => node.node_branches_mask(key),
             Self::EmptyNode(node) => node.node_branches_mask(key),
         }
@@ -538,6 +552,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.is_leaf(key),
             Self::LineListNode(node) => node.is_leaf(key),
+            Self::TinyRefNode(node) => node.is_leaf(key),
             Self::CellByteNode(node) => node.is_leaf(key),
             Self::EmptyNode(node) => node.is_leaf(key),
         }
@@ -546,6 +561,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.prior_branch_key(key),
             Self::LineListNode(node) => node.prior_branch_key(key),
+            Self::TinyRefNode(node) => node.prior_branch_key(key),
             Self::CellByteNode(node) => node.prior_branch_key(key),
             Self::EmptyNode(node) => node.prior_branch_key(key),
         }
@@ -554,6 +570,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
             Self::LineListNode(node) => node.get_sibling_of_child(key, next),
+            Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
             Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
             Self::EmptyNode(node) => node.get_sibling_of_child(key, next),
         }
@@ -562,6 +579,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.get_node_at_key(key),
             Self::LineListNode(node) => node.get_node_at_key(key),
+            Self::TinyRefNode(node) => node.get_node_at_key(key),
             Self::CellByteNode(node) => node.get_node_at_key(key),
             Self::EmptyNode(node) => node.get_node_at_key(key),
         }
@@ -586,6 +604,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => Some(node),
             Self::LineListNode(_) => None,
+            Self::TinyRefNode(_) => None,
             Self::CellByteNode(_) => None,
             Self::EmptyNode(_) => None,
         }
@@ -598,6 +617,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(_) => None,
             Self::LineListNode(node) => Some(node),
+            Self::TinyRefNode(node) => None,
             Self::CellByteNode(_) => None,
             Self::EmptyNode(_) => None,
         }

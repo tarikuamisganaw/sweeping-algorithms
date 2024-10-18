@@ -240,7 +240,7 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
 
 impl<V> TrieNodeDowncast<V> for TinyRefNode<'_, V> {
     fn as_tagged(&self) -> TaggedNodeRef<V> {
-        panic!()
+        TaggedNodeRef::TinyRefNode(self)
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
         panic!()
