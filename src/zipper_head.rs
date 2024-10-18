@@ -219,12 +219,15 @@ mod tests {
     fn zipper_head5() {
         let mut map = BytesTrieMap::<isize>::new();
 
-        //Work around a "stump" (aka a zipper root, aka a CellByteNodes that belonged to a zipper was dropped)
+        //Work around a "stump" (aka a zipper root, aka a CellByteNodes that belonged to a zipper that was dropped)
         let map_head = map.zipper_head();
         let zipper = map_head.write_zipper_at_exclusive_path([3]);
         drop(zipper);
-        let zipper = map_head.write_zipper_at_exclusive_path([3, 193, 49]);
+        let mut zipper = map_head.write_zipper_at_exclusive_path([3, 193, 49]);
+        zipper.descend_to_byte(42);
+        zipper.set_value(42);
         drop(zipper);
+        assert_eq!(map.get([3, 193, 49, 42]), Some(&42));
     }
 
     #[test]

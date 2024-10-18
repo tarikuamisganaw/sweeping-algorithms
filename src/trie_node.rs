@@ -670,7 +670,8 @@ pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMa
 /// into PathMap::zipper_head.
 pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> &'a mut TrieNodeODRc<V> {
     if path.len() == 0 {
-        make_cell_node(root_node);
+        //If `path.len() == 0` then we know this node is either the root of an existing WriteZipper or
+        // the root of a Map, so we know it's safe to write to it from another thread
         root_node
     } else {
         let (mut remaining_key, mut node) = node_along_path_mut(root_node, path, true);
@@ -684,7 +685,7 @@ pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node
                 Ok(_) => { },
                 Err(replacement_node) => { *node = replacement_node; }
             }
-            (remaining_key, node) = node_along_path_mut(node, path, true);
+            (remaining_key, node) = node_along_path_mut(node, remaining_key, true);
         }
 
         debug_assert_eq!(remaining_key.len(), 1);
