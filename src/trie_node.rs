@@ -668,15 +668,10 @@ pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMa
 /// the WriteZipper::zipper_head impl.  But unfortunately the WriteZipper version is too intertwined with
 /// the logic to keep the zipper in a coherent state.  So maybe this function should just be integrated
 /// into PathMap::zipper_head.
-pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> (bool, &'a mut TrieNodeODRc<V>) {
+pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> &'a mut TrieNodeODRc<V> {
     if path.len() == 0 {
-        debug_assert!({
-            match root_node.borrow().as_tagged() {
-                TaggedNodeRef::CellByteNode(_) => true,
-                _ => false,
-            }
-        });
-        (false, root_node)
+        make_cell_node(root_node);
+        root_node
     } else {
         let (mut remaining_key, mut node) = node_along_path_mut(root_node, path, true);
         debug_assert!(remaining_key.len() > 0);
@@ -693,11 +688,11 @@ pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node
         }
 
         debug_assert_eq!(remaining_key.len(), 1);
-        let upgraded = make_cell_node(node);
+        make_cell_node(node);
         let cell_node = node.make_mut().as_tagged_mut().into_cell_node().unwrap();
-        let (created, child, val) = cell_node.prepare_cf(remaining_key[0]);
+        let (child, val) = cell_node.prepare_cf(remaining_key[0]);
         //GOAT, gotta use the val for the zipper's root value
-        (upgraded || created, child)
+        child
     }
 }
 

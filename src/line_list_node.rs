@@ -2693,8 +2693,26 @@ mod tests {
 //
 //GOAT, Fix remaining tests
 //
+//GOAT, document how path existence can't be used to confirm the existence of a value, only the non-existence
+//  and document the meaning of path existence more generally.
+//GOAT, consider exposing an explicit prune method.  Possibly also consider exposing a "create_path" method.
+//  SEE "PATH EXISTS DISCUSSION" below
+//
+//GOAT, consider adding a "prune" flag to methods that might remove values
+//
 //GOAT, Write ReadMe
 //  intro - as a key-value store, the power of prefixes, structural sharing
 //  algebraic ops
 //  Zippers as a concept
 //  Multiple zippers in the same map
+
+
+// PATH EXISTS DISCUSSION
+// Ok... Fork 1 is about paths, and specifically what information about values you can get from whether or not a path exists.  In the current code, the *nonexistence* of a path guarantees no value is below that point (how could there be one?) but the *existence* of a path does **not** guarantee a value is.
+// Earlier drafts of PathMap (about 3 months ago) we were upholding that property that all paths led to values.  But I realized this property is impossible to uphold with the a multi write-zipper implementation.
+// Bottom line, with the current set of guarantees, you can't use `path_exists` to conclude that there are zippers above you.  You will have to call `to_next_value` to search downwards.
+// Looking forwards, I think I may add explicit methods like `ascend_prune` that ascends the zipper upwards from an empty leaf, pruning as it goes, and `descend_create` to do the opposite.  (although I'm a little on the fence about how descend_create would actually be useful.)  Maybe it might make sense to implement versions of these methods that don't move the zipper focus.
+// But if we tweak the zipper contract so that paths are explicitly managed, just like values, and document the behavior of every operation with respect to paths, then the existence of a path might become a reliable signal.
+// However, that brings up another question: Do you *want* to be pruning the path each time?  Consider a loop where a zipper is acquired, dropped, acquired, dropped, etc.  If each acquisition means creating the path, and each drop means pruning it, that is a lot of wasted work.  On the other hand, just setting and clearing a value is a lot cheaper.
+// Anyway, let me know your thoughts.
+

@@ -73,11 +73,7 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
         let path = path.as_ref();
         let zipper_tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
         let root = unsafe{ self.root.get().as_mut() };
-        let (_created_node, zipper_root_node) = prepare_exclusive_write_path(root, &path);
-        //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
-        // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
-        // to prune the zipper's path.
-
+        let zipper_root_node = prepare_exclusive_write_path(root, &path);
         WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, &[], zipper_tracker)
     }
 
@@ -86,10 +82,7 @@ impl<'a, V: Clone + Send + Sync> ZipperHead<'a, V> {
     pub unsafe fn write_zipper_at_exclusive_path_unchecked<'k, K: AsRef<[u8]>>(&self, path: K) -> WriteZipperUntracked<'a, 'k, V> {
         let path = path.as_ref();
         let root = unsafe{ self.root.get().as_mut() };
-        let (_created_node, zipper_root_node) = prepare_exclusive_write_path(root, &path);
-        //GOAT QUESTION: Do we want to pay for pruning the parent of a zipper when the zipper get's dropped?
-        // If we do, we can store (_created_node || _created_cf) in the zipper, so we can opt out of trying
-        // to prune the zipper's path.
+        let zipper_root_node = prepare_exclusive_write_path(root, &path);
 
         #[cfg(debug_assertions)]
         {
@@ -181,7 +174,7 @@ mod tests {
         //This degenerate case should be identical to making a WriteZipper from the map root
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(&[]);
-        assert!(zipper.descend_to(b"test"));
+        zipper.descend_to(b"test");
         zipper.set_value(0);
         drop(zipper);
         assert_eq!(map.get("test"), Some(&0));

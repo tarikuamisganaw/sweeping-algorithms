@@ -543,25 +543,23 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
 
 impl<V: Clone + Send + Sync> CellByteNode<V> {
 
-    /// Ensures that a CoFree exists for the specified key
-    ///
-    /// Returns `true` if a new CoFree was created, and `false` if one already existed
+    /// Ensures that a CoFree exists for the specified key, and returns a reference to the node and
+    /// value option
     ///
     /// This enables a WriteZipper to modify a specific CoFree without touching the DenseByteNode
     /// that contains it, and therefore multiple WriteZippers can be rooted at the same parent, so
     /// long as the first byte of each path is unique
     #[inline]
-    pub(crate) fn prepare_cf(&mut self, k: u8) -> (bool, &mut TrieNodeODRc<V>, &mut Option<V>) {
-        let created = match self.contains(k) {
-            true => false,
+    pub(crate) fn prepare_cf(&mut self, k: u8) -> (&mut TrieNodeODRc<V>, &mut Option<V>) {
+        match self.contains(k) {
+            true => {},
             false => {
                 let ix = self.left(k) as usize;
                 self.set(k);
                 let new_cf = CellCoFree::new(None, None);
                 self.values.insert(ix, new_cf);
-                true
             }
-        };
+        }
         let cf = self.get_mut(k).unwrap();
         let (rec, val) = cf.both_mut_refs();
         let rec = match rec {
@@ -571,7 +569,7 @@ impl<V: Clone + Send + Sync> CellByteNode<V> {
                 rec.as_mut().unwrap()
             }
         };
-        (created, rec, val)
+        (rec, val)
     }
 }
 
