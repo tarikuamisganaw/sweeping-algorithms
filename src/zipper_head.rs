@@ -201,16 +201,13 @@ mod tests {
         map.insert(b"test:3", 3);
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test");
-        zipper.descend_to(b":3");
+        assert!(zipper.descend_to(b":3"));
         assert_eq!(zipper.get_value(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'2');
         zipper.set_value(2);
         drop(zipper);
 
-// for (k, v) in map.iter() {
-//     println!("{} = {v}", String::from_utf8_lossy(&k));
-// }
         assert_eq!(map.get("test:2"), Some(&2));
         assert_eq!(map.get("test:3"), Some(&3));
     }
@@ -228,6 +225,56 @@ mod tests {
         zipper.set_value(42);
         drop(zipper);
         assert_eq!(map.get([3, 193, 49, 42]), Some(&42));
+    }
+
+    #[test]
+    fn zipper_head6() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make sure that inserting a WriteZipper doesn't chop off any downstream parts of the trie
+        map.insert(b"test:1", 1);
+        map.insert(b"test:2", 2);
+        map.insert(b"test:3", 3);
+        map.insert(b"test:4", 4);
+        let map_head = map.zipper_head();
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test");
+        assert!(zipper.descend_to(b":3"));
+        assert_eq!(zipper.get_value(), Some(&3));
+        zipper.ascend_byte();
+        zipper.descend_to_byte(b'5');
+        zipper.set_value(5);
+        drop(zipper);
+
+        assert_eq!(map.get("test:1"), Some(&1));
+        assert_eq!(map.get("test:2"), Some(&2));
+        assert_eq!(map.get("test:3"), Some(&3));
+        assert_eq!(map.get("test:4"), Some(&4));
+        assert_eq!(map.get("test:5"), Some(&5));
+    }
+
+    #[test]
+    fn zipper_head7() {
+        let mut map = BytesTrieMap::<isize>::new();
+
+        //Make sure I can upgrade an ordinary ByteNode into a CellNode without losing anything
+        map.insert(b"test:1", 1);
+        map.insert(b"test:2", 2);
+        map.insert(b"test:3", 3);
+        map.insert(b"test:4", 4);
+        let map_head = map.zipper_head();
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test:");
+        assert!(zipper.descend_to(b"3"));
+        assert_eq!(zipper.get_value(), Some(&3));
+        zipper.ascend_byte();
+        zipper.descend_to_byte(b'5');
+        zipper.set_value(5);
+        drop(zipper);
+
+        assert_eq!(map.get("test:1"), Some(&1));
+        assert_eq!(map.get("test:2"), Some(&2));
+        assert_eq!(map.get("test:3"), Some(&3));
+        assert_eq!(map.get("test:4"), Some(&4));
+        assert_eq!(map.get("test:5"), Some(&5));
     }
 
     #[test]

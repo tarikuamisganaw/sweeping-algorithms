@@ -679,13 +679,21 @@ pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node
 
         //See if we need to make an intermediary parent node
         if remaining_key.len() > 1 {
-            let new_parent = CellByteNode::new();
-            let result = node.make_mut().node_set_branch(&remaining_key[..remaining_key.len()-1], TrieNodeODRc::new(new_parent));
+            let intermediate_key = &remaining_key[..remaining_key.len()-1];
+            let node_ref = node.make_mut();
+            let new_parent = match node_ref.take_node_at_key(intermediate_key) {
+                Some(downward_node) => downward_node,
+                None => TrieNodeODRc::new(CellByteNode::new())
+            };
+            let result = node_ref.node_set_branch(intermediate_key, new_parent);
             match result {
                 Ok(_) => { },
                 Err(replacement_node) => { *node = replacement_node; }
             }
-            (remaining_key, node) = node_along_path_mut(node, remaining_key, true);
+            let (new_remaining_key, child_node) = node_along_path_mut(node, remaining_key, true);
+            debug_assert_eq!(new_remaining_key, &remaining_key[remaining_key.len()-1..]);
+            remaining_key = new_remaining_key;
+            node = child_node;
         }
 
         debug_assert_eq!(remaining_key.len(), 1);
