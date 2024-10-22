@@ -42,11 +42,11 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
 
     /// A more efficient version of [read_zipper_at_path](Self::read_zipper_at_path), where the returned
     /// zipper is constrained by the `'path` lifetime
-    pub fn read_zipper_at_borrowed_path<'a, 'path>(&'a self, path: &'path[u8]) -> ReadZipperTracked<'a, 'path, V> {
-        let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
+    pub fn read_zipper_at_borrowed_path<'a, 'path>(&'a self, path: &'path[u8]) -> Result<ReadZipperTracked<'a, 'path, V>, Conflict> {
+        let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path)?;
         let z = self.borrow_z();
         let (root_node, root_val) = z.splitting_borrow_focus();
-        ReadZipperTracked::new_with_node_and_path(root_node, path.as_ref(), Some(path.len()), root_val, zipper_tracker)
+        Ok(ReadZipperTracked::new_with_node_and_path(root_node, path.as_ref(), Some(path.len()), root_val, zipper_tracker))
     }
 
     /// A more efficient version of [read_zipper_at_path_unchecked](Self::read_zipper_at_path_unchecked),
@@ -56,7 +56,7 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
         let (root_node, root_val) = z.splitting_borrow_focus();
         #[cfg(debug_assertions)]
         {
-            let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
+            let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path).unwrap();
             ReadZipperUntracked::new_with_node_and_path(root_node, path.as_ref(), Some(path.len()), root_val, Some(zipper_tracker))
         }
         #[cfg(not(debug_assertions))]
@@ -66,12 +66,12 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
     }
 
     /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`
-    pub fn read_zipper_at_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> ReadZipperTracked<'a, 'static, V> {
+    pub fn read_zipper_at_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> Result<ReadZipperTracked<'a, 'static, V>, Conflict> {
         let path = path.as_ref();
-        let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
+        let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path)?;
         let z = self.borrow_z();
         let (root_node, root_val) = z.splitting_borrow_focus();
-        ReadZipperTracked::new_with_node_and_cloned_path(root_node, path.as_ref(), Some(path.len()), root_val, zipper_tracker)
+        Ok(ReadZipperTracked::new_with_node_and_cloned_path(root_node, path.as_ref(), Some(path.len()), root_val, zipper_tracker))
     }
 
     /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`, where the caller
@@ -82,7 +82,7 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
         let (root_node, root_val) = z.splitting_borrow_focus();
         #[cfg(debug_assertions)]
         {
-            let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
+            let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path).unwrap();
             ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), Some(path.len()), root_val, Some(zipper_tracker))
         }
         #[cfg(not(debug_assertions))]
@@ -92,12 +92,12 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
     }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
-    pub fn write_zipper_at_exclusive_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperTracked<'a, 'static, V> {
+    pub fn write_zipper_at_exclusive_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> Result<WriteZipperTracked<'a, 'static, V>, Conflict> {
         let path = path.as_ref();
-        let zipper_tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
+        let zipper_tracker = ZipperTracker::<TrackingWrite>::new(self.tracker_paths.clone(), path)?;
         let z = self.borrow_z();
         let (zipper_root_node, zipper_root_val) = prepare_exclusive_write_path(z, path);
-        WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], zipper_tracker)
+        Ok(WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], zipper_tracker))
     }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
@@ -109,7 +109,7 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
 
         #[cfg(debug_assertions)]
         {
-            let tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
+            let tracker = ZipperTracker::<TrackingWrite>::new(self.tracker_paths.clone(), path).unwrap();
             WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], Some(tracker))
         }
         #[cfg(not(debug_assertions))]
@@ -295,7 +295,7 @@ mod tests {
             let mut zippers = Vec::with_capacity(thread_cnt);
             for n in (0..thread_cnt).into_iter().rev() {
                 let path = &[n as u8];
-                let zipper = zipper_head.write_zipper_at_exclusive_path(path);
+                let zipper = zipper_head.write_zipper_at_exclusive_path(path).unwrap();
                 zippers.push(zipper);
             };
 
@@ -337,7 +337,7 @@ mod tests {
 
         //Make a ZipperHead for the whole map, and make a WriteZipper for a branch within the map
         let map_head = map.zipper_head();
-        let mut zipper = map_head.write_zipper_at_exclusive_path(&[0]);
+        let mut zipper = map_head.write_zipper_at_exclusive_path(&[0]).unwrap();
         zipper.set_value(0);
         drop(zipper);
         drop(map_head);
@@ -351,7 +351,7 @@ mod tests {
         //Make a ZipperHead for the whole map, and then a zipper at the root
         //This degenerate case should be identical to making a WriteZipper from the map root
         let map_head = map.zipper_head();
-        let mut zipper = map_head.write_zipper_at_exclusive_path(&[]);
+        let mut zipper = map_head.write_zipper_at_exclusive_path(&[]).unwrap();
         zipper.descend_to(b"test");
         zipper.set_value(0);
         drop(zipper);
@@ -365,7 +365,7 @@ mod tests {
 
         //Make a WriteZipper in a plece that will require creating multiple nodes
         let map_head = map.zipper_head();
-        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test");
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         zipper.descend_to(b":2");
         zipper.set_value(2);
         drop(zipper);
@@ -380,7 +380,7 @@ mod tests {
         //Make a WriteZipper in a plece that will require splitting an existing path
         map.insert(b"test:3", 3);
         let map_head = map.zipper_head();
-        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test");
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
         assert_eq!(zipper.get_value(), Some(&3));
         zipper.ascend_byte();
@@ -399,9 +399,9 @@ mod tests {
 
         //Work around a "stump" (aka a zipper root, aka a CellByteNodes that belonged to a zipper that was dropped)
         let map_head = map.zipper_head();
-        let zipper = map_head.write_zipper_at_exclusive_path([3]);
+        let zipper = map_head.write_zipper_at_exclusive_path([3]).unwrap();
         drop(zipper);
-        let mut zipper = map_head.write_zipper_at_exclusive_path([3, 193, 49]);
+        let mut zipper = map_head.write_zipper_at_exclusive_path([3, 193, 49]).unwrap();
         zipper.descend_to_byte(42);
         zipper.set_value(42);
         drop(zipper);
@@ -419,7 +419,7 @@ mod tests {
         map.insert(b"test:3", 3);
         map.insert(b"test:4", 4);
         let map_head = map.zipper_head();
-        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test");
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
         assert_eq!(zipper.get_value(), Some(&3));
         zipper.ascend_byte();
@@ -445,7 +445,7 @@ mod tests {
         map.insert(b"test:3", 3);
         map.insert(b"test:4", 4);
         let map_head = map.zipper_head();
-        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test:");
+        let mut zipper = map_head.write_zipper_at_exclusive_path(b"test:").unwrap();
         assert!(zipper.descend_to(b"3"));
         assert_eq!(zipper.get_value(), Some(&3));
         zipper.ascend_byte();
@@ -467,8 +467,8 @@ mod tests {
 
         //Make a ZipperHead for the whole map, and two child zippers
         let map_head = map.zipper_head();
-        let mut a_zipper = map_head.write_zipper_at_exclusive_path(b"a");
-        let mut b_zipper = map_head.write_zipper_at_exclusive_path(b"b");
+        let mut a_zipper = map_head.write_zipper_at_exclusive_path(b"a").unwrap();
+        let mut b_zipper = map_head.write_zipper_at_exclusive_path(b"b").unwrap();
 
         //Do some interleaved work with the two zippers
         a_zipper.descend_to(b"+value");
@@ -485,8 +485,8 @@ mod tests {
 
         //Make a ZipperHead on the WriteZipper, and make two more parallel zippers
         let b_head = b_zipper.zipper_head();
-        let mut b0_zipper = b_head.write_zipper_at_exclusive_path(b"0");
-        let mut b1_zipper = b_head.write_zipper_at_exclusive_path(b"1");
+        let mut b0_zipper = b_head.write_zipper_at_exclusive_path(b"0").unwrap();
+        let mut b1_zipper = b_head.write_zipper_at_exclusive_path(b"1").unwrap();
 
         //Do some interleaved work with them
         b0_zipper.descend_to(b"+value");
@@ -510,7 +510,7 @@ mod tests {
         b_zipper.reset();
         b_zipper.descend_to(b"-children-0+meta");
         let b_head = b_zipper.zipper_head();
-        let mut b0_zipper = b_head.write_zipper_at_exclusive_path([]);
+        let mut b0_zipper = b_head.write_zipper_at_exclusive_path([]).unwrap();
         b0_zipper.descend_to(b"bolic");
         b0_zipper.set_value(6);
         drop(b0_zipper);
@@ -519,7 +519,7 @@ mod tests {
         a_zipper.reset();
         a_zipper.descend_to(b"-children-");
         let a_head = a_zipper.zipper_head();
-        let mut a0_zipper = a_head.write_zipper_at_exclusive_path("0");
+        let mut a0_zipper = a_head.write_zipper_at_exclusive_path("0").unwrap();
         a0_zipper.descend_to(b"+value");
         a0_zipper.set_value(7);
         drop(a0_zipper);
@@ -550,18 +550,18 @@ mod tests {
 
         //Make a ZipperHead for the whole map, and two child zippers
         let map_head = map.zipper_head();
-        let mut a_zipper = map_head.write_zipper_at_exclusive_path(b"a");
-        let mut b_zipper = map_head.write_zipper_at_exclusive_path(b"b");
+        let mut a_zipper = map_head.write_zipper_at_exclusive_path(b"a").unwrap();
+        let mut b_zipper = map_head.write_zipper_at_exclusive_path(b"b").unwrap();
 
         //Make a separate ZipperHead on each WriteZipper
         let a_head = a_zipper.zipper_head();
         let b_head = b_zipper.zipper_head();
 
         //Make some WriteZippers on each head
-        let mut a0_zipper = a_head.write_zipper_at_exclusive_path(b"0");
-        let mut a1_zipper = a_head.write_zipper_at_exclusive_path(b"1");
-        let mut b0_zipper = b_head.write_zipper_at_exclusive_path(b"0");
-        let mut b1_zipper = b_head.write_zipper_at_exclusive_path(b"1");
+        let mut a0_zipper = a_head.write_zipper_at_exclusive_path(b"0").unwrap();
+        let mut a1_zipper = a_head.write_zipper_at_exclusive_path(b"1").unwrap();
+        let mut b0_zipper = b_head.write_zipper_at_exclusive_path(b"0").unwrap();
+        let mut b1_zipper = b_head.write_zipper_at_exclusive_path(b"1").unwrap();
 
         //Do some interleaved work with them
         a0_zipper.descend_to(b"+value");
@@ -600,12 +600,12 @@ mod tests {
 
         //Make a ZipperHead for the whole map, and then a zipper for a branch within the map
         let map_head = map.zipper_head();
-        let mut top_zipper = map_head.write_zipper_at_exclusive_path(b"0");
+        let mut top_zipper = map_head.write_zipper_at_exclusive_path(b"0").unwrap();
         top_zipper.descend_to(b":test:");
 
         //Make a sub-head at a path that doesn't exist yet
         let sub_head = top_zipper.zipper_head();
-        let mut sub_zipper = sub_head.write_zipper_at_exclusive_path(b"5");
+        let mut sub_zipper = sub_head.write_zipper_at_exclusive_path(b"5").unwrap();
 
         //Set the value at the zipper's root
         sub_zipper.set_value(5);
@@ -624,6 +624,3 @@ mod tests {
     }
 }
 
-
-//GOAT, Safe zipper_head API should return Option instead of panicking
-//

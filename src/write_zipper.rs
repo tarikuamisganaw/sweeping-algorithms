@@ -181,7 +181,7 @@ pub trait WriteZipper<V>: Zipper {
 /// A [WriteZipper] for editing and adding paths and values in the trie
 pub struct WriteZipperTracked<'a, 'path, V> {
     z: WriteZipperCore<'a, 'path, V>,
-    _tracker: ZipperTracker,
+    _tracker: ZipperTracker<TrackingWrite>,
 }
 
 //The Drop impl ensures the tracker gets dropped at the right time
@@ -237,7 +237,7 @@ impl<'a, 'path, V: Clone + Send + Sync> WriteZipperTracked<'a, 'path, V> {
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'path [u8], tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'path [u8], tracker: ZipperTracker<TrackingWrite>) -> Self {
         let core = WriteZipperCore::<'a, 'path, V>::new_with_node_and_path_internal(root_node, root_val, path);
         Self { z: core, _tracker: tracker, }
     }
@@ -280,7 +280,7 @@ pub struct WriteZipperUntracked<'a, 'k, V> {
     z: WriteZipperCore<'a, 'k, V>,
     /// We will still track the zipper in debug mode, because unsafe isn't permission to break the rules
     #[cfg(debug_assertions)]
-    _tracker: Option<ZipperTracker>,
+    _tracker: Option<ZipperTracker<TrackingWrite>>,
 }
 
 //We only want a custom drop when we have a tracker
@@ -328,7 +328,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
 impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     #[cfg(debug_assertions)]
-    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker>) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker<TrackingWrite>>) -> Self {
         let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path(root_node, root_val, path);
         Self { z: core, _tracker: tracker }
     }
@@ -339,7 +339,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
     }
     /// See [WriteZipper::new_with_node_and_path_internal]
     #[cfg(debug_assertions)]
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker>) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker<TrackingWrite>>) -> Self {
         let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path_internal(root_node, root_val, path);
         Self { z: core, _tracker: tracker }
     }
