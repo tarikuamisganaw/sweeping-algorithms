@@ -448,7 +448,7 @@ pub(crate) const EXPECTED_PATH_LEN: usize = 64;
 
 /// A [Zipper] that is unable to modify the trie
 pub(crate) struct ReadZipperCore<'a, 'path, V> {
-    /// A reference to the entire origin path, of which `root_key` is the final subset, or None for a relative zipper
+    /// A reference to the entire origin path, of which `root_key` is the final subset
     origin_path: SliceOrLen<'path>,
     /// The byte offset in `origin_path` from the root node to the zipper's root.
     /// `root_key = origin_path[root_key_offset..]`
@@ -470,7 +470,7 @@ pub(crate) struct ReadZipperCore<'a, 'path, V> {
 /// The origin path, if it's outside the Zipper, or the length of the origin path if the origin has already
 /// been copied into the `prefix_buf`
 #[derive(Clone, Copy)]
-enum SliceOrLen<'a> {
+pub(crate) enum SliceOrLen<'a> {
     Slice(&'a [u8]),
     Len(usize),
 }
@@ -481,19 +481,60 @@ impl<'a> From<&'a [u8]> for SliceOrLen<'a> {
     }
 }
 
-impl SliceOrLen<'_> {
+impl<'a> SliceOrLen<'a> {
     #[inline]
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             Self::Slice(slice) => slice.len(),
             Self::Len(len) => *len,
         }
     }
+    pub fn make_len(&mut self) {
+        match self {
+            Self::Slice(slice) => {*self = Self::Len(slice.len())},
+            Self::Len(_) => {},
+        }
+    }
     #[inline]
-    unsafe fn as_slice_unchecked(&self) -> &[u8] {
+    pub fn is_slice(&self) -> bool {
+        match self {
+            Self::Slice(_) => true,
+            Self::Len(_) => false,
+        }
+    }
+    #[inline]
+    pub fn as_slice(&self) -> &'a[u8] {
+        match self {
+            Self::Slice(slice) => slice,
+            Self::Len(_) => unreachable!()
+        }
+    }
+    #[inline]
+    pub fn try_as_slice(&self) -> Option<&'a[u8]> {
+        match self {
+            Self::Slice(slice) => Some(slice),
+            Self::Len(_) => None
+        }
+    }
+    #[inline]
+    pub unsafe fn as_slice_unchecked(&self) -> &'a[u8] {
         match self {
             Self::Slice(slice) => slice,
             Self::Len(_) => core::hint::unreachable_unchecked()
+        }
+    }
+    #[inline]
+    pub fn set_slice(&mut self, slice: &'a[u8]) {
+        match self {
+            Self::Slice(slice_ref) => { *slice_ref = slice; },
+            Self::Len(_) => unreachable!(),
+        }
+    }
+    #[inline]
+    pub fn set_len(&mut self, len: usize) {
+        match self {
+            Self::Slice(_) => unreachable!(),
+            Self::Len(len_ref) => { *len_ref = len; },
         }
     }
 }

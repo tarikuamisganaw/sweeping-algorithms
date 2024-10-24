@@ -180,8 +180,8 @@ pub trait WriteZipper<V>: Zipper {
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 
 /// A [WriteZipper] for editing and adding paths and values in the trie
-pub struct WriteZipperTracked<'a, 'k, V> {
-    z: WriteZipperCore<'a, 'k, V>,
+pub struct WriteZipperTracked<'a, 'path, V> {
+    z: WriteZipperCore<'a, 'path, V>,
     _tracker: ZipperTracker,
 }
 
@@ -417,9 +417,9 @@ struct WriteZipperCore<'a, 'k, V> {
 }
 
 /// The part of the [WriteZipper] that contains the key-related fields.  So it can be borrowed separately
-struct KeyFields<'k> {
+struct KeyFields<'path> {
     /// A reference to the part of the key within the root node that represents the zipper root
-    root_key: &'k [u8],
+    root_key: SliceOrLen<'path>,
     /// Stores the entire path from the root node, including the bytes from root_key
     prefix_buf: Vec<u8>,
     /// Stores the lengths for each successive node's key
@@ -1088,10 +1088,22 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         if self.key.prefix_idx.len() == 0 && self.key.root_key.len() > 1 {
             debug_assert_eq!(self.focus_stack.depth(), 1);
             let root_ref = self.focus_stack.take_root().unwrap();
-            let (key, node) = node_along_path_mut(root_ref, &self.key.root_key, true);
-            self.key.root_key = key;
-            self.key.prefix_buf.clear();
-            self.key.prefix_buf.extend(self.key.root_key);
+            let node = if self.key.root_key.is_slice() {
+                let (key, node) = node_along_path_mut(root_ref, &self.key.root_key.as_slice(), true);
+                self.key.root_key.set_slice(key);
+                node
+            } else {
+                debug_assert_eq!(self.key.prefix_buf.len(), self.key.root_key.len());
+                let (key, node) = node_along_path_mut(root_ref, &self.key.prefix_buf[..], true);
+                let new_len = key.len();
+                let bytes_to_remove = self.key.prefix_buf.len() - new_len;
+                //TODO.  I can speed this up with unsafe.  This should be in stdlib!!
+                for _ in 0..bytes_to_remove {
+                    self.key.prefix_buf.remove(0);
+                }
+                self.key.root_key.set_len(new_len);
+                node
+            };
             self.focus_stack.replace_root(node);
             self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
         }
@@ -1105,8 +1117,11 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperCore<'a, 'k, V> {
         let mut key = if self.key.prefix_buf.len() > 0 {
             &self.key.prefix_buf[key_start..]
         } else {
-            &self.key.root_key
+            self.key.root_key.as_slice()
         };
+        //Explanation: This 2 is based on the fact that a WriteZipper's focus_stack holds the parent node
+        // to the focus, so we must have a `node_key` unless the zipper is at the root, and the minimum
+        // `node_key` length is 1 byte
         if key.len() < 2 {
             return;
         }
@@ -1173,7 +1188,7 @@ impl<'k> KeyFields<'k> {
     #[inline]
     fn new(path: &'k [u8]) -> Self {
         Self {
-            root_key: path,
+            root_key: path.into(),
             prefix_buf: vec![],
             prefix_idx: vec![],
         }
@@ -1184,7 +1199,8 @@ impl<'k> KeyFields<'k> {
         if self.prefix_buf.capacity() == 0 {
             self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
             self.prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
-            self.prefix_buf.extend(self.root_key);
+            self.prefix_buf.extend(self.root_key.as_slice());
+            self.root_key.make_len();
         }
     }
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
@@ -1199,7 +1215,7 @@ impl<'k> KeyFields<'k> {
             let key_start = self.node_key_start();
             &self.prefix_buf[key_start..]
         } else {
-            self.root_key
+            self.root_key.try_as_slice().unwrap_or(&[])
         }
     }
     /// Internal method similar to `self.node_key().len()`, but returns the number of chars that can be
