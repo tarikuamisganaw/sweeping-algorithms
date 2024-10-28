@@ -30,6 +30,7 @@ mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use crate::ring::*;
     use crate::trie_map::BytesTrieMap;
+    use crate::zipper::*;
 
     fn prefix_key(k: &u64) -> &[u8] {
         let bs = (8 - k.leading_zeros()/8) as u8;
@@ -316,4 +317,25 @@ mod tests {
             }
         }
     }
+
+    /// This tests longer and longer keys to see if / where we blow the stack
+    #[test]
+    fn map_very_long_key_test() {
+
+        let test_key_len = |len: usize| {
+            let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+            let mut z = map.write_zipper();
+            let key = vec![0u8; len];
+            z.descend_to(&key);
+            z.set_value(42);
+            drop(z);
+            assert_eq!(map.get(&key), Some(&42));
+        };
+
+        test_key_len(4096); //2^12 bytes
+        test_key_len(16384); //2^14 bytes
+        test_key_len(32768); //2^15 bytes
+        // test_key_len(65536); //2^16 bytes //GOAT, gotta figure out how to deal with the drop stack overflow
+    }
+
 }

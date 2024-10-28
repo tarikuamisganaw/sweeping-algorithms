@@ -384,10 +384,21 @@ impl<V> LineListNode<V> {
             unsafe{ self.set_payload_0(key, is_child_ptr, payload); }
             false
         } else {
-            //We need to recursively create a new node to hold the remaining part of the key
+            //We need to create a number of intermediate nodes to hold the key
+            let node_cnt = (key.len()-1) / KEY_BYTES_CNT;
+            let child_node_key = &key[(node_cnt * KEY_BYTES_CNT)..];
+            debug_assert!(child_node_key.len() > 0);
+            debug_assert!(child_node_key.len() <= KEY_BYTES_CNT);
             let mut child_node = Self::new();
-            child_node.set_payload_0_no_overflow(&key[KEY_BYTES_CNT..], is_child_ptr, payload);
-            unsafe{ self.set_child_0(&key[..KEY_BYTES_CNT], TrieNodeODRc::new(child_node)); }
+            child_node.set_payload_0(child_node_key, is_child_ptr, payload);
+            let mut next_node = TrieNodeODRc::new(child_node);
+            for idx in (1..node_cnt).rev() {
+                let mut child_node = Self::new();
+                let child_node_key = &key[(idx*KEY_BYTES_CNT)..((idx+1)*KEY_BYTES_CNT)];
+                child_node.set_child_0(child_node_key, next_node);
+                next_node = TrieNodeODRc::new(child_node);
+            }
+            self.set_child_0(&key[..KEY_BYTES_CNT], next_node);
             true
         }
     }
