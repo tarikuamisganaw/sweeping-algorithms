@@ -742,16 +742,17 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             })
         )
     }
-    fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> {
-        self.get_mut(key[0]).and_then(|cf|
-            if cf.has_rec() || cf.has_val() {
-                let (rec, val) = cf.both_mut();
-                Some((1, val, rec))
-            } else {
-                None
-            }
-        )
-    }
+    //GOAT, Deprecated node_get_child_and_val_mut
+    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)> {
+    //     self.get_mut(key[0]).and_then(|cf|
+    //         if cf.has_rec() || cf.has_val() {
+    //             let (rec, val) = cf.both_mut_refs();
+    //             rec.as_mut().map(|rec| (1, rec, val))
+    //         } else {
+    //             None
+    //         }
+    //     )
+    // }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         debug_assert!(key.len() > 0);
         self.get_child_mut(key[0]).map(|child_node_ptr| {
@@ -1187,6 +1188,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRefMut::CellByteNode(other_byte_node) => {
                 self.join_into(core::mem::take(other_byte_node));
             },
+            TaggedNodeRefMut::Unsupported => { }
         } 
     }
 

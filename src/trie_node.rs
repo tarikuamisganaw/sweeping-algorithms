@@ -30,16 +30,17 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// Returns `None` if no child node matches the key, even if there is a value with that prefix
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)>;
 
-    //GOAT, Do we actually need this method?  Originally the thinking was that needed to borrow both the
-    // value and the onward link from a node at the same path.  This is needed because it's impossible to
-    // split the borrows to different parts of the same node.  However, the Zippers are implemented to keep a
-    // key path rather than a node and value pointer at the focus, and therefore this method is never used.
-    /// Similar behavior to `node_get_child`, but operates across a mutable reference and returns both the 
-    /// value and onward link associated with a given path
-    ///
-    /// Unlike `node_get_child`, if the key matches a value but not an onward link, this method will return
-    /// `Some(byte_cnt, Some(val), None)`
-    fn node_get_child_and_val_mut<'a>(&'a mut self, key: &[u8]) -> Option<(usize, Option<&'a mut V>, Option<&'a mut TrieNodeODRc<V>>)>;
+    //GOAT, Deprecated node_get_child_and_val_mut
+    // /// Returns mutable pointers to both an onward child link as well as a value.
+    // ///
+    // /// If the node is not capable of storing either the onward link or the value, this function must
+    // /// return `None`.  The returned `usize` describes the number of key-bytes matched, similar to the
+    // /// return value from [Self::node_get_child].
+    // ///
+    // /// This method is needed because it's impossible to split the borrows to different parts of the
+    // /// same node.  However, the a Zipper or ZipperHead much contain a reference to both the onward
+    // /// link and value.
+    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)>;
 
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
@@ -388,6 +389,7 @@ pub enum TaggedNodeRefMut<'a, V> {
     DenseByteNode(&'a mut DenseByteNode<V>),
     LineListNode(&'a mut LineListNode<V>),
     CellByteNode(&'a mut CellByteNode<V>),
+    Unsupported,
 }
 
 impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
@@ -617,7 +619,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(_) => None,
             Self::LineListNode(node) => Some(node),
-            Self::TinyRefNode(node) => None,
+            Self::TinyRefNode(_) => None,
             Self::CellByteNode(_) => None,
             Self::EmptyNode(_) => None,
         }
@@ -628,6 +630,14 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
     // fn as_tagged(&self) -> TaggedNodeRef<V>;
 
     // fn clone_self(&self) -> TrieNodeODRc<V>;
+
+    #[inline(always)]
+    pub fn is_cell_node(&self) -> bool {
+        match self {
+            Self::CellByteNode(_) => true,
+            _ => false
+        }
+    }
 }
 
 impl<'a, V: Clone + Send + Sync> TaggedNodeRefMut<'a, V> {
@@ -637,6 +647,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRefMut<'a, V> {
             Self::DenseByteNode(node) => Some(node),
             Self::LineListNode(_) => None,
             Self::CellByteNode(_) => None,
+            Self::Unsupported => None,
         }
     }
     #[inline(always)]
@@ -645,6 +656,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRefMut<'a, V> {
             Self::LineListNode(node) => Some(node),
             Self::DenseByteNode(_) => None,
             Self::CellByteNode(_) => None,
+            Self::Unsupported => None,
         }
     }
     #[inline(always)]
@@ -653,6 +665,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRefMut<'a, V> {
             Self::CellByteNode(node) => Some(node),
             Self::DenseByteNode(_) => None,
             Self::LineListNode(_) => None,
+            Self::Unsupported => None,
         }
     }
 }
@@ -676,52 +689,6 @@ pub(crate) fn val_count_below_node<V>(node: &TrieNodeODRc<V>, cache: &mut HashMa
         }
     } else {
         node.borrow().node_val_count(cache)
-    }
-}
-
-/// Ensures that the node at the specified path exists, and is a [DenseByteNode]
-///
-/// Returns `(false, node)` if the node already existed (regardless of whether or not it was upgraded),
-/// and returns `(true, node)` if the node was created.
-///
-/// NOTE: I was originally thinking this code could be shared between the PathMap::zipper_head impl and
-/// the WriteZipper::zipper_head impl.  But unfortunately the WriteZipper version is too intertwined with
-/// the logic to keep the zipper in a coherent state.  So maybe this function should just be integrated
-/// into PathMap::zipper_head.
-pub(crate) fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(root_node: &'a mut TrieNodeODRc<V>, path: &[u8]) -> &'a mut TrieNodeODRc<V> {
-    if path.len() == 0 {
-        //If `path.len() == 0` then we know this node is either the root of an existing WriteZipper or
-        // the root of a Map, so we know it's safe to write to it from another thread
-        root_node
-    } else {
-        let (mut remaining_key, mut node) = node_along_path_mut(root_node, path, true);
-        debug_assert!(remaining_key.len() > 0);
-
-        //See if we need to make an intermediary parent node
-        if remaining_key.len() > 1 {
-            let intermediate_key = &remaining_key[..remaining_key.len()-1];
-            let node_ref = node.make_mut();
-            let new_parent = match node_ref.take_node_at_key(intermediate_key) {
-                Some(downward_node) => downward_node,
-                None => TrieNodeODRc::new(CellByteNode::new())
-            };
-            let result = node_ref.node_set_branch(intermediate_key, new_parent);
-            match result {
-                Ok(_) => { },
-                Err(replacement_node) => { *node = replacement_node; }
-            }
-            let (new_remaining_key, child_node) = node_along_path_mut(node, remaining_key, true);
-            debug_assert_eq!(new_remaining_key, &remaining_key[remaining_key.len()-1..]);
-            remaining_key = new_remaining_key;
-            node = child_node;
-        }
-
-        debug_assert_eq!(remaining_key.len(), 1);
-        make_cell_node(node);
-        let cell_node = node.make_mut().as_tagged_mut().into_cell_node().unwrap();
-        let (child, val) = cell_node.prepare_cf(remaining_key[0]);
-        //GOAT, gotta use the val for the zipper's root value
-        child
     }
 }
 

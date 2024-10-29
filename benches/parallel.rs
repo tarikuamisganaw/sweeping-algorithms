@@ -115,12 +115,12 @@ fn parallel_insert(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
     let mut map = BytesTrieMap::<usize>::new();
 
     bencher.with_inputs(|| {}).bench_local_values(|()| {
-        thread::scope(|scope| {
-            if thread_cnt > 0 {
+        if thread_cnt > 0 {
+            let zipper_head = map.zipper_head();
+            thread::scope(|scope| {
                 let elements_per_thread = elements / thread_cnt;
 
                 //Preallocate all zippers
-                let zipper_head = map.zipper_head();
                 let mut zippers = Vec::with_capacity(thread_cnt);
                 for n in (0..thread_cnt).into_iter().rev() {
                     let path = &[n as u8];
@@ -147,16 +147,16 @@ fn parallel_insert(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
                 for thread in threads {
                     thread.join().unwrap();
                 }
-            } else {
-                //No-thread case, to measure overhead of sync and spawning vs. 1-thread case
-                let mut zipper = map.write_zipper_at_path(&[0]);
-                for i in 0..elements {
-                    zipper.descend_to(prefix_key(&(i as u64)));
-                    zipper.set_value(i);
-                    zipper.reset();
-                }
+            });
+        } else {
+            //No-thread case, to measure overhead of sync and spawning vs. 1-thread case
+            let mut zipper = map.write_zipper_at_path(&[0]);
+            for i in 0..elements {
+                zipper.descend_to(prefix_key(&(i as u64)));
+                zipper.set_value(i);
+                zipper.reset();
             }
-        });
+        }
     });
 }
 
@@ -168,10 +168,3 @@ fn prefix_key(k: &u64) -> &[u8] {
 
 //GOAT, TODO:
 // Spin up the threads outside the benchmark, so spinup time doesn't pollute the data
-
-//GOAT TODO:
-// * Figure out if I can streamline the TrieNodeODRc::new() -> set -> make_mut.
-//  UPDATE: This actually doesn't appear to be the bottleneck I originally thought.  Still keep in mind
-// * See what happens to perf if I wrap every DenseNode CoFree in an UnsafeCell
-//  A: Not good.  Pretty substantial loss of perf across the board (~30%)
-//

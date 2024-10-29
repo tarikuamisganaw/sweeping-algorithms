@@ -22,6 +22,7 @@ use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice, Part
 /// ```
 pub struct BytesTrieMap<V> {
     root: UnsafeCell<TrieNodeODRc<V>>,
+    root_val: UnsafeCell<Option<V>>,
 }
 
 unsafe impl<V: Send + Sync> Send for BytesTrieMap<V> {}
@@ -55,7 +56,10 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
     #[inline]
     pub(crate) fn new_with_root(root: TrieNodeODRc<V>) -> Self {
-        Self { root: UnsafeCell::new(root) }
+        Self {
+            root: UnsafeCell::new(root),
+            root_val: UnsafeCell::new(None),
+        }
     }
 
     pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
@@ -137,14 +141,16 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     }
 
     /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap
-    pub fn write_zipper(&mut self) -> WriteZipperUntracked<V> {
+    pub fn write_zipper(&mut self) -> WriteZipperUntracked<'_, 'static, V> {
+        let root_node = self.root.get_mut();
+        let root_val = self.root_val.get_mut();
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[], None)
+            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(self.root_mut(), &[])
+            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[])
         }
     }
 
@@ -161,9 +167,11 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     }
 
     /// Creates a [ZipperHead] at the root of the map
-    pub fn zipper_head(&mut self) -> ZipperHead<V> {
-        let root = unsafe{ &mut *self.root.get() };
-        ZipperHead::new(root)
+    pub fn zipper_head(&mut self) -> ZipperHead<'_, '_, V> {
+        let root_node = self.root.get_mut();
+        let root_val = self.root_val.get_mut();
+        let z = WriteZipperCore::new_with_node_and_path_internal(root_node, Some(root_val), &[]);
+        z.into_zipper_head()
     }
 
     /// Returns an iterator over all key-value pairs within the map

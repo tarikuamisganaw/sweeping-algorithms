@@ -209,6 +209,7 @@ pub(crate) mod zipper_priv {
         type V;
 
         fn get_focus(&self) -> AbstractNodeRef<Self::V>;
+        fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>>;
     }
 }
 use zipper_priv::*;
@@ -267,6 +268,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
 impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipperTracked<'a, '_, V> {
@@ -366,6 +368,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_,
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
 impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipperUntracked<'a, '_, V> {
@@ -896,6 +899,16 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, 
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> {
         self.focus_node.get_node_at_key(self.node_key())
+    }
+    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> {
+        let node_key = self.node_key();
+        match self.focus_node.node_get_child(node_key) {
+            Some((consumed_bytes, child_node)) => {
+                debug_assert_eq!(consumed_bytes, node_key.len());
+                Some(child_node)
+            },
+            None => None
+        }
     }
 }
 
@@ -1717,6 +1730,7 @@ mod tests {
         let map_head = map.zipper_head();
         let _wz = map_head.write_zipper_at_exclusive_path(b"0");
         drop(_wz);
+        drop(map_head);
 
         let mut zipper = map.read_zipper();
         assert_eq!(zipper.to_next_val(), None);

@@ -1193,28 +1193,34 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         }
         None
     }
-    fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> {
-        let self_ptr: *mut Self = self;
-        if let Some((consumed_bytes, child)) = self.get_child_mut(key) {
-            // SAFETY: We know the value and the child will be in different non-overlapping parts of the node,
-            // so it will be safe to mutably borrow them both at the same time.
-            let self_clone = unsafe{ &mut *self_ptr };
-            if let Some(val) = self_clone.get_val_mut(&key[..consumed_bytes]) {
-                Some((consumed_bytes, Some(val), Some(child)))
-            } else {
-                Some((consumed_bytes, None, Some(child)))
-            }
-        } else {
-            // SAFETY: In addition to the point above about the value not overlapping the child ptr, we also
-            // drop the previous borrow so this unsafe would be unnecessary under Polonius
-            let self_clone = unsafe{ &mut *self_ptr };
-            if let Some(val) = self_clone.get_val_mut(key) {
-                Some((key.len(), Some(val), None))
-            } else {
-                None
-            }
-        }
-    }
+    //GOAT, Deprecated node_get_child_and_val_mut
+    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)> {
+    //     unimplemented!()
+    //     //GOAT, this code is unsound because we alias the self mutable ref.  To fix it, we need to unpack
+    //     // the implementations of get_child_mut and get_val_mut.
+    //     //  But we may not actually need this method to work.
+    //     //
+    //     // let self_ptr: *mut Self = self;
+    //     // if let Some((consumed_bytes, child)) = self.get_child_mut(key) {
+    //     //     // SAFETY: We know the value and the child will be in different non-overlapping parts of the node,
+    //     //     // so it will be safe to mutably borrow them both at the same time.
+    //     //     let self_ref = unsafe{ &mut *self_ptr };
+    //     //     if let Some(val) = self_ref.get_val_mut(&key[..consumed_bytes]) {
+    //     //         Some((consumed_bytes, child, Some(val)))
+    //     //     } else {
+    //     //         Some((consumed_bytes, None, Some(child)))
+    //     //     }
+    //     // } else {
+    //     //     // SAFETY: In addition to the point above about the value not overlapping the child ptr, we also
+    //     //     // drop the previous borrow so this unsafe would be unnecessary under Polonius
+    //     //     let self_clone = unsafe{ &mut *self_ptr };
+    //     //     if let Some(val) = self_clone.get_val_mut(key) {
+    //     //         Some((key.len(), Some(val), None))
+    //     //     } else {
+    //     //         None
+    //     //     }
+    //     // }
+    // }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         self.get_child_mut(key)
     }
