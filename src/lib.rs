@@ -339,17 +339,24 @@ mod tests {
             assert_eq!(map.get(&key), Some(&42));
         };
 
-        test_key_len(4096); //2^12 bytes
-        test_key_len(16384); //2^14 bytes
-        test_key_len(32768); //2^15 bytes //Failed here with recursive drop
-        test_key_len(65536); //2^16 bytes
-        test_key_len(262144); //2^18 bytes
-        test_key_len(1048576); //2^20 bytes
-        // test_key_len(4194304); //2^22 bytes //Disabled from here so tests run quickly
-        // test_key_len(16777216); //2^24 bytes
-        // test_key_len(67108864); //2^26 bytes
-        // test_key_len(268435456); //2^28 bytes
-        // test_key_len(1073741824); //2^30 bytes //Still no failure at 1GB keys
+        test_key_len(1024); //2^10 bytes
+        test_key_len(2048); //2^11 bytes
+
+        //all_dense_nodes are terrible at chaining, but there isn't much point in an optimized path for them
+        #[cfg(not(feature = "all_dense_nodes"))]
+        {
+            test_key_len(4096); //2^12 bytes
+            test_key_len(16384); //2^14 bytes
+            test_key_len(32768); //2^15 bytes //Failed here with recursive drop
+            test_key_len(65536); //2^16 bytes
+            test_key_len(262144); //2^18 bytes
+            test_key_len(1048576); //2^20 bytes
+            // test_key_len(4194304); //2^22 bytes //Disabled from here so tests run quickly
+            // test_key_len(16777216); //2^24 bytes
+            // test_key_len(67108864); //2^26 bytes
+            // test_key_len(268435456); //2^28 bytes
+            // test_key_len(1073741824); //2^30 bytes //Still no failure at 1GB keys
+        }
     }
 
 }

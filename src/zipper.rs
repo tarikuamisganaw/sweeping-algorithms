@@ -902,12 +902,16 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, 
     }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> {
         let node_key = self.node_key();
-        match self.focus_node.node_get_child(node_key) {
-            Some((consumed_bytes, child_node)) => {
-                debug_assert_eq!(consumed_bytes, node_key.len());
-                Some(child_node)
-            },
-            None => None
+        if node_key.len() == 0 {
+            Some(self.focus_node.borrow())
+        } else {
+            match self.focus_node.node_get_child(node_key) {
+                Some((consumed_bytes, child_node)) => {
+                    debug_assert_eq!(consumed_bytes, node_key.len());
+                    Some(child_node)
+                },
+                None => None
+            }
         }
     }
 }
