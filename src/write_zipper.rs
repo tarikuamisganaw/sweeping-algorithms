@@ -514,7 +514,12 @@ impl<V: Clone + Send + Sync> Zipper for WriteZipperCore<'_, '_, V> {
         self.key.prepare_buffers();
         self.key.prefix_buf.extend(key);
         self.descend_to_internal();
-        self.focus_stack.top().unwrap().node_contains_partial_key(self.key.node_key())
+        let node_key = self.key.node_key();
+        if node_key.len() > 0 {
+            self.focus_stack.top().unwrap().node_contains_partial_key(node_key)
+        } else {
+            true
+        }
     }
 
     fn descend_to_byte(&mut self, k: u8) -> bool {
@@ -604,12 +609,16 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> {
         let node_key = self.key.node_key();
-        match self.focus_stack.top().unwrap().node_get_child(node_key) {
-            Some((consumed_bytes, child_node)) => {
-                debug_assert_eq!(consumed_bytes, node_key.len());
-                Some(child_node)
-            },
-            None => None
+        if node_key.len() == 0 {
+            Some(self.focus_stack.top().unwrap())
+        } else {
+            match self.focus_stack.top().unwrap().node_get_child(node_key) {
+                Some((consumed_bytes, child_node)) => {
+                    debug_assert_eq!(consumed_bytes, node_key.len());
+                    Some(child_node)
+                },
+                None => None
+            }
         }
     }
 }
