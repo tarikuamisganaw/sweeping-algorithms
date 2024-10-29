@@ -640,7 +640,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
     }
 }
 
-impl<'a, V: Clone + Send + Sync> TaggedNodeRefMut<'a, V> {
+impl<'a, V> TaggedNodeRefMut<'a, V> {
     #[inline(always)]
     pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V>> {
         match self {

@@ -69,20 +69,72 @@ impl<V> ValOrChildUnion<V> {
 
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
-        if self.is_used::<0>() {
+        //Discussion: The straightforward recursive implementation hits a stack overflow with, some very
+        // long path lengths.  However we don't want to burden the common case with extra work.  The
+        // pathological paths are almost entirely non-branching.  Therefore, we will invoke a recursive
+        // drop function if the node branches, and an iterative drop if it doesn't
+
+        let slot0_used = self.is_used::<0>();
+        let slot1_used = self.is_used::<1>();
+
+        if  slot0_used && !slot1_used {
             if self.is_child_ptr::<0>() {
-                unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.child) }
+                list_node_iterative_drop(self);
             } else {
                 unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
             }
-        }
-        if self.is_used::<1>() {
-            if self.is_child_ptr::<1>() {
-                unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.child) }
-            } else {
-                unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.val) }
+        } else {
+            if slot0_used {
+                if self.is_child_ptr::<0>() {
+                    unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.child) }
+                } else {
+                    unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
+                }
+            }
+            if slot1_used {
+                if self.is_child_ptr::<1>() {
+                    unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.child) }
+                } else {
+                    unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.val) }
+                }
             }
         }
+    }
+}
+
+#[inline]
+fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
+    debug_assert!(node.is_used::<0>());
+    debug_assert!(!node.is_used::<1>());
+
+    let mut next_node = list_node_take_child_to_drop(node).unwrap();
+    loop {
+        if std::sync::Arc::strong_count(next_node.as_arc()) > 1 {
+            break;
+        }
+        match next_node.make_mut().as_tagged_mut().into_list() {
+            Some(list_node) => {
+                match list_node_take_child_to_drop(list_node) {
+                    Some(child_node) => {
+                        next_node = child_node;
+                    }
+                    None => break
+                }
+            },
+            None => break
+        }
+    }
+}
+
+#[inline]
+fn list_node_take_child_to_drop<V>(node: &mut LineListNode<V>) -> Option<TrieNodeODRc<V>> {
+    if node.is_used_child_0() && !node.is_used::<1>()
+    {
+        node.header = 0;
+        let next_node = unsafe{ ManuallyDrop::take(&mut node.val_or_child0.child) };
+        Some(next_node)
+    } else {
+        None //Since we don't clear the header, the recursive path will end up freeing the downward trie
     }
 }
 
@@ -522,10 +574,21 @@ impl<V: Send + Sync> LineListNode<V> {
             unsafe{ self.set_payload_0(key, is_child_ptr, payload); }
             false
         } else {
-            //We need to recursively create a new node to hold the remaining part of the key
+            //We need to create a number of intermediate nodes to hold the key
+            let node_cnt = (key.len()-1) / KEY_BYTES_CNT;
+            let child_node_key = &key[(node_cnt * KEY_BYTES_CNT)..];
+            debug_assert!(child_node_key.len() > 0);
+            debug_assert!(child_node_key.len() <= KEY_BYTES_CNT);
             let mut child_node = Self::new();
-            child_node.set_payload_0_no_overflow(&key[KEY_BYTES_CNT..], is_child_ptr, payload);
-            unsafe{ self.set_child_0(&key[..KEY_BYTES_CNT], TrieNodeODRc::new(child_node)); }
+            child_node.set_payload_0(child_node_key, is_child_ptr, payload);
+            let mut next_node = TrieNodeODRc::new(child_node);
+            for idx in (1..node_cnt).rev() {
+                let mut child_node = Self::new();
+                let child_node_key = &key[(idx*KEY_BYTES_CNT)..((idx+1)*KEY_BYTES_CNT)];
+                child_node.set_child_0(child_node_key, next_node);
+                next_node = TrieNodeODRc::new(child_node);
+            }
+            self.set_child_0(&key[..KEY_BYTES_CNT], next_node);
             true
         }
     }
