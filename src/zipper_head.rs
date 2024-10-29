@@ -87,7 +87,7 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
     }
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
-    pub fn write_zipper_at_exclusive_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperTracked<'a, '_, V> {
+    pub fn write_zipper_at_exclusive_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperTracked<'a, 'static, V> {
         let path = path.as_ref();
         let zipper_tracker = ZipperTracker::new_write_tracker(self.tracker_paths.clone(), path);
         let z = self.borrow_z();
@@ -97,7 +97,7 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
     /// that no existing zippers may access the specified path at any time before the `WriteZipper` is dropped
-    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperUntracked<'a, '_, V> {
+    pub unsafe fn write_zipper_at_exclusive_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperUntracked<'a, 'static, V> {
         let path = path.as_ref();
         let z = self.borrow_z();
         let (zipper_root_node, zipper_root_val) = prepare_exclusive_write_path(z, path);
