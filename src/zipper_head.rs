@@ -56,7 +56,8 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
         let (root_node, root_val) = z.splitting_borrow_focus();
         #[cfg(debug_assertions)]
         {
-            let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path).unwrap();
+            let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path)
+                .unwrap_or_else(|conflict| panic!("Fatal error. ReadZipper at {path:?} {conflict}"));
             ReadZipperUntracked::new_with_node_and_path(root_node, path.as_ref(), Some(path.len()), root_val, Some(zipper_tracker))
         }
         #[cfg(not(debug_assertions))]
@@ -82,12 +83,13 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
         let (root_node, root_val) = z.splitting_borrow_focus();
         #[cfg(debug_assertions)]
         {
-            let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path).unwrap();
+            let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths.clone(), path)
+                .unwrap_or_else(|conflict| panic!("Fatal error. ReadZipper at {path:?} {conflict}"));
             ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), Some(path.len()), root_val, Some(zipper_tracker))
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), Some(path.len()), root_val)
+            ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), Some(path.len()), root_val, Some(zipper_tracker))
         }
     }
 
@@ -109,7 +111,8 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
 
         #[cfg(debug_assertions)]
         {
-            let tracker = ZipperTracker::<TrackingWrite>::new(self.tracker_paths.clone(), path).unwrap();
+            let tracker = ZipperTracker::<TrackingWrite>::new(self.tracker_paths.clone(), path)
+                .unwrap_or_else(|conflict| panic!("Fatal error. WriteZipper at {path:?} {conflict}"));
             WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], Some(tracker))
         }
         #[cfg(not(debug_assertions))]
@@ -274,10 +277,10 @@ fn prepare_node_at_path_end<'a, V: Clone + Send + Sync>(start_node: &'a mut Trie
 
 #[cfg(test)]
 mod tests {
-    use std::{thread, thread::ScopedJoinHandle};
-    use crate::tests::prefix_key;
     use crate::trie_map::BytesTrieMap;
     use crate::zipper::*;
+    use crate::tests::prefix_key;
+    use std::{thread, thread::ScopedJoinHandle};
 
     #[test]
     fn parallel_insert_test() {
@@ -305,7 +308,7 @@ mod tests {
             for n in 0..thread_cnt {
                 let mut zipper = zippers.pop().unwrap();
                 let thread = scope.spawn(move || {
-                    for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+                    for i in (n * elements_per_thread)..((n + 1) * elements_per_thread) {
                         zipper.descend_to(prefix_key(&(i as u64)));
                         assert!(zipper.set_value(i).is_none());
                         zipper.reset();
@@ -323,7 +326,7 @@ mod tests {
 
         //Test that the values set by the threads are correct
         for n in 0..thread_cnt {
-            for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+            for i in (n * elements_per_thread)..((n + 1) * elements_per_thread) {
                 let mut path = vec![n as u8];
                 path.extend(prefix_key(&(i as u64)));
                 assert_eq!(map.get(path), Some(&i));
@@ -623,4 +626,3 @@ mod tests {
         assert_eq!(map.get("0:test:5:next:1"), Some(&1));
     }
 }
-
