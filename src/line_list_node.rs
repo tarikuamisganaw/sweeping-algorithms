@@ -76,23 +76,22 @@ impl<V> Drop for LineListNode<V> {
 
         let slot0_used = self.is_used::<0>();
         let slot1_used = self.is_used::<1>();
+        let slot0_child = self.is_child_ptr::<0>();
+        let slot1_child = self.is_child_ptr::<1>();
 
-        if  slot0_used && !slot1_used {
-            if self.is_child_ptr::<0>() {
-                list_node_iterative_drop(self);
-            } else {
-                unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
-            }
+        if  (slot0_used && slot0_child) != (slot1_used && slot1_child)  {
+            //If there is exactly one child, do the non-recursive drop
+            list_node_iterative_drop(self);
         } else {
             if slot0_used {
-                if self.is_child_ptr::<0>() {
+                if slot0_child {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.child) }
                 } else {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
                 }
             }
             if slot1_used {
-                if self.is_child_ptr::<1>() {
+                if slot1_child {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.child) }
                 } else {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.val) }
@@ -104,9 +103,6 @@ impl<V> Drop for LineListNode<V> {
 
 #[inline]
 fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
-    debug_assert!(node.is_used::<0>());
-    debug_assert!(!node.is_used::<1>());
-
     let mut next_node = list_node_take_child_to_drop(node).unwrap();
     loop {
         if std::sync::Arc::strong_count(next_node.as_arc()) > 1 {
@@ -128,13 +124,27 @@ fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
 
 #[inline]
 fn list_node_take_child_to_drop<V>(node: &mut LineListNode<V>) -> Option<TrieNodeODRc<V>> {
-    if node.is_used_child_0() && !node.is_used::<1>()
-    {
-        node.header = 0;
-        let next_node = unsafe{ ManuallyDrop::take(&mut node.val_or_child0.child) };
-        Some(next_node)
-    } else {
-        None //Since we don't clear the header, the recursive path will end up freeing the downward trie
+    let child0 = node.is_used_child_0();
+    let child1 = node.is_used_child_1();
+    match (child0, child1) {
+        (true, false) => {
+            if node.is_used::<1>() {
+                unsafe{ ManuallyDrop::drop(&mut node.val_or_child1.val) }
+            }
+            node.header = 0;
+            let next_node = unsafe{ ManuallyDrop::take(&mut node.val_or_child0.child) };
+            Some(next_node)
+        },
+        (false, true) => {
+            if node.is_used::<0>() {
+                unsafe{ ManuallyDrop::drop(&mut node.val_or_child0.val) }
+            }
+            node.header = 0;
+            let next_node = unsafe{ ManuallyDrop::take(&mut node.val_or_child1.child) };
+            Some(next_node)
+        }
+        (true, true) => None, //Since we don't clear the header, the recursive path will end up freeing the downward trie
+        (false, false) => None, //Node is already empty of child links; recursive path will drop values
     }
 }
 
