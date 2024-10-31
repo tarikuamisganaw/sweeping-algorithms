@@ -155,12 +155,12 @@ pub trait WriteZipper<V>: Zipper {
     /// "populate", etc.  I avoided "bloom" and "expand" because those both have other connotations.
     fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool;
 
-    /// Removes the branch below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
+    /// Removes all branches below the zipper's focus.  Does not affect the value if there is one.  Returns `true`
     /// if a branch was removed, otherwise returns `false`
     ///
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
     /// [Self::path_exists] returning `false`, where it previously returned `true`
-    fn remove_branch(&mut self) -> bool;
+    fn remove_branches(&mut self) -> bool;
 
     /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
     fn take_map(&mut self) -> Option<BytesTrieMap<V>>;
@@ -265,7 +265,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V
     fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
     fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
     fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
-    fn remove_branch(&mut self) -> bool { self.z.remove_branch() }
+    fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
 }
@@ -372,7 +372,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'a, '_,
     fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
     fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
     fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
-    fn remove_branch(&mut self) -> bool { self.z.remove_branch() }
+    fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
 }
@@ -983,16 +983,30 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
             None => false
         }
     }
-    /// See [WriteZipper::remove_branch]
-    pub fn remove_branch(&mut self) -> bool {
-        let focus_node = self.focus_stack.top_mut().unwrap();
-        if focus_node.node_remove_all_branches(self.key.node_key()) {
-            if focus_node.node_is_empty() {
-                self.prune_path();
+    /// See [WriteZipper::remove_branches]
+    pub fn remove_branches(&mut self) -> bool {
+        let node_key = self.key.node_key();
+        if node_key.len() > 0 {
+            let focus_node = self.focus_stack.top_mut().unwrap();
+            if focus_node.node_remove_all_branches(node_key) {
+                if focus_node.node_is_empty() {
+                    self.prune_path();
+                }
+                true
+            } else {
+                false
             }
-            true
         } else {
-            false
+            debug_assert_eq!(self.focus_stack.depth(), 1);
+            if self.focus_stack.top().unwrap().node_is_empty() {
+                return false
+            } else {
+                self.focus_stack.to_root();
+                let stack_root = self.focus_stack.root_mut().unwrap();
+                **stack_root = TrieNodeODRc::new(EmptyNode::new());
+                self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+                true
+            }
         }
     }
     /// See [WriteZipper::take_map]
@@ -1085,7 +1099,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                     self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
                 }
             },
-            None => { self.remove_branch(); }
+            None => { self.remove_branches(); }
         }
     }
 
@@ -1127,7 +1141,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
 
         let onward_path = &old_path[self.key.prefix_buf.len()..];
         self.descend_to(&onward_path[0..1]);
-        self.remove_branch();
+        self.remove_branches();
 
         //Move back to the original location, although it will now be non-existent
         self.key.prefix_buf = old_path;
@@ -1527,13 +1541,13 @@ mod tests {
     }
 
     #[test]
-    fn write_zipper_remove_branch_test() {
+    fn write_zipper_remove_branches_test() {
         let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i",
             "abcdefghijklmnopqrstuvwxyz"];
         let mut map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
 
         let mut wz = map.write_zipper_at_path(b"roman");
-        wz.remove_branch();
+        wz.remove_branches();
         drop(wz);
 
         //Test that the original keys were left alone, above the graft point
@@ -1552,7 +1566,7 @@ mod tests {
         let mut wz = map.write_zipper();
         wz.descend_to(b"ro");
         assert!(wz.path_exists());
-        wz.remove_branch();
+        wz.remove_branches();
         assert!(!wz.path_exists());
         drop(wz);
 
@@ -1560,7 +1574,7 @@ mod tests {
         wz.descend_to(b"abcdefghijklmnopq");
         assert!(wz.path_exists());
         assert_eq!(wz.path(), b"abcdefghijklmnopq");
-        wz.remove_branch();
+        wz.remove_branches();
         assert!(!wz.path_exists());
         assert_eq!(wz.path(), b"abcdefghijklmnopq");
         drop(wz);
