@@ -1144,10 +1144,10 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                 self.key.root_key.set_slice(key);
                 node
             } else {
-                debug_assert_eq!(self.key.prefix_buf.len(), self.key.root_key.len());
-                let (key, node) = node_along_path_mut(root_ref, &self.key.prefix_buf[..], true);
+                let root_slice = &self.key.prefix_buf[..self.key.root_key.len()];
+                let (key, node) = node_along_path_mut(root_ref, root_slice, true);
                 let new_len = key.len();
-                let bytes_to_remove = self.key.prefix_buf.len() - new_len;
+                let bytes_to_remove = root_slice.len() - new_len;
                 //TODO.  I can speed this up with unsafe.  This should be in stdlib!!
                 for _ in 0..bytes_to_remove {
                     self.key.prefix_buf.remove(0);
@@ -1344,6 +1344,31 @@ impl<'k> KeyFields<'k> {
 mod tests {
     use crate::trie_map::*;
     use crate::zipper::*;
+
+    #[test]
+    fn write_zipper_set_value_test() {
+        let mut map = BytesTrieMap::<usize>::new();
+        let mut zipper = map.write_zipper_at_path(b"in");
+        for i in 0usize..32 {
+            zipper.descend_to_byte(0);
+            zipper.descend_to(i.to_be_bytes());
+            zipper.set_value(i);
+            zipper.reset();
+        }
+        drop(zipper);
+
+        // for (k, v) in map.iter() {
+        //     println!("{:?} {v}", k);
+        // }
+
+        let mut zipper = map.read_zipper_at_path(b"in\0");
+        for i in 0usize..32 {
+            zipper.descend_to(i.to_be_bytes());
+            assert_eq!(*zipper.get_value().unwrap(), i);
+            zipper.reset();
+        }
+        drop(zipper);
+    }
 
     #[test]
     fn write_zipper_get_or_insert_value_test() {
