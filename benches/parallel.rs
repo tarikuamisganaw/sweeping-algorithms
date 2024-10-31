@@ -241,7 +241,10 @@ fn parallel_copy(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
             });
         }
 
-        bencher.with_inputs(|| {}).bench_local_values(|()| {
+        bencher.with_inputs(|| {
+            let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out");
+            writer_z.remove_branches();
+        }).bench_local_values(|()| {
             if thread_cnt > 0 {
 
                 //Dispatch a zipper to each thread
