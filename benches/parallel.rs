@@ -382,6 +382,246 @@ fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str
     drop(zipper_head);
 }
 
+// GOAT, this is a total mess, but I'm committing it in this form so I can investigate why it scales so poorly
+#[divan::bench(sample_size = 1, args = TEST_ARGS)]
+fn parallel_dispatch_map(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
+    let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
+    let real_thread_cnt = thread_cnt.max(1);
+
+    let mut map = BytesTrieMap::new();
+    let zh = map.zipper_head();
+
+    let mut buildz = zh.write_zipper_at_exclusive_path(&[0]);
+    buildz.graft_map(BytesTrieMap::range::<true, u64>(0, elements as u64, 1, ()));
+    drop(buildz);
+
+    thread::scope(|scope| {
+
+        bencher.with_inputs(|| {
+            let mut writer_z = zh.write_zipper_at_exclusive_path([1]);
+            writer_z.remove_branches();
+        }).bench_local_values(|()| {
+            if thread_cnt > 0 {
+                let mut dz = unsafe{ zh.read_zipper_at_path_unchecked(&[0]) };
+
+                let mut dispatches = 0;
+                let mut chunks = 0;
+                let mut run = 0;
+                let mut units = vec![];
+                let mut handles = vec![];
+                homo(real_thread_cnt as u32, &mut dz, &mut |cs: u32, z: &mut ReadZipperUntracked<()>| {
+                    let cutoff = cs.div_ceil(real_thread_cnt as u32);
+                    z.descend_first_byte();
+                    loop {
+                        chunks += 1;
+                        run += 1;
+
+                        // println!("p {:?} c {}", z.path(), z.child_mask().iter().fold(0, |t, x| t + x.count_ones()))
+                        let work_input = unsafe { zh.read_zipper_at_path_unchecked(z.origin_path().unwrap()) };
+
+                        let mut opath = vec![1];
+                        opath.extend_from_slice(z.path());
+                        // println!("created zpath={:?} ({}) opath={opath:?} for {}", z.path(), z.val_count(), dispatches + 1);
+                        let work_output = unsafe { zh.write_zipper_at_exclusive_path_unchecked(&opath) };
+
+                        units.push((work_input, work_output));
+
+                        if run >= cutoff {
+                            // dispatch and clear
+                            let mut thread_units = std::mem::take(&mut units);
+                            run = 0;
+                            dispatches += 1;
+                            // println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
+                            handles.push(scope.spawn(move || {
+
+                                // println!("thread {} working", dispatches);
+                                // work_output.set_value(());
+                                for (work_input, work_output) in thread_units.iter_mut() {
+                                    // work_output.graft(work_input);
+                                    // println!("thread {} processing origin={:?} (queued: {})", dispatches, work_input.origin_path(), work_input.val_count());
+                                    loop {
+                                        if work_input.to_next_val().is_none() { break }
+                                        // println!("tp {:?}", work_input.path());
+                                        let mut buffer = [0; 8];
+                                        for (s, t) in work_input.path().iter().rev().zip(buffer.iter_mut().rev()) {
+                                            *t = *s;
+                                        }
+                                        let v = u64::from_be_bytes(buffer);
+                                        work_output.descend_to(work_input.path());
+                                        let vr = (v as f64).sqrt() as u64;
+                                        // println!("calculated f({v}) = {vr}");
+                                        work_output.descend_to(&vr.to_be_bytes()[..]);
+                                        work_output.set_value(());
+                                        work_output.reset();
+                                    }
+                                }
+                            }));
+                        }
+
+                        if !z.to_sibling(true) { break }
+                    }
+                    z.ascend_byte();
+                });
+                if run > 0 {
+                    let mut thread_units = std::mem::take(&mut units);
+                    dispatches += 1;
+                    println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
+                    handles.push(scope.spawn(move || {
+                        // work_output.set_value(());
+                        for (work_input, work_output) in thread_units.iter_mut() {
+                            // work_output.graft(work_input);
+                            loop {
+                                if work_input.to_next_val().is_none() { break }
+                                // println!("tp {:?}", work_input.path());
+                                let mut buffer = [0; 8];
+                                for (s, t) in work_input.path().iter().rev().zip(buffer.iter_mut().rev()) {
+                                    *t = *s;
+                                }
+                                let v = u64::from_be_bytes(buffer);
+                                work_output.descend_to(work_input.path());
+                                let vr = (v as f64).sqrt() as u64;
+                                // println!("calculated f({v}) = {vr}");
+                                work_output.descend_to(&vr.to_be_bytes()[..]);
+                                work_output.set_value(());
+                                work_output.reset();
+                            }
+                        }
+                    }));
+                }
+                drop(dz);
+
+                for handle in handles { handle.join().unwrap() }
+
+            } else {
+                //NO THREADS CASE
+                let mut dz = unsafe{ zh.read_zipper_at_path_unchecked(&[0]) };
+
+                let mut dispatches = 0;
+                let mut chunks = 0;
+                let mut run = 0;
+                let mut units = vec![];
+                homo(real_thread_cnt as u32, &mut dz, &mut |cs: u32, z: &mut ReadZipperUntracked<()>| {
+                    let cutoff = cs.div_ceil(real_thread_cnt as u32);
+                    z.descend_first_byte();
+                    loop {
+                        chunks += 1;
+                        run += 1;
+
+                        // println!("p {:?} c {}", z.path(), z.child_mask().iter().fold(0, |t, x| t + x.count_ones()))
+                        let work_input = unsafe { zh.read_zipper_at_path_unchecked(z.origin_path().unwrap()) };
+
+                        let mut opath = vec![1];
+                        opath.extend_from_slice(z.path());
+                        // println!("created zpath={:?} ({}) opath={opath:?} for {}", z.path(), z.val_count(), dispatches + 1);
+                        let work_output = unsafe { zh.write_zipper_at_exclusive_path_unchecked(&opath) };
+
+                        units.push((work_input, work_output));
+
+                        if run >= cutoff {
+                            // dispatch and clear
+                            let mut thread_units = std::mem::take(&mut units);
+                            run = 0;
+                            dispatches += 1;
+                            // println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
+
+                            //This is where the thread boundary would be
+                            {
+                                // println!("thread {} working", dispatches);
+                                // work_output.set_value(());
+                                for (work_input, work_output) in thread_units.iter_mut() {
+                                    // work_output.graft(work_input);
+                                    // println!("thread {} processing origin={:?} (queued: {})", dispatches, work_input.origin_path(), work_input.val_count());
+                                    loop {
+                                        if work_input.to_next_val().is_none() { break }
+                                        // println!("tp {:?}", work_input.path());
+                                        let mut buffer = [0; 8];
+                                        for (s, t) in work_input.path().iter().rev().zip(buffer.iter_mut().rev()) {
+                                            *t = *s;
+                                        }
+                                        let v = u64::from_be_bytes(buffer);
+                                        work_output.descend_to(work_input.path());
+                                        let vr = (v as f64).sqrt() as u64;
+                                        // println!("calculated f({v}) = {vr}");
+                                        work_output.descend_to(&vr.to_be_bytes()[..]);
+                                        work_output.set_value(());
+                                        work_output.reset();
+                                    }
+                                }
+                            }
+                        }
+
+                        if !z.to_sibling(true) { break }
+                    }
+                    z.ascend_byte();
+                });
+                if run > 0 {
+                    let mut thread_units = std::mem::take(&mut units);
+                    dispatches += 1;
+                    println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
+
+                    //This is where the thread boundary would be
+                    {
+                        // work_output.set_value(());
+                        for (work_input, work_output) in thread_units.iter_mut() {
+                            // work_output.graft(work_input);
+                            loop {
+                                if work_input.to_next_val().is_none() { break }
+                                // println!("tp {:?}", work_input.path());
+                                let mut buffer = [0; 8];
+                                for (s, t) in work_input.path().iter().rev().zip(buffer.iter_mut().rev()) {
+                                    *t = *s;
+                                }
+                                let v = u64::from_be_bytes(buffer);
+                                work_output.descend_to(work_input.path());
+                                let vr = (v as f64).sqrt() as u64;
+                                // println!("calculated f({v}) = {vr}");
+                                work_output.descend_to(&vr.to_be_bytes()[..]);
+                                work_output.set_value(());
+                                work_output.reset();
+                            }
+                        }
+                    }
+                }
+                drop(dz);
+            }
+        });
+    });
+
+    // let mut rz = unsafe { zh.read_zipper_at_path_unchecked(&[]) };
+    // println!("result count: {}", rz.val_count());
+    // while let Some(_) = rz.to_next_val() {
+    //     println!("o {:?}", rz.path());
+    // }
+}
+
+fn homo<Z: Zipper, F: FnMut(u32, &mut Z) -> ()>(at_least: u32, rz: &mut Z, f: &mut F) {
+    rz.descend_until();
+
+    let mut cs = rz.child_mask().iter().fold(0, |t, x| t + x.count_ones());
+
+    if cs >= at_least {
+        f(cs, rz);
+        return;
+    }
+
+    cs = 0;
+    rz.descend_first_byte();
+    loop {
+        cs += rz.child_mask().iter().fold(0, |t, x| t + x.count_ones());
+        if !rz.to_sibling(true) { break }
+    }
+    rz.ascend_byte();
+    rz.descend_first_byte();
+    if cs >= at_least {
+        loop {
+            f(cs, rz);
+            if !rz.to_sibling(true) { break }
+        }
+    } else {
+        panic!("not implemented at_least={}, cs={}", at_least, cs)
+    }
+}
+
 fn prefix_key(k: &u64) -> &[u8] {
     let bs = (8 - k.leading_zeros()/8) as u8;
     let kp: *const u64 = k;
