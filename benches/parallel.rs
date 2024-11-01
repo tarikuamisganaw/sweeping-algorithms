@@ -181,7 +181,7 @@ fn parallel_insert(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
 }
 
 #[divan::bench(sample_size = 1, args = TEST_ARGS)]
-fn parallel_copy(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
+fn parallel_copy_known_path(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
     let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
     let real_thread_cnt = thread_cnt.max(1);
     let elements_per_thread = elements / real_thread_cnt;
@@ -279,6 +279,98 @@ fn parallel_copy(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
             }
         });
     });
+}
+
+#[divan::bench(sample_size = 1, args = TEST_ARGS)]
+fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
+    let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
+    let real_thread_cnt = thread_cnt.max(1);
+    let elements_per_thread = elements / real_thread_cnt;
+
+    let mut map = BytesTrieMap::<usize>::new();
+    let mut zipper = map.write_zipper_at_path(b"in");
+    for n in 0..real_thread_cnt {
+        for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+            zipper.descend_to_byte(n as u8);
+            zipper.descend_to(i.to_be_bytes());
+            zipper.set_value(i);
+            zipper.reset();
+        }
+    }
+    drop(zipper);
+
+    let zipper_head = map.zipper_head();
+
+    thread::scope(|scope| {
+
+        let mut zipper_senders: Vec<mpsc::Sender<(ReadZipperUntracked<'_, '_, usize>, WriteZipperUntracked<'_, '_, usize>)>> = Vec::with_capacity(thread_cnt);
+        let mut signal_receivers: Vec<mpsc::Receiver<bool>> = Vec::with_capacity(thread_cnt);
+
+        //Spawn all the threads
+        for _ in 0..thread_cnt {
+            let (zipper_tx, zipper_rx) = mpsc::channel();
+            zipper_senders.push(zipper_tx);
+            let (signal_tx, signal_rx) = mpsc::channel::<bool>();
+            signal_receivers.push(signal_rx);
+
+            scope.spawn(move || {
+                loop {
+                    //The thread will block here waiting for the zippers to be sent
+                    match zipper_rx.recv() {
+                        Ok((mut reader_z, mut writer_z)) => {
+                            //We got the zippers, do the stuff
+                            while let Some(val) = reader_z.to_next_val() {
+                                writer_z.descend_to(reader_z.path());
+                                writer_z.set_value(*val);
+                                writer_z.reset();
+                            }
+
+                            //Tell the main thread we're done
+                            signal_tx.send(true).unwrap();
+                        },
+                        Err(_) => {
+                            //The zipper_sender channel is closed, meaning it's time to shut down
+                            break;
+                        }
+                    }
+                }
+            });
+        }
+
+        bencher.with_inputs(|| {
+            let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out");
+            writer_z.remove_branches();
+        }).bench_local_values(|()| {
+            if thread_cnt > 0 {
+
+                //Dispatch a zipper to each thread
+                for n in 0..thread_cnt {
+                    let path = vec![b'o', b'u', b't', n as u8];
+                    let writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(path) };
+                    let path = vec![b'i', b'n', n as u8];
+                    let reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(path) };
+
+                    zipper_senders[n].send((reader_z, writer_z)).unwrap();
+                };
+
+                //Wait for the threads to all be done
+                for n in 0..thread_cnt {
+                    assert_eq!(signal_receivers[n].recv().unwrap(), true);
+                };
+
+            } else {
+                //No-thread case, to measure overhead of sync vs. 1-thread case
+                let mut writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(&[b'o', b'u', b't', 0]) };
+                let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(&[b'i', b'n', 0]) };
+                while let Some(val) = reader_z.to_next_val() {
+                    writer_z.descend_to(reader_z.path());
+                    writer_z.set_value(*val);
+                    writer_z.reset();
+                }
+            }
+        });
+    });
+    drop(zipper_head);
 }
 
 fn prefix_key(k: &u64) -> &[u8] {
