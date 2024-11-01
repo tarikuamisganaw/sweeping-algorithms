@@ -1391,6 +1391,9 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                 return (0, &[])
             }
             if key == short_key {
+                if key0.len() > key.len() {
+                    return (0, &[])
+                }
                 if key0 == key1 {
                     return (2, key0)
                 } else {
@@ -1404,7 +1407,11 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                 return (1, key0)
             }
             if key == short_key {
-                return (2, key1)
+                if key1.len() > key.len() {
+                    return (1, key0)
+                } else {
+                    return (2, key1)
+                }
             }
         }
         (NODE_ITER_FINISHED, &[])
