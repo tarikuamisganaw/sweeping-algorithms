@@ -963,7 +963,7 @@ impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipperCore<'a, '
 
                     let unmodifiable_len = origin_path_len - key_start;
                     let unmodifiable_subkey = &self.prefix_buf[key_start..origin_path_len];
-                    if &key_bytes[..unmodifiable_len] != unmodifiable_subkey {
+                    if unmodifiable_len > key_bytes.len() || &key_bytes[..unmodifiable_len] != unmodifiable_subkey {
                         self.prefix_buf.truncate(origin_path_len);
                         return None
                     }
