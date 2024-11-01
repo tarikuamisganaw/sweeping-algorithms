@@ -1399,6 +1399,47 @@ mod tests {
     }
 
     #[test]
+    fn write_zipper_iter_copy_test() {
+        const N: usize = 32;
+
+        let mut map = BytesTrieMap::<usize>::new();
+        let mut zipper = map.write_zipper_at_path(b"in\0");
+        for i in 0..N {
+            zipper.descend_to(i.to_be_bytes());
+            zipper.set_value(i);
+            zipper.reset();
+        }
+        drop(zipper);
+
+        let zipper_head = map.zipper_head();
+        {
+            let mut sanity_counter = 0;
+            let mut writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(b"out\0") };
+            let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(b"in\0") };
+            while let Some(val) = reader_z.to_next_val() {
+                writer_z.descend_to(reader_z.path());
+                writer_z.set_value(*val * 65536);
+                writer_z.reset();
+                sanity_counter += 1;
+            }
+            assert_eq!(sanity_counter, N);
+        }
+        drop(zipper_head);
+
+        assert_eq!(map.val_count(), N*2);
+        let mut in_path = b"in\0".to_vec();
+        let mut out_path = b"out\0".to_vec();
+        for i in 0..N {
+            in_path.truncate(3);
+            in_path.extend(i.to_be_bytes());
+            assert_eq!(map.get(&in_path), Some(&i));
+            out_path.truncate(4);
+            out_path.extend(i.to_be_bytes());
+            assert_eq!(map.get(&out_path), Some(&(i * 65536)));
+        }
+    }
+
+    #[test]
     fn write_zipper_graft_test() {
         let a_keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         let mut a: BytesTrieMap<i32> = a_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();

@@ -955,6 +955,20 @@ impl<'a, V: Clone + Send + Sync> ZipperIteration<'a, V> for ReadZipperCore<'a, '
                 self.focus_iter_token = new_tok;
 
                 let key_start = self.node_key_start();
+
+                //Make sure we don't move to a branch that forks above our zipper root
+                let origin_path_len = self.origin_path.len();
+                if key_start < origin_path_len {
+                    debug_assert_eq!(self.ancestors.len(), 0);
+
+                    let unmodifiable_len = origin_path_len - key_start;
+                    let unmodifiable_subkey = &self.prefix_buf[key_start..origin_path_len];
+                    if &key_bytes[..unmodifiable_len] != unmodifiable_subkey {
+                        self.prefix_buf.truncate(origin_path_len);
+                        return None
+                    }
+                }
+
                 self.prefix_buf.truncate(key_start);
                 self.prefix_buf.extend(key_bytes);
 
