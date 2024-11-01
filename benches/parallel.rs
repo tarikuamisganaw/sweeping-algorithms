@@ -23,6 +23,7 @@ const TEST_ARGS: [(usize, &str); 50] = [
     (262144, "000"), (262144, "001"), (262144, "002"), (262144, "004"), (262144, "008"), (262144, "016"), (262144, "032"), (262144, "064"), (262144, "128"), (262144, "256"),
     (2097152, "000"), (2097152, "001"), (2097152, "002"), (2097152, "004"), (2097152, "008"), (2097152, "016"), (2097152, "032"), (2097152, "064"), (2097152, "128"), (2097152, "256"),
     // (16777216, "000"), (16777216, "001"), (16777216, "002"), (16777216, "004"), (16777216, "008"), (16777216, "016"), (16777216, "032"), (16777216, "064"), (16777216, "128"), (16777216, "256"),
+    // (100_000_000, "000"), (100_000_000, "001"), (100_000_000, "002"), (100_000_000, "004"), (100_000_000, "008"), (100_000_000, "016"), (100_000_000, "032"), (100_000_000, "064"), (100_000_000, "128"), (100_000_000, "256"),
 ];
 
 #[divan::bench(sample_size = 1, args = TEST_ARGS)]
@@ -465,7 +466,7 @@ fn parallel_dispatch_map(bencher: Bencher, (elements, thread_cnt): (usize, &str)
                 if run > 0 {
                     let mut thread_units = std::mem::take(&mut units);
                     dispatches += 1;
-                    println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
+                    // println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
                     handles.push(scope.spawn(move || {
                         // work_output.set_value(());
                         for (work_input, work_output) in thread_units.iter_mut() {
@@ -557,7 +558,7 @@ fn parallel_dispatch_map(bencher: Bencher, (elements, thread_cnt): (usize, &str)
                 if run > 0 {
                     let mut thread_units = std::mem::take(&mut units);
                     dispatches += 1;
-                    println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
+                    // println!("dispatched {} up to {} ({})", dispatches, chunks, thread_units.len());
 
                     //This is where the thread boundary would be
                     {
