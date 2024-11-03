@@ -105,7 +105,7 @@ impl<V> Drop for LineListNode<V> {
 fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
     let mut next_node = list_node_take_child_to_drop(node).unwrap();
     loop {
-        if std::sync::Arc::strong_count(next_node.as_arc()) > 1 {
+        if next_node.refcount() > 1 {
             break;
         }
         match next_node.make_mut().as_tagged_mut().into_list() {

@@ -220,10 +220,11 @@ fn parallel_copy_known_path(bencher: Bencher, (elements, thread_cnt): (usize, &s
                         Ok((mut reader_z, mut writer_z)) => {
                             //We got the zippers, do the stuff
                             for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
-                                reader_z.descend_to(&i.to_be_bytes());
+                                let buf = i.to_be_bytes();
+                                reader_z.descend_to(&buf);
                                 let val = reader_z.get_value().unwrap();
 
-                                writer_z.descend_to(&i.to_be_bytes());
+                                writer_z.descend_to(&buf);
                                 writer_z.set_value(*val);
 
                                 reader_z.reset();
