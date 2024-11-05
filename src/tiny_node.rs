@@ -1,3 +1,8 @@
+//! [TinyRefNode] is a 16 byte pointer into another node (mainly a LineListNode) that implements the TrieNode trait.
+//! It is used when it's necessary to have a node type to refer to the a point in the trie that exists within
+//! another node.  For example, when describing the source for a `graft` operation.
+//!
+//! `TinyRefNode` is fundamentall read-only, and will panic in any attempt to write to this node type.
 
 use core::mem::MaybeUninit;
 use core::fmt::{Debug, Formatter};
@@ -88,8 +93,6 @@ impl<'a, V: Clone + Send + Sync> TinyRefNode<'a, V> {
     }
 }
 
-//GOAT, this implementation is swiss cheese (full of holes for the non-Americans).  This node type will
-// never support mutability, but it may need more support to enable the full range of use cases
 impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         if self.key().starts_with(key) {
@@ -252,7 +255,6 @@ impl<V> TrieNodeDowncast<V> for TinyRefNode<'_, V> {
 
 #[test]
 fn test_tiny_node() {
-    //First confirm TinyRefNode is 16 bytes
+    //Confirm TinyRefNode is 16 bytes
     assert_eq!(std::mem::size_of::<TinyRefNode::<()>>(), 16);
-
 }

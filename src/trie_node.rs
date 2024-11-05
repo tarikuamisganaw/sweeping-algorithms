@@ -88,17 +88,6 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// WARNING: This method may leave the node empty
     fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
 
-    //GOAT-Deprecated-Update  deprecating `update` interface in favor of WriteZipper
-    // /// Returns a mutable reference to the value, creating it using `default_f` if it doesn't already
-    // /// exist
-    // ///
-    // /// If this method returns Err(node), then the node was upgraded, and the new node must be
-    // /// substituted into the context formerly ocupied by this this node, and this node must be dropped.
-    // /// Then the new node may be re-borrowed.
-    // //GOAT, consider a boxless version of this that takes a regular &dyn Fn() instead of FnOnce
-    // //Or maybe two versions, one that takes an &dyn Fn, and another that takes a V
-    // fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>>;
-
     /// Sets the downstream branch from the specified `key`.  Does not affect the value at the `key`
     ///
     /// Returns `Ok(sub_node_created)`, which will be `true` if `key` now specifies a different subnode;

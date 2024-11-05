@@ -1334,11 +1334,6 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         None
     }
 
-    //GOAT-Deprecated-Update
-    // fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>> {
-    //     panic!()
-    // }
-
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
         self.set_payload_abstract::<true>(key, new_node.into())
             .map(|(_, created_subnode)| created_subnode)

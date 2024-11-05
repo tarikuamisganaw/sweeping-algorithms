@@ -240,36 +240,6 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
         }
     }
 
-    // //GOAT-Deprecated-Update
-    // #[inline]
-    // fn update_val(&mut self, k: u8, default_f: Box<dyn FnOnce()->V + '_>) -> &mut V {
-    //     let ix = self.left(k) as usize;
-    //     if self.contains(k) {
-    //         let cf = unsafe { self.values.get_unchecked_mut(ix) };
-    //         if cf.value.is_none() {
-    //             cf.value = Some(default_f());
-    //         }
-    //         cf.value.as_mut().unwrap()
-    //     } else {
-    //         self.set(k);
-    //         let new_cf = CoFree {rec: None, value: Some(default_f()) };
-    //         self.values.insert(ix, new_cf);
-    //         let cf = unsafe { self.values.get_unchecked_mut(ix) };
-    //         cf.value.as_mut().unwrap()
-    //     }
-    // }
-
-    //GOAT-Deprecated-Update
-    // #[inline]
-    // fn update<F : FnOnce() -> CoFree<V>>(&mut self, k: u8, default: F) -> &mut CoFree<V> {
-    //     let ix = self.left(k) as usize;
-    //     if !self.contains(k) {
-    //         self.set(k);
-    //         self.values.insert(ix, default());
-    //     }
-    //     unsafe { self.values.get_unchecked_mut(ix) }
-    // }
-
     /// Internal method to remove a CoFree from the node
     #[inline]
     fn remove(&mut self, k: u8) -> Option<Cf> {
@@ -809,20 +779,6 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             None
         }
     }
-    //GOAT-Deprecated-Update, delete this once we have the WriteZipper doing everything `Update` did
-    // fn node_update_val<'v>(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + 'v>) -> Result<&mut V, TrieNodeODRc<V>> {
-
-    //     //GOAT, I am recursively creating DenseByteNodes to the end, temporarily until I add a better
-    //     // tail node type
-    //     let mut cur = self;
-    //     for i in 0..key.len() - 1 {
-    //         let new_node = Self::new();
-    //         cur = cur.add_child(key[i], TrieNodeODRc::new(new_node)).as_dense_mut().unwrap();
-    //     }
-
-    //     //This implementation will never return Err, because the DenseByteNode can hold any possible value
-    //     Ok(cur.update_val(key[key.len()-1], default_f))
-    // }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
         debug_assert!(key.len() > 0);
         #[cfg(not(feature = "all_dense_nodes"))]
