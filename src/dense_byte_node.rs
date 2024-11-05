@@ -35,9 +35,6 @@ use crate::ring::*;
 //Conclusion: Need a massively multi-threaded benchmark to decide what to do with Rc / RcLite
 //
 
-#[cfg(feature = "smallvec")]
-use smallvec::SmallVec;
-
 use crate::trie_node::*;
 use crate::line_list_node::LineListNode;
 
@@ -53,11 +50,6 @@ pub type CellByteNode<V> = ByteNode<CellCoFree<V>>;
 #[derive(Clone)]
 pub struct ByteNode<Cf> {
     pub mask: [u64; 4],
-    #[cfg(all(feature = "all_dense_nodes", feature = "smallvec"))]
-    values: SmallVec<[CoFree<V>; 2]>,
-    #[cfg(all(not(feature = "all_dense_nodes"), feature = "smallvec"))]
-    values: SmallVec<[CoFree<V>; 4]>,
-    #[cfg(not(feature = "smallvec"))]
     values: Vec<Cf>,
 }
 
@@ -92,9 +84,6 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             mask: [0u64; 4],
-            #[cfg(feature = "smallvec")]
-            values: SmallVec::with_capacity(capacity),
-            #[cfg(not(feature = "smallvec"))]
             values: Vec::with_capacity(capacity),
         }
     }
