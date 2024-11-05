@@ -113,59 +113,6 @@ impl Counters {
             }
         }
 
-        //GOAT, old implementation using TrieNode::boxed_node_iter()
-        // let mut cur_run_length = 0;
-        // let mut byte_depth = 0;
-        // let mut byte_depth_stack: Vec<usize> = vec![0];
-        // let mut depth = 0;
-        // let mut prefixes: Vec<Vec<u8>> = vec![vec![]];
-        // let mut btnis = vec![map.root().borrow().boxed_node_iter()];
-        // loop {
-        //     match btnis.last_mut() {
-        //         None => { break }
-        //         Some(last) => {
-        //             match last.next() {
-        //                 None => {
-        //                     depth -= 1;
-        //                     byte_depth -= byte_depth_stack.pop().unwrap();
-        //                     cur_run_length = 0;
-        //                     prefixes.pop();
-        //                     btnis.pop();
-        //                 }
-        //                 Some((bytes, item)) => {
-        //                     //let mut cur_prefix: Vec<u8> = prefixes.last().unwrap().clone();
-        //                     //cur_prefix.extend(bytes);
-
-        //                     match item {
-        //                         ValOrChildRef::Val(_val) => {
-
-        //                             counters.push_run(cur_run_length + bytes.len(), byte_depth + bytes.len());
-
-        //                             //return Some((cur_prefix, val))
-        //                         },
-        //                         ValOrChildRef::Child(child) => {
-        //                             depth += 1;
-        //                             counters.count_node(child.item_count(), depth);
-
-        //                             byte_depth += bytes.len();
-        //                             byte_depth_stack.push(bytes.len());
-
-        //                             if child.item_count() > 1 {
-        //                                 counters.push_run(cur_run_length + bytes.len(), byte_depth);
-        //                                 cur_run_length = 0;
-        //                             } else {
-        //                                 cur_run_length += bytes.len();
-        //                             }
-
-        //                             //prefixes.push(cur_prefix);
-        //                             btnis.push(child.boxed_node_iter())
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
         counters
     }
     fn count_node<V: Clone + Send + Sync>(&mut self, node: &dyn TrieNode<V>, depth: usize) {

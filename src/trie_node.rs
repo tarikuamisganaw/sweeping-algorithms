@@ -728,8 +728,8 @@ pub(crate) fn make_cell_node<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>)
 }
 
 //TODO: Make a Macro to generate OpaqueDynBoxes and ODRc (OpaqueDynRc) and an Arc version
-//GOAT: the `pub(crate)` visibility inside the `opaque_dyn_rc_trie_node` module come from the visibility of
-// the trait it is derived on.  In this case, `TrieNode`
+//NOTE for future separation into stand-alone crate: The `pub(crate)` visibility inside the `opaque_dyn_rc_trie_node`
+//  module come from the visibility of the trait it is derived on.  In this case, `TrieNode`
 pub(crate) use opaque_dyn_rc_trie_node::TrieNodeODRc;
 #[cfg(not(feature = "racy_refcount"))]
 mod opaque_dyn_rc_trie_node {
@@ -786,7 +786,7 @@ mod opaque_dyn_rc_trie_node {
         pub fn ptr_eq(&self, other: &Self) -> bool {
             std::sync::Arc::ptr_eq(self.as_arc(), other.as_arc())
         }
-        //GOAT, make this contingent on a dyn_clone compile-time feature
+        //NOTE for future separation into stand-alone crate: Make this contingent on a dyn_clone compile-time feature
         #[inline]
         pub(crate) fn make_mut(&mut self) -> &mut (dyn TrieNode<V> + 'static) {
             dyn_clone::arc_make_mut(&mut self.0) as &mut dyn TrieNode<V>
@@ -801,7 +801,7 @@ mod opaque_dyn_rc_trie_node {
         }
     }
 
-    //GOAT, make this impl contingent on a "DefaultT" argument to the macro
+    //NOTE for future separation into stand-alone crate: Make this impl contingent on a "DefaultT" argument to the macro
     type DefaultT<V> = super::EmptyNode<V>;
     impl<V> Default for TrieNodeODRc<V> where DefaultT<V>: Default + TrieNode<V> {
         fn default() -> Self {

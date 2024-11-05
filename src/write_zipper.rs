@@ -83,13 +83,11 @@ pub trait WriteZipper<V>: Zipper {
     /// Returns `true` if the join was sucessful, or `false` if `map` was empty.
     fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice;
 
-    /// GOAT!! This method needs to take a WriteZipper.  Taking a ReadZipper should not be allowed...
-    /// The ReadZipper should not have the ability to modify the paths its reading from.
-    /// This ends up being safe in a Rust sense (memory integrity is preserved), because exclusivity on
-    /// the node is checked at runtime, but I think it violates the expectation that ReadZippers don't
-    /// modify the trie, and also it could lead to a panic if one ReadZipper ends up editing a tree that
-    /// another ReadZipper is traversing.
-    fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice;
+    /// Joins the subtrie below the focus of `src_zipper` with the subtrie below the focus of `self`,
+    /// consuming `src_zipper`'s subtrie
+    ///
+    /// Returns `true` if the join was sucessful, or `false` if `src_zipper` was at a nonexistent path.
+    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice;
 
     /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
     /// each path and joining together all of the downstream sub-paths
@@ -256,7 +254,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice { self.z.join_map(map) }
-    fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join_into(read_zipper) }
+    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
@@ -363,7 +361,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'a, '_,
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice { self.z.join_map(map) }
-    fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join_into(read_zipper) }
+    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
@@ -851,15 +849,16 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         }
     }
     /// See [WriteZipper::join_into]
-    pub fn join_into<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice {
-        let src = read_zipper.get_focus();
+    pub fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice {
+        //GOAT... Why don't we use take_focus here??
+        let src = src_zipper.get_focus();
         if src.is_none() {
             return false
         }
         match self.get_focus().into_option() {
             Some(mut self_node) => {
                 self_node.make_mut().join_into_dyn(src.into_option().unwrap());
-                true 
+                true
             },
             None => { self.graft_internal(src.into_option()); true }
         }

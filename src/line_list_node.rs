@@ -896,8 +896,6 @@ impl<V: Send + Sync> LineListNode<V> {
     }
 
     /// Converts the node to a ByteNode, transplanting the contents and leaving `self` empty
-    //GOAT, I might want to make a more abstracted ByteNode trait that supersedes the CoFree trait,
-    // since CoFree is very limiting in the structure it allows within the node
     pub(crate) fn convert_to_dense<Cf: CoFree<V=V>>(&mut self, capacity: usize) -> TrieNodeODRc<V>
         where V: Clone, ByteNode<Cf>: TrieNodeDowncast<V>
     {
@@ -2187,56 +2185,6 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for LineListNode<V> {
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
         self.convert_to_dense::<CellCoFree<V>>(3)
-
-        //GOAT trash
-        // let mut replacement_node = CellByteNode::<V>::with_capacity(3);
-
-        // //1. Transplant the key / value from slot_1 to the new node
-        // if self.is_used::<0>() {
-        //     let mut slot_0_payload = ValOrChildUnion{ _unused: () };
-        //     core::mem::swap(&mut slot_0_payload, &mut self.val_or_child0);
-        //     let key_0 = unsafe{ self.key_unchecked::<0>() };
-        //     //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
-        //     // make an intermediate node to hold the rest of the key
-        //     if key_0.len() > 1 {
-        //         let mut child_node = Self::new();
-        //         unsafe{ child_node.set_payload_0(&key_0[1..], self.is_child_ptr::<0>(), slot_0_payload); }
-        //         replacement_node.set_child(key_0[0], TrieNodeODRc::new(child_node));
-        //     } else {
-        //         if self.is_child_ptr::<0>() {
-        //             let child_node = unsafe{ ManuallyDrop::into_inner(slot_0_payload.child) };
-        //             replacement_node.set_child(key_0[0], child_node);
-        //         } else {
-        //             let val_0 = unsafe{ ManuallyDrop::into_inner(slot_0_payload.val) };
-        //             replacement_node.set_val(key_0[0], LocalOrHeap::into_inner(val_0));
-        //         }
-        //     }
-        // }
-
-        // //2. Transplant the key / value from slot_1 to the new node
-        // if self.is_used::<1>() {
-        //     let mut slot_1_payload = ValOrChildUnion{ _unused: () };
-        //     core::mem::swap(&mut slot_1_payload, &mut self.val_or_child1);
-        //     let key_1 = unsafe{ self.key_unchecked::<1>() };
-        //     if key_1.len() > 1 {
-        //         let mut child_node = Self::new();
-        //         unsafe{ child_node.set_payload_0(&key_1[1..], self.is_child_ptr::<1>(), slot_1_payload); }
-        //         replacement_node.set_child(key_1[0], TrieNodeODRc::new(child_node));
-        //     } else {
-        //         if self.is_child_ptr::<1>() {
-        //             let child_node = unsafe{ ManuallyDrop::into_inner(slot_1_payload.child) };
-        //             replacement_node.set_child(key_1[0], child_node);
-        //         } else {
-        //             let val_1 = unsafe{ ManuallyDrop::into_inner(slot_1_payload.val) };
-        //             replacement_node.set_val(key_1[0], LocalOrHeap::into_inner(val_1));
-        //         }
-        //     }
-        // }
-
-        // //4. Clear self.header, so we don't double-free anything when this old node gets dropped
-        // self.header = 0;
-
-        // TrieNodeODRc::new(replacement_node)
     }
 }
 
@@ -2773,8 +2721,6 @@ mod tests {
 //
 //GOAT, rename BytesTrieMap to PathMap, consider other renames, marked by GOATs
 //
-//GOAT, Make sound API for multiple zippers on a map
-//
 //GOAT, Fix remaining tests
 //
 //GOAT, document how path existence can't be used to confirm the existence of a value, only the non-existence
@@ -2800,3 +2746,8 @@ mod tests {
 // However, that brings up another question: Do you *want* to be pruning the path each time?  Consider a loop where a zipper is acquired, dropped, acquired, dropped, etc.  If each acquisition means creating the path, and each drop means pruning it, that is a lot of wasted work.  On the other hand, just setting and clearing a value is a lot cheaper.
 // Anyway, let me know your thoughts.
 
+//GOAT, Put the old cursor behind a feature flag, and prepare it for removal
+
+//GOAT, move range into "utils" module, and integrate efficient implementation
+
+//GOAT, write up plan for generalization of caching val_count
