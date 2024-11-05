@@ -1352,7 +1352,32 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     }
 
     fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
-        panic!(); // todo
+        let key_len = key.len();
+        let (key0, key1) = self.get_both_keys();
+        let mut remove_0 = false;
+        let mut remove_1 = false;
+        if key0.starts_with(key) {
+            if key0.len() > key_len {
+                remove_0 = !test_bit(&mask, key0[key_len]);
+            } else {
+                //We can only get here if key0 == key, and the calling code should have descend
+                // through this node if that key specifies an onward link
+                debug_assert!(!self.is_child_ptr::<0>());
+            }
+        }
+        if key1.starts_with(key) {
+            if key1.len() > key_len {
+                remove_1 = !test_bit(&mask, key1[key_len]);
+            } else {
+                debug_assert!(!self.is_child_ptr::<1>()); //See comment above
+            }
+        }
+        if remove_1 {
+            self.take_payload::<1>().unwrap();
+        }
+        if remove_0 {
+            self.take_payload::<0>().unwrap();
+        }
     }
 
     fn node_is_empty(&self) -> bool {
@@ -2174,6 +2199,18 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     }
 }
 
+#[inline]
+fn test_bit(mask: &[u64; 4], k: u8) -> bool {
+    let idx = ((k & 0b11000000) >> 6) as usize;
+    let bit_i = k & 0b00111111;
+    debug_assert!(idx < 4);
+    if mask[idx] & (1 << bit_i) > 0 {
+        true
+    } else {
+        false
+    }
+}
+
 impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for LineListNode<V> {
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
@@ -2756,3 +2793,5 @@ mod tests {
 
 //GOAT, merge in the work in the bridge_nodes branch.  If for no other reason than to get the tests, but also
 // it may be handy later on
+
+//GOAT, look at the `move_to(path)` zipper movement API, to avoid ascending too far

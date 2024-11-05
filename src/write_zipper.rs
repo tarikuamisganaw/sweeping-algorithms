@@ -1845,7 +1845,7 @@ mod tests {
 
         let mut wr = map.write_zipper();
         wr.descend_to("123:".as_bytes());
-        println!("{:?}", wr.child_mask());
+        // println!("{:?}", wr.child_mask());
 
         let mut m = [0, 0, 0, 0];
         for b in "dco".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
@@ -1857,11 +1857,34 @@ mod tests {
         drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
-
         assert_eq!(result, [
             "123:cat:Jim:Felix",
             "123:dog:Bob:Fido",
             "123:dog:Pam:Bandit",
             "123:owl:Sue:Cornelius"]);
+
+        let keys = [
+            "a1",
+            "a2",
+            "a1a",
+            "a1b",
+            "a1a1",
+            "a1a2",
+            "a1a1a",
+            "a1a1b"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut wr = map.write_zipper_at_path(b"a1");
+        // println!("{:?}", wr.child_mask());
+
+        m = [0, 0, 0, 0];
+        for b in "b".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
+        wr.remove_unmasked_branches(m);
+        drop(wr);
+
+        let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
+        assert_eq!(result, [
+            "a1",
+            "a1b",
+            "a2"]);
     }
 }
