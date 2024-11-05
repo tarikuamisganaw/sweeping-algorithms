@@ -43,7 +43,7 @@ pub trait WriteZipper<V>: Zipper {
     /// with the value that was removed, otherwise returns `None`
     ///
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
-    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    /// [Zipper::path_exists] returning `false`, where it previously returned `true`
     fn remove_value(&mut self) -> Option<V>;
 
     /// Creates a [ZipperHead] at the zipper's current focus
@@ -54,18 +54,18 @@ pub trait WriteZipper<V>: Zipper {
     /// If there is a value at the zipper's focus, it will not be affected.
     ///
     /// WARNING: If the `read_zipper` is not on an existing path (according to [Zipper::path_exists]) then the
-    /// effect will be the same as [Self::remove_branch] causing the trie to be pruned below the graft location.
+    /// effect will be the same as [Self::remove_branches] causing the trie to be pruned below the graft location.
     /// Since dangling paths aren't allowed, This method may cause the trie to be pruned above the zipper's focus,
-    /// and may lead to [Self::path_exists] returning `false`, where it previously returned `true`
+    /// and may lead to `path_exists` returning `false`, where it previously returned `true`
     fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z);
 
     /// Replaces the trie below the zipper's focus with the contents of a [BytesTrieMap], consuming the map
     ///
     /// If there is a value at the zipper's focus, it will not be affected.
     ///
-    /// WARNING: If the `map` is empty then the effect will be the same as [Self::remove_branch] causing the
+    /// WARNING: If the `map` is empty then the effect will be the same as [Self::remove_branches] causing the
     /// trie to be pruned below the graft location.  Since dangling paths aren't allowed, This method may cause
-    /// the trie to be pruned above the zipper's focus, and may lead to [Self::path_exists] returning `false`,
+    /// the trie to be pruned above the zipper's focus, and may lead to [Zipper::path_exists] returning `false`,
     /// where it previously returned `true`
     fn graft_map(&mut self, map: BytesTrieMap<V>);
 
@@ -157,7 +157,7 @@ pub trait WriteZipper<V>: Zipper {
     /// if a branch was removed, otherwise returns `false`
     ///
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
-    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    /// [Zipper::path_exists] returning `false`, where it previously returned `true`
     fn remove_branches(&mut self) -> bool;
 
     /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
@@ -168,7 +168,7 @@ pub trait WriteZipper<V>: Zipper {
     /// Key bytes for which the corresponding `mask` bit is `0` will be removed.
     ///
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
-    /// [Self::path_exists] returning `false`, where it previously returned `true`
+    /// [Zipper::path_exists] returning `false`, where it previously returned `true`
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]);
 }
 

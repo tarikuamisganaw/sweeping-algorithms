@@ -65,7 +65,7 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
         }
     }
 
-    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`
+    /// Creates a new read-only [Zipper] with the path specified from the `ZipperHead`
     pub fn read_zipper_at_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> ReadZipperTracked<'a, 'static, V> {
         let path = path.as_ref();
         let zipper_tracker = ZipperTracker::new_read_tracker(self.tracker_paths.clone(), path);
@@ -74,8 +74,9 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie,
         ReadZipperTracked::new_with_node_and_cloned_path(root_node, path.as_ref(), Some(path.len()), root_val, zipper_tracker)
     }
 
-    /// Creates a new [ReadZipper] with the specified path from the `ZipperHead`, where the caller
-    /// guarantees that there will be no conflicts with any WriteZippers at any time in the future
+    /// Creates a new read-only [Zipper] with the path specified from the `ZipperHead`, where the caller
+    /// guarantees that there are and there never will be any conflicts with any [WriteZipper]s at this time
+    /// or any time before the returned zipper is dropped
     pub unsafe fn read_zipper_at_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> ReadZipperUntracked<'a, 'static, V> {
         let path = path.as_ref();
         let z = self.borrow_z();

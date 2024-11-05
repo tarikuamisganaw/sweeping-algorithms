@@ -2751,3 +2751,8 @@ mod tests {
 //GOAT, move range into "utils" module, and integrate efficient implementation
 
 //GOAT, write up plan for generalization of caching val_count
+
+//GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
+
+//GOAT, merge in the work in the bridge_nodes branch.  If for no other reason than to get the tests, but also
+// it may be handy later on

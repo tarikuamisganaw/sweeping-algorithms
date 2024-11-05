@@ -301,6 +301,9 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperTracked<'a, 'path, V> {
     }
 }
 
+//GOAT!!!! UNsound!!!!  I realized I drop the zipper_tracker here...  Which allows the iterator to
+// continue to access the fields after the lock has been released!!!!!   FIX THIS!!!!
+
 impl<'a, 'path, V: Clone + Send + Sync> std::iter::IntoIterator for ReadZipperTracked<'a, 'path, V> {
     type Item = (Vec<u8>, &'a V);
     type IntoIter = ReadZipperIter<'a, 'path, V>;
@@ -429,6 +432,9 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperUntracked<'a, 'path, V> {
         }
     }
 }
+
+//GOAT!!!! UNsound!!!!  I realized I drop the zipper_tracker here...  Which allows the iterator to
+// continue to access the fields after the lock has been released!!!!!   FIX THIS!!!!
 
 impl<'a, 'path, V: Clone + Send + Sync> std::iter::IntoIterator for ReadZipperUntracked<'a, 'path, V> {
     type Item = (Vec<u8>, &'a V);
@@ -1448,7 +1454,7 @@ impl<'a, 'path, V: Clone + Send + Sync> std::iter::IntoIterator for ReadZipperCo
     }
 }
 
-/// An iterator for depth-first traversal of a [ReadZipper], returned from [into_iter](std::iter::IntoIterator::into_iter)
+/// An iterator for depth-first traversal of a [Zipper], returned from [ReadZipperTracked::into_iter] or [ReadZipperUntracked::into_iter]
 ///
 /// NOTE: This is a convenience to allow access to syntactic sugar like `for` loops, [collect](std::iter::Iterator::collect),
 ///  etc.  It will always be faster to use the zipper itself for iteration and traversal.

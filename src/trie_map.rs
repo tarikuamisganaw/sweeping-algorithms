@@ -103,7 +103,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         }
     }
 
-    /// Creates a new [ReadZipper] starting at the root of a BytesTrieMap
+    /// Creates a new read-only [Zipper], starting at the root of a BytesTrieMap
     pub fn read_zipper(&self) -> ReadZipperUntracked<V> {
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();
         #[cfg(debug_assertions)]
@@ -116,8 +116,9 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         }
     }
 
-    /// Creates a new [ReadZipper] with the specified path from the root of the map; This method is much more
-    /// efficient than read_zipper_at_path, but means the resulting zipper is bound by the `'path` lifetime
+    /// Creates a new read-only [Zipper], with the specified path from the root of the map; This method is much more
+    /// efficient than [read_zipper_at_path](Self::read_zipper_at_path), but means the resulting zipper is bound by
+    /// the `'path` lifetime
     pub fn read_zipper_at_borrowed_path<'path>(&self, path: &'path[u8]) -> ReadZipperUntracked<'_, 'path, V> {
         let root_val = match path.len() == 0 {
             true => unsafe{ &*self.root_val.get() }.as_ref(),
@@ -133,7 +134,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         }
     }
 
-    /// Creates a new [ReadZipper] with the specified path from the root of the map
+    /// Creates a new read-only [Zipper], with the `path` specified from the root of the map
     pub fn read_zipper_at_path<K: AsRef<[u8]>>(&self, path: K) -> ReadZipperUntracked<'_, 'static, V> {
         let path = path.as_ref();
         let root_val = match path.len() == 0 {
