@@ -1119,7 +1119,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         }
     }
 
-    fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V>) where V: Lattice {
+    fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V>) -> Result<(), TrieNodeODRc<V>> where V: Lattice {
         let other_node = other.make_mut().as_tagged_mut();
         match other_node {
             TaggedNodeRefMut::DenseByteNode(other_dense_node) => {
@@ -1134,7 +1134,8 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 self.join_into(core::mem::take(other_byte_node));
             },
             TaggedNodeRefMut::Unsupported => { }
-        } 
+        }
+        Ok(())
     }
 
     fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
@@ -1165,7 +1166,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                     };
                     match child {
                         Some(child) => {
-                            new_node.join_into_dyn(child);
+                            new_node.join_into_dyn(child).unwrap();
                         },
                         None => {}
                     }

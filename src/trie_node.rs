@@ -231,7 +231,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types
-    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
+    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) -> Result<(), TrieNodeODRc<V>> where V: Lattice;
 
     /// Returns a node composed of the children of `self`, `byte_cnt` bytes downstream, all joined together,
     /// or `None` if the node has no children at that depth
@@ -918,12 +918,6 @@ impl<V: Lattice + Clone> TrieNodeODRc<V> {
             } else {
                 other.clone()
             }
-        }
-    }
-    #[inline]
-    pub fn join_into(&mut self, other: Self) {
-        if !self.ptr_eq(&other) {
-            self.make_mut().join_into_dyn(other)
         }
     }
     #[inline]

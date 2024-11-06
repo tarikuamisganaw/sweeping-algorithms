@@ -9,7 +9,7 @@ use crate::zipper_tracking::*;
 use crate::ring::{Lattice, PartialDistributiveLattice};
 
 /// Implemented on [Zipper] types that allow modification of the trie
-pub trait WriteZipper<V>: Zipper {
+pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     /// A [ZipperHead] that can be created from this zipper
     type ZipperHead<'z> where Self: 'z;
 
@@ -87,7 +87,7 @@ pub trait WriteZipper<V>: Zipper {
     /// consuming `src_zipper`'s subtrie
     ///
     /// Returns `true` if the join was sucessful, or `false` if `src_zipper` was at a nonexistent path.
-    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice;
+    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> bool where V: Lattice;
 
     /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
     /// each path and joining together all of the downstream sub-paths
@@ -172,6 +172,15 @@ pub trait WriteZipper<V>: Zipper {
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]);
 }
 
+pub(crate) mod write_zipper_priv {
+    use crate::trie_node::*;
+
+    pub trait WriteZipperPriv<V> {
+        fn take_focus(&mut self) -> Option<TrieNodeODRc<V>>;
+    }
+}
+use write_zipper_priv::*;
+
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 // WriteZipperTracked
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -254,7 +263,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice { self.z.join_map(map) }
-    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice { self.z.join_into(src_zipper) }
+    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> bool where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
@@ -266,6 +275,10 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
+}
+
+impl<V: Clone + Send + Sync> WriteZipperPriv<V> for WriteZipperTracked<'_, '_, V> {
+    fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> { self.z.take_focus() }
 }
 
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -361,7 +374,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'a, '_,
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> bool where V: Lattice { self.z.join_map(map) }
-    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice { self.z.join_into(src_zipper) }
+    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> bool where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
@@ -373,6 +386,10 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'a, '_,
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
+}
+
+impl<V: Clone + Send + Sync> WriteZipperPriv<V> for WriteZipperUntracked<'_, '_, V> {
+    fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> { self.z.take_focus() }
 }
 
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -849,18 +866,22 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         }
     }
     /// See [WriteZipper::join_into]
-    pub fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &Z) -> bool where V: Lattice {
-        //GOAT... Why don't we use take_focus here??
-        let src = src_zipper.get_focus();
-        if src.is_none() {
-            return false
-        }
-        match self.get_focus().into_option() {
-            Some(mut self_node) => {
-                self_node.make_mut().join_into_dyn(src.into_option().unwrap());
+    pub fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> bool where V: Lattice {
+        match src_zipper.take_focus() {
+            None => return false,
+            Some(src) => {
+                let new_node = match self.take_focus() {
+                    Some(mut self_node) => {
+                        match self_node.make_mut().join_into_dyn(src) {
+                            Ok(()) => self_node,
+                            Err(replacement_node) => replacement_node,
+                        }
+                    },
+                    None => { src }
+                };
+                self.graft_internal(Some(new_node));
                 true
-            },
-            None => { self.graft_internal(src.into_option()); true }
+            }
         }
         //GOAT!!!!!  We should prune the path at the source zipper, since we're effectively leaving behind an empty node
     }
@@ -1518,6 +1539,70 @@ mod tests {
         assert_eq!(a.get(b"root").unwrap(), &1005);
         assert_eq!(a.get(b"rough").unwrap(), &1006);
         assert_eq!(a.get(b"round").unwrap(), &1007);
+    }
+
+    #[test]
+    fn write_zipper_join_into_test() {
+        let keys = ["a:arrow", "a:bow", "a:cannon", "a:roman", "a:romane", "a:romanus", "a:romulus", "a:rubens", "a:ruber", "a:rubicon", "a:rubicundus", "a:rom'i",
+            "b:road", "b:rod", "b:roll", "b:roof", "b:room", "b:root", "b:rough", "b:round"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        assert_eq!(map.val_count(), 20);
+
+        assert_eq!(map.val_count(), 20);
+        assert_eq!(map.get(b"a:arrow").unwrap(), &0);
+        assert_eq!(map.get(b"a:bow").unwrap(), &1);
+        assert_eq!(map.get(b"a:cannon").unwrap(), &2);
+        assert_eq!(map.get(b"a:roman").unwrap(), &3);
+        assert_eq!(map.get(b"a:romulus").unwrap(), &6);
+        assert_eq!(map.get(b"a:rom'i").unwrap(), &11);
+        assert_eq!(map.get(b"a:rubens").unwrap(), &7);
+        assert_eq!(map.get(b"a:ruber").unwrap(), &8);
+        assert_eq!(map.get(b"a:rubicundus").unwrap(), &10);
+        assert_eq!(map.get(b"b:road").unwrap(), &12);
+        assert_eq!(map.get(b"b:rod").unwrap(), &13);
+        assert_eq!(map.get(b"b:roll").unwrap(), &14);
+        assert_eq!(map.get(b"b:roof").unwrap(), &15);
+        assert_eq!(map.get(b"b:room").unwrap(), &16);
+        assert_eq!(map.get(b"b:root").unwrap(), &17);
+        assert_eq!(map.get(b"b:rough").unwrap(), &18);
+        assert_eq!(map.get(b"b:round").unwrap(), &19);
+
+        let head = map.zipper_head();
+        let mut a = head.write_zipper_at_exclusive_path(b"a:");
+        let mut b = head.write_zipper_at_exclusive_path(b"b:");
+        assert_eq!(a.val_count(), 12);
+        assert_eq!(b.val_count(), 8);
+
+        a.join_into(&mut b);
+        assert_eq!(a.val_count(), 20);
+        assert_eq!(b.val_count(), 0);
+
+        drop(a);
+        drop(b);
+        drop(head);
+
+        //Test the keys are where we expect them to be, and not where they should not be
+        assert_eq!(map.val_count(), 20);
+        assert_eq!(map.get(b"a:arrow").unwrap(), &0);
+        assert_eq!(map.get(b"a:bow").unwrap(), &1);
+        assert_eq!(map.get(b"a:cannon").unwrap(), &2);
+        assert_eq!(map.get(b"a:roman").unwrap(), &3);
+        assert_eq!(map.get(b"a:romulus").unwrap(), &6);
+        assert_eq!(map.get(b"a:rom'i").unwrap(), &11);
+        assert_eq!(map.get(b"a:rubens").unwrap(), &7);
+        assert_eq!(map.get(b"a:ruber").unwrap(), &8);
+        assert_eq!(map.get(b"a:rubicundus").unwrap(), &10);
+        assert_eq!(map.get(b"a:road").unwrap(), &12);
+        assert_eq!(map.get(b"a:rod").unwrap(), &13);
+        assert_eq!(map.get(b"a:roll").unwrap(), &14);
+        assert_eq!(map.get(b"a:roof").unwrap(), &15);
+        assert_eq!(map.get(b"a:room").unwrap(), &16);
+        assert_eq!(map.get(b"a:root").unwrap(), &17);
+        assert_eq!(map.get(b"a:rough").unwrap(), &18);
+        assert_eq!(map.get(b"a:round").unwrap(), &19);
+
+        assert_eq!(map.get(b"b:road"), None);
+        assert_eq!(map.get(b"b:round"), None);
     }
 
     #[test]

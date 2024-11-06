@@ -222,7 +222,7 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         // the basic premise of the TinyRefNode
         self.into_full().unwrap().join_dyn(other)
     }
-    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice { unreachable!() }
+    fn join_into_dyn(&mut self, _other: TrieNodeODRc<V>) -> Result<(), TrieNodeODRc<V>> where V: Lattice { unreachable!() }
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice { unreachable!() }
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
         //GOAT, is this worth bespoke code to save some cycles?

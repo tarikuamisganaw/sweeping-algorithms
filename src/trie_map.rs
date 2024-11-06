@@ -342,7 +342,10 @@ impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
 
     fn join_into(&mut self, other: Self) {
         if let Some(other_root) = other.into_root() {
-            self.root_mut().join_into(other_root)
+            match self.root_mut().make_mut().join_into_dyn(other_root) {
+                Ok(()) => {},
+                Err(replacement) => { *self.root_mut() = replacement; }
+            }
         }
     }
 
@@ -532,6 +535,27 @@ mod tests {
             assert_eq!(rs[*i].as_bytes(), &path);
         }
         assert_eq!(joined.val_count(), rs.len());
+    }
+
+    #[test]
+    fn map_join_into_test() {
+        let mut a = BytesTrieMap::<usize>::new();
+        let mut b = BytesTrieMap::<usize>::new();
+        let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz"];
+        for (i, path) in rs.into_iter().enumerate() {
+            if i % 2 == 0 {
+                a.insert(path, i);
+            } else {
+                b.insert(path, i);
+            }
+        }
+
+        a.join_into(b);
+        for (path, i) in a.iter() {
+            // println!("{} {}", std::str::from_utf8(&path).unwrap(), i);
+            assert_eq!(rs[*i].as_bytes(), &path);
+        }
+        assert_eq!(a.val_count(), rs.len());
     }
 
     #[test]

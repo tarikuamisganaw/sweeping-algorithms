@@ -145,12 +145,14 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V>> {
         None
     }
-    fn join_dyn(&self, _other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+    fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         //GOAT, The ideal implementation would be to clone the other node's ODRc, rather than making a new node
-        panic!()
+        other.clone_self()
     }
 
-    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice { }
+    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) -> Result<(), TrieNodeODRc<V>> where V: Lattice {
+        Err(other.clone())
+    }
 
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
         None
