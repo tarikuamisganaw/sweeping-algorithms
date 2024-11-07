@@ -28,7 +28,7 @@ serde = { version = "1.0.163", features = ["derive"]}
 csv = "1.1.6"
 
 [[bench]]
-name = "basics"
+name = "superdense_keys"
 harness = false
 
 [[bench]]
