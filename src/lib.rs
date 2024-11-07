@@ -1,4 +1,6 @@
 
+#![doc = include_str!("../README.md")]
+
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
 
