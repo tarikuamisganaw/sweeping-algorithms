@@ -21,7 +21,8 @@ fn read_data(as_words: bool) -> Vec<String> {
     // https://ocw.mit.edu/ans7870/6/6.006/s08/lecturenotes/files/t8.shakespeare.txt
     // ~200k clauses
     // ~900k words
-    let file = File::open("/Users/admin/Desktop/t8.shakespeare.txt").unwrap();
+    let file_path = std::path::PathBuf::from(file!()).parent().unwrap().join("shakespeare.txt");
+    let file = File::open(file_path).unwrap();
 
     //Parse the file, with each sentence clause as an expression
     let mut reader = BufReader::new(file);
