@@ -67,10 +67,12 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
         None
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
+        #[allow(unused_mut)]
         let mut replacement_node;
         #[cfg(all(not(feature = "all_dense_nodes"), not(feature = "bridge_nodes")))]
         {
             replacement_node = crate::line_list_node::LineListNode::new();
+            replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
         }
         #[cfg(all(feature = "bridge_nodes", not(feature = "all_dense_nodes")))]
         {
@@ -79,15 +81,17 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
         #[cfg(feature = "all_dense_nodes")]
         {
             replacement_node = crate::dense_byte_node::DenseByteNode::new();
+            replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
         }
-        replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
         Err(TrieNodeODRc::new(replacement_node))
     }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
+        #[allow(unused_mut)]
         let mut replacement_node;
         #[cfg(all(not(feature = "all_dense_nodes"), not(feature = "bridge_nodes")))]
         {
             replacement_node = crate::line_list_node::LineListNode::new();
+            replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
         }
         #[cfg(all(feature = "bridge_nodes", not(feature = "all_dense_nodes")))]
         {
@@ -96,8 +100,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
         #[cfg(feature = "all_dense_nodes")]
         {
             replacement_node = crate::dense_byte_node::DenseByteNode::new();
+            replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
         }
-        replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
         Err(TrieNodeODRc::new(replacement_node))
     }
     fn node_remove_all_branches(&mut self, _key: &[u8]) -> bool {

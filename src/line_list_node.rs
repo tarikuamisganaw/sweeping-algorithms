@@ -1977,6 +1977,10 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                 new_node.merge_from_list_node(self);
                 TrieNodeODRc::new(new_node)
             },
+            #[cfg(feature = "bridge_nodes")]
+            TaggedNodeRef::BridgeNode(_other_bridge_node) => {
+                unimplemented!()
+            },
             TaggedNodeRef::TinyRefNode(tiny_node) => {
                 tiny_node.join_dyn(self)
             },
@@ -2010,8 +2014,12 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                 new_node.merge_from_list_node(self);
                 Err(TrieNodeODRc::new(new_node))
             },
+            #[cfg(feature = "bridge_nodes")]
+            TaggedNodeRef::BridgeNode(_other_bridge_node) => {
+                unimplemented!()
+            },
             TaggedNodeRef::TinyRefNode(tiny_node) => {
-                let other_tiny_node = tiny_node.into_full().unwrap();
+                let other_tiny_node = tiny_node.into_list_node().unwrap();
                 match merge_list_nodes(self, &other_tiny_node) {
                     Ok(new_list_node) => {
                         *self = new_list_node;

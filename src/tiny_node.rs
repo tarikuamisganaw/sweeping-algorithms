@@ -40,9 +40,8 @@ impl<'a, V: Clone + Send + Sync> TinyRefNode<'a, V> {
         new_node
     }
 
-    #[cfg(not(feature = "bridge_nodes"))]
     /// Turn the TinyRefNode into a LineListNode by cloning the payload
-    pub fn into_full(&self) -> Option<crate::line_list_node::LineListNode<V>> {
+    pub fn into_list_node(&self) -> Option<crate::line_list_node::LineListNode<V>> {
         self.clone_payload().map(|payload| {
             let mut new_node = crate::line_list_node::LineListNode::new();
             unsafe{ new_node.set_payload_owned::<0>(self.key(), payload); }
@@ -52,8 +51,8 @@ impl<'a, V: Clone + Send + Sync> TinyRefNode<'a, V> {
     }
 
     #[cfg(feature = "bridge_nodes")]
-    /// Turn the TinyRefNode into a LineListNode by cloning the payload
-    pub fn into_full(&self) -> Option<crate::bridge_node::BridgeNode<V>> {
+    /// Turn the TinyRefNode into a BridgeNode by cloning the payload
+    pub fn into_bridge_node(&self) -> Option<crate::bridge_node::BridgeNode<V>> {
         let is_child = self.is_child_ptr();
         let payload: ValOrChildUnion<V> = if is_child {
             unsafe{ &*self.payload.child }.clone().into()
@@ -63,8 +62,17 @@ impl<'a, V: Clone + Send + Sync> TinyRefNode<'a, V> {
         Some(crate::bridge_node::BridgeNode::new(self.key(), is_child, payload))
     }
 
-    /// Clones the payload from self
     #[cfg(not(feature = "bridge_nodes"))]
+    pub fn into_full(&self) -> Option<crate::line_list_node::LineListNode<V>> {
+        self.into_list_node()
+    }
+
+    #[cfg(feature = "bridge_nodes")]
+    pub fn into_full(&self) -> Option<crate::bridge_node::BridgeNode<V>> {
+        self.into_bridge_node()
+    }
+
+    /// Clones the payload from self
     fn clone_payload(&self) -> Option<ValOrChild<V>> {
         if self.node_is_empty() {
             return None;

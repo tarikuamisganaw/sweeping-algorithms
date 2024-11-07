@@ -8,12 +8,11 @@ use crate::dense_byte_node::*;
 use crate::empty_node::EmptyNode;
 use crate::ring::*;
 use crate::tiny_node::TinyRefNode;
+use crate::line_list_node::LineListNode;
 
 #[cfg(feature = "bridge_nodes")]
 use crate::bridge_node::BridgeNode;
 
-#[cfg(not(feature = "bridge_nodes"))]
-use crate::line_list_node::LineListNode;
 
 /// The abstract interface to all nodes, from which tries are built
 ///
@@ -288,14 +287,12 @@ pub const NODE_ITER_INVALID: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
 /// Special sentinel token value indicating iteration of a node has concluded
 pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE;
 
-#[cfg(not(feature = "bridge_nodes"))] //Currently only used by ListNode, but could be useful elsewhere
 #[derive(Clone)]
 pub(crate) enum ValOrChild<V> {
     Val(V),
     Child(TrieNodeODRc<V>)
 }
 
-#[cfg(not(feature = "bridge_nodes"))]
 impl<V> core::fmt::Debug for ValOrChild<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -305,7 +302,6 @@ impl<V> core::fmt::Debug for ValOrChild<V> {
     }
 }
 
-#[cfg(not(feature = "bridge_nodes"))]
 impl<V> ValOrChild<V> {
     pub fn into_child(self) -> TrieNodeODRc<V> {
         match self {
@@ -342,7 +338,6 @@ impl<V> From<TrieNodeODRc<V>> for ValOrChildUnion<V> {
         Self{ child: ManuallyDrop::new(child) }
     }
 }
-#[cfg(not(feature = "bridge_nodes"))]
 impl<V> From<ValOrChild<V>> for ValOrChildUnion<V> {
     fn from(voc: ValOrChild<V>) -> Self {
         match voc {
@@ -429,6 +424,8 @@ pub enum TaggedNodeRef<'a, V> {
 pub enum TaggedNodeRefMut<'a, V> {
     DenseByteNode(&'a mut DenseByteNode<V>),
     LineListNode(&'a mut LineListNode<V>),
+    #[cfg(feature = "bridge_nodes")]
+    BridgeNode(&'a mut BridgeNode<V>),
     CellByteNode(&'a mut CellByteNode<V>),
     Unsupported,
 }
@@ -681,6 +678,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => Some(node),
             Self::LineListNode(_) => None,
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(_) => None,
             Self::TinyRefNode(_) => None,
             Self::CellByteNode(_) => None,
             Self::EmptyNode(_) => None,
@@ -694,6 +693,21 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(_) => None,
             Self::LineListNode(node) => Some(node),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(_) => None,
+            Self::TinyRefNode(_) => None,
+            Self::CellByteNode(_) => None,
+            Self::EmptyNode(_) => None,
+        }
+    }
+
+    #[cfg(feature = "bridge_nodes")]
+    #[inline(always)]
+    pub fn as_bridge(&self) -> Option<&'a BridgeNode<V>> {
+        match self {
+            Self::DenseByteNode(_) => None,
+            Self::LineListNode(_) => None,
+            Self::BridgeNode(node) => Some(node),
             Self::TinyRefNode(_) => None,
             Self::CellByteNode(_) => None,
             Self::EmptyNode(_) => None,
@@ -721,6 +735,8 @@ impl<'a, V> TaggedNodeRefMut<'a, V> {
         match self {
             Self::DenseByteNode(node) => Some(node),
             Self::LineListNode(_) => None,
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(_) => None,
             Self::CellByteNode(_) => None,
             Self::Unsupported => None,
         }
@@ -729,6 +745,8 @@ impl<'a, V> TaggedNodeRefMut<'a, V> {
     pub fn into_list(self) -> Option<&'a mut LineListNode<V>> {
         match self {
             Self::LineListNode(node) => Some(node),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(_) => None,
             Self::DenseByteNode(_) => None,
             Self::CellByteNode(_) => None,
             Self::Unsupported => None,
@@ -738,6 +756,8 @@ impl<'a, V> TaggedNodeRefMut<'a, V> {
     pub fn into_cell_node(self) -> Option<&'a mut CellByteNode<V>> {
         match self {
             Self::CellByteNode(node) => Some(node),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(_) => None,
             Self::DenseByteNode(_) => None,
             Self::LineListNode(_) => None,
             Self::Unsupported => None,

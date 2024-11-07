@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::dense_byte_node::DenseByteNode;
+use crate::dense_byte_node::{DenseByteNode, CellByteNode, test_bit_in_mask};
 use crate::tiny_node::TinyRefNode;
 
 /// A node type that only has a single value or onward link
@@ -103,6 +103,25 @@ impl<V: Clone> BridgeNode<V> {
             payload: ValOrChildUnion{ _unused: () }
         }
     }
+    /// Clone the payload from self
+    pub fn clone_payload(&self) -> ValOrChildUnion<V> {
+        debug_assert!(!self.is_empty());
+        if self.is_child_ptr() {
+            unsafe{ &*self.payload.child }.clone().into()
+        } else {
+            unsafe{ &**self.payload.val }.clone().into()
+        }
+    }
+    /// Takes the payload from self, leaving self empty, but with `key()`` and `is_child_ptr()` continuing
+    /// to return the old information
+    pub fn take_payload(&mut self) -> ValOrChildUnion<V> {
+        debug_assert_eq!(self.is_empty(), false);
+        self.header &= !(1 << 7);
+        core::mem::take(&mut self.payload)
+    }
+}
+
+impl<V: Clone + Send + Sync> BridgeNode<V> {
     pub fn new(key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) -> Self {
         debug_assert!(key.len() > 0);
         if key.len() <= KEY_BYTES_CNT {
@@ -178,22 +197,6 @@ impl<V: Clone> BridgeNode<V> {
             Err(TrieNodeODRc::new(replacement_node))
         }
     }
-    /// Clone the payload from self
-    pub fn clone_payload(&self) -> ValOrChildUnion<V> {
-        debug_assert!(!self.is_empty());
-        if self.is_child_ptr() {
-            unsafe{ &*self.payload.child }.clone().into()
-        } else {
-            unsafe{ &**self.payload.val }.clone().into()
-        }
-    }
-    /// Takes the payload from self, leaving self empty, but with `key()`` and `is_child_ptr()` continuing
-    /// to return the old information
-    pub fn take_payload(&mut self) -> ValOrChildUnion<V> {
-        debug_assert_eq!(self.is_empty(), false);
-        self.header &= !(1 << 7);
-        core::mem::take(&mut self.payload)
-    }
     fn merge_bridge_nodes(&self, other: &BridgeNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         debug_assert!(!self.is_empty());
         debug_assert!(!other.is_empty());
@@ -248,9 +251,10 @@ impl<V: Clone> BridgeNode<V> {
         }
     }
 
-    /// Converts the node to a DenseByteNode, transplanting the contents and leaving `self` empty
-    pub(crate) fn convert_to_dense(&mut self, capacity: usize) -> TrieNodeODRc<V> where V: Clone {
-        let mut replacement_node = DenseByteNode::<V>::with_capacity(capacity);
+    /// Converts the node to a CellByteNode, transplanting the contents and leaving `self` empty
+    fn convert_to_cell_node(&mut self, capacity: usize) -> TrieNodeODRc<V> where V: Clone {
+        debug_assert!(!self.is_empty());
+        let mut replacement_node = CellByteNode::<V>::with_capacity(capacity);
 
         //Transplant the key / value to the new node
         if !self.is_empty() {
@@ -278,7 +282,7 @@ impl<V: Clone> BridgeNode<V> {
     }
 }
 
-impl<V: Clone> TrieNode<V> for BridgeNode<V> {
+impl<V: Clone + Send + Sync> TrieNode<V> for BridgeNode<V> {
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         debug_assert!(!self.is_empty());
         if self.key().starts_with(key) {
@@ -300,7 +304,6 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         }
         None
     }
-    fn node_get_child_and_val_mut(&mut self, _key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> { unreachable!() }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         if self.is_used_child() {
             let node_key = self.key();
@@ -379,7 +382,7 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
         debug_assert!(!self.is_empty());
         let self_key = self.key();
         if self_key.starts_with(key) {
-            if key.len() < self_key.len() && !test_mask(&mask, self_key[key.len()]) {
+            if key.len() < self_key.len() && !test_bit_in_mask(&mask, self_key[key.len()]) {
                 self.drop_payload();
                 self.header = 0;
                 return
@@ -572,60 +575,66 @@ impl<V: Clone> TrieNode<V> for BridgeNode<V> {
     }
     fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
         debug_assert!(!self.is_empty());
-        if let Some(other_bridge) = other.as_bridge() {
-            self.merge_bridge_nodes(other_bridge)
-        } else {
-            if let Some(other_dense) = other.as_dense() {
-                let mut new_dense = other_dense.clone();
+        match other.as_tagged() {
+            TaggedNodeRef::BridgeNode(other_bridge_node) => {
+                self.merge_bridge_nodes(other_bridge_node)
+            },
+            TaggedNodeRef::LineListNode(_other_list_node) => {
+                unimplemented!()
+            },
+            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+                let mut new_dense = other_dense_node.clone();
                 new_dense.merge_payload(self.key(), self.is_child_ptr(), self.clone_payload());
                 TrieNodeODRc::new(new_dense)
-            } else {
-                unreachable!()
+            },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                tiny_node.join_dyn(self)
+            },
+            TaggedNodeRef::CellByteNode(other_dense_node) => {
+                let mut new_dense = other_dense_node.clone();
+                new_dense.merge_payload(self.key(), self.is_child_ptr(), self.clone_payload());
+                TrieNodeODRc::new(new_dense)
+            },
+            TaggedNodeRef::EmptyNode(_) => {
+                //GOAT, optimization opportunity.  Could communicate here that the resultant node is a clone
+                // so we could just bump the refcount rather than make a new TrieNodeODRc pointer
+                TrieNodeODRc::new(self.clone())
             }
         }
     }
-    fn join_into_dyn(&mut self, mut _other: TrieNodeODRc<V>) where V: Lattice {
-        //NOTE: This method is never called.  However, if it were called, we could implement the bridge->bridge
-        // path using `splice_new_payload`.  But the current prototype doesn't allow arbitrary node types to
-        // implement this method at all, because the joined node might not be representable
-        unreachable!()
+    fn join_into_dyn(&mut self, _other: TrieNodeODRc<V>) -> Result<(), TrieNodeODRc<V>> where V: Lattice {
+        //NOTE: This method could be implement the bridge->bridge path using `splice_new_payload`
+        // and we'd also need a code path for upgrading to another node type, e.g. dense node
+        unimplemented!()
     }
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
-        unreachable!()
+        unimplemented!()
     }
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
-        panic!();
+    fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
+        unimplemented!()
     }
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
-        panic!();
+    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+        unimplemented!()
     }
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
-        panic!();
-    }
-    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        None
-    }
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        None
-    }
-    //This whole file is behind a switch that means these methods aren't available
-    // fn as_list(&self) -> Option<&LineListNode<V>> {
-    //     None
-    // }
-    // fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
-    //     None
-    // }
-    fn as_bridge(&self) -> Option<&BridgeNode<V>> {
-        Some(self)
-    }
-    fn as_bridge_mut(&mut self) -> Option<&mut crate::bridge_node::BridgeNode<V>> {
-        Some(self)
-    }
-    fn as_tagged(&self) -> TaggedNodeRef<V> {
-        TaggedNodeRef::BridgeNode(self)
+    fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
+        unimplemented!()
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
+    }
+}
+
+impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for BridgeNode<V> {
+    #[inline]
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::BridgeNode(self)
+    }
+    #[inline]
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+        TaggedNodeRefMut::BridgeNode(self)
+    }
+    fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
+        self.convert_to_cell_node(2)
     }
 }
 
