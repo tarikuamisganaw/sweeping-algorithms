@@ -10,7 +10,6 @@ use std::collections::HashMap;
 
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::line_list_node::{LineListNode, ValOrChildUnion, validate_node};
 
 /// A borrowed reference to a payload with a key stored elsewhere, contained in 16 Bytes
 #[derive(Clone, Copy)]
@@ -18,8 +17,8 @@ pub struct TinyRefNode<'a, V> {
     /// bit 7 = used
     /// bit 6 = is_child
     /// bit 5 to bit 0 = key_len
-    header: u8,
     key_bytes: [MaybeUninit<u8>; 7],
+    header: u8,
     payload: &'a ValOrChildUnion<V>
 }
 
@@ -41,17 +40,31 @@ impl<'a, V: Clone + Send + Sync> TinyRefNode<'a, V> {
         new_node
     }
 
+    #[cfg(not(feature = "bridge_nodes"))]
     /// Turn the TinyRefNode into a LineListNode by cloning the payload
-    pub fn into_full(&self) -> Option<LineListNode<V>> {
+    pub fn into_full(&self) -> Option<crate::line_list_node::LineListNode<V>> {
         self.clone_payload().map(|payload| {
-            let mut new_node = LineListNode::new();
+            let mut new_node = crate::line_list_node::LineListNode::new();
             unsafe{ new_node.set_payload_owned::<0>(self.key(), payload); }
-            debug_assert!(validate_node(&new_node));
+            debug_assert!(crate::line_list_node::validate_node(&new_node));
             new_node
         })
     }
 
+    #[cfg(feature = "bridge_nodes")]
+    /// Turn the TinyRefNode into a LineListNode by cloning the payload
+    pub fn into_full(&self) -> Option<crate::bridge_node::BridgeNode<V>> {
+        let is_child = self.is_child_ptr();
+        let payload: ValOrChildUnion<V> = if is_child {
+            unsafe{ &*self.payload.child }.clone().into()
+        } else {
+            unsafe{ &**self.payload.val }.clone().into()
+        };
+        Some(crate::bridge_node::BridgeNode::new(self.key(), is_child, payload))
+    }
+
     /// Clones the payload from self
+    #[cfg(not(feature = "bridge_nodes"))]
     fn clone_payload(&self) -> Option<ValOrChild<V>> {
         if self.node_is_empty() {
             return None;

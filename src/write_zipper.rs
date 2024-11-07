@@ -1301,9 +1301,17 @@ fn make_parents<V: Clone + Send + Sync>(path: &[u8], child_node: TrieNodeODRc<V>
 
     #[cfg(not(feature = "all_dense_nodes"))]
     {
-        let mut new_node = crate::line_list_node::LineListNode::new();
-        new_node.node_set_branch(path, child_node).unwrap_or_else(|_| panic!());
-        TrieNodeODRc::new(new_node)
+        #[cfg(not(feature = "bridge_nodes"))]
+        {
+            let mut new_node = crate::line_list_node::LineListNode::new();
+            new_node.node_set_branch(path, child_node).unwrap_or_else(|_| panic!());
+            TrieNodeODRc::new(new_node)
+        }
+        #[cfg(feature = "bridge_nodes")]
+        {
+            let new_node = crate::bridge_node::BridgeNode::new(path, true, child_node.into());
+            TrieNodeODRc::new(new_node)
+        }
     }
 
     #[cfg(feature = "all_dense_nodes")]
@@ -1971,5 +1979,33 @@ mod tests {
             "a1",
             "a1b",
             "a2"]);
+    }
+
+    #[test]
+    fn write_zipper_remove_unmask_branches() {
+        let keys = ["Wilson", "Taft", "Roosevelt", "McKinley", "Cleveland", "Harrison", "Arthur", "Garfield"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut wr = map.write_zipper();
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'M'-64)), 0xFF, 0xFF]);
+        //McKinley didn't make it
+        wr.descend_to("McKinley");
+        assert_eq!(wr.get_value(), None);
+
+        wr.reset();
+        wr.descend_to("Roos");
+        assert_eq!(wr.path_exists(), true);
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF]);
+        //Missed Roosevelt
+        wr.descend_to("evelt");
+        assert_eq!(wr.get_value(), Some(&2));
+
+        wr.reset();
+        wr.descend_to("Garf");
+        assert_eq!(wr.path_exists(), true);
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF]);
+        wr.descend_to("ield");
+        //Garfield was removed
+        assert_eq!(wr.get_value(), None);
     }
 }

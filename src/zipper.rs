@@ -1827,7 +1827,7 @@ mod tests {
         while let Some(_val) = parent_zipper.to_next_val() {
             let mut full_parent_path = parent_path.as_bytes().to_vec();
             full_parent_path.extend(parent_zipper.path());
-            assert!(family.contains(full_parent_path.clone()));
+            assert!(family.contains(&full_parent_path));
             assert_eq!(full_parent_path, parent_zipper.origin_path().unwrap());
         }
     }
@@ -1942,6 +1942,36 @@ mod tests {
         assert_eq!(zipper.to_next_k_path(sym_len+1), false);
         assert_eq!(zipper.path(), b"5:");
         assert_eq!(zipper.child_count(), 6);
+    }
+
+    #[test]
+    fn zipper_test_masks() {
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let btm: BytesTrieMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i)).collect();
+        let mut zipper = btm.read_zipper();
+
+        //'a' + 'b' + 'c' + 'r'
+        assert_eq!(zipper.child_mask(), [0, 1<<(b'a'-64) | 1<<(b'b'-64) | 1<<(b'c'-64) | 1<<(b'r'-64), 0, 0]);
+
+        let mut i = 0;
+        while zipper.to_next_step() {
+            match i {
+                //'r' descending from 'a' in "arrow"
+                0 => assert_eq!(zipper.child_mask(), [0, 1<<(b'r'-64), 0, 0]),
+                //'r' descending from "ar" in "arrow"
+                1 => assert_eq!(zipper.child_mask(), [0, 1<<(b'r'-64), 0, 0]),
+                //'o' descending from "arr" in "arrow"
+                2 => assert_eq!(zipper.child_mask(), [0, 1<<(b'o'-64), 0, 0]),
+                //'w' descending from "arro" in "arrow"
+                3 => assert_eq!(zipper.child_mask(), [0, 1<<(b'w'-64), 0, 0]),
+                //leaf node, "arrow"
+                4 => assert_eq!(zipper.child_mask(), [0, 0, 0, 0]),
+                //'o' + 'u' descending from 'r' in "roman", "rubens", etc.
+                14 => assert_eq!(zipper.child_mask(), [0, 1<<(b'o'-64) | 1<<(b'u'-64), 0, 0]),
+                _ => {}
+            }
+            i += 1;
+        }
     }
 
     #[test]

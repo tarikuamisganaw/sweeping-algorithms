@@ -5,7 +5,7 @@ use local_or_heap::LocalOrHeap;
 
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
+use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree, test_bit_in_mask};
 use crate::tiny_node::TinyRefNode;
 
 
@@ -17,8 +17,8 @@ pub struct LineListNode<V> {
     /// bit 12 = slot_1_is_child (child ptr vs value).  If bit 14 is 0, but bit 12 is 1, it means slot_0 consumed all the key space, so nothing can go in slot_1
     /// bits 11 to bit 6 = slot_0_key_len
     /// bit 5 to bit 0 = slot_1_key_len
-    header: u16,
     key_bytes: [MaybeUninit<u8>; KEY_BYTES_CNT],
+    header: u16,
     val_or_child0: ValOrChildUnion<V>,
     val_or_child1: ValOrChildUnion<V>,
 }
@@ -28,44 +28,6 @@ pub struct LineListNode<V> {
 // to stay within 1 cache line, or 78 to pack into two.
 //WARNING the length bits mean I will overflow if I go above 63
 const KEY_BYTES_CNT: usize = 14;
-
-pub union ValOrChildUnion<V> {
-    pub child: ManuallyDrop<TrieNodeODRc<V>>,
-    pub val: ManuallyDrop<LocalOrHeap<V>>,
-    pub _unused: ()
-}
-
-impl<V> Default for ValOrChildUnion<V> {
-    fn default() -> Self {
-        Self { _unused: () }
-    }
-}
-impl<V> From<V> for ValOrChildUnion<V> {
-    fn from(val: V) -> Self {
-        Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
-    }
-}
-impl<V> From<TrieNodeODRc<V>> for ValOrChildUnion<V> {
-    fn from(child: TrieNodeODRc<V>) -> Self {
-        Self{ child: ManuallyDrop::new(child) }
-    }
-}
-impl<V> From<ValOrChild<V>> for ValOrChildUnion<V> {
-    fn from(voc: ValOrChild<V>) -> Self {
-        match voc {
-            ValOrChild::Child(child) => Self{ child: ManuallyDrop::new(child) },
-            ValOrChild::Val(val) => Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
-        }
-    }
-}
-impl<V> ValOrChildUnion<V> {
-    unsafe fn into_val(self) -> V {
-        LocalOrHeap::into_inner(ManuallyDrop::into_inner(self.val))
-    }
-    unsafe fn into_child(self) -> TrieNodeODRc<V> {
-        ManuallyDrop::into_inner(self.child)
-    }
-}
 
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
@@ -1055,7 +1017,7 @@ impl<V: Send + Sync> LineListNode<V> {
 
 /// Returns the number of characters shared between two slices
 #[inline]
-fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+pub(crate) fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     let mut cnt = 0;
     loop {
         if cnt == a.len() {break}
@@ -1498,7 +1460,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         let mut remove_1 = false;
         if key0.starts_with(key) {
             if key0.len() > key_len {
-                remove_0 = !test_bit(&mask, key0[key_len]);
+                remove_0 = !test_bit_in_mask(&mask, key0[key_len]);
             } else {
                 //We can only get here if key0 == key, and the calling code should have descend
                 // through this node if that key specifies an onward link
@@ -1507,7 +1469,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         }
         if key1.starts_with(key) {
             if key1.len() > key_len {
-                remove_1 = !test_bit(&mask, key1[key_len]);
+                remove_1 = !test_bit_in_mask(&mask, key1[key_len]);
             } else {
                 debug_assert!(!self.is_child_ptr::<1>()); //See comment above
             }
@@ -1534,6 +1496,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     // * 2 = the item in slot1 has already been returned, so the next call to `next_items` must return
     // *   NODE_ITER_FINISHED
     // *==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==*
+    #[inline(always)]
     fn new_iter_token(&self) -> u128 {
         0
     }
@@ -2238,18 +2201,6 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     }
 }
 
-#[inline]
-fn test_bit(mask: &[u64; 4], k: u8) -> bool {
-    let idx = ((k & 0b11000000) >> 6) as usize;
-    let bit_i = k & 0b00111111;
-    debug_assert!(idx < 4);
-    if mask[idx] & (1 << bit_i) > 0 {
-        true
-    } else {
-        false
-    }
-}
-
 impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for LineListNode<V> {
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
@@ -2806,6 +2757,7 @@ mod tests {
 //
 //GOAT, Write ReadMe
 //  intro - as a key-value store, the power of prefixes, structural sharing
+//      caveat-sidebar about path stability.  Paths without values may be pruned.  Paths with values are reliable.
 //  algebraic ops
 //  Zippers as a concept
 //  Multiple zippers in the same map
@@ -2827,8 +2779,5 @@ mod tests {
 //GOAT, write up plan for generalization of caching val_count
 
 //GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
-
-//GOAT, merge in the work in the bridge_nodes branch.  If for no other reason than to get the tests, but also
-// it may be handy later on
 
 //GOAT, look at the `move_to(path)` zipper movement API, to avoid ascending too far

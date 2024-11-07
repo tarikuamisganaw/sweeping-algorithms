@@ -1,12 +1,19 @@
 
+use core::mem::ManuallyDrop;
 use std::collections::HashMap;
 use dyn_clone::*;
+use local_or_heap::LocalOrHeap;
 
 use crate::dense_byte_node::*;
-use crate::line_list_node::LineListNode;
 use crate::empty_node::EmptyNode;
 use crate::ring::*;
 use crate::tiny_node::TinyRefNode;
+
+#[cfg(feature = "bridge_nodes")]
+use crate::bridge_node::BridgeNode;
+
+#[cfg(not(feature = "bridge_nodes"))]
+use crate::line_list_node::LineListNode;
 
 /// The abstract interface to all nodes, from which tries are built
 ///
@@ -99,8 +106,8 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
 
     /// Removes the downstream branch from the specified `key`.  Does not affect the value at the `key`
     ///
-    /// Returns `true` if a value was sucessfully removed from the node; returns `false` if the node did not
-    /// contain a branch at the specified key
+    /// Returns `true` if one or more downstream branches were removed from the node; returns `false` if
+    /// the node did not contain any downstream branches from the specified key
     ///
     /// WARNING: This method may leave the node empty.  If eager pruning of branches is desired then the
     /// node should subsequently be checked to see if it is empty
@@ -222,6 +229,8 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// Returns a node which is the the portion of the node rooted at `key`, or `None` if `key` does
     /// not specify a path within the node
     ///
+    /// WARNING: This method may leave the node empty
+    ///
     /// This method should never be called with `key.len() == 0`
     fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
 
@@ -279,12 +288,14 @@ pub const NODE_ITER_INVALID: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
 /// Special sentinel token value indicating iteration of a node has concluded
 pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE;
 
+#[cfg(not(feature = "bridge_nodes"))] //Currently only used by ListNode, but could be useful elsewhere
 #[derive(Clone)]
 pub(crate) enum ValOrChild<V> {
     Val(V),
     Child(TrieNodeODRc<V>)
 }
 
+#[cfg(not(feature = "bridge_nodes"))]
 impl<V> core::fmt::Debug for ValOrChild<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -294,6 +305,7 @@ impl<V> core::fmt::Debug for ValOrChild<V> {
     }
 }
 
+#[cfg(not(feature = "bridge_nodes"))]
 impl<V> ValOrChild<V> {
     pub fn into_child(self) -> TrieNodeODRc<V> {
         match self {
@@ -306,6 +318,45 @@ impl<V> ValOrChild<V> {
             Self::Val(val) => val,
             _ => panic!()
         }
+    }
+}
+
+pub union ValOrChildUnion<V> {
+    pub child: ManuallyDrop<TrieNodeODRc<V>>,
+    pub val: ManuallyDrop<LocalOrHeap<V>>,
+    pub _unused: ()
+}
+
+impl<V> Default for ValOrChildUnion<V> {
+    fn default() -> Self {
+        Self { _unused: () }
+    }
+}
+impl<V> From<V> for ValOrChildUnion<V> {
+    fn from(val: V) -> Self {
+        Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
+    }
+}
+impl<V> From<TrieNodeODRc<V>> for ValOrChildUnion<V> {
+    fn from(child: TrieNodeODRc<V>) -> Self {
+        Self{ child: ManuallyDrop::new(child) }
+    }
+}
+#[cfg(not(feature = "bridge_nodes"))]
+impl<V> From<ValOrChild<V>> for ValOrChildUnion<V> {
+    fn from(voc: ValOrChild<V>) -> Self {
+        match voc {
+            ValOrChild::Child(child) => Self{ child: ManuallyDrop::new(child) },
+            ValOrChild::Val(val) => Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
+        }
+    }
+}
+impl<V> ValOrChildUnion<V> {
+    pub unsafe fn into_val(self) -> V {
+        LocalOrHeap::into_inner(ManuallyDrop::into_inner(self.val))
+    }
+    pub unsafe fn into_child(self) -> TrieNodeODRc<V> {
+        ManuallyDrop::into_inner(self.child)
     }
 }
 
@@ -368,6 +419,8 @@ pub enum TaggedNodeRef<'a, V> {
     DenseByteNode(&'a DenseByteNode<V>),
     LineListNode(&'a LineListNode<V>),
     TinyRefNode(&'a TinyRefNode<'a, V>),
+    #[cfg(feature = "bridge_nodes")]
+    BridgeNode(&'a BridgeNode<V>),
     CellByteNode(&'a CellByteNode<V>),
     EmptyNode(&'a EmptyNode<V>),
 }
@@ -385,6 +438,8 @@ impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
         match self {
             Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
             Self::LineListNode(node) => write!(f, "{node:?}"),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => write!(f, "{node:?}"),
             Self::TinyRefNode(node) => write!(f, "{node:?}"),
             Self::CellByteNode(node) => write!(f, "{node:?}"),
             Self::EmptyNode(node) => write!(f, "{node:?}"),
@@ -397,6 +452,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => *node as &dyn TrieNode<V>,
             Self::LineListNode(node) => *node as &dyn TrieNode<V>,
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => *node as &dyn TrieNode<V>,
             Self::TinyRefNode(node) => *node as &dyn TrieNode<V>,
             Self::CellByteNode(node) => *node as &dyn TrieNode<V>,
             Self::EmptyNode(node) => *node as &dyn TrieNode<V>,
@@ -406,6 +463,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_contains_partial_key(key),
             Self::LineListNode(node) => node.node_contains_partial_key(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.node_contains_partial_key(key),
             Self::TinyRefNode(node) => node.node_contains_partial_key(key),
             Self::CellByteNode(node) => node.node_contains_partial_key(key),
             Self::EmptyNode(_) => false
@@ -416,6 +475,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_get_child(key),
             Self::LineListNode(node) => node.node_get_child(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.node_get_child(key),
             Self::TinyRefNode(node) => node.node_get_child(key),
             Self::CellByteNode(node) => node.node_get_child(key),
             Self::EmptyNode(_) => None,
@@ -432,6 +493,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_contains_val(key),
             Self::LineListNode(node) => node.node_contains_val(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.node_contains_val(key),
             Self::TinyRefNode(node) => node.node_contains_val(key),
             Self::CellByteNode(node) => node.node_contains_val(key),
             Self::EmptyNode(_) => false,
@@ -441,6 +504,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_get_val(key),
             Self::LineListNode(node) => node.node_get_val(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.node_get_val(key),
             Self::TinyRefNode(node) => node.node_get_val(key),
             Self::CellByteNode(node) => node.node_get_val(key),
             Self::EmptyNode(_) => None,
@@ -466,6 +531,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.new_iter_token(),
             Self::LineListNode(node) => node.new_iter_token(),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.new_iter_token(),
             Self::TinyRefNode(node) => node.new_iter_token(),
             Self::CellByteNode(node) => node.new_iter_token(),
             Self::EmptyNode(node) => node.new_iter_token(),
@@ -476,6 +543,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.iter_token_for_path(key),
             Self::LineListNode(node) => node.iter_token_for_path(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.iter_token_for_path(key),
             Self::TinyRefNode(node) => node.iter_token_for_path(key),
             Self::CellByteNode(node) => node.iter_token_for_path(key),
             Self::EmptyNode(node) => node.iter_token_for_path(key),
@@ -486,6 +555,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.next_items(token),
             Self::LineListNode(node) => node.next_items(token),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.next_items(token),
             Self::TinyRefNode(node) => node.next_items(token),
             Self::CellByteNode(node) => node.next_items(token),
             Self::EmptyNode(node) => node.next_items(token),
@@ -503,6 +574,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
             Self::LineListNode(node) => node.nth_child_from_key(key, n),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.nth_child_from_key(key, n),
             Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
             Self::CellByteNode(node) => node.nth_child_from_key(key, n),
             Self::EmptyNode(node) => node.nth_child_from_key(key, n),
@@ -512,6 +585,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.first_child_from_key(key),
             Self::LineListNode(node) => node.first_child_from_key(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.first_child_from_key(key),
             Self::TinyRefNode(node) => node.first_child_from_key(key),
             Self::CellByteNode(node) => node.first_child_from_key(key),
             Self::EmptyNode(node) => node.first_child_from_key(key),
@@ -522,6 +597,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.count_branches(key),
             Self::LineListNode(node) => node.count_branches(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.count_branches(key),
             Self::TinyRefNode(node) => node.count_branches(key),
             Self::CellByteNode(node) => node.count_branches(key),
             Self::EmptyNode(node) => node.count_branches(key),
@@ -532,6 +609,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.node_branches_mask(key),
             Self::LineListNode(node) => node.node_branches_mask(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.node_branches_mask(key),
             Self::TinyRefNode(node) => node.node_branches_mask(key),
             Self::CellByteNode(node) => node.node_branches_mask(key),
             Self::EmptyNode(node) => node.node_branches_mask(key),
@@ -542,6 +621,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.is_leaf(key),
             Self::LineListNode(node) => node.is_leaf(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.is_leaf(key),
             Self::TinyRefNode(node) => node.is_leaf(key),
             Self::CellByteNode(node) => node.is_leaf(key),
             Self::EmptyNode(node) => node.is_leaf(key),
@@ -551,6 +632,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.prior_branch_key(key),
             Self::LineListNode(node) => node.prior_branch_key(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.prior_branch_key(key),
             Self::TinyRefNode(node) => node.prior_branch_key(key),
             Self::CellByteNode(node) => node.prior_branch_key(key),
             Self::EmptyNode(node) => node.prior_branch_key(key),
@@ -560,6 +643,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
             Self::LineListNode(node) => node.get_sibling_of_child(key, next),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.get_sibling_of_child(key, next),
             Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
             Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
             Self::EmptyNode(node) => node.get_sibling_of_child(key, next),
@@ -569,6 +654,8 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         match self {
             Self::DenseByteNode(node) => node.get_node_at_key(key),
             Self::LineListNode(node) => node.get_node_at_key(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.get_node_at_key(key),
             Self::TinyRefNode(node) => node.get_node_at_key(key),
             Self::CellByteNode(node) => node.get_node_at_key(key),
             Self::EmptyNode(node) => node.get_node_at_key(key),

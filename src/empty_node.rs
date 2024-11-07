@@ -68,9 +68,13 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         let mut replacement_node;
-        #[cfg(not(feature = "all_dense_nodes"))]
+        #[cfg(all(not(feature = "all_dense_nodes"), not(feature = "bridge_nodes")))]
         {
             replacement_node = crate::line_list_node::LineListNode::new();
+        }
+        #[cfg(all(feature = "bridge_nodes", not(feature = "all_dense_nodes")))]
+        {
+            replacement_node = crate::bridge_node::BridgeNode::new(key, false, val.into());
         }
         #[cfg(feature = "all_dense_nodes")]
         {
@@ -81,9 +85,13 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     }
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
         let mut replacement_node;
-        #[cfg(not(feature = "all_dense_nodes"))]
+        #[cfg(all(not(feature = "all_dense_nodes"), not(feature = "bridge_nodes")))]
         {
             replacement_node = crate::line_list_node::LineListNode::new();
+        }
+        #[cfg(all(feature = "bridge_nodes", not(feature = "all_dense_nodes")))]
+        {
+            replacement_node = crate::bridge_node::BridgeNode::new(key, true, new_node.into());
         }
         #[cfg(feature = "all_dense_nodes")]
         {

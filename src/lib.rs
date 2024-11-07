@@ -35,6 +35,8 @@ mod dense_byte_node;
 pub(crate) mod line_list_node;
 mod empty_node;
 mod tiny_node;
+#[cfg(feature = "bridge_nodes")]
+mod bridge_node;
 
 mod old_cursor;
 

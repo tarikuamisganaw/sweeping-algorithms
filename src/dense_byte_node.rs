@@ -211,6 +211,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
         }
     }
 
+    #[cfg(not(feature = "bridge_nodes"))]
     /// Sets the payload (child node or V) at the specified key.  Should not be used in situations where
     /// a the child or value may already exist at the key
     #[inline]
@@ -226,6 +227,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
         }
     }
 
+    #[cfg(not(feature = "bridge_nodes"))]
     /// Behavior is the same as [set_payload_owned], if the child or value doens't already exist, otherwise
     /// joins the existing entry with the supplied payload
     #[inline]
@@ -680,6 +682,44 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
         }
         cur
     }
+    #[cfg(feature = "bridge_nodes")]
+    /// Adds a payload (value or CF link) to a given long key, creating BridgeNodes along the way.  If the
+    /// value of onward link already exists at the specified byte, it will be replaced
+    pub(crate) fn add_payload(&mut self, key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) {
+        debug_assert!(key.len() > 0);
+        //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
+        // make an intermediate node to hold the rest of the key
+        if key.len() > 1 {
+            let bridge_node = crate::bridge_node::BridgeNode::new(&key[1..], is_child, payload);
+            self.set_child(key[0], TrieNodeODRc::new(bridge_node));
+        } else {
+            if is_child {
+                let child_node = unsafe{ payload.into_child() };
+                self.set_child(key[0], child_node);
+            } else {
+                let val = unsafe{ payload.into_val() };
+                self.set_val(key[0], val);
+            }
+        }
+    }
+    #[cfg(feature = "bridge_nodes")]
+    pub(crate) fn merge_payload(&mut self, key: &[u8], is_child: bool, payload: ValOrChildUnion<V>) where V: Lattice {
+        debug_assert!(key.len() > 0);
+        //DenseByteNodes hold one byte keys, so if the key is more than 1 byte we need to
+        // make an intermediate node to hold the rest of the key
+        if key.len() > 1 {
+            let bridge_node = crate::bridge_node::BridgeNode::new(&key[1..], is_child, payload);
+            self.join_child_into(key[0], TrieNodeODRc::new(bridge_node));
+        } else {
+            if is_child {
+                let child_node = unsafe{ payload.into_child() };
+                self.join_child_into(key[0], child_node);
+            } else {
+                let val = unsafe{ payload.into_val() };
+                self.join_val_into(key[0], val);
+            }
+        }
+    }
 }
 
 impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
@@ -751,11 +791,19 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         #[cfg(not(feature = "all_dense_nodes"))]
         {
-            //Split a ListNode to hold everything after the first byte of the key
+            //Split a new node to hold everything after the first byte of the key
             if key.len() > 1 {
-                let mut child = LineListNode::new();
-                child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
-                self.set_child(key[0], TrieNodeODRc::new(child));
+                #[cfg(not(feature = "bridge_nodes"))]
+                {
+                    let mut child = crate::line_list_node::LineListNode::new();
+                    child.node_set_val(&key[1..], val).unwrap_or_else(|_| panic!());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
+                #[cfg(feature = "bridge_nodes")]
+                {
+                    let child = crate::bridge_node::BridgeNode::new(&key[1..], false, val.into());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
                 Ok((None, true))
             } else {
                 Ok((self.set_val(key[0], val), false))
@@ -785,9 +833,17 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         {
             //Make a new ListNode to hold everything after the first byte of the key
             if key.len() > 1 {
-                let mut child = LineListNode::new();
-                child.node_set_branch(&key[1..], new_node).unwrap_or_else(|_| panic!());
-                self.set_child(key[0], TrieNodeODRc::new(child));
+                #[cfg(not(feature = "bridge_nodes"))]
+                {
+                    let mut child = crate::line_list_node::LineListNode::new();
+                    child.node_set_branch(&key[1..], new_node).unwrap_or_else(|_| panic!());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
+                #[cfg(feature = "bridge_nodes")]
+                {
+                    let child = crate::bridge_node::BridgeNode::new(&key[1..], true, new_node.into());
+                    self.set_child(key[0], TrieNodeODRc::new(child));
+                }
                 Ok(true)
             } else {
                 self.set_child(key[0], new_node);
@@ -1104,6 +1160,13 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 new_node.merge_from_list_node(other_list_node);
                 TrieNodeODRc::new(new_node)
             },
+            #[cfg(feature = "bridge_nodes")]
+            TaggedNodeRef::BridgeNode(other_bridge_node) => {
+                let mut new_node = self.clone();
+                debug_assert!(!other_bridge_node.is_empty());
+                new_node.merge_payload(other_bridge_node.key(), other_bridge_node.is_child_ptr(), other_bridge_node.clone_payload());
+                TrieNodeODRc::new(new_node)
+            },
             TaggedNodeRef::TinyRefNode(tiny_node) => {
                 tiny_node.join_dyn(self)
             },
@@ -1129,6 +1192,10 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 //GOAT, optimization opportunity to take the contents from the list, rather than cloning
                 // them, to turn around and drop the ListNode and free them / decrement the refcounts
                 self.merge_from_list_node(other_list_node);
+            },
+            #[cfg(feature = "bridge_nodes")]
+            TaggedNodeRefMut::BridgeNode(other_bridge_node) => {
+                unimplemented!()
             },
             TaggedNodeRefMut::CellByteNode(other_byte_node) => {
                 self.join_into(core::mem::take(other_byte_node));
@@ -1322,6 +1389,14 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
         if m == 0u64 { pos }
         else { m.trailing_zeros() as u8 }
     }
+}
+
+#[inline]
+pub(crate) fn test_bit_in_mask(mask: &[u64; 4], k: u8) -> bool {
+    let idx = ((k & 0b11000000) >> 6) as usize;
+    let bit_i = k & 0b00111111;
+    debug_assert!(idx < 4);
+    mask[idx] & (1 << bit_i) > 0
 }
 
 pub trait CoFree: Clone + Send + Sync {
