@@ -9,6 +9,12 @@
     - [Iteration](./02.01_zipper_iter.md)
     - [Multiple Zippers](./02.02_multi_zipper.md)
 
+# Patterns for Data Representation
+
+GOAT: Encoding Data Into Paths
+GOAT: Indexing Through Path Representations
+GOAT: Fuzzy Matching
+
 # Examples
 
 GOAT: OEIS
