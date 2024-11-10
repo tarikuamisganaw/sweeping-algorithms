@@ -19,9 +19,6 @@ all_dense_nodes = [] # Exclusively use the DenseByteNode type, which generally p
 bridge_nodes = [] # Enable the experimental BridgeNode type.  Incompatible with `all_dense_nodes`
 counters = [] # Enable features to inspect performance properties of tries.  Mainly useful when tuning performance of the PathMap internals.
 
-[build]
-rustflags = "-C opt-level=3 -C target-cpu=native"
-
 [dev-dependencies]
 divan = "0.1.14"
 rand = "0.8.5"
