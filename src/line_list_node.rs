@@ -2763,12 +2763,6 @@ mod tests {
 //
 //GOAT, consider adding a "prune" flag to methods that might remove values
 //
-//GOAT, Write ReadMe
-//  intro - as a key-value store, the power of prefixes, structural sharing
-//      caveat-sidebar about path stability.  Paths without values may be pruned.  Paths with values are reliable.
-//  algebraic ops
-//  Zippers as a concept
-//  Multiple zippers in the same map
 
 
 // PATH EXISTS DISCUSSION
@@ -2789,3 +2783,5 @@ mod tests {
 //GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
 
 //GOAT, look at the `move_to(path)` zipper movement API, to avoid ascending too far
+
+//GOAT, implement IntoIterator on PathMap
