@@ -1708,18 +1708,14 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     fn join_into(&mut self, other: OtherCf) {
         let (other_rec, other_val) = other.into_both();
 
-        self.set_rec_option(self.rec().join(&other_rec.as_ref()));
-        self.set_val_option(self.val().join(&other_val.as_ref()));
-
-        //GOAT, the below implementation **Should** be more efficient, but there are some unimplemented code paths
-        // match self.rec_mut() {
-        //     Some(self_rec) => { other_rec.map(|other_rec| self_rec.join_into(other_rec)); },
-        //     None => self.set_rec_option(other_rec)
-        // }
-        // match self.val_mut() {
-        //     Some(self_val) => { other_val.map(|other_val| self_val.join_into(other_val)); },
-        //     None => self.set_val_option(other_val)
-        // }
+        match self.rec_mut() {
+            Some(self_rec) => { other_rec.map(|other_rec| self_rec.make_mut().join_into_dyn(other_rec)); },
+            None => self.set_rec_option(other_rec)
+        }
+        match self.val_mut() {
+            Some(self_val) => { other_val.map(|other_val| self_val.join_into(other_val)); },
+            None => self.set_val_option(other_val)
+        }
     }
 
     fn meet(&self, other: &OtherCf) -> Self {
