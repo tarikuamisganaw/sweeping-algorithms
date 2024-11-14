@@ -297,10 +297,11 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
         self.mask[0] == 0 && self.mask[1] == 0 && self.mask[2] == 0 && self.mask[3] == 0
     }
 
-    #[inline]
-    fn len(&self) -> usize {
-        return (self.mask[0].count_ones() + self.mask[1].count_ones() + self.mask[2].count_ones() + self.mask[3].count_ones()) as usize;
-    }
+    /// Returns the number of set bits in the node's bitmask, which should equal `self.values.len()`
+    // #[inline]
+    // fn len(&self) -> usize {
+    //     return (self.mask[0].count_ones() + self.mask[1].count_ones() + self.mask[2].count_ones() + self.mask[3].count_ones()) as usize;
+    // }
 
     /// Determines the nth prefix in the node, counting forwards or backwards
     #[inline]
@@ -1153,13 +1154,13 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         let other_node = other.as_tagged();
         match other_node {
             TaggedNodeRef::DenseByteNode(other_dense_node) => {
-                let new_node = self.subtract(other_dense_node);
-                if new_node.is_empty() {
-                    (false, None)
-                } else {
-                    //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
-                    // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
-                    (false, Some(TrieNodeODRc::new(new_node)))
+                match self.psubtract(other_dense_node) {
+                    Some(new_node) => {
+                        //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
+                        // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
+                        (false, Some(TrieNodeODRc::new(new_node)))
+                    }
+                    None => (false, None)
                 }
             },
             TaggedNodeRef::LineListNode(other_list_node) => {
@@ -1173,13 +1174,13 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 self.psubtract_abstract(tiny_node)
             },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
-                let new_node = self.subtract(other_byte_node);
-                if new_node.is_empty() {
-                    (false, None)
-                } else {
-                    //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
-                    // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
-                    (false, Some(TrieNodeODRc::new(new_node)))
+                match self.psubtract(other_byte_node) {
+                    Some(new_node) => {
+                        //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
+                        // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
+                        (false, Some(TrieNodeODRc::new(new_node)))
+                    }
+                    None => (false, None)
                 }
             },
             TaggedNodeRef::EmptyNode(_) => (true, None), //Preserve original value unmodified
@@ -1836,12 +1837,10 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     }
 }
 
-
-//NOTE: This *looks* like an impl of DistributiveLattice, but it isn't, so we can have `self` and
+//NOTE: This *looks* like an impl of PartialDistributiveLattice, but it isn't, so we can have `self` and
 // `other` be differently parameterized types
-// impl<V: PartialDistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
 impl<V: PartialDistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
-    fn subtract<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> Self {
+    fn psubtract<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> Option<Self> where Self: Sized {
         let mut btn = self.clone();
 
         for i in 0..4 {
@@ -1867,17 +1866,8 @@ impl<V: PartialDistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteN
             }
         }
 
-        return btn;
-    }
-}
-
-//NOTE: This *looks* like an impl of PartialDistributiveLattice, but it isn't, so we can have `self` and
-// `other` be differently parameterized types
-impl<V: PartialDistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
-    fn psubtract<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> Option<Self> where Self: Sized {
-        let r = self.subtract(other);
-        if r.len() == 0 { return None }
-        else { return Some(r) }
+        if btn.is_empty() { return None }
+        else { return Some(btn) }
     }
 }
 
