@@ -4,39 +4,43 @@ use std::hash::Hash;
 
 /// Implements basic algebraic behavior (union & intersection) for a type
 pub trait Lattice {
+    /// Implements the union operation between two instances of a type, resulting in the creation of
+    /// a third result instance
     fn join(&self, other: &Self) -> Self;
+
+    /// Implements the union operation between two instances of a type, consuming one input operand,
+    /// and modifying the other, resulting in one joined result instance
     fn join_into(&mut self, other: Self) where Self: Sized {
         *self = self.join(&other);
     }
+
+    /// Implements the intersection operation between two instances of a type
+    //GOAT, this should be able to return None if the overlap is an empty type
     fn meet(&self, other: &Self) -> Self;
+
+    //GOAT, we want a meet_with, that has the same semantics as join_into, e.g. mutating in-place.  I
+    // don't think there is any benefit to consuming `other`, however, so we can still take `other: &Self`
+
+    /// Returns the "least" value for the type in the lattice
+    ///
+    /// See [Boolean Algebra](https://en.wikipedia.org/wiki/Boolean_algebra_(structure)#Definition).
     fn bottom() -> Self;
+
+    //GOAT, this should be temporarily deprecated until we work out the correct function prototype
     fn join_all(xs: &[&Self]) -> Self where Self: Sized {
         xs.iter().rfold(Self::bottom(), |x, y| x.join(y))
     }
 }
 
-/// A mirror of the [Lattice] trait, where the `self` and `other` types don't need to be exactly the
-/// same type
-///
-/// GOAT: It is possible that HeteroLattice is just a better (more flexible) version of Lattice, and Lattice
-/// should be deprecated in favor of HeteroLattice becoming the new Lattice
-///
-/// There is one annoyance - see comment below on the `join_all` method
-pub trait HeteroLattice<OtherT> {
+/// An internal mirror of the [Lattice] trait, where the `self` and `other` types don't need to be
+/// exactly the same type, in order to permit blanket implementations
+pub(crate) trait HeteroLattice<OtherT> {
     fn join(&self, other: &OtherT) -> Self;
     fn join_into(&mut self, other: OtherT) where Self: Sized {
         *self = self.join(&other);
     }
     fn meet(&self, other: &OtherT) -> Self;
-    fn bottom() -> Self;
-    // GOAT: Ugh!!!  Rust doesn't allow for type equality in bounds yet (it's been in nightly for like
-    // 5 years!) and it also doesn't allow the bounds on a trait method to be different from its default
-    // implementation,  Which is annoying because, when OtherT == Self, we really want the default impl
-    // to be available.
     fn join_all(xs: &[&Self]) -> Self where Self: Sized;
-    // {
-    //     xs.iter().rfold(Self::bottom(), |x, y| x.join(y))
-    // }
 }
 
 /// Implements algebraic behavior on a reference to a [Lattice] type, such as a smart pointer that can't
@@ -60,6 +64,16 @@ pub(crate) trait PartialQuantale {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 
+/// The result of an algebraic operation
+pub enum OutputElement<V> {
+    /// A result indicating the values perfectly annhilate and the output should be removed and discarded
+    None,
+    /// A result indicating the lvalue element was unmodified by the operation
+    Identity,
+    /// A new result element
+    Element(V),
+}
+
 /// Implements subtract behavior for a type
 pub trait PartialDistributiveLattice {
     /// GOAT, gotta document this.  `None` means complete subtraction, leaving an empty result
@@ -67,11 +81,9 @@ pub trait PartialDistributiveLattice {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 
-/// A mirror of the [PartialDistributiveLattice] trait, where the `self` and `other` types don't need to
-/// be exactly the same type
-///
-/// GOAT: See discussion on [HeteroLattice].  Should this trait replace [PartialDistributiveLattice]??
-pub trait HeteroPartialDistributiveLattice<OtherT> {
+/// An internal mirror of the [PartialDistributiveLattice] trait, where the `self` and `other` types
+/// don't need to be exactly the same type, to facilitate blanket impls
+pub(crate) trait HeteroPartialDistributiveLattice<OtherT> {
     fn psubtract(&self, other: &OtherT) -> Option<Self> where Self: Sized;
 }
 
@@ -81,7 +93,7 @@ pub trait PartialDistributiveLatticeRef {
     fn psubtract(&self, other: &Self) -> Option<Self::T>;
 }
 
-/// GOAT: See discussion on [HeteroLattice].  Should this trait replace [PartialQuantale]??
+/// Internal mirror for [PartialQuantale] See discussion on [HeteroLattice].
 pub(crate) trait HeteroPartialQuantale<OtherT> {
     fn prestrict(&self, other: &OtherT) -> Option<Self> where Self: Sized;
 }
@@ -205,6 +217,10 @@ impl <V: Lattice> Lattice for Box<V> {
     }
 }
 
+//GOAT: We need to decide upon a strategy RE build-in types.
+// I have a strong bias towards convenience - e.g. implement some reasonable behavior for the built-in
+// types, with lots of provisos
+//
 //TODO: Roll a macro to impl lattice across all the primitive types without a blanket impl
 
 impl Lattice for &str {
@@ -312,54 +328,3 @@ impl <K: Copy + Eq + Hash, V : Copy + Lattice> Lattice for HashMap<K, V> {
         HashMap::new()
     }
 }
-
-
-
-
-// impl<V: Lattice + Clone> Lattice for Box<ByteTrieNode<V>> {
-//     fn join(&self, other: &Self) -> Self {
-//         Box::new((&**self).join(&**other))
-//     }
-//     fn meet(&self, other: &Self) -> Self {
-//         Box::new((&**self).meet(&**other))
-//     }
-//     fn bottom() -> Self {
-//         unreachable!()
-//     }
-// }
-
-// impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Box<ByteTrieNode<V>> {
-//     fn psubtract(&self, other: &Self) -> Option<Self> {
-//         (&**self).psubtract(&**other).map(|btn| Box::new(btn))
-//     }
-// }
-
-// impl<V : Clone + Lattice> Lattice for ShortTrieMap<V> {
-//     fn join(&self, other: &Self) -> Self {
-//         Self {
-//             root: self.root.join(&other.root),
-//         }
-//     }
-
-//     fn join_into(&mut self, other: Self) {
-//         self.root.join_into(other.root)
-//     }
-
-//     fn meet(&self, other: &Self) -> Self {
-//         Self {
-//             root: self.root.meet(&other.root),
-//         }
-//     }
-
-//     fn bottom() -> Self {
-//         ShortTrieMap::new()
-//     }
-// }
-
-// impl<V : Clone + PartialDistributiveLattice> DistributiveLattice for ShortTrieMap<V> {
-//     fn subtract(&self, other: &Self) -> Self {
-//         Self {
-//             root: self.root.subtract(&other.root),
-//         }
-//     }
-// }

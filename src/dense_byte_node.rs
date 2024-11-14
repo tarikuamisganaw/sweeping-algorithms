@@ -1593,11 +1593,8 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         let val = self.val().meet(&other.val());
         CoFree::new(rec, val)
     }
-    fn bottom() -> Self {
-        CoFree::new(None, None)
-    }
     fn join_all(_xs: &[&Self]) -> Self where Self: Sized {
-        panic!() //Currently not used
+        unreachable!() //Currently not used
     }
 }
 
@@ -1799,10 +1796,6 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
 
         unsafe{ v.set_len(c); }
         return Self{ mask: mm, values: <_>::from(v) };
-    }
-
-    fn bottom() -> Self {
-        Self::new()
     }
 
     fn join_all(xs: &[&Self]) -> Self {
