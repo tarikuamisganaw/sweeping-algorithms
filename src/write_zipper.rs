@@ -241,6 +241,25 @@ impl<'a, 'path, V: Clone + Send + Sync> WriteZipperTracked<'a, 'path, V> {
         let core = WriteZipperCore::<'a, 'path, V>::new_with_node_and_path_internal(root_node, root_val, path);
         Self { z: core, _tracker: tracker, }
     }
+
+    /// Consumes the `WriteZipperTracked`, and returns a [ReadZipperTracked] in its place
+    ///
+    /// The returned read zipper will have the same root and focus as the the consumed write zipper.
+    ///
+    /// WARNING: This does **not** enable additional read zippers to be created via the [ZipperHead]
+    /// from which the source zipper was created
+    pub fn into_read_zipper(mut self) -> ReadZipperTracked<'a, 'static, V> {
+        let tracker = self._tracker.take();
+        let root_node = self.z.focus_stack.take_root().unwrap().borrow();
+        let root_path = &self.z.key.prefix_buf[..self.z.key.root_key.len()];
+        let descended_path = &self.z.key.prefix_buf[self.z.key.root_key.len()..];
+        let root_val = core::mem::take(&mut self.z.root_val);
+        let root_val = root_val.and_then(|root_val| root_val.as_ref());
+
+        let mut new_zipper = ReadZipperTracked::new_with_node_and_cloned_path(root_node, root_path, None, root_val, tracker);
+        new_zipper.descend_to(descended_path);
+        new_zipper
+    }
 }
 
 impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V> {
@@ -347,6 +366,24 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
     pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8]) -> Self {
         let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path_internal(root_node, root_val, path);
         Self { z: core }
+    }
+    /// Consumes the `WriteZipperUntracked`, and returns a [ReadZipperUntracked] in its place
+    ///
+    /// The returned read zipper will have the same root and focus as the the consumed write zipper.
+    ///
+    /// WARNING: This does **not** make it safe to create additional read zippers via the [ZipperHead]
+    /// from which the source zipper was created
+    pub fn into_read_zipper(mut self) -> ReadZipperUntracked<'a, 'static, V> {
+        let tracker = self._tracker.take();
+        let root_node = self.z.focus_stack.take_root().unwrap().borrow();
+        let root_path = &self.z.key.prefix_buf[..self.z.key.root_key.len()];
+        let descended_path = &self.z.key.prefix_buf[self.z.key.root_key.len()..];
+        let root_val = core::mem::take(&mut self.z.root_val);
+        let root_val = root_val.and_then(|root_val| root_val.as_ref());
+
+        let mut new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path(root_node, root_path, None, root_val, tracker);
+        new_zipper.descend_to(descended_path);
+        new_zipper
     }
 }
 
@@ -1865,4 +1902,25 @@ mod tests {
             "123:dog:Pam:Bandit",
             "123:owl:Sue:Cornelius"]);
     }
+    #[test]
+    fn write_zipper_test_zipper_conversion() {
+        let keys = [
+            "123:dog:Bob:Fido",
+            "123:cat:Jim:Felix",
+            "123:dog:Pam:Bandit",
+            "123:owl:Sue:Cornelius"];
+        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        let mut wz = map.write_zipper_at_path(b"12");
+        assert_eq!(wz.path(), b"");
+        wz.descend_to(b"3:");
+        assert_eq!(wz.path(), b"3:");
+
+        let mut rz = wz.into_read_zipper();
+        assert_eq!(rz.path(), b"3:");
+        rz.reset();
+        assert_eq!(rz.descend_to(b"3:dog:"), true);
+        assert_eq!(rz.child_count(), 2);
+    }
+
 }

@@ -15,7 +15,12 @@ impl Clone for ZipperTracker {
             IsTracking::ReadZipper => {
                 Self::new_read_tracker_no_check(self.all_paths.clone(), &self.this_path[..])
             },
-            IsTracking::WriteZipper => { unreachable!() } //Write Zipper should *never* be cloned
+            IsTracking::None => { Self{
+                all_paths: self.all_paths.clone(),
+                this_path: vec![],
+                is_tracking: IsTracking::None,
+            } },
+            IsTracking::WriteZipper => { unreachable!() }, //Write Zipper should *never* be cloned
         }
     }
 }
@@ -30,8 +35,10 @@ pub(crate) struct ZipperPaths {
     write_zippers: Vec<Vec<u8>>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 enum IsTracking {
+    #[default]
+    None,
     WriteZipper,
     ReadZipper,
 }
@@ -93,6 +100,17 @@ impl ZipperTracker {
             is_tracking: IsTracking::ReadZipper,
         }
     }
+    /// Takes the contents of `self`, replacing it with an empty tracker, and returning the original tracker.
+    /// Used to transplant the tracker from one zipper to another.
+    pub fn take(&mut self) -> Self {
+        let mut taken_tracker = Self {
+            all_paths: self.all_paths.clone(),
+            this_path: vec![],
+            is_tracking: IsTracking::None,
+        };
+        core::mem::swap(&mut taken_tracker, self);
+        taken_tracker
+    }
     //GOAT, it seems we may not need this method after all, because forked ReadZippers never need to be
     // tracked, because they always exist within the footprint of their parent's permissions
     // /// Makes a ReadTracker from an existing tracker.  The source can be a WriteTracker or a ReadTracker
@@ -115,6 +133,7 @@ impl Drop for ZipperTracker {
                 let idx = guard.read_zippers.iter().position(|path| *path == self.this_path).unwrap();
                 guard.read_zippers.remove(idx);
             }
+            IsTracking::None => { }
         }
     }
 }
