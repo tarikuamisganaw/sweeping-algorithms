@@ -49,7 +49,13 @@ pub(crate) struct ZipperTracker<M: TrackingMode> {
 
 impl Clone for ZipperTracker<TrackingRead> {
     fn clone(&self) -> Self {
-        Self::new_no_check(self.all_paths.clone(), &self.this_path[..])
+        self.all_paths
+            .add_reader_unchecked(self.this_path.as_slice());
+        Self {
+            all_paths: self.all_paths.clone(),
+            this_path: self.this_path.clone(),
+            _is_tracking: PhantomData,
+        }
     }
 }
 
@@ -256,15 +262,6 @@ impl ZipperTracker<TrackingRead> {
             this_path: path.to_vec(),
             _is_tracking: PhantomData,
         })
-    }
-
-    pub fn new_no_check(shared_paths: SharedTrackerPaths, path: &[u8]) -> Self {
-        shared_paths.add_reader_unchecked(path);
-        Self {
-            all_paths: shared_paths,
-            this_path: path.to_vec(),
-            _is_tracking: PhantomData,
-        }
     }
 }
 
