@@ -2,6 +2,16 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
+/// The result of an algebraic operation
+pub enum OutputElement<V> {
+    /// A result indicating the values perfectly annhilate and the output should be removed and discarded
+    None,
+    /// A result indicating the lvalue element was unmodified by the operation
+    Identity,
+    /// A new result element
+    Element(V),
+}
+
 /// Implements basic algebraic behavior (union & intersection) for a type
 pub trait Lattice {
     /// Implements the union operation between two instances of a type, resulting in the creation of
@@ -32,6 +42,47 @@ pub trait Lattice {
     }
 }
 
+/// Implements algebraic behavior on a reference to a [Lattice] type, such as a smart pointer that can't
+/// hold ownership
+pub trait LatticeRef {
+    type T;
+    fn join(&self, other: &Self) -> Self::T;
+    fn meet(&self, other: &Self) -> Self::T;
+}
+
+/// Implements subtract behavior for a type
+pub trait PartialDistributiveLattice {
+    /// Implements the partial subtract operation
+    /// GOAT, gotta document this.  `None` means complete subtraction, leaving an empty result
+    //GOAT, we are also going to want a way to communicate "perfect copy of self"
+    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized;
+
+    //GOAT, consider a psubtract_from that operates on a `&mut self`
+}
+
+/// Implements subtract behavior on a reference to a [PartialDistributiveLattice] type
+pub trait PartialDistributiveLatticeRef {
+    /// The type that is referenced
+    type T;
+
+    /// Implements the partial subtract operation on the referenced values, resulting in the potential
+    /// creation of a new value
+    fn psubtract(&self, other: &Self) -> Option<Self::T>;
+}
+
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// Private traits
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+
+/// Used to implement restrict operation.  TODO, come up with a better math-explanation about how this
+/// is a quantale
+///
+/// Currently this trait isn't exposed because it's unclear what we degrees of felxibility really want
+/// from restrict, and what performance we are willing to trade to get them
+pub(crate) trait PartialQuantale {
+    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
+}
+
 /// An internal mirror of the [Lattice] trait, where the `self` and `other` types don't need to be
 /// exactly the same type, in order to permit blanket implementations
 pub(crate) trait HeteroLattice<OtherT> {
@@ -43,60 +94,20 @@ pub(crate) trait HeteroLattice<OtherT> {
     fn join_all(xs: &[&Self]) -> Self where Self: Sized;
 }
 
-/// Implements algebraic behavior on a reference to a [Lattice] type, such as a smart pointer that can't
-/// hold ownership
-pub trait LatticeRef {
-    type T;
-    fn join(&self, other: &Self) -> Self::T;
-    fn meet(&self, other: &Self) -> Self::T;
-}
-
-pub trait DistributiveLattice {
-    fn subtract(&self, other: &Self) -> Self;
-}
-
-/// Used to implement restrict operation.  TODO, come up with a better math-explanation about how this
-/// is a quantale
-///
-/// Currently this trait isn't exposed because it's unclear what we degrees of felxibility really want
-/// from restrict, and what performance we are willing to trade to get them
-pub(crate) trait PartialQuantale {
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
-}
-
-/// The result of an algebraic operation
-pub enum OutputElement<V> {
-    /// A result indicating the values perfectly annhilate and the output should be removed and discarded
-    None,
-    /// A result indicating the lvalue element was unmodified by the operation
-    Identity,
-    /// A new result element
-    Element(V),
-}
-
-/// Implements subtract behavior for a type
-pub trait PartialDistributiveLattice {
-    /// GOAT, gotta document this.  `None` means complete subtraction, leaving an empty result
-    //GOAT, we are also going to want a way to communicate "perfect copy of self"
-    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized;
-}
-
 /// An internal mirror of the [PartialDistributiveLattice] trait, where the `self` and `other` types
 /// don't need to be exactly the same type, to facilitate blanket impls
 pub(crate) trait HeteroPartialDistributiveLattice<OtherT> {
     fn psubtract(&self, other: &OtherT) -> Option<Self> where Self: Sized;
 }
 
-/// Implements subtract behavior on a reference to a [PartialDistributiveLattice] type
-pub trait PartialDistributiveLatticeRef {
-    type T;
-    fn psubtract(&self, other: &Self) -> Option<Self::T>;
-}
-
 /// Internal mirror for [PartialQuantale] See discussion on [HeteroLattice].
 pub(crate) trait HeteroPartialQuantale<OtherT> {
     fn prestrict(&self, other: &OtherT) -> Option<Self> where Self: Sized;
 }
+
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// impls on primitive types
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
 
 impl<V: Lattice + Clone> Lattice for Option<V> {
     fn join(&self, other: &Option<V>) -> Option<V> {
@@ -186,18 +197,6 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLatticeRef for Op
             Some(s) => { match other {
                 None => { Some(Some((*s).clone())) }
                 Some(o) => { Some(s.psubtract(o)) }
-            } }
-        }
-    }
-}
-
-impl <V: PartialDistributiveLattice + Clone> DistributiveLattice for Option<V> {
-    fn subtract(&self, other: &Self) -> Self {
-        match self {
-            None => { None }
-            Some(s) => { match other {
-                None => { Some(s.clone()) }
-                Some(o) => { s.psubtract(o) }
             } }
         }
     }

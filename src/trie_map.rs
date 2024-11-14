@@ -1,9 +1,10 @@
 use core::cell::UnsafeCell;
 
 use num_traits::{PrimInt, zero};
+use crate::empty_node::EmptyNode;
 use crate::trie_node::*;
 use crate::zipper::*;
-use crate::ring::{Lattice, DistributiveLattice, PartialDistributiveLattice, PartialQuantale};
+use crate::ring::{Lattice, PartialDistributiveLattice, PartialQuantale};
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -325,6 +326,17 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
             None => Self::new()
         }
     }
+
+    /// Returns a new `BytesTrieMap` containing the contents from `self` minus the contents of `other`
+    pub fn subtract(&self, other: &Self) -> Self
+        where V: PartialDistributiveLattice
+    {
+        let new_root = match self.root().psubtract(other.root()) {
+            Some(subtracted) => subtracted,
+            None => TrieNodeODRc::new(EmptyNode::new())
+        };
+        Self::new_with_root(new_root)
+    }
 }
 
 impl<V: Clone + Send + Sync, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
@@ -360,12 +372,6 @@ impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
 
     fn bottom() -> Self {
         BytesTrieMap::new()
-    }
-}
-
-impl<V: Clone + Send + Sync + PartialDistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
-    fn subtract(&self, other: &Self) -> Self {
-        Self::new_with_root(self.root().subtract(other.root()))
     }
 }
 

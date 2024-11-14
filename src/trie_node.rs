@@ -1166,15 +1166,3 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLatticeRef for Op
         }
     }
 }
-
-impl<V: PartialDistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc<V>> {
-    fn subtract(&self, other: &Self) -> Self {
-        match self {
-            None => { None }
-            Some(s) => { match other {
-                None => { Some(s.clone()) }
-                Some(o) => { s.psubtract(o) }
-            } }
-        }
-    }
-}

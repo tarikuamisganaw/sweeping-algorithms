@@ -2262,7 +2262,7 @@ pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool {
 
 /// So release build will compile
 #[cfg(not(debug_assertions))]
-pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool { true }
+pub(crate) fn validate_node<V>(_node: &LineListNode<V>) -> bool { true }
 
 #[cfg(test)]
 mod tests {
