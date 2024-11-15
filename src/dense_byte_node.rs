@@ -1621,7 +1621,7 @@ impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>> DistributiveLattice for Cf
     }
 }
 
-impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroPartialQuantale<OtherCf> for Cf {
+impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroQuantale<OtherCf> for Cf {
     fn prestrict(&self, other: &OtherCf) -> Option<Self> where Self: Sized {
         debug_assert!(self.has_rec() || self.has_val());
         if other.has_val() { Some(self.clone()) } // assumes self can not be CoFree{None, None}
@@ -1871,7 +1871,7 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
     }
 }
 
-//NOTE: This *looks* like an impl of PartialQuantale, but it isn't, so we can have `self` and
+//NOTE: This *looks* like an impl of Quantale, but it isn't, so we can have `self` and
 // `other` be differently parameterized types
 impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
     fn prestrict<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> Option<Self> where Self: Sized {

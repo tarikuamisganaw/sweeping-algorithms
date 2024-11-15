@@ -79,7 +79,8 @@ pub trait DistributiveLatticeRef {
 ///
 /// Currently this trait isn't exposed because it's unclear what we degrees of felxibility really want
 /// from restrict, and what performance we are willing to trade to get them
-pub(crate) trait PartialQuantale {
+pub(crate) trait Quantale {
+    /// TODO: Document this (currently internal-only)
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
 }
 
@@ -100,8 +101,8 @@ pub(crate) trait HeteroDistributiveLattice<OtherT> {
     fn psubtract(&self, other: &OtherT) -> Option<Self> where Self: Sized;
 }
 
-/// Internal mirror for [PartialQuantale] See discussion on [HeteroLattice].
-pub(crate) trait HeteroPartialQuantale<OtherT> {
+/// Internal mirror for [Quantale] See discussion on [HeteroLattice].
+pub(crate) trait HeteroQuantale<OtherT> {
     fn prestrict(&self, other: &OtherT) -> Option<Self> where Self: Sized;
 }
 

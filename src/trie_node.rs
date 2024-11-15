@@ -262,7 +262,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// If it returns `(false, Some(_))` then a new node was created
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice;
 
-    /// Allows for the implementation of the PartialQuantale algebraic operations
+    /// Allows for the implementation of the Quantale algebraic operations
     fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
 
     /// Returns a clone of the node in its own Rc
@@ -1052,7 +1052,7 @@ impl<V: DistributiveLattice + Clone> TrieNodeODRc<V> {
     }
 }
 
-impl <V: Clone> PartialQuantale for TrieNodeODRc<V> {
+impl <V: Clone> Quantale for TrieNodeODRc<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         self.borrow().prestrict_dyn(other.borrow())
     }

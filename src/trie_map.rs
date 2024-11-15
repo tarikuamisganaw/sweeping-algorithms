@@ -4,7 +4,7 @@ use num_traits::{PrimInt, zero};
 use crate::empty_node::EmptyNode;
 use crate::trie_node::*;
 use crate::zipper::*;
-use crate::ring::{Lattice, DistributiveLattice, PartialQuantale};
+use crate::ring::{Lattice, DistributiveLattice, Quantale};
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -383,7 +383,7 @@ impl<V: Clone + Send + Sync + DistributiveLattice> DistributiveLattice for Bytes
     }
 }
 
-impl<V: Clone + Send + Sync> PartialQuantale for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync> Quantale for BytesTrieMap<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         self.root().prestrict(other.root()).map(|r| Self::new_with_root(r) )
     }
