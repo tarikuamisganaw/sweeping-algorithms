@@ -949,7 +949,7 @@ impl<V: Send + Sync> LineListNode<V> {
     ///   subtraction leaving nothing behind
     /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
     /// If it returns `(false, Some(_))` then a new node was created
-    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone + PartialDistributiveLattice {
+    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone + DistributiveLattice {
         if !self.is_used::<SLOT>() {
             return (false, None)
         }
@@ -2174,7 +2174,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         new_node.map(|node| TrieNodeODRc::new(node))
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice {
         debug_assert!(validate_node(self));
         let (slot0_unmodified, mut slot0_payload) = self.subtract_from_slot_contents::<0>(other);
         let (slot1_unmodified, mut slot1_payload) = self.subtract_from_slot_contents::<1>(other);

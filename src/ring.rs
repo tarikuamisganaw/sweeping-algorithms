@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 
-/// The result of an algebraic operation
+/// The result of an algebraic operation on elements in a partial lattice
 pub enum OutputElement<V> {
     /// A result indicating the values perfectly annhilate and the output should be removed and discarded
     None,
@@ -51,7 +51,7 @@ pub trait LatticeRef {
 }
 
 /// Implements subtract behavior for a type
-pub trait PartialDistributiveLattice {
+pub trait DistributiveLattice {
     /// Implements the partial subtract operation
     /// GOAT, gotta document this.  `None` means complete subtraction, leaving an empty result
     //GOAT, we are also going to want a way to communicate "perfect copy of self"
@@ -60,8 +60,8 @@ pub trait PartialDistributiveLattice {
     //GOAT, consider a psubtract_from that operates on a `&mut self`
 }
 
-/// Implements subtract behavior on a reference to a [PartialDistributiveLattice] type
-pub trait PartialDistributiveLatticeRef {
+/// Implements subtract behavior on a reference to a [DistributiveLattice] type
+pub trait DistributiveLatticeRef {
     /// The type that is referenced
     type T;
 
@@ -94,9 +94,9 @@ pub(crate) trait HeteroLattice<OtherT> {
     fn join_all(xs: &[&Self]) -> Self where Self: Sized;
 }
 
-/// An internal mirror of the [PartialDistributiveLattice] trait, where the `self` and `other` types
+/// An internal mirror of the [DistributiveLattice] trait, where the `self` and `other` types
 /// don't need to be exactly the same type, to facilitate blanket impls
-pub(crate) trait HeteroPartialDistributiveLattice<OtherT> {
+pub(crate) trait HeteroDistributiveLattice<OtherT> {
     fn psubtract(&self, other: &OtherT) -> Option<Self> where Self: Sized;
 }
 
@@ -177,7 +177,7 @@ impl<V: Lattice + Clone> LatticeRef for Option<&V> {
     }
 }
 
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<V> {
+impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         match self {
             None => { None }
@@ -189,7 +189,7 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Optio
     }
 }
 
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLatticeRef for Option<&V> {
+impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&V> {
     type T = Option<V>;
     fn psubtract(&self, other: &Self) -> Option<Self::T> {
         match self {
@@ -228,14 +228,14 @@ impl Lattice for &str {
     fn bottom() -> Self { "" }
 }
 
-impl PartialDistributiveLattice for &str {
+impl DistributiveLattice for &str {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         if self == other { None }
         else { Some(*self) }
     }
 }
 
-impl PartialDistributiveLattice for () {
+impl DistributiveLattice for () {
     fn psubtract(&self, _other: &Self) -> Option<Self> where Self: Sized {
         None
     }
@@ -260,7 +260,7 @@ impl Lattice for u64 {
     fn bottom() -> Self { 0 }
 }
 
-impl PartialDistributiveLattice for u64 {
+impl DistributiveLattice for u64 {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         if self == other { None }
         else { Some(*self) }
@@ -279,7 +279,7 @@ impl Lattice for u16 {
     fn bottom() -> Self { 0 }
 }
 
-impl PartialDistributiveLattice for u16 {
+impl DistributiveLattice for u16 {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         if self == other { None }
         else { Some(*self) }

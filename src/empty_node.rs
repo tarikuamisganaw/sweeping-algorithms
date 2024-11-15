@@ -174,7 +174,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
         None
     }
 
-    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice {
         (false, None)
     }
 

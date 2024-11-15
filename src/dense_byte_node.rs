@@ -369,7 +369,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
 impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeDowncast<V> {
 
     /// Internal method to subtract nodes of an abstract type from the node
-    fn psubtract_abstract(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: Clone + PartialDistributiveLattice {
+    fn psubtract_abstract(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: Clone + DistributiveLattice {
         let mut new_node = Self::new();
 
         //Go over each populated entry in the node
@@ -1150,7 +1150,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         }
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice {
         let other_node = other.as_tagged();
         match other_node {
             TaggedNodeRef::DenseByteNode(other_dense_node) => {
@@ -1599,7 +1599,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     }
 }
 
-impl<V: Clone + PartialDistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroPartialDistributiveLattice<OtherCf> for Cf {
+impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroDistributiveLattice<OtherCf> for Cf {
     fn psubtract(&self, other: &OtherCf) -> Option<Self> where Self: Sized {
         let r = self.rec().psubtract(&other.rec());
         let v = self.val().psubtract(&other.val()).unwrap_or(None);
@@ -1610,7 +1610,7 @@ impl<V: Clone + PartialDistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V
     }
 }
 
-impl<V: Clone + PartialDistributiveLattice, Cf: CoFree<V=V>> PartialDistributiveLattice for Cf {
+impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>> DistributiveLattice for Cf {
     fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
         let r = self.rec().psubtract(&other.rec());
         let v = self.val().psubtract(&other.val()).unwrap_or(None);
@@ -1837,9 +1837,9 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     }
 }
 
-//NOTE: This *looks* like an impl of PartialDistributiveLattice, but it isn't, so we can have `self` and
+//NOTE: This *looks* like an impl of DistributiveLattice, but it isn't, so we can have `self` and
 // `other` be differently parameterized types
-impl<V: PartialDistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
+impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
     fn psubtract<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> Option<Self> where Self: Sized {
         let mut btn = self.clone();
 
@@ -1851,7 +1851,7 @@ impl<V: PartialDistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteN
                 if ((1u64 << index) & other.mask[i]) != 0 {
                     let lv = unsafe { self.get_unchecked(64*(i as u8) + (index as u8)) };
                     let rv = unsafe { other.get_unchecked(64*(i as u8) + (index as u8)) };
-                    match HeteroPartialDistributiveLattice::psubtract(lv, rv) {
+                    match HeteroDistributiveLattice::psubtract(lv, rv) {
                         None => {
                             btn.remove(64*(i as u8) + (index as u8));
                         },

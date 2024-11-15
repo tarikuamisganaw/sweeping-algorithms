@@ -4,7 +4,7 @@ use num_traits::{PrimInt, zero};
 use crate::empty_node::EmptyNode;
 use crate::trie_node::*;
 use crate::zipper::*;
-use crate::ring::{Lattice, PartialDistributiveLattice, PartialQuantale};
+use crate::ring::{Lattice, DistributiveLattice, PartialQuantale};
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -329,7 +329,7 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
 
     /// Returns a new `BytesTrieMap` containing the contents from `self` minus the contents of `other`
     pub fn subtract(&self, other: &Self) -> Self
-        where V: PartialDistributiveLattice
+        where V: DistributiveLattice
     {
         let new_root = match self.root().psubtract(other.root()) {
             Some(subtracted) => subtracted,
@@ -375,7 +375,7 @@ impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
     }
 }
 
-impl<V: Clone + Send + Sync + PartialDistributiveLattice> PartialDistributiveLattice for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + DistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         let s = self.root().subtract(other.root());
         if s.borrow().node_is_empty() { None }

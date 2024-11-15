@@ -254,13 +254,13 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// the logic to promote nodes to other node types.
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
-    /// Allows for the implementation of the PartialDistributiveLattice algebraic operations
+    /// Allows for the implementation of the DistributiveLattice algebraic operations
     ///
     /// If this method returns `(false, None)`, it means the original value should be "annihilated",
     ///   e.g. complete subtraction, with nothing left behind
     /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
     /// If it returns `(false, Some(_))` then a new node was created
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice;
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice;
 
     /// Allows for the implementation of the PartialQuantale algebraic operations
     fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
@@ -669,7 +669,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
 
     // fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
-    // fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice;
+    // fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice;
 
     // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
 
@@ -1037,8 +1037,8 @@ impl<V: Lattice + Clone> TrieNodeODRc<V> {
     }
 }
 
-//See above, pseudo-impl for PartialDistributiveLattice trait
-impl<V: PartialDistributiveLattice + Clone> TrieNodeODRc<V> {
+//See above, pseudo-impl for DistributiveLattice trait
+impl<V: DistributiveLattice + Clone> TrieNodeODRc<V> {
     pub fn psubtract(&self, other: &Self) -> Option<Self> {
         if self.ptr_eq(other) {
             None
@@ -1059,7 +1059,7 @@ impl <V: Clone> PartialQuantale for TrieNodeODRc<V> {
 }
 
 //See above, pseudo-impl for DistributiveLattice trait
-impl<V: PartialDistributiveLattice + Clone + Send + Sync> TrieNodeODRc<V> {
+impl<V: DistributiveLattice + Clone + Send + Sync> TrieNodeODRc<V> {
     pub fn subtract(&self, other: &Self) -> Self {
         if self.ptr_eq(other) {
             TrieNodeODRc::new(EmptyNode::new())
@@ -1142,7 +1142,7 @@ impl<V: Lattice + Clone> LatticeRef for Option<&TrieNodeODRc<V>> {
     }
 }
 
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Option<TrieNodeODRc<V>> {
+impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc<V>> {
     fn psubtract(&self, other: &Self) -> Option<Self> {
         match self {
             None => { None }
@@ -1154,7 +1154,7 @@ impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLattice for Optio
     }
 }
 
-impl<V: PartialDistributiveLattice + Clone> PartialDistributiveLatticeRef for Option<&TrieNodeODRc<V>> {
+impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&TrieNodeODRc<V>> {
     type T = Option<TrieNodeODRc<V>>;
     fn psubtract(&self, other: &Self) -> Option<Self::T> {
         match self {

@@ -6,7 +6,7 @@ use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::zipper_tracking::*;
-use crate::ring::{Lattice, PartialDistributiveLattice};
+use crate::ring::{Lattice, DistributiveLattice};
 
 /// Implemented on [Zipper] types that allow modification of the trie
 pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
@@ -134,7 +134,7 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     ///
     /// Returns `true` if the subtraction was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
-    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice;
+    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: DistributiveLattice;
 
     /// Restricts paths in the subtrie downstream of the `self` focus to paths prefixed by a path to a value in
     /// `read_zipper`
@@ -269,7 +269,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
     fn meet<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.meet(read_zipper) }
     fn meet_2<ZA: Zipper<V=V>, ZB: Zipper<V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice { self.z.meet_2(rz_a, rz_b) }
-    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
+    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: DistributiveLattice { self.z.subtract(read_zipper) }
     fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
     fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
@@ -380,7 +380,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'a, '_,
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
     fn meet<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: Lattice { self.z.meet(read_zipper) }
     fn meet_2<ZA: Zipper<V=V>, ZB: Zipper<V=V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> bool where V: Lattice { self.z.meet_2(rz_a, rz_b) }
-    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice { self.z.subtract(read_zipper) }
+    fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: DistributiveLattice { self.z.subtract(read_zipper) }
     fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restrict(read_zipper) }
     fn restricting<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
@@ -957,7 +957,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         true
     }
     /// See [WriteZipper::subtract]
-    pub fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: PartialDistributiveLattice {
+    pub fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: DistributiveLattice {
         let src = read_zipper.get_focus();
         if src.is_none() {
             return false

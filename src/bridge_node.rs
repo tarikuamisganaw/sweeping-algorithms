@@ -613,7 +613,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for BridgeNode<V> {
     fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
         unimplemented!()
     }
-    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice {
         unimplemented!()
     }
     fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
