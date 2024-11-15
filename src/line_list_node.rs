@@ -945,13 +945,9 @@ impl<V: Send + Sync> LineListNode<V> {
     }
 
     /// Internal method to subtract the contents of `SLOT` with the contents of the `other` node
-    /// If this method returns `(false, None)`, it means the original value should be "annihilated", e.g. complete
-    ///   subtraction leaving nothing behind
-    /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
-    /// If it returns `(false, Some(_))` then a new node was created
-    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone + DistributiveLattice {
+    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> OutputElement<ValOrChildUnion<V>> where V: Clone + DistributiveLattice {
         if !self.is_used::<SLOT>() {
-            return (false, None)
+            return OutputElement::None
         }
         let path = unsafe{ self.key_unchecked::<SLOT>() };
         if let Some((onward_key, onward_node)) = follow_path(other, path) {
@@ -962,22 +958,20 @@ impl<V: Send + Sync> LineListNode<V> {
                 } else {
                     match onward_node.get_node_at_key(onward_key).into_option() {
                         Some(other_onward_node) => self_onward_link.borrow().psubtract_dyn(other_onward_node.borrow()),
-                        None => return (true, None) //We can keep the child that is already here
+                        None => return OutputElement::Identity
                     }
                 };
-                debug_assert!(difference.1.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true));
-                (difference.0, difference.1.map(|node| ValOrChildUnion::from(node)))
+                debug_assert!(difference.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true, true));
+                difference.map(|node| ValOrChildUnion::from(node))
             } else {
                 debug_assert!(onward_key.len() > 0);
                 let self_val = unsafe{ self.val_in_slot::<SLOT>() };
                 let other_val = onward_node.node_get_val(onward_key).unwrap();
-                let difference_val = self_val.psubtract(other_val);
-                //GOAT!!!! Gotta return the "unmodified" flag from the value subtract, rather than assuming `false`
-                (false, difference_val.map(|val| ValOrChildUnion::from(val)))
+                self_val.psubtract(other_val).map(|val| ValOrChildUnion::from(val))
             }
         } else {
             //We subtracted nothing from the slot, so the source should be referenced, unmodified
-            (true, None)
+            OutputElement::Identity
         }
     }
     /// Internal method to restrict the contents of `SLOT` with the contents of the `other` node
@@ -2174,18 +2168,34 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         new_node.map(|node| TrieNodeODRc::new(node))
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice {
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: DistributiveLattice {
         debug_assert!(validate_node(self));
-        let (slot0_unmodified, mut slot0_payload) = self.subtract_from_slot_contents::<0>(other);
-        let (slot1_unmodified, mut slot1_payload) = self.subtract_from_slot_contents::<1>(other);
-        match (slot0_unmodified, slot1_unmodified) {
-            (true, true) => return (true, None),
-            (true, false) => slot0_payload = self.clone_payload::<0>().map(|payload| payload.into()),
-            (false, true) => slot1_payload = self.clone_payload::<1>().map(|payload| payload.into()),
-            (false, false) => {},
-        }
-        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
-        (false, new_node.map(|node| TrieNodeODRc::new(node)))
+        let slot0_result = self.subtract_from_slot_contents::<0>(other);
+        let slot1_result = self.subtract_from_slot_contents::<1>(other);
+        let (slot0_payload, slot1_payload) = match (slot0_result, slot1_result) {
+            (OutputElement::Identity, OutputElement::Identity) => return OutputElement::Identity,
+            (OutputElement::None, OutputElement::None) => return OutputElement::None,
+            (OutputElement::Identity, OutputElement::None) => {
+                if !self.is_used::<1>() {
+                    return OutputElement::Identity
+                } else {
+                    let slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
+                    (slot0_payload, None)
+                }
+            },
+            // NOTE: There is no need to special-case the (OutputElement::None, OutputElement::Identity)
+            // case, because if slot1 can't have contents if slot0 is empty, therefore we know that if
+            // slot0 is None, and we didn't hit the (None, None) case above, then the case below is the
+            // correct case to handle this situation
+            (e0, e1) => {
+                let slot0_payload = e0.map_ident_into_option(|| self.clone_payload::<0>().map(|payload| payload.into()));
+                let slot1_payload = e1.map_ident_into_option(|| self.clone_payload::<1>().map(|payload| payload.into()));
+                (slot0_payload, slot1_payload)
+            }
+        };
+        debug_assert!(slot0_payload.is_some() || slot1_payload.is_some());
+        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
+        OutputElement::Element(TrieNodeODRc::new(new_node))
     }
 
     fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {

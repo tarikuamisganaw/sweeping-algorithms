@@ -369,7 +369,8 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
 impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeDowncast<V> {
 
     /// Internal method to subtract nodes of an abstract type from the node
-    fn psubtract_abstract(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: Clone + DistributiveLattice {
+    fn psubtract_abstract(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: Clone + DistributiveLattice {
+        let mut is_identity = true;
         let mut new_node = Self::new();
 
         //Go over each populated entry in the node
@@ -381,7 +382,14 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
                 //If there is a value at this key_byte, and the other node contains a value, subtract them
                 if let Some(self_val) = cf.val() {
                     if let Some(other_val) = other.node_get_val(&[key_byte]) {
-                        new_cf.set_val_option(self_val.psubtract(other_val));
+                        match self_val.psubtract(other_val) {
+                            OutputElement::None => { is_identity = false; },
+                            OutputElement::Identity => { new_cf.set_val(self_val.clone()); },
+                            OutputElement::Element(e) => {
+                                is_identity = false;
+                                new_cf.set_val(e);
+                            }
+                        }
                     }
                 }
 
@@ -390,11 +398,13 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
                     let other_child = other.get_node_at_key(&[key_byte]);
                     match other_child.try_borrow() {
                         Some(other_child) => {
-                            let difference = self_child.borrow().psubtract_dyn(other_child);
-                            if difference.0 {
-                                new_cf.set_rec(self_child.clone());
-                            } else {
-                                new_cf.set_rec_option(difference.1);
+                            match self_child.borrow().psubtract_dyn(other_child) {
+                                OutputElement::None => { is_identity = false; }
+                                OutputElement::Identity => { new_cf.set_rec(self_child.clone()); },
+                                OutputElement::Element(e) => {
+                                    is_identity = false;
+                                    new_cf.set_rec(e);
+                                }
                             }
                         },
                         None => {
@@ -415,11 +425,15 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
             }
         });
         if new_node.is_empty() {
-            (false, None)
+            OutputElement::None
         } else {
-            //GOAT, OPTIMIZATION OPPORTUNITY. track whether any unique new nodes were created, or
-            // whether we can just past back the "unmodified" flag for self
-            (false, Some(TrieNodeODRc::new(new_node)))
+            if is_identity {
+                //NOTE: we end up throwing away a totally formed `new_node` here, but that's a much
+                // better outcome than having two copies of the same node in the trie
+                OutputElement::Identity
+            } else {
+                OutputElement::Element(TrieNodeODRc::new(new_node))
+            }
         }
     }
 
@@ -1150,18 +1164,11 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         }
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice {
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: DistributiveLattice {
         let other_node = other.as_tagged();
         match other_node {
             TaggedNodeRef::DenseByteNode(other_dense_node) => {
-                match self.psubtract(other_dense_node) {
-                    Some(new_node) => {
-                        //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
-                        // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
-                        (false, Some(TrieNodeODRc::new(new_node)))
-                    }
-                    None => (false, None)
-                }
+                self.psubtract(other_dense_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
             TaggedNodeRef::LineListNode(other_list_node) => {
                 self.psubtract_abstract(other_list_node)
@@ -1174,16 +1181,9 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
                 self.psubtract_abstract(tiny_node)
             },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
-                match self.psubtract(other_byte_node) {
-                    Some(new_node) => {
-                        //GOAT!!!! Optimization opportunity.  We want to carry a dirty flag out of `self.subtract`
-                        // and return if nothing was subtracted, rather than `false` !!!!!!!!!!!
-                        (false, Some(TrieNodeODRc::new(new_node)))
-                    }
-                    None => (false, None)
-                }
+                self.psubtract(other_byte_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
-            TaggedNodeRef::EmptyNode(_) => (true, None), //Preserve original value unmodified
+            TaggedNodeRef::EmptyNode(_) => OutputElement::Identity,
         }
     }
 
@@ -1600,23 +1600,32 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
 }
 
 impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroDistributiveLattice<OtherCf> for Cf {
-    fn psubtract(&self, other: &OtherCf) -> Option<Self> where Self: Sized {
+    fn psubtract(&self, other: &OtherCf) -> OutputElement<Self> where Self: Sized {
         let r = self.rec().psubtract(&other.rec());
-        let v = self.val().psubtract(&other.val()).unwrap_or(None);
-        match r {
-            None => { if v.is_none() { None } else { Some(CoFree::new(None, v)) } }
-            Some(sr) => { Some(CoFree::new(sr, v)) }
-        }
-    }
-}
-
-impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>> DistributiveLattice for Cf {
-    fn psubtract(&self, other: &Self) -> Option<Self> where Self: Sized {
-        let r = self.rec().psubtract(&other.rec());
-        let v = self.val().psubtract(&other.val()).unwrap_or(None);
-        match r {
-            None => { if v.is_none() { None } else { Some(CoFree::new(None, v)) } }
-            Some(sr) => { Some(CoFree::new(sr, v)) }
+        let v = self.val().psubtract(&other.val());
+        match (r, v) {
+            (OutputElement::Identity, OutputElement::Identity) => OutputElement::Identity,
+            (OutputElement::None, OutputElement::None) => OutputElement::None,
+            (OutputElement::None, OutputElement::Identity) => {
+                if self.rec().is_none() {
+                    OutputElement::Identity
+                } else {
+                    OutputElement::Element(Self::new(None, self.val().cloned()))
+                }
+            },
+            (OutputElement::Identity, OutputElement::None) => {
+                if self.val().is_none() {
+                    OutputElement::Identity
+                } else {
+                    OutputElement::Element(Self::new(self.rec().cloned(), None))
+                }
+            },
+            (rec_el, val_el) => {
+                let rec = rec_el.flatten().map_ident_into_option(|| self.rec().cloned());
+                let val = val_el.flatten().map_ident_into_option(|| self.val().cloned());
+                debug_assert!(rec.is_some() || val.is_some());
+                OutputElement::Element(Self::new(rec, val))
+            }
         }
     }
 }
@@ -1840,7 +1849,8 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
 //NOTE: This *looks* like an impl of DistributiveLattice, but it isn't, so we can have `self` and
 // `other` be differently parameterized types
 impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
-    fn psubtract<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> Option<Self> where Self: Sized {
+    fn psubtract<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> OutputElement<Self> where Self: Sized {
+        let mut is_identity = true;
         let mut btn = self.clone();
 
         for i in 0..4 {
@@ -1852,10 +1862,13 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
                     let lv = unsafe { self.get_unchecked(64*(i as u8) + (index as u8)) };
                     let rv = unsafe { other.get_unchecked(64*(i as u8) + (index as u8)) };
                     match HeteroDistributiveLattice::psubtract(lv, rv) {
-                        None => {
+                        OutputElement::None => {
+                            is_identity = false;
                             btn.remove(64*(i as u8) + (index as u8));
                         },
-                        Some(jv) => {
+                        OutputElement::Identity => { },
+                        OutputElement::Element(jv) => {
+                            is_identity = false;
                             let dst = unsafe { btn.get_unchecked_mut(64*(i as u8) + (index as u8)) };
                             *dst = jv;
                         }
@@ -1866,8 +1879,15 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
             }
         }
 
-        if btn.is_empty() { return None }
-        else { return Some(btn) }
+        if btn.is_empty() {
+            OutputElement::None
+        } else {
+            if is_identity {
+                OutputElement::Identity
+            } else {
+                OutputElement::Element(btn)
+            }
+        }
     }
 }
 

@@ -6,7 +6,7 @@ use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::zipper_tracking::*;
-use crate::ring::{Lattice, DistributiveLattice};
+use crate::ring::{OutputElement, Lattice, DistributiveLattice};
 
 /// Implemented on [Zipper] types that allow modification of the trie
 pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
@@ -965,8 +965,9 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         match self.get_focus().try_borrow() {
             Some(self_node) => {
                 match self_node.psubtract_dyn(src.borrow()) {
-                    (false, joined) => self.graft_internal(joined),
-                    (true, _) => {}, //nothing to do
+                    OutputElement::Element(diff) => self.graft_internal(Some(diff)),
+                    OutputElement::None => self.graft_internal(None),
+                    OutputElement::Identity => {}, //nothing to do
                 }
                 true
             },

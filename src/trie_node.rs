@@ -255,12 +255,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
     /// Allows for the implementation of the DistributiveLattice algebraic operations
-    ///
-    /// If this method returns `(false, None)`, it means the original value should be "annihilated",
-    ///   e.g. complete subtraction, with nothing left behind
-    /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
-    /// If it returns `(false, Some(_))` then a new node was created
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice;
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: DistributiveLattice;
 
     /// Allows for the implementation of the Quantale algebraic operations
     fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
@@ -1037,17 +1032,13 @@ impl<V: Lattice + Clone> TrieNodeODRc<V> {
     }
 }
 
-//See above, pseudo-impl for DistributiveLattice trait
+//See above, pseudo-impl for [DistributiveLattice] trait
 impl<V: DistributiveLattice + Clone> TrieNodeODRc<V> {
-    pub fn psubtract(&self, other: &Self) -> Option<Self> {
+    pub fn psubtract(&self, other: &Self) -> OutputElement<Self> {
         if self.ptr_eq(other) {
-            None
+            OutputElement::None
         } else {
-            match self.borrow().psubtract_dyn(other.borrow()) {
-                (false, None) => None,
-                (false, Some(new_node)) => Some(new_node),
-                (true, _) => Some(self.clone()),
-            }
+            self.borrow().psubtract_dyn(other.borrow())
         }
     }
 }
@@ -1055,21 +1046,6 @@ impl<V: DistributiveLattice + Clone> TrieNodeODRc<V> {
 impl <V: Clone> Quantale for TrieNodeODRc<V> {
     fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
         self.borrow().prestrict_dyn(other.borrow())
-    }
-}
-
-//See above, pseudo-impl for DistributiveLattice trait
-impl<V: DistributiveLattice + Clone + Send + Sync> TrieNodeODRc<V> {
-    pub fn subtract(&self, other: &Self) -> Self {
-        if self.ptr_eq(other) {
-            TrieNodeODRc::new(EmptyNode::new())
-        } else {
-            match self.borrow().psubtract_dyn(other.borrow()) {
-                (false, None) => TrieNodeODRc::new(EmptyNode::new()),
-                (false, Some(new_node)) => new_node,
-                (true, _) => self.clone(),
-            }
-        }
     }
 }
 
@@ -1143,26 +1119,30 @@ impl<V: Lattice + Clone> LatticeRef for Option<&TrieNodeODRc<V>> {
 }
 
 impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc<V>> {
-    fn psubtract(&self, other: &Self) -> Option<Self> {
+    fn psubtract(&self, other: &Self) -> OutputElement<Self> {
         match self {
-            None => { None }
-            Some(s) => { match other {
-                None => { Some(Some(s.clone())) }
-                Some(o) => { Some(s.psubtract(o)) }
-            } }
+            None => { OutputElement::None }
+            Some(s) => {
+                match other {
+                    None => { OutputElement::Identity }
+                    Some(o) => { s.psubtract(o).map(|v| Some(v)) }
+                }
+            }
         }
     }
 }
 
 impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&TrieNodeODRc<V>> {
     type T = Option<TrieNodeODRc<V>>;
-    fn psubtract(&self, other: &Self) -> Option<Self::T> {
+    fn psubtract(&self, other: &Self) -> OutputElement<Self::T> {
         match self {
-            None => { None }
-            Some(s) => { match other {
-                None => { Some(Some((*s).clone())) }
-                Some(o) => { Some(s.psubtract(o)) }
-            } }
+            None => { OutputElement::None }
+            Some(s) => {
+                match other {
+                    None => { OutputElement::Identity }
+                    Some(o) => { s.psubtract(o).map(|v| Some(v)) }
+                }
+            }
         }
     }
 }

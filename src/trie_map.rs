@@ -4,7 +4,7 @@ use num_traits::{PrimInt, zero};
 use crate::empty_node::EmptyNode;
 use crate::trie_node::*;
 use crate::zipper::*;
-use crate::ring::{Lattice, DistributiveLattice, Quantale};
+use crate::ring::{OutputElement, Lattice, DistributiveLattice, Quantale};
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -332,8 +332,9 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         where V: DistributiveLattice
     {
         let new_root = match self.root().psubtract(other.root()) {
-            Some(subtracted) => subtracted,
-            None => TrieNodeODRc::new(EmptyNode::new())
+            OutputElement::Element(subtracted) => subtracted,
+            OutputElement::None => TrieNodeODRc::new(EmptyNode::new()),
+            OutputElement::Identity => self.root().clone(),
         };
         Self::new_with_root(new_root)
     }
@@ -376,10 +377,8 @@ impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
 }
 
 impl<V: Clone + Send + Sync + DistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
-    fn psubtract(&self, other: &Self) -> Option<Self> {
-        let s = self.root().subtract(other.root());
-        if s.borrow().node_is_empty() { None }
-        else { Some(Self::new_with_root(s)) }
+    fn psubtract(&self, other: &Self) -> OutputElement<Self> {
+        self.root().psubtract(other.root()).map(|root| Self::new_with_root(root))
     }
 }
 
