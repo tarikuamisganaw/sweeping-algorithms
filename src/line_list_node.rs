@@ -419,7 +419,7 @@ impl<V> LineListNode<V> {
     }
 }
 
-impl<V: Send + Sync> LineListNode<V> {
+impl<V: Clone + Send + Sync> LineListNode<V> {
 
     #[inline]
     unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
@@ -979,33 +979,59 @@ impl<V: Send + Sync> LineListNode<V> {
     ///   removal leaving nothing behind
     /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
     /// If it returns `(false, Some(_))` then a new node was created
-    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone {
+    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> OutputElement<ValOrChildUnion<V>> where V: Clone {
         if self.is_used::<SLOT>() {
             let path = unsafe{ self.key_unchecked::<SLOT>() };
             let (found_val, onward) = follow_path_to_value(other, path);
             if found_val {
-                return (true, None);
+                return OutputElement::Identity;
             }
             if let Some((onward_key, onward_node)) = onward {
                 if self.is_child_ptr::<SLOT>() {
                     let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
-                    let restricted_node = if onward_key.len() == 0 {
+                    let restricted_node_result = if onward_key.len() == 0 {
                         self_onward_link.borrow().prestrict_dyn(onward_node)
                     } else {
                         let other_onward_node = onward_node.get_node_at_key(onward_key);
                         self_onward_link.borrow().prestrict_dyn(other_onward_node.borrow())
                     };
-                    //GOAT, should carry an "unmodified" flag out of prestrict_dyn, and propagate it here
-                    (false, restricted_node.map(|node| ValOrChildUnion::from(node)))
+                    restricted_node_result.map(|node| ValOrChildUnion::from(node))
                 } else {
-                    (false, None)
+                    OutputElement::None
                 }
             } else {
-                (false, None)
+                OutputElement::None
             }
         } else {
-            (false, None)
+            OutputElement::None
         }
+    }
+
+    fn combine_slot_results_into_node_result(&self, slot0_result: OutputElement<ValOrChildUnion<V>>, slot1_result: OutputElement<ValOrChildUnion<V>>) -> OutputElement<TrieNodeODRc<V>> {
+        let (slot0_payload, slot1_payload) = match (slot0_result, slot1_result) {
+            (OutputElement::Identity, OutputElement::Identity) => return OutputElement::Identity,
+            (OutputElement::None, OutputElement::None) => return OutputElement::None,
+            (OutputElement::Identity, OutputElement::None) => {
+                if !self.is_used::<1>() {
+                    return OutputElement::Identity
+                } else {
+                    let slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
+                    (slot0_payload, None)
+                }
+            },
+            // NOTE: There is no need to special-case the (OutputElement::None, OutputElement::Identity)
+            // case, because if slot1 can't have contents if slot0 is empty, therefore we know that if
+            // slot0 is None, and we didn't hit the (None, None) case above, then the case below is the
+            // correct case to handle this situation
+            (e0, e1) => {
+                let slot0_payload = e0.map_ident_into_option(|| self.clone_payload::<0>().map(|payload| payload.into()));
+                let slot1_payload = e1.map_ident_into_option(|| self.clone_payload::<1>().map(|payload| payload.into()));
+                (slot0_payload, slot1_payload)
+            }
+        };
+        debug_assert!(slot0_payload.is_some() || slot1_payload.is_some());
+        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
+        OutputElement::Element(TrieNodeODRc::new(new_node))
     }
 }
 
@@ -2172,47 +2198,14 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         debug_assert!(validate_node(self));
         let slot0_result = self.subtract_from_slot_contents::<0>(other);
         let slot1_result = self.subtract_from_slot_contents::<1>(other);
-        let (slot0_payload, slot1_payload) = match (slot0_result, slot1_result) {
-            (OutputElement::Identity, OutputElement::Identity) => return OutputElement::Identity,
-            (OutputElement::None, OutputElement::None) => return OutputElement::None,
-            (OutputElement::Identity, OutputElement::None) => {
-                if !self.is_used::<1>() {
-                    return OutputElement::Identity
-                } else {
-                    let slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
-                    (slot0_payload, None)
-                }
-            },
-            // NOTE: There is no need to special-case the (OutputElement::None, OutputElement::Identity)
-            // case, because if slot1 can't have contents if slot0 is empty, therefore we know that if
-            // slot0 is None, and we didn't hit the (None, None) case above, then the case below is the
-            // correct case to handle this situation
-            (e0, e1) => {
-                let slot0_payload = e0.map_ident_into_option(|| self.clone_payload::<0>().map(|payload| payload.into()));
-                let slot1_payload = e1.map_ident_into_option(|| self.clone_payload::<1>().map(|payload| payload.into()));
-                (slot0_payload, slot1_payload)
-            }
-        };
-        debug_assert!(slot0_payload.is_some() || slot1_payload.is_some());
-        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
-        OutputElement::Element(TrieNodeODRc::new(new_node))
+        self.combine_slot_results_into_node_result(slot0_result, slot1_result)
     }
 
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> {
         debug_assert!(validate_node(self));
-        let (slot0_unmodified, mut slot0_payload) = self.restrict_slot_contents::<0>(other);
-        let (slot1_unmodified, mut slot1_payload) = self.restrict_slot_contents::<1>(other);
-        match (slot0_unmodified, slot1_unmodified) {
-            (true, true) => { //=> return (true, None), GOAT, should early-out when node is unmodified, but prestrict_dyn doesn't have the right signature
-                slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
-                slot1_payload = self.clone_payload::<1>().map(|payload| payload.into());
-            }
-            (true, false) => slot0_payload = self.clone_payload::<0>().map(|payload| payload.into()),
-            (false, true) => slot1_payload = self.clone_payload::<1>().map(|payload| payload.into()),
-            (false, false) => {},
-        }
-        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
-        new_node.map(|node| TrieNodeODRc::new(node))
+        let slot0_result = self.restrict_slot_contents::<0>(other);
+        let slot1_result = self.restrict_slot_contents::<1>(other);
+        self.combine_slot_results_into_node_result(slot0_result, slot1_result)
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
@@ -2756,8 +2749,6 @@ mod tests {
 }
 
 
-//GOAT, need to make a "Value" trait with an equality checker.
-//
 //GOAT, want a tri-state or bi-state return flag for unmodified values.  For all lattice ops, incl join, meet, and subtract
 //
 //GOAT, want to promote the meet method to partial meet, to rreturn an "unmodified" flag

@@ -59,7 +59,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Default for ByteNode<Cf> {
     }
 }
 
-impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
+impl<V: Clone, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
@@ -72,7 +72,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
     }
 }
 
-impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
+impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -141,7 +141,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
         }
     }
 
-    /// The same as [set_child] if no child exists in the node at the key.  Otherwise joins the two nodes
+        /// The same as [set_child] if no child exists in the node at the key.  Otherwise joins the two nodes
     /// together
     #[inline]
     pub fn join_child_into(&mut self, k: u8, node: TrieNodeODRc<V>) where V: Clone + Lattice {
@@ -239,6 +239,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
             }
         }
     }
+
 
     /// Internal method to remove a CoFree from the node
     #[inline]
@@ -363,7 +364,6 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
             }
         }
     }
-
 }
 
 impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeDowncast<V> {
@@ -438,7 +438,8 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
     }
 
     /// Internal method to restrict using nodes of an abstract type
-    fn prestrict_abstract(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: Clone {
+    fn prestrict_abstract(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: Clone {
+        let mut is_identity = true;
         let mut new_node = Self::new();
 
         //Go over each populated entry in the node
@@ -457,31 +458,38 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
                         let other_child = other.get_node_at_key(&[key_byte]);
                         match other_child.try_borrow() {
                             Some(other_child) => {
-                                let restricted = self_child.borrow().prestrict_dyn(other_child);
                                 let mut new_cf = Cf::new(None, None);
-                                // if restricted.0 {
-                                //     new_cf.rec = Some(self_child.clone());
-                                // } else {
-                                //     new_cf.rec = restricted.1;
-                                // }
-                                new_cf.set_rec_option(restricted); //GOAT, optimization opportunity to track when we can reuse a whole node unmodified. See commented out code above.
+                                match self_child.borrow().prestrict_dyn(other_child) {
+                                    OutputElement::None => { is_identity = false; }
+                                    OutputElement::Identity => { new_cf.set_rec(self_child.clone()); },
+                                    OutputElement::Element(e) => {
+                                        is_identity = false;
+                                        new_cf.set_rec(e);
+                                    }
+                                }
                                 if new_cf.has_rec() {
                                     new_node.set(key_byte);
                                     new_node.values.push(new_cf);
                                 }
                             },
-                            None => { }
+                            None => {
+                                is_identity = false;
+                            }
                         }
                     }
                 }
+            } else {
+                is_identity = false;
             }
         });
         if new_node.is_empty() {
-            (false, None)
+            OutputElement::None
         } else {
-            //GOAT, OPTIMIZATION OPPORTUNITY. track whether any unique new nodes were created, or
-            // whether we can just past back the "unmodified" flag for self
-            (false, Some(TrieNodeODRc::new(new_node)))
+            if is_identity {
+                OutputElement::Identity
+            } else {
+                OutputElement::Element(TrieNodeODRc::new(new_node))
+            }
         }
     }
 
@@ -1187,32 +1195,26 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         }
     }
 
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> {
         let other_node = other.as_tagged();
         match other_node {
             TaggedNodeRef::DenseByteNode(other_dense_node) => {
                 self.prestrict(other_dense_node).map(|node| TrieNodeODRc::new(node))
             },
             TaggedNodeRef::LineListNode(other_list_node) => {
-                let (_, restricted) = self.prestrict_abstract(other_list_node);
-                // GOAT, Optimization opportunity to return a "reuse node unmodified" flag
-                restricted
+                self.prestrict_abstract(other_list_node)
             },
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
-                let (_, restricted) = self.prestrict_abstract(other_bridge_node);
-                // GOAT, Optimization opportunity to return a "reuse node unmodified" flag
-                restricted
+                self.prestrict_abstract(other_bridge_node)
             },
             TaggedNodeRef::TinyRefNode(tiny_node) => {
-                let (_, restricted) = self.prestrict_abstract(tiny_node);
-                // GOAT, Optimization opportunity to return a "reuse node unmodified" flag
-                restricted
+                self.prestrict_abstract(tiny_node)
             },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.prestrict(other_byte_node).map(|node| TrieNodeODRc::new(node))
             },
-            TaggedNodeRef::EmptyNode(_) => None,
+            TaggedNodeRef::EmptyNode(_) => OutputElement::None,
         }
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
@@ -1631,15 +1633,27 @@ impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> Hete
 }
 
 impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroQuantale<OtherCf> for Cf {
-    fn prestrict(&self, other: &OtherCf) -> Option<Self> where Self: Sized {
+    fn prestrict(&self, other: &OtherCf) -> OutputElement<Self> {
         debug_assert!(self.has_rec() || self.has_val());
-        if other.has_val() { Some(self.clone()) } // assumes self can not be CoFree{None, None}
+        if other.has_val() { OutputElement::Identity } // assumes self can not be CoFree{None, None}
         else {
             match (self.rec(), other.rec()) {
                 (Some(l), Some(r)) => {
-                    l.prestrict(r).map(|n| CoFree::new(Some(n), None) )
+                    match l.prestrict(r) {
+                        OutputElement::Identity => {
+                            if self.has_val() {
+                                //We need to strip off the value of a recursive branch in the lmap,
+                                // without a corresponding value in the rmap
+                                OutputElement::Element(CoFree::new(Some(l.clone()), None))
+                            } else {
+                                OutputElement::Identity
+                            }
+                        },
+                        OutputElement::None => OutputElement::None,
+                        OutputElement::Element(node) => OutputElement::Element(CoFree::new(Some(node), None)),
+                    }
                 }
-                _ => { None }
+                _ => { OutputElement::None }
             }
         }
     }
@@ -1894,7 +1908,9 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
 //NOTE: This *looks* like an impl of Quantale, but it isn't, so we can have `self` and
 // `other` be differently parameterized types
 impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
-    fn prestrict<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> Option<Self> where Self: Sized {
+    fn prestrict<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> OutputElement<Self> where Self: Sized {
+        let mut is_identity = true;
+
         // TODO this technically doesn't need to calculate and iterate over jm
         // iterating over mm and calculating m such that the following suffices
         // c_{self,other} += popcnt(m & {self,other})
@@ -1926,27 +1942,45 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
                     // println!("dense prestrict {}", index as usize + i*64);
-                    if let Some(jv) = lv.prestrict(rv) {
-                        unsafe { new_v.get_unchecked_mut(c).write(jv) };
-                        c += 1;
-                    } else {
-                        mm[i] ^= 1u64 << index;
+
+                    match lv.prestrict(rv) {
+                        OutputElement::None => {
+                            is_identity = false;
+                            mm[i] ^= 1u64 << index;
+                        }
+                        OutputElement::Identity => {
+                            unsafe { new_v.get_unchecked_mut(c).write(lv.clone()) };
+                            c += 1;
+                        },
+                        OutputElement::Element(jv) => {
+                            is_identity = false;
+                            unsafe { new_v.get_unchecked_mut(c).write(jv) };
+                            c += 1;
+                        }
                     }
                     l += 1;
                     r += 1;
-                } else if ((1u64 << index) & self.mask[i]) != 0 {
-                    l += 1;
                 } else {
-                    r += 1;
+                    is_identity = false;
+                    if ((1u64 << index) & self.mask[i]) != 0 {
+                        l += 1;
+                    } else {
+                        r += 1;
+                    }
                 }
                 lm ^= 1u64 << index;
             }
         }
 
-        if c == 0 { None }
-        else {
-            unsafe{ v.set_len(c); }
-            return Some(Self{ mask: mm, values: <_>::from(v) });
+        if c == 0 {
+            OutputElement::None
+        } else {
+            if is_identity {
+                OutputElement::Identity
+            } else {
+                unsafe{ v.set_len(c); }
+                OutputElement::Element(Self{ mask: mm, values: <_>::from(v) })
+            }
         }
     }
 }

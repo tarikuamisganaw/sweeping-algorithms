@@ -253,7 +253,7 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().psubtract_dyn(other)
     }
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().prestrict_dyn(other)
     }

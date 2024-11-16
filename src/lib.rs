@@ -255,6 +255,7 @@ mod tests {
         let restricted = map.restrict(&div4_map);
 
         assert_eq!(restricted.val_count(), 4);
+        assert_eq!(restricted.get([0]), None);
         assert_eq!(restricted.get([0, 0]), None);
         assert_eq!(restricted.get([0, 1]), Some(&4));
         assert_eq!(restricted.get([0, 2]), Some(&8));

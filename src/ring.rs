@@ -144,7 +144,7 @@ pub trait DistributiveLatticeRef {
 /// from restrict, and what performance we are willing to trade to get them
 pub(crate) trait Quantale {
     /// TODO: Document this (currently internal-only)
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized;
+    fn prestrict(&self, other: &Self) -> OutputElement<Self> where Self: Sized;
 }
 
 /// An internal mirror of the [Lattice] trait, where the `self` and `other` types don't need to be
@@ -166,7 +166,7 @@ pub(crate) trait HeteroDistributiveLattice<OtherT> {
 
 /// Internal mirror for [Quantale] See discussion on [HeteroLattice].
 pub(crate) trait HeteroQuantale<OtherT> {
-    fn prestrict(&self, other: &OtherT) -> Option<Self> where Self: Sized;
+    fn prestrict(&self, other: &OtherT) -> OutputElement<Self> where Self: Sized;
 }
 
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=

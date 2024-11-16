@@ -134,6 +134,9 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     ///
     /// Returns `true` if the subtraction was sucessful, or `false` if either `self` of `read_zipper` is at a
     /// nonexistent path.
+    ///
+    /// GOAT QUESTION: Should we return false if the subtraction had no effect?
+    /// E.g. nothing was removed, even though something possibly could have been with different args?
     fn subtract<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool where V: DistributiveLattice;
 
     /// Restricts paths in the subtrie downstream of the `self` focus to paths prefixed by a path to a value in
@@ -141,6 +144,9 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     ///
     /// Returns `true` if the restriction was sucessful, or `false` if either `self` or `read_zipper` is at a
     /// nonexistent path.
+    ///
+    /// GOAT QUESTION: Should we return false if the restriction had no effect and the result was identity?
+    /// E.g. nothing was removed, even though something possibly could have been with different args?
     fn restrict<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> bool;
 
     /// Populates the "stem" paths in `self` with the corresponding subtries in `read_zipper`
@@ -1018,8 +1024,11 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         }
         match self.get_focus().try_borrow() {
             Some(self_node) => {
-                let restricted = self_node.prestrict_dyn(src.borrow());
-                self.graft_internal(restricted);
+                match self_node.prestrict_dyn(src.borrow()) {
+                    OutputElement::Element(restricted) => self.graft_internal(Some(restricted)),
+                    OutputElement::None => self.graft_internal(None),
+                    OutputElement::Identity => {}, //nothing to do...
+                }
                 true
             },
             None => false
@@ -1033,8 +1042,11 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         }
         match self.get_focus().try_borrow() {
             Some(self_node) => {
-                let restricted = src.borrow().prestrict_dyn(self_node);
-                self.graft_internal(restricted);
+                match src.borrow().prestrict_dyn(self_node) {
+                    OutputElement::Element(restricted) => self.graft_internal(Some(restricted)),
+                    OutputElement::None => self.graft_internal(None),
+                    OutputElement::Identity => self.graft_internal(src.into_option()),
+                }
                 true
             },
             None => false

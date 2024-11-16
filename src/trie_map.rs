@@ -322,8 +322,9 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     /// values in `other`
     pub fn restrict(&self, other: &Self) -> Self {
         match self.root().borrow().prestrict_dyn(other.root().borrow()) {
-            Some(new_root) => Self::new_with_root(new_root),
-            None => Self::new()
+            OutputElement::Element(new_root) => Self::new_with_root(new_root),
+            OutputElement::None => Self::new(),
+            OutputElement::Identity => self.clone(),
         }
     }
 
@@ -383,8 +384,8 @@ impl<V: Clone + Send + Sync + DistributiveLattice> DistributiveLattice for Bytes
 }
 
 impl<V: Clone + Send + Sync> Quantale for BytesTrieMap<V> {
-    fn prestrict(&self, other: &Self) -> Option<Self> where Self: Sized {
-        self.root().prestrict(other.root()).map(|r| Self::new_with_root(r) )
+    fn prestrict(&self, other: &Self) -> OutputElement<Self> {
+        self.root().prestrict(other.root()).map(|root| Self::new_with_root(root) )
     }
 }
 
