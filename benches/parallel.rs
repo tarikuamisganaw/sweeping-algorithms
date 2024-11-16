@@ -244,7 +244,7 @@ fn parallel_copy_known_path(bencher: Bencher, (elements, thread_cnt): (usize, &s
         }
 
         bencher.with_inputs(|| {
-            let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out");
+            let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out").unwrap();
             writer_z.remove_branches();
         }).bench_local_values(|()| {
             if thread_cnt > 0 {
@@ -346,7 +346,7 @@ fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str
         }
 
         bencher.with_inputs(|| {
-            let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out");
+            let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out").unwrap();
             writer_z.remove_branches();
         }).bench_local_values(|()| {
             if thread_cnt > 0 {
