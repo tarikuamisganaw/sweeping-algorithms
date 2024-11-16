@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn btm_simple_tree_restrict_test() {
+    fn btm_test_restrict1() {
         let mut l: BytesTrieMap<&str> = BytesTrieMap::new();
         l.insert(b"alligator", "alligator");
         l.insert(b"allegedly", "allegedly");
@@ -218,6 +218,84 @@ mod tests {
         assert_eq!(restricted.get(b"albino"), None);
         assert_eq!(restricted.get(b"allegedly"), Some(&"allegedly"));
         assert_eq!(restricted.get(b"albatross"), None);
+    }
+
+    /// Tests restrictions on a very dense trie
+    #[test]
+    fn btm_test_restrict2() {
+
+        // These values are base-4 numbers in "little endian"
+        let keys = [
+            vec![0],    vec![1],    vec![2],    vec![3],    vec![0, 1], vec![1, 1], vec![2, 1], vec![3, 1],
+            vec![0, 2], vec![1, 2], vec![2, 2], vec![3, 2], vec![0, 3], vec![1, 3], vec![2, 3], vec![3, 3],
+            vec![0, 0, 1], vec![1, 0, 1], vec![2, 0, 1], vec![3, 0, 1]
+        ];
+        let map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+
+        // Restrict to odd numbers
+        let odd_keys = [ vec![1], vec![3]];
+        let odd_map: BytesTrieMap<i32> = odd_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let restricted = map.restrict(&odd_map);
+
+        assert_eq!(restricted.val_count(), 10);
+        assert_eq!(restricted.get([1]), Some(&1));
+        assert_eq!(restricted.get([3]), Some(&3));
+        assert_eq!(restricted.get([1, 1]), Some(&5));
+        assert_eq!(restricted.get([3, 1]), Some(&7));
+        assert_eq!(restricted.get([1, 2]), Some(&9));
+        assert_eq!(restricted.get([3, 2]), Some(&11));
+        assert_eq!(restricted.get([1, 3]), Some(&13));
+        assert_eq!(restricted.get([3, 3]), Some(&15));
+        assert_eq!(restricted.get([1, 0, 1]), Some(&17));
+        assert_eq!(restricted.get([3, 0, 1]), Some(&19));
+
+        // Restrict to numbers divisible by 4 (exluding 0; 0 technically isn't divisible by 4)
+        let div4_keys = [ vec![0, 0], vec![0, 1], vec![0, 2], vec![0, 3]];
+        let div4_map: BytesTrieMap<i32> = div4_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let restricted = map.restrict(&div4_map);
+
+        assert_eq!(restricted.val_count(), 4);
+        assert_eq!(restricted.get([0, 0]), None);
+        assert_eq!(restricted.get([0, 1]), Some(&4));
+        assert_eq!(restricted.get([0, 2]), Some(&8));
+        assert_eq!(restricted.get([0, 3]), Some(&12));
+        assert_eq!(restricted.get([0, 0, 1]), Some(&16));
+    }
+
+    /// Tests restrictions on a fairly sparse trie
+    #[test]
+    fn btm_test_restrict3() {
+        let keys = [
+            "a",
+            "acting",
+            "activated",
+            "activation",
+            "activities",
+            "acute",
+            "adaptation",
+            "adapter",
+        ];
+        let map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+
+        // Restrict to words beginning with "act"
+        let restrictor = [ "act" ];
+        let restrictor_map: BytesTrieMap<i32> = restrictor.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let restricted = map.restrict(&restrictor_map);
+
+        assert_eq!(restricted.val_count(), 4);
+        assert_eq!(restricted.get("acting"), Some(&1));
+        assert_eq!(restricted.get("activities"), Some(&4));
+
+        // Restrict to words beginning with "a"
+        let restrictor = [ "a" ];
+        let restrictor_map: BytesTrieMap<i32> = restrictor.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let restricted = map.restrict(&restrictor_map);
+
+        assert_eq!(restricted.val_count(), 8);
+        assert_eq!(restricted.get("a"), Some(&0));
+        assert_eq!(restricted.get("acting"), Some(&1));
+        assert_eq!(restricted.get("activities"), Some(&4));
+        assert_eq!(restricted.get("adapter"), Some(&7));
     }
 
     /// Tests values that are attached along the paths to other keys, and also tests the absence of keys
