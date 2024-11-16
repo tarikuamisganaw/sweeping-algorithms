@@ -377,6 +377,12 @@ impl<V: Clone + Send + Sync> PartialQuantale for BytesTrieMap<V> {
     }
 }
 
+impl<V: Clone + Send + Sync> Default for BytesTrieMap<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::trie_map::*;
@@ -587,7 +593,7 @@ mod tests {
 
         //Through ZipperHeads
         let map_head = map.zipper_head();
-        let mut z = map_head.write_zipper_at_exclusive_path([]);
+        let mut z = map_head.write_zipper_at_exclusive_path([]).unwrap();
         assert_eq!(z.get_value(), None);
         assert_eq!(z.set_value(1), None);
         assert_eq!(z.get_value(), Some(&1));

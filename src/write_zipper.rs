@@ -181,7 +181,7 @@ pub trait WriteZipper<V>: Zipper {
 /// A [WriteZipper] for editing and adding paths and values in the trie
 pub struct WriteZipperTracked<'a, 'path, V> {
     z: WriteZipperCore<'a, 'path, V>,
-    _tracker: ZipperTracker,
+    _tracker: Option<ZipperTracker<TrackingWrite>>,
 }
 
 //The Drop impl ensures the tracker gets dropped at the right time
@@ -237,19 +237,16 @@ impl<'a, 'path, V: Clone + Send + Sync> WriteZipperTracked<'a, 'path, V> {
     ///
     /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
     /// guarantee the path is within the supplied node.
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'path [u8], tracker: ZipperTracker) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'path [u8], tracker: ZipperTracker<TrackingWrite>) -> Self {
         let core = WriteZipperCore::<'a, 'path, V>::new_with_node_and_path_internal(root_node, root_val, path);
-        Self { z: core, _tracker: tracker, }
+        Self { z: core, _tracker: Some(tracker), }
     }
 
     /// Consumes the `WriteZipperTracked`, and returns a [ReadZipperTracked] in its place
     ///
     /// The returned read zipper will have the same root and focus as the the consumed write zipper.
-    ///
-    /// WARNING: This does **not** enable additional read zippers to be created via the [ZipperHead]
-    /// from which the source zipper was created
     pub fn into_read_zipper(mut self) -> ReadZipperTracked<'a, 'static, V> {
-        let tracker = self._tracker.take();
+        let tracker = self._tracker.take().unwrap().into_reader();
         let root_node = self.z.focus_stack.take_root().unwrap().borrow();
         let root_path = &self.z.key.prefix_buf[..self.z.key.root_key.len()];
         let descended_path = &self.z.key.prefix_buf[self.z.key.root_key.len()..];
@@ -299,7 +296,7 @@ pub struct WriteZipperUntracked<'a, 'k, V> {
     z: WriteZipperCore<'a, 'k, V>,
     /// We will still track the zipper in debug mode, because unsafe isn't permission to break the rules
     #[cfg(debug_assertions)]
-    _tracker: Option<ZipperTracker>,
+    _tracker: Option<ZipperTracker<TrackingWrite>>,
 }
 
 //We only want a custom drop when we have a tracker
@@ -347,7 +344,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
 impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     #[cfg(debug_assertions)]
-    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker>) -> Self {
+    pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker<TrackingWrite>>) -> Self {
         let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path(root_node, root_val, path);
         Self { z: core, _tracker: tracker }
     }
@@ -358,7 +355,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
     }
     /// See [WriteZipper::new_with_node_and_path_internal]
     #[cfg(debug_assertions)]
-    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker>) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker<TrackingWrite>>) -> Self {
         let core = WriteZipperCore::<'a, 'k, V>::new_with_node_and_path_internal(root_node, root_val, path);
         Self { z: core, _tracker: tracker }
     }
@@ -370,11 +367,8 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
     /// Consumes the `WriteZipperUntracked`, and returns a [ReadZipperUntracked] in its place
     ///
     /// The returned read zipper will have the same root and focus as the the consumed write zipper.
-    ///
-    /// WARNING: This does **not** make it safe to create additional read zippers via the [ZipperHead]
-    /// from which the source zipper was created
     pub fn into_read_zipper(mut self) -> ReadZipperUntracked<'a, 'static, V> {
-        let tracker = self._tracker.take();
+        let tracker = self._tracker.take().map(|tracker| tracker.into_reader());
         let root_node = self.z.focus_stack.take_root().unwrap().borrow();
         let root_path = &self.z.key.prefix_buf[..self.z.key.root_key.len()];
         let descended_path = &self.z.key.prefix_buf[self.z.key.root_key.len()..];
@@ -1911,6 +1905,7 @@ mod tests {
             "123:owl:Sue:Cornelius"];
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
+        // Simplistic test where the WZ is untracker, created with a statically safe method
         let mut wz = map.write_zipper_at_path(b"12");
         assert_eq!(wz.path(), b"");
         wz.descend_to(b"3:");
@@ -1921,6 +1916,32 @@ mod tests {
         rz.reset();
         assert_eq!(rz.descend_to(b"3:dog:"), true);
         assert_eq!(rz.child_count(), 2);
+        drop(rz);
+
+        // ZipperHead test, to make sure the tracker is doing the right thing when converted
+        let zh = map.zipper_head();
+        let mut wz = zh.write_zipper_at_exclusive_path(b"12").unwrap();
+        assert_eq!(wz.path(), b"");
+        wz.descend_to(b"3:");
+        assert_eq!(wz.path(), b"3:");
+
+        let mut rz = wz.into_read_zipper();
+        assert_eq!(rz.path(), b"3:");
+        rz.reset();
+        assert_eq!(rz.descend_to(b"3:dog:"), true);
+        assert_eq!(rz.child_count(), 2);
+
+        assert!(zh.write_zipper_at_exclusive_path(b"1").is_err());
+        assert!(zh.write_zipper_at_exclusive_path(b"12").is_err());
+        assert!(zh.write_zipper_at_exclusive_path(b"123").is_err());
+
+        let mut rz2 = zh.read_zipper_at_borrowed_path(b"1").unwrap();
+        assert_eq!(rz2.path(), b"");
+        assert_eq!(rz2.descend_to(b"23:dog:"), true);
+        assert_eq!(rz.child_count(), 2);
+
+        let rz3 = zh.read_zipper_at_borrowed_path(b"123:").unwrap();
+        assert_eq!(rz3.child_count(), 3);
     }
 
 }
