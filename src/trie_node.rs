@@ -255,10 +255,10 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
     /// Allows for the implementation of the DistributiveLattice algebraic operations
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: DistributiveLattice;
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice;
 
     /// Allows for the implementation of the Quantale algebraic operations
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>>;
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>>;
 
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V>;
@@ -1034,9 +1034,9 @@ impl<V: Lattice + Clone> TrieNodeODRc<V> {
 
 //See above, pseudo-impl for [DistributiveLattice] trait
 impl<V: DistributiveLattice + Clone> TrieNodeODRc<V> {
-    pub fn psubtract(&self, other: &Self) -> OutputElement<Self> {
+    pub fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
         if self.ptr_eq(other) {
-            OutputElement::None
+            AlgebraicResult::None
         } else {
             self.borrow().psubtract_dyn(other.borrow())
         }
@@ -1044,7 +1044,7 @@ impl<V: DistributiveLattice + Clone> TrieNodeODRc<V> {
 }
 
 impl <V: Clone> Quantale for TrieNodeODRc<V> {
-    fn prestrict(&self, other: &Self) -> OutputElement<Self> where Self: Sized {
+    fn prestrict(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
         self.borrow().prestrict_dyn(other.borrow())
     }
 }
@@ -1119,12 +1119,12 @@ impl<V: Lattice + Clone> LatticeRef for Option<&TrieNodeODRc<V>> {
 }
 
 impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc<V>> {
-    fn psubtract(&self, other: &Self) -> OutputElement<Self> {
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
         match self {
-            None => { OutputElement::None }
+            None => { AlgebraicResult::None }
             Some(s) => {
                 match other {
-                    None => { OutputElement::Identity }
+                    None => { AlgebraicResult::Identity }
                     Some(o) => { s.psubtract(o).map(|v| Some(v)) }
                 }
             }
@@ -1134,12 +1134,12 @@ impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc
 
 impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&TrieNodeODRc<V>> {
     type T = Option<TrieNodeODRc<V>>;
-    fn psubtract(&self, other: &Self) -> OutputElement<Self::T> {
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self::T> {
         match self {
-            None => { OutputElement::None }
+            None => { AlgebraicResult::None }
             Some(s) => {
                 match other {
-                    None => { OutputElement::Identity }
+                    None => { AlgebraicResult::Identity }
                     Some(o) => { s.psubtract(o).map(|v| Some(v)) }
                 }
             }

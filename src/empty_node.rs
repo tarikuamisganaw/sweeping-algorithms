@@ -173,11 +173,11 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
         None
     }
-    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: DistributiveLattice {
-        OutputElement::None
+    fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
+        AlgebraicResult::None
     }
-    fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> {
-        OutputElement::None
+    fn prestrict_dyn(&self, _other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> {
+        AlgebraicResult::None
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())

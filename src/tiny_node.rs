@@ -249,11 +249,11 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().meet_dyn(other)
     }
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: DistributiveLattice {
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().psubtract_dyn(other)
     }
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().prestrict_dyn(other)
     }

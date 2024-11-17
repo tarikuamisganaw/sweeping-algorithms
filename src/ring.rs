@@ -4,8 +4,8 @@ use std::hash::Hash;
 
 /// The result of an algebraic operation on elements in a partial lattice
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub enum OutputElement<V> {
-    /// A result indicating the values perfectly annhilate and the output should be removed and discarded
+pub enum AlgebraicResult<V> {
+    /// A result indicating the input values perfectly annhilate and the output should be removed and discarded
     #[default]
     None,
     /// A result indicating the lvalue element was unmodified by the operation
@@ -14,65 +14,65 @@ pub enum OutputElement<V> {
     Element(V),
 }
 
-impl<V> OutputElement<V> {
-    /// Maps a `OutputElement<V>` to `OutputElement<U>` by applying a function to a contained value, if
-    /// self is `OutputElement::Element(V)`.  Otherwise returns the value of `self`
+impl<V> AlgebraicResult<V> {
+    /// Maps a `AlgebraicResult<V>` to `AlgebraicResult<U>` by applying a function to a contained value, if
+    /// self is `AlgebraicResult::Element(V)`.  Otherwise returns the value of `self`
     #[inline]
-    pub fn map<U, F>(self, f: F) -> OutputElement<U>
+    pub fn map<U, F>(self, f: F) -> AlgebraicResult<U>
         where F: FnOnce(V) -> U,
     {
         match self {
-            OutputElement::None => OutputElement::None,
-            OutputElement::Identity => OutputElement::Identity,
-            OutputElement::Element(v) => OutputElement::Element(f(v)),
+            Self::None => AlgebraicResult::None,
+            Self::Identity => AlgebraicResult::Identity,
+            Self::Element(v) => AlgebraicResult::Element(f(v)),
         }
     }
-    /// Converts from `&OutputElement<V>` to `OutputElement<&V>`
+    /// Converts from `&AlgebraicResult<V>` to `AlgebraicResult<&V>`
     #[inline]
-    pub fn as_ref(&self) -> OutputElement<&V> {
+    pub fn as_ref(&self) -> AlgebraicResult<&V> {
         match *self {
-            OutputElement::Element(ref v) => OutputElement::Element(v),
-            OutputElement::None => OutputElement::None,
-            OutputElement::Identity => OutputElement::Identity,
+            Self::Element(ref v) => AlgebraicResult::Element(v),
+            Self::None => AlgebraicResult::None,
+            Self::Identity => AlgebraicResult::Identity,
         }
     }
     /// Returns an option containing the `Element` value, substituting the result of the `ident_f`
-    /// closure if `self` is [Identity](OutputElement::Identity)
+    /// closure if `self` is [Identity](AlgebraicResult::Identity)
     #[inline]
     pub fn map_ident_into_option<F>(self, ident_f: F) -> Option<V>
         where F: FnOnce() -> Option<V>,
     {
         match self {
-            OutputElement::Element(v) => Some(v),
-            OutputElement::None => None,
-            OutputElement::Identity => ident_f(),
+            Self::Element(v) => Some(v),
+            Self::None => None,
+            Self::Identity => ident_f(),
         }
     }
     /// Returns the contained `Element` value or one of the provided `ident` or `none` default values
     #[inline]
     pub fn unwrap_or(self, ident: V, none: V) -> V {
         match self {
-            OutputElement::Element(v) => v,
-            OutputElement::None => none,
-            OutputElement::Identity => ident,
+            Self::Element(v) => v,
+            Self::None => none,
+            Self::Identity => ident,
         }
     }
 }
 
-impl<V> OutputElement<Option<V>> {
-    /// Flattens a nested `Option<V>` inside an `OutputElement<V>`, converting `OutputElement::Element(None)`
-    /// into `OutputElement::None`
+impl<V> AlgebraicResult<Option<V>> {
+    /// Flattens a nested `Option<V>` inside an `AlgebraicResult<V>`, converting `AlgebraicResult::Element(None)`
+    /// into `AlgebraicResult::None`
     #[inline]
-    pub fn flatten(self) -> OutputElement<V> {
+    pub fn flatten(self) -> AlgebraicResult<V> {
         match self {
-            OutputElement::Element(v) => {
+            Self::Element(v) => {
                 match v {
-                    Some(v) => OutputElement::Element(v),
-                    None => OutputElement::None
+                    Some(v) => AlgebraicResult::Element(v),
+                    None => AlgebraicResult::None
                 }
             },
-            OutputElement::None => OutputElement::None,
-            OutputElement::Identity => OutputElement::Identity,
+            Self::None => AlgebraicResult::None,
+            Self::Identity => AlgebraicResult::Identity,
         }
     }
 }
@@ -118,7 +118,7 @@ pub trait LatticeRef {
 /// Implements subtract behavior for a type
 pub trait DistributiveLattice {
     /// Implements the partial subtract operation
-    fn psubtract(&self, other: &Self) -> OutputElement<Self> where Self: Sized;
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized;
 
     //GOAT, consider a psubtract_from that operates on a `&mut self`
 }
@@ -130,7 +130,7 @@ pub trait DistributiveLatticeRef {
 
     /// Implements the partial subtract operation on the referenced values, resulting in the potential
     /// creation of a new value
-    fn psubtract(&self, other: &Self) -> OutputElement<Self::T>;
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self::T>;
 }
 
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
@@ -144,7 +144,7 @@ pub trait DistributiveLatticeRef {
 /// from restrict, and what performance we are willing to trade to get them
 pub(crate) trait Quantale {
     /// TODO: Document this (currently internal-only)
-    fn prestrict(&self, other: &Self) -> OutputElement<Self> where Self: Sized;
+    fn prestrict(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized;
 }
 
 /// An internal mirror of the [Lattice] trait, where the `self` and `other` types don't need to be
@@ -161,12 +161,12 @@ pub(crate) trait HeteroLattice<OtherT> {
 /// An internal mirror of the [DistributiveLattice] trait, where the `self` and `other` types
 /// don't need to be exactly the same type, to facilitate blanket impls
 pub(crate) trait HeteroDistributiveLattice<OtherT> {
-    fn psubtract(&self, other: &OtherT) -> OutputElement<Self> where Self: Sized;
+    fn psubtract(&self, other: &OtherT) -> AlgebraicResult<Self> where Self: Sized;
 }
 
 /// Internal mirror for [Quantale] See discussion on [HeteroLattice].
 pub(crate) trait HeteroQuantale<OtherT> {
-    fn prestrict(&self, other: &OtherT) -> OutputElement<Self> where Self: Sized;
+    fn prestrict(&self, other: &OtherT) -> AlgebraicResult<Self> where Self: Sized;
 }
 
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
@@ -242,12 +242,12 @@ impl<V: Lattice + Clone> LatticeRef for Option<&V> {
 }
 
 impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<V> {
-    fn psubtract(&self, other: &Self) -> OutputElement<Self> {
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
         match self {
-            None => { OutputElement::None }
+            None => { AlgebraicResult::None }
             Some(s) => {
                 match other {
-                    None => { OutputElement::Identity }
+                    None => { AlgebraicResult::Identity }
                     Some(o) => { s.psubtract(o).map(|v| Some(v)) }
                 }
             }
@@ -257,12 +257,12 @@ impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<V> {
 
 impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&V> {
     type T = Option<V>;
-    fn psubtract(&self, other: &Self) -> OutputElement<Self::T> {
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self::T> {
         match self {
-            None => { OutputElement::None }
+            None => { AlgebraicResult::None }
             Some(s) => {
                 match other {
-                    None => { OutputElement::Identity }
+                    None => { AlgebraicResult::Identity }
                     Some(o) => { s.psubtract(o).map(|v| Some(v)) }
                 }
             }
@@ -272,13 +272,13 @@ impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&V> {
 
 #[test]
 fn option_subtract_test() {
-    assert_eq!(Some(()).psubtract(&Some(())), OutputElement::None);
-    assert_eq!(Some(()).psubtract(&None), OutputElement::Identity);
-    assert_eq!(Some(Some(())).psubtract(&Some(Some(()))), OutputElement::None);
-    assert_eq!(Some(Some(())).psubtract(&None), OutputElement::Identity);
-    assert_eq!(Some(Some(())).psubtract(&Some(None)), OutputElement::Identity);
-    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(None))), OutputElement::Identity);
-    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(Some(())))), OutputElement::None);
+    assert_eq!(Some(()).psubtract(&Some(())), AlgebraicResult::None);
+    assert_eq!(Some(()).psubtract(&None), AlgebraicResult::Identity);
+    assert_eq!(Some(Some(())).psubtract(&Some(Some(()))), AlgebraicResult::None);
+    assert_eq!(Some(Some(())).psubtract(&None), AlgebraicResult::Identity);
+    assert_eq!(Some(Some(())).psubtract(&Some(None)), AlgebraicResult::Identity);
+    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(None))), AlgebraicResult::Identity);
+    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(Some(())))), AlgebraicResult::None);
 }
 
 impl <V: Lattice> Lattice for Box<V> {
@@ -308,15 +308,15 @@ impl Lattice for &str {
 }
 
 impl DistributiveLattice for &str {
-    fn psubtract(&self, other: &Self) -> OutputElement<Self> where Self: Sized {
-        if self == other {OutputElement::None }
-        else { OutputElement::Element(*self) }
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
+        if self == other {AlgebraicResult::None }
+        else { AlgebraicResult::Element(*self) }
     }
 }
 
 impl DistributiveLattice for () {
-    fn psubtract(&self, _other: &Self) -> OutputElement<Self> where Self: Sized {
-        OutputElement::None
+    fn psubtract(&self, _other: &Self) -> AlgebraicResult<Self> where Self: Sized {
+        AlgebraicResult::None
     }
 }
 
@@ -339,9 +339,9 @@ impl Lattice for u64 {
 }
 
 impl DistributiveLattice for u64 {
-    fn psubtract(&self, other: &Self) -> OutputElement<Self> where Self: Sized {
-        if self == other { OutputElement::None }
-        else { OutputElement::Element(*self) }
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
+        if self == other { AlgebraicResult::None }
+        else { AlgebraicResult::Element(*self) }
     }
 }
 
@@ -358,9 +358,9 @@ impl Lattice for u16 {
 }
 
 impl DistributiveLattice for u16 {
-    fn psubtract(&self, other: &Self) -> OutputElement<Self> where Self: Sized {
-        if self == other { OutputElement::None }
-        else { OutputElement::Element(*self) }
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
+        if self == other { AlgebraicResult::None }
+        else { AlgebraicResult::Element(*self) }
     }
 }
 

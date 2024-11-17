@@ -6,7 +6,7 @@ use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::zipper_tracking::*;
-use crate::ring::{OutputElement, Lattice, DistributiveLattice};
+use crate::ring::{AlgebraicResult, Lattice, DistributiveLattice};
 
 /// Implemented on [Zipper] types that allow modification of the trie
 pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
@@ -1007,9 +1007,9 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         match self.get_focus().try_borrow() {
             Some(self_node) => {
                 match self_node.psubtract_dyn(src.borrow()) {
-                    OutputElement::Element(diff) => self.graft_internal(Some(diff)),
-                    OutputElement::None => self.graft_internal(None),
-                    OutputElement::Identity => {}, //nothing to do
+                    AlgebraicResult::Element(diff) => self.graft_internal(Some(diff)),
+                    AlgebraicResult::None => self.graft_internal(None),
+                    AlgebraicResult::Identity => {}, //nothing to do
                 }
                 true
             },
@@ -1025,9 +1025,9 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         match self.get_focus().try_borrow() {
             Some(self_node) => {
                 match self_node.prestrict_dyn(src.borrow()) {
-                    OutputElement::Element(restricted) => self.graft_internal(Some(restricted)),
-                    OutputElement::None => self.graft_internal(None),
-                    OutputElement::Identity => {}, //nothing to do...
+                    AlgebraicResult::Element(restricted) => self.graft_internal(Some(restricted)),
+                    AlgebraicResult::None => self.graft_internal(None),
+                    AlgebraicResult::Identity => {}, //nothing to do...
                 }
                 true
             },
@@ -1043,9 +1043,9 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         match self.get_focus().try_borrow() {
             Some(self_node) => {
                 match src.borrow().prestrict_dyn(self_node) {
-                    OutputElement::Element(restricted) => self.graft_internal(Some(restricted)),
-                    OutputElement::None => self.graft_internal(None),
-                    OutputElement::Identity => self.graft_internal(src.into_option()),
+                    AlgebraicResult::Element(restricted) => self.graft_internal(Some(restricted)),
+                    AlgebraicResult::None => self.graft_internal(None),
+                    AlgebraicResult::Identity => self.graft_internal(src.into_option()),
                 }
                 true
             },

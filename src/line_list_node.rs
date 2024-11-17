@@ -945,9 +945,9 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
     }
 
     /// Internal method to subtract the contents of `SLOT` with the contents of the `other` node
-    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> OutputElement<ValOrChildUnion<V>> where V: Clone + DistributiveLattice {
+    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<ValOrChildUnion<V>> where V: Clone + DistributiveLattice {
         if !self.is_used::<SLOT>() {
-            return OutputElement::None
+            return AlgebraicResult::None
         }
         let path = unsafe{ self.key_unchecked::<SLOT>() };
         if let Some((onward_key, onward_node)) = follow_path(other, path) {
@@ -958,7 +958,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
                 } else {
                     match onward_node.get_node_at_key(onward_key).into_option() {
                         Some(other_onward_node) => self_onward_link.borrow().psubtract_dyn(other_onward_node.borrow()),
-                        None => return OutputElement::Identity
+                        None => return AlgebraicResult::Identity
                     }
                 };
                 debug_assert!(difference.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true, true));
@@ -971,7 +971,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
             }
         } else {
             //We subtracted nothing from the slot, so the source should be referenced, unmodified
-            OutputElement::Identity
+            AlgebraicResult::Identity
         }
     }
     /// Internal method to restrict the contents of `SLOT` with the contents of the `other` node
@@ -979,12 +979,12 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
     ///   removal leaving nothing behind
     /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
     /// If it returns `(false, Some(_))` then a new node was created
-    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> OutputElement<ValOrChildUnion<V>> where V: Clone {
+    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<ValOrChildUnion<V>> where V: Clone {
         if self.is_used::<SLOT>() {
             let path = unsafe{ self.key_unchecked::<SLOT>() };
             let (found_val, onward) = follow_path_to_value(other, path);
             if found_val {
-                return OutputElement::Identity;
+                return AlgebraicResult::Identity;
             }
             if let Some((onward_key, onward_node)) = onward {
                 if self.is_child_ptr::<SLOT>() {
@@ -997,29 +997,29 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
                     };
                     restricted_node_result.map(|node| ValOrChildUnion::from(node))
                 } else {
-                    OutputElement::None
+                    AlgebraicResult::None
                 }
             } else {
-                OutputElement::None
+                AlgebraicResult::None
             }
         } else {
-            OutputElement::None
+            AlgebraicResult::None
         }
     }
 
-    fn combine_slot_results_into_node_result(&self, slot0_result: OutputElement<ValOrChildUnion<V>>, slot1_result: OutputElement<ValOrChildUnion<V>>) -> OutputElement<TrieNodeODRc<V>> {
+    fn combine_slot_results_into_node_result(&self, slot0_result: AlgebraicResult<ValOrChildUnion<V>>, slot1_result: AlgebraicResult<ValOrChildUnion<V>>) -> AlgebraicResult<TrieNodeODRc<V>> {
         let (slot0_payload, slot1_payload) = match (slot0_result, slot1_result) {
-            (OutputElement::Identity, OutputElement::Identity) => return OutputElement::Identity,
-            (OutputElement::None, OutputElement::None) => return OutputElement::None,
-            (OutputElement::Identity, OutputElement::None) => {
+            (AlgebraicResult::Identity, AlgebraicResult::Identity) => return AlgebraicResult::Identity,
+            (AlgebraicResult::None, AlgebraicResult::None) => return AlgebraicResult::None,
+            (AlgebraicResult::Identity, AlgebraicResult::None) => {
                 if !self.is_used::<1>() {
-                    return OutputElement::Identity
+                    return AlgebraicResult::Identity
                 } else {
                     let slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
                     (slot0_payload, None)
                 }
             },
-            // NOTE: There is no need to special-case the (OutputElement::None, OutputElement::Identity)
+            // NOTE: There is no need to special-case the (AlgebraicResult::None, AlgebraicResult::Identity)
             // case, because if slot1 can't have contents if slot0 is empty, therefore we know that if
             // slot0 is None, and we didn't hit the (None, None) case above, then the case below is the
             // correct case to handle this situation
@@ -1031,7 +1031,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
         };
         debug_assert!(slot0_payload.is_some() || slot1_payload.is_some());
         let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
-        OutputElement::Element(TrieNodeODRc::new(new_node))
+        AlgebraicResult::Element(TrieNodeODRc::new(new_node))
     }
 }
 
@@ -2194,14 +2194,14 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         new_node.map(|node| TrieNodeODRc::new(node))
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> where V: DistributiveLattice {
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
         debug_assert!(validate_node(self));
         let slot0_result = self.subtract_from_slot_contents::<0>(other);
         let slot1_result = self.subtract_from_slot_contents::<1>(other);
         self.combine_slot_results_into_node_result(slot0_result, slot1_result)
     }
 
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> OutputElement<TrieNodeODRc<V>> {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> {
         debug_assert!(validate_node(self));
         let slot0_result = self.restrict_slot_contents::<0>(other);
         let slot1_result = self.restrict_slot_contents::<1>(other);
