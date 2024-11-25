@@ -98,16 +98,18 @@ impl Conflict {
         path: &[u8],
         zipper: &'a mut ReadZipperUntracked<A>,
     ) -> Option<&'a A> {
-        if zipper.is_value() {
-            zipper.get_value()
-        } else if path.is_empty() {
-            None
-        } else {
-            let head = path[0];
-            if !zipper.descend_to_byte(head) {
-                None
+        let mut current_path = path;
+        loop {
+            if zipper.is_value() {
+                return zipper.get_value();
+            } else if current_path.is_empty() {
+                return None;
             } else {
-                Conflict::check_for_lock_along_path(&path[1..], zipper)
+                let head = current_path[0];
+                if !zipper.descend_to_byte(head) {
+                    return None;
+                }
+                current_path = &path[1..];
             }
         }
     }
