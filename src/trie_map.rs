@@ -1,10 +1,9 @@
 use core::cell::UnsafeCell;
 
 use num_traits::{PrimInt, zero};
-use crate::empty_node::EmptyNode;
 use crate::trie_node::*;
 use crate::zipper::*;
-use crate::ring::{AlgebraicResult, Lattice, DistributiveLattice, Quantale};
+use crate::ring::{AlgebraicResult, COUNTER_IDENT, SELF_IDENT, Lattice, DistributiveLattice, Quantale};
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -320,11 +319,31 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
 
     /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
     /// values in `other`
+    pub fn meet(&self, other: &Self) -> Self where V: Lattice {
+        match self.pmeet(other) {
+            AlgebraicResult::Element(new_map) => new_map,
+            AlgebraicResult::None => Self::new(),
+            AlgebraicResult::Identity(mask) => {
+                if mask & SELF_IDENT > 0 {
+                    self.clone()
+                } else {
+                    debug_assert_eq!(mask, COUNTER_IDENT);
+                    other.clone()
+                }
+            },
+        }
+    }
+
+    /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
+    /// values in `other`
     pub fn restrict(&self, other: &Self) -> Self {
         match self.root().borrow().prestrict_dyn(other.root().borrow()) {
             AlgebraicResult::Element(new_root) => Self::new_with_root(new_root),
             AlgebraicResult::None => Self::new(),
-            AlgebraicResult::Identity => self.clone(),
+            AlgebraicResult::Identity(mask) => {
+                debug_assert_eq!(mask, SELF_IDENT);
+                self.clone()
+            },
         }
     }
 
@@ -332,12 +351,14 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
     pub fn subtract(&self, other: &Self) -> Self
         where V: DistributiveLattice
     {
-        let new_root = match self.root().psubtract(other.root()) {
-            AlgebraicResult::Element(subtracted) => subtracted,
-            AlgebraicResult::None => TrieNodeODRc::new(EmptyNode::new()),
-            AlgebraicResult::Identity => self.root().clone(),
-        };
-        Self::new_with_root(new_root)
+        match self.root().psubtract(other.root()) {
+            AlgebraicResult::Element(subtracted) => Self::new_with_root(subtracted),
+            AlgebraicResult::None => Self::new(),
+            AlgebraicResult::Identity(mask) => {
+                debug_assert_eq!(mask, SELF_IDENT);
+                self.clone()
+            },
+        }
     }
 }
 
@@ -365,11 +386,8 @@ impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
         }
     }
 
-    fn meet(&self, other: &Self) -> Self {
-        match self.root().meet(other.root()) {
-            Some(new_root) => Self::new_with_root(new_root),
-            None => Self::new()
-        }
+    fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
+        self.root().pmeet(other.root()).map(|new_root| Self::new_with_root(new_root))
     }
 
     fn bottom() -> Self {

@@ -169,9 +169,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
         None
     }
-
-    fn meet_dyn(&self, _other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
-        None
+    fn pmeet_dyn(&self, _other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: Lattice {
+        AlgebraicResult::None
     }
     fn psubtract_dyn(&self, _other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
         AlgebraicResult::None

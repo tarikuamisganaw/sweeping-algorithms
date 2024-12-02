@@ -384,11 +384,14 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
                     if let Some(other_val) = other.node_get_val(&[key_byte]) {
                         match self_val.psubtract(other_val) {
                             AlgebraicResult::None => { is_identity = false; },
-                            AlgebraicResult::Identity => { new_cf.set_val(self_val.clone()); },
+                            AlgebraicResult::Identity(mask) => {
+                                debug_assert_eq!(mask, SELF_IDENT); //subtract is not commutative
+                                new_cf.set_val(self_val.clone());
+                            },
                             AlgebraicResult::Element(e) => {
                                 is_identity = false;
                                 new_cf.set_val(e);
-                            }
+                            },
                         }
                     }
                 }
@@ -400,11 +403,14 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
                         Some(other_child) => {
                             match self_child.borrow().psubtract_dyn(other_child) {
                                 AlgebraicResult::None => { is_identity = false; }
-                                AlgebraicResult::Identity => { new_cf.set_rec(self_child.clone()); },
+                                AlgebraicResult::Identity(mask) => {
+                                    debug_assert_eq!(mask, SELF_IDENT); //subtract is not commutative
+                                    new_cf.set_rec(self_child.clone());
+                                },
                                 AlgebraicResult::Element(e) => {
                                     is_identity = false;
                                     new_cf.set_rec(e);
-                                }
+                                },
                             }
                         },
                         None => {
@@ -430,7 +436,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
             if is_identity {
                 //NOTE: we end up throwing away a totally formed `new_node` here, but that's a much
                 // better outcome than having two copies of the same node in the trie
-                AlgebraicResult::Identity
+                AlgebraicResult::Identity(SELF_IDENT)
             } else {
                 AlgebraicResult::Element(TrieNodeODRc::new(new_node))
             }
@@ -461,11 +467,14 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
                                 let mut new_cf = Cf::new(None, None);
                                 match self_child.borrow().prestrict_dyn(other_child) {
                                     AlgebraicResult::None => { is_identity = false; }
-                                    AlgebraicResult::Identity => { new_cf.set_rec(self_child.clone()); },
+                                    AlgebraicResult::Identity(mask) => {
+                                        debug_assert_eq!(mask, SELF_IDENT); //restrict is not commutative
+                                        new_cf.set_rec(self_child.clone());
+                                    },
                                     AlgebraicResult::Element(e) => {
                                         is_identity = false;
                                         new_cf.set_rec(e);
-                                    }
+                                    },
                                 }
                                 if new_cf.has_rec() {
                                     new_node.set(key_byte);
@@ -486,7 +495,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> where Self: TrieNodeD
             AlgebraicResult::None
         } else {
             if is_identity {
-                AlgebraicResult::Identity
+                AlgebraicResult::Identity(SELF_IDENT)
             } else {
                 AlgebraicResult::Element(TrieNodeODRc::new(new_node))
             }
@@ -1139,36 +1148,26 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         }
     }
 
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
+    fn pmeet_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: Lattice {
         let other_node = other.as_tagged();
         match other_node {
             TaggedNodeRef::DenseByteNode(other_dense_node) => {
-                let new_node = self.meet(other_dense_node);
-                if !new_node.is_empty() {
-                    Some(TrieNodeODRc::new(new_node))
-                } else {
-                    None
-                }
+                self.pmeet(other_dense_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
             TaggedNodeRef::LineListNode(other_list_node) => {
-                other_list_node.meet_dyn(self)
+                other_list_node.pmeet_dyn(self).invert_identity()
             },
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
-                other_bridge_node.meet_dyn(self)
+                other_bridge_node.pmeet_dyn(self).invert_identity()
             },
             TaggedNodeRef::TinyRefNode(tiny_node) => {
-                tiny_node.meet_dyn(self)
+                tiny_node.pmeet_dyn(self).invert_identity()
             },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
-                let new_node = self.meet(other_byte_node);
-                if !new_node.is_empty() {
-                    Some(TrieNodeODRc::new(new_node))
-                } else {
-                    None
-                }
+                self.pmeet(other_byte_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
-            TaggedNodeRef::EmptyNode(_) => None
+            TaggedNodeRef::EmptyNode(_) => AlgebraicResult::None
         }
     }
 
@@ -1191,7 +1190,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.psubtract(other_byte_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
-            TaggedNodeRef::EmptyNode(_) => AlgebraicResult::Identity,
+            TaggedNodeRef::EmptyNode(_) => AlgebraicResult::Identity(SELF_IDENT),
         }
     }
 
@@ -1284,7 +1283,7 @@ pub(crate) fn test_bit_in_mask(mask: &[u64; 4], k: u8) -> bool {
     mask[idx] & (1 << bit_i) > 0
 }
 
-pub trait CoFree: Clone + Send + Sync {
+pub trait CoFree: Clone + Default + Send + Sync {
     type V;
     fn new(rec: Option<TrieNodeODRc<Self::V>>, val: Option<Self::V>) -> Self;
     fn from_cf<OtherCf: CoFree<V=Self::V>>(cf: OtherCf) -> Self;
@@ -1307,10 +1306,22 @@ pub trait CoFree: Clone + Send + Sync {
     fn into_both(self) -> (Option<TrieNodeODRc<Self::V>>, Option<Self::V>);
 }
 
-#[derive(Clone, Default, Debug)]
+trait CfShared<OtherCf>: CoFree {
+    /// Integrates the results from separate operations on the rec pointer and the value into a single result on
+    /// the entire CoFree
+    fn combine_algebraic_results(&self, other: &OtherCf, rec: AlgebraicResult<Option<TrieNodeODRc<Self::V>>>, val: AlgebraicResult<Option<Self::V>>) -> AlgebraicResult<Self>;
+}
+
+#[derive(Clone, Debug)]
 pub struct OrdinaryCoFree<V> {
     rec: Option<TrieNodeODRc<V>>,
     value: Option<V>
+}
+
+impl<V> Default for OrdinaryCoFree<V> {
+    fn default() -> Self {
+        Self {rec: None, value: None}
+    }
 }
 
 impl<V: Clone + Send + Sync> CoFree for OrdinaryCoFree<V> {
@@ -1479,6 +1490,12 @@ struct CellCoFreeInsides<V> {
     value: UnsafeCell<Option<V>>
 }
 
+impl<V> Default for CellCoFreeInsides<V> {
+    fn default() -> Self {
+        Self {rec: UnsafeCell::new(None), value: UnsafeCell::new(None)}
+    }
+}
+
 unsafe impl<V: Send + Sync> Send for CellCoFreeInsides<V> {}
 unsafe impl<V: Send + Sync> Sync for CellCoFreeInsides<V> {}
 
@@ -1590,11 +1607,10 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
             None => self.set_val_option(other_val)
         }
     }
-
-    fn meet(&self, other: &OtherCf) -> Self {
-        let rec = self.rec().meet(&other.rec());
-        let val = self.val().meet(&other.val());
-        CoFree::new(rec, val)
+    fn pmeet(&self, other: &OtherCf) -> AlgebraicResult<Self> {
+        let rec = self.rec().pmeet(&other.rec());
+        let val = self.val().pmeet(&other.val());
+        self.combine_algebraic_results(other, rec, val)
     }
     fn join_all(_xs: &[&Self]) -> Self where Self: Sized {
         unreachable!() //Currently not used
@@ -1603,50 +1619,28 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
 
 impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroDistributiveLattice<OtherCf> for Cf {
     fn psubtract(&self, other: &OtherCf) -> AlgebraicResult<Self> where Self: Sized {
-        let r = self.rec().psubtract(&other.rec());
-        let v = self.val().psubtract(&other.val());
-        match (r, v) {
-            (AlgebraicResult::Identity, AlgebraicResult::Identity) => AlgebraicResult::Identity,
-            (AlgebraicResult::None, AlgebraicResult::None) => AlgebraicResult::None,
-            (AlgebraicResult::None, AlgebraicResult::Identity) => {
-                if self.rec().is_none() {
-                    AlgebraicResult::Identity
-                } else {
-                    AlgebraicResult::Element(Self::new(None, self.val().cloned()))
-                }
-            },
-            (AlgebraicResult::Identity, AlgebraicResult::None) => {
-                if self.val().is_none() {
-                    AlgebraicResult::Identity
-                } else {
-                    AlgebraicResult::Element(Self::new(self.rec().cloned(), None))
-                }
-            },
-            (rec_el, val_el) => {
-                let rec = rec_el.flatten().map_ident_into_option(|| self.rec().cloned());
-                let val = val_el.flatten().map_ident_into_option(|| self.val().cloned());
-                debug_assert!(rec.is_some() || val.is_some());
-                AlgebraicResult::Element(Self::new(rec, val))
-            }
-        }
+        let rec = self.rec().psubtract(&other.rec());
+        let val = self.val().psubtract(&other.val());
+        self.combine_algebraic_results(other, rec, val)
     }
 }
 
 impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroQuantale<OtherCf> for Cf {
     fn prestrict(&self, other: &OtherCf) -> AlgebraicResult<Self> {
         debug_assert!(self.has_rec() || self.has_val());
-        if other.has_val() { AlgebraicResult::Identity } // assumes self can not be CoFree{None, None}
+        if other.has_val() { AlgebraicResult::Identity(SELF_IDENT) } // assumes self can never be CoFree{None, None}
         else {
             match (self.rec(), other.rec()) {
                 (Some(l), Some(r)) => {
                     match l.prestrict(r) {
-                        AlgebraicResult::Identity => {
+                        AlgebraicResult::Identity(mask) => {
+                            debug_assert_eq!(mask, SELF_IDENT); //restrict is not commutative
                             if self.has_val() {
                                 //We need to strip off the value of a recursive branch in the lmap,
                                 // without a corresponding value in the rmap
                                 AlgebraicResult::Element(CoFree::new(Some(l.clone()), None))
                             } else {
-                                AlgebraicResult::Identity
+                                AlgebraicResult::Identity(SELF_IDENT)
                             }
                         },
                         AlgebraicResult::None => AlgebraicResult::None,
@@ -1654,6 +1648,81 @@ impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroQuantale<OtherCf> fo
                     }
                 }
                 _ => { AlgebraicResult::None }
+            }
+        }
+    }
+}
+
+impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> CfShared<OtherCf> for Cf {
+    #[inline]
+    fn combine_algebraic_results(&self, other: &OtherCf, rec: AlgebraicResult<Option<TrieNodeODRc<Self::V>>>, val: AlgebraicResult<Option<Self::V>>) -> AlgebraicResult<Self> {
+        match (rec, val) {
+            (AlgebraicResult::None, AlgebraicResult::None) => AlgebraicResult::None,
+            (AlgebraicResult::Identity(rec_mask), AlgebraicResult::Identity(val_mask)) => {
+                debug_assert!(rec_mask & (SELF_IDENT | COUNTER_IDENT) > 0);
+                debug_assert!(val_mask & (SELF_IDENT | COUNTER_IDENT) > 0);
+                let new_mask = rec_mask & val_mask;
+                if new_mask > 0 {
+                    AlgebraicResult::Identity(new_mask)
+                } else {
+                    let rec = if rec_mask & SELF_IDENT > 0 {
+                        self.rec().cloned()
+                    } else {
+                        other.rec().cloned()
+                    };
+                    let val = if val_mask & SELF_IDENT > 0 {
+                        self.val().cloned()
+                    } else {
+                        other.val().cloned()
+                    };
+                    AlgebraicResult::Element(Self::new(rec, val))
+                }
+            },
+            (AlgebraicResult::None, AlgebraicResult::Identity(val_mask)) => {
+                let mut new_mask = val_mask;
+                if !self.rec().is_none() {
+                    new_mask &= !SELF_IDENT;
+                }
+                if !other.rec().is_none() {
+                    new_mask &= !COUNTER_IDENT;
+                }
+                if new_mask > 0 {
+                    AlgebraicResult::Identity(new_mask)
+                } else {
+                    AlgebraicResult::Element(Self::new(None, self.val().cloned()))
+                }
+            },
+            (AlgebraicResult::Identity(rec_mask), AlgebraicResult::None) => {
+                let mut new_mask = rec_mask;
+                if !self.val().is_none() {
+                    new_mask &= !SELF_IDENT;
+                }
+                if !other.val().is_none() {
+                    new_mask &= !COUNTER_IDENT;
+                }
+                if new_mask > 0 {
+                    AlgebraicResult::Identity(new_mask)
+                } else {
+                    AlgebraicResult::Element(Self::new(self.rec().cloned(), None))
+                }
+            },
+            (rec_el, val_el) => {
+                let rec = rec_el.flatten().map_into_option(|arg_idx| {
+                    match arg_idx {
+                        0 => self.rec().cloned(),
+                        1 => other.rec().cloned(),
+                        _ => unreachable!()
+                    }
+                });
+                let val = val_el.flatten().map_into_option(|arg_idx| {
+                    match arg_idx {
+                        0 => self.val().cloned(),
+                        1 => other.val().cloned(),
+                        _ => unreachable!()
+                    }
+                });
+                debug_assert!(rec.is_some() || val.is_some());
+                AlgebraicResult::Element(Self::new(rec, val))
             }
         }
     }
@@ -1769,7 +1838,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         self.values = <_>::from(v);
     }
 
-    fn meet(&self, other: &ByteNode<OtherCf>) -> Self {
+    fn pmeet(&self, other: &ByteNode<OtherCf>) -> AlgebraicResult<Self> {
         // TODO this technically doesn't need to calculate and iterate over jm
         // iterating over mm and calculating m such that the following suffices
         // c_{self,other} += popcnt(m & {self,other})
@@ -1781,6 +1850,9 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
             self.mask[1] & other.mask[1],
             self.mask[2] & other.mask[2],
             self.mask[3] & other.mask[3]];
+
+        let mut is_identity = (self.mask[0] == mm[0]) && (self.mask[1] == mm[1]) && (self.mask[2] == mm[2]) && (self.mask[3] == mm[3]);
+        let mut is_counter_identity = (other.mask[0] == mm[0]) && (other.mask[1] == mm[1]) && (other.mask[2] == mm[2]) && (other.mask[3] == mm[3]);
 
         let mmc = [mm[0].count_ones(), mm[1].count_ones(), mm[2].count_ones(), mm[3].count_ones()];
 
@@ -1798,14 +1870,38 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
                 let index = lm.trailing_zeros();
 
                 if ((1u64 << index) & mm[i]) != 0 {
+                    //This runs for cofrees that exist in both nodes
+
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
-                    let jv = lv.meet(rv);
-                    if jv.has_rec() || jv.has_val() {
-                        unsafe { new_v.get_unchecked_mut(c).write(jv) };
-                        c += 1;
-                    } else {
-                        mm[i] ^= 1u64 << index;
+                    match lv.pmeet(rv) {
+                        AlgebraicResult::None => {
+                            is_counter_identity = false;
+                            is_identity = false;
+                            mm[i] ^= 1u64 << index;
+                        },
+                        AlgebraicResult::Identity(mask) => {
+                            debug_assert!((mask & SELF_IDENT > 0) || (mask & COUNTER_IDENT > 0));
+                            if mask & SELF_IDENT == 0 {
+                                is_identity = false;
+                            }
+                            if mask & COUNTER_IDENT == 0 {
+                                is_counter_identity = false;
+                            }
+                            if mask & SELF_IDENT > 0 {
+                                unsafe { new_v.get_unchecked_mut(c).write(lv.clone()) };
+                            } else {
+                                let new_cf = Cf::from_cf(rv.clone());
+                                unsafe { new_v.get_unchecked_mut(c).write(new_cf) };
+                            }
+                            c += 1;
+                        },
+                        AlgebraicResult::Element(jv) => {
+                            is_identity = false;
+                            is_counter_identity = false;
+                            unsafe { new_v.get_unchecked_mut(c).write(jv) };
+                            c += 1;
+                        },
                     }
                     l += 1;
                     r += 1;
@@ -1819,7 +1915,18 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         }
 
         unsafe{ v.set_len(c); }
-        return Self{ mask: mm, values: <_>::from(v) };
+        if c == 0 {
+            AlgebraicResult::None
+        } else {
+            if is_identity || is_counter_identity {
+                let mut mask = 0;
+                if is_identity { mask |= SELF_IDENT; }
+                if is_counter_identity { mask |= COUNTER_IDENT; }
+                AlgebraicResult::Identity(mask)
+            } else {
+                AlgebraicResult::Element(Self{ mask: mm, values: <_>::from(v) })
+            }
+        }
     }
 
     fn join_all(xs: &[&Self]) -> Self {
@@ -1880,12 +1987,14 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
                             is_identity = false;
                             btn.remove(64*(i as u8) + (index as u8));
                         },
-                        AlgebraicResult::Identity => { },
+                        AlgebraicResult::Identity(mask) => {
+                            debug_assert_eq!(mask, SELF_IDENT); //subtract is non-commutative
+                        },
                         AlgebraicResult::Element(jv) => {
                             is_identity = false;
                             let dst = unsafe { btn.get_unchecked_mut(64*(i as u8) + (index as u8)) };
                             *dst = jv;
-                        }
+                        },
                     }
                 }
 
@@ -1897,7 +2006,7 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
             AlgebraicResult::None
         } else {
             if is_identity {
-                AlgebraicResult::Identity
+                AlgebraicResult::Identity(SELF_IDENT)
             } else {
                 AlgebraicResult::Element(btn)
             }
@@ -1948,7 +2057,8 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
                             is_identity = false;
                             mm[i] ^= 1u64 << index;
                         }
-                        AlgebraicResult::Identity => {
+                        AlgebraicResult::Identity(mask) => {
+                            debug_assert_eq!(mask, SELF_IDENT); //restrict is non-commutative
                             unsafe { new_v.get_unchecked_mut(c).write(lv.clone()) };
                             c += 1;
                         },
@@ -1956,7 +2066,7 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
                             is_identity = false;
                             unsafe { new_v.get_unchecked_mut(c).write(jv) };
                             c += 1;
-                        }
+                        },
                     }
                     l += 1;
                     r += 1;
@@ -1972,13 +2082,13 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
             }
         }
 
+        unsafe{ v.set_len(c); }
         if c == 0 {
             AlgebraicResult::None
         } else {
             if is_identity {
-                AlgebraicResult::Identity
+                AlgebraicResult::Identity(SELF_IDENT)
             } else {
-                unsafe{ v.set_len(c); }
                 AlgebraicResult::Element(Self{ mask: mm, values: <_>::from(v) })
             }
         }

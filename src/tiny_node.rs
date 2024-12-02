@@ -245,9 +245,9 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
     }
     fn join_into_dyn(&mut self, _other: TrieNodeODRc<V>) -> Result<(), TrieNodeODRc<V>> where V: Lattice { unreachable!() }
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice { unreachable!() }
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
+    fn pmeet_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: Lattice {
         //GOAT, is this worth bespoke code to save some cycles?
-        self.into_full().unwrap().meet_dyn(other)
+        self.into_full().unwrap().pmeet_dyn(other)
     }
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
         //GOAT, is this worth bespoke code to save some cycles?

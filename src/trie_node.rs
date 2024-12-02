@@ -251,8 +251,8 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
-    /// the logic to promote nodes to other node types.
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
+    /// the logic to promote nodes to other node types
+    fn pmeet_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: Lattice;
 
     /// Allows for the implementation of the DistributiveLattice algebraic operations
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice;
@@ -1023,11 +1023,11 @@ impl<V: Lattice + Clone> TrieNodeODRc<V> {
         }
     }
     #[inline]
-    pub fn meet(&self, other: &Self) -> Option<Self> {
+    pub fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
         if self.ptr_eq(other) {
-            Some(self.clone())
+            AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT)
         } else {
-            self.borrow().meet_dyn(other.borrow())
+            self.borrow().pmeet_dyn(other.borrow())
         }
     }
 }
@@ -1062,7 +1062,8 @@ impl<V: Lattice + Clone> Lattice for Option<TrieNodeODRc<V>> {
             }
         }
     }
-    /// GOAT, maybe the default impl is fine
+    // GOAT, maybe the default impl is fine... Or maybe not... I need to think through whether any efficiency
+    // is left on the table
     // fn join_into(&mut self, other: Self) {
     //     match self {
     //         None => { match other {
@@ -1075,13 +1076,13 @@ impl<V: Lattice + Clone> Lattice for Option<TrieNodeODRc<V>> {
     //         }
     //     }
     // }
-    fn meet(&self, other: &Option<TrieNodeODRc<V>>) -> Option<TrieNodeODRc<V>> {
+    fn pmeet(&self, other: &Option<TrieNodeODRc<V>>) -> AlgebraicResult<Option<TrieNodeODRc<V>>> {
         match self {
-            None => { None }
+            None => { AlgebraicResult::None }
             Some(l) => {
                 match other {
-                    None => { None }
-                    Some(r) => l.meet(r)
+                    None => { AlgebraicResult::None }
+                    Some(r) => l.pmeet(r).map(|result| Some(result))
                 }
             }
         }
@@ -1105,13 +1106,13 @@ impl<V: Lattice + Clone> LatticeRef for Option<&TrieNodeODRc<V>> {
             }
         }
     }
-    fn meet(&self, other: &Option<&TrieNodeODRc<V>>) -> Option<TrieNodeODRc<V>> {
+    fn pmeet(&self, other: &Option<&TrieNodeODRc<V>>) -> AlgebraicResult<Option<TrieNodeODRc<V>>> {
         match self {
-            None => { None }
+            None => { AlgebraicResult::None }
             Some(l) => {
                 match other {
-                    None => { None }
-                    Some(r) => l.meet(r)
+                    None => { AlgebraicResult::None }
+                    Some(r) => l.pmeet(r).map(|result| Some(result))
                 }
             }
         }
@@ -1124,7 +1125,7 @@ impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<TrieNodeODRc
             None => { AlgebraicResult::None }
             Some(s) => {
                 match other {
-                    None => { AlgebraicResult::Identity }
+                    None => { AlgebraicResult::Identity(SELF_IDENT) }
                     Some(o) => { s.psubtract(o).map(|v| Some(v)) }
                 }
             }
@@ -1139,7 +1140,7 @@ impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&TrieNode
             None => { AlgebraicResult::None }
             Some(s) => {
                 match other {
-                    None => { AlgebraicResult::Identity }
+                    None => { AlgebraicResult::Identity(SELF_IDENT) }
                     Some(o) => { s.psubtract(o).map(|v| Some(v)) }
                 }
             }

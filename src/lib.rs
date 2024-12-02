@@ -372,6 +372,31 @@ mod tests {
         assert_eq!(intersection.val_count(), 8000);
     }
 
+    /// This test is a minimal repro case for a bug where a list node is intersected with a byte node,
+    /// and both slots in the list node match items in the byte node, but the byte node carries extra elements
+    #[test]
+    fn map_meet_lil_test() {
+        let l_keys = [
+            vec![207, 27],  //NON-OVERLAP!
+            vec![207, 117], //Overlap
+            vec![207, 142], //Overlap
+            // vec![208, 250], //Overlap
+            // vec![213, 63],  //Overlap
+        ];
+        let r_keys = [
+            vec![207, 117], //Overlap
+            vec![207, 142], //Overlap
+            // vec![208, 157], //NON-OVERLAP!
+            // vec![208, 250], //Overlap
+            // vec![213, 63],  //Overlap
+        ];
+        let l: BytesTrieMap<u64> = l_keys.into_iter().map(|v| (v, 0)).collect();
+        let r: BytesTrieMap<u64> = r_keys.into_iter().map(|v| (v, 0)).collect();
+
+        let intersection = l.meet(&r);
+        assert_eq!(intersection.val_count(), 2);
+    }
+
     #[test]
     fn btm_ops_test() {
         for n in (0..5000).into_iter().step_by(97) {
@@ -409,7 +434,7 @@ mod tests {
                 for i in 0..(2*n) { assert_eq!(j.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) || vnr.contains(prefix_key(&i)))); }
                 for i in 0..(2*n) { assert_eq!(m.contains(prefix_key(&i)), (vnl.contains(prefix_key(&i)) && vnr.contains(prefix_key(&i)))); }
                 for i in 0..(n+o) { assert_eq!(j.get(prefix_key(&i)).map(|v| *v), vnl.get(prefix_key(&i)).join(&vnr.get(prefix_key(&i)))); }
-                for i in o..n { assert_eq!(m.get(prefix_key(&i)).map(|v| *v), vnl.get(prefix_key(&i)).meet(&vnr.get(prefix_key(&i)))); }
+                for i in o..n { assert_eq!(m.get(prefix_key(&i)).map(|v| *v), vnl.get(prefix_key(&i)).pmeet(&vnr.get(prefix_key(&i))).into_option([Some(vnl.get(prefix_key(&i)).cloned()), Some(vnr.get(prefix_key(&i)).cloned())]).flatten()); }
                 // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
             }
         }

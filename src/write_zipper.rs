@@ -6,7 +6,7 @@ use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::zipper_tracking::*;
-use crate::ring::{AlgebraicResult, Lattice, DistributiveLattice};
+use crate::ring::{AlgebraicResult, DistributiveLattice, Lattice, COUNTER_IDENT, SELF_IDENT};
 
 /// Implemented on [Zipper] types that allow modification of the trie
 pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
@@ -975,8 +975,18 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         }
         match self.get_focus().try_borrow() {
             Some(self_node) => {
-                let joined = self_node.meet_dyn(src.borrow());
-                self.graft_internal(joined);
+                match self_node.pmeet_dyn(src.borrow()) {
+                    AlgebraicResult::Element(intersection) => self.graft_internal(Some(intersection)),
+                    AlgebraicResult::None => self.graft_internal(None),
+                    AlgebraicResult::Identity(mask) => {
+                        if mask & SELF_IDENT > 0 {
+                            //nothing to do
+                        } else {
+                            debug_assert_eq!(mask, COUNTER_IDENT); //It's gotta be self or other
+                            self.graft_internal(Some(src.into_option().unwrap()))
+                        }
+                    },
+                }
                 true
             },
             None => false
@@ -994,8 +1004,18 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
             Some(src) => src,
             None => return false
         };
-        let joined = a.meet_dyn(b);
-        self.graft_internal(joined);
+        match a.pmeet_dyn(b) {
+            AlgebraicResult::Element(intersection) => self.graft_internal(Some(intersection)),
+            AlgebraicResult::None => self.graft_internal(None),
+            AlgebraicResult::Identity(mask) => {
+                if mask & SELF_IDENT > 0 {
+                    self.graft_internal(Some(a_focus.into_option().unwrap()))
+                } else {
+                    debug_assert_eq!(mask, COUNTER_IDENT); //It's gotta be a or b
+                    self.graft_internal(Some(b_focus.into_option().unwrap()))
+                }
+            },
+        }
         true
     }
     /// See [WriteZipper::subtract]
@@ -1009,7 +1029,10 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                 match self_node.psubtract_dyn(src.borrow()) {
                     AlgebraicResult::Element(diff) => self.graft_internal(Some(diff)),
                     AlgebraicResult::None => self.graft_internal(None),
-                    AlgebraicResult::Identity => {}, //nothing to do
+                    AlgebraicResult::Identity(mask) => {
+                        debug_assert_eq!(mask, SELF_IDENT); //subtract is non-commutative
+                        //nothing to actually do
+                    },
                 }
                 true
             },
@@ -1027,7 +1050,10 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                 match self_node.prestrict_dyn(src.borrow()) {
                     AlgebraicResult::Element(restricted) => self.graft_internal(Some(restricted)),
                     AlgebraicResult::None => self.graft_internal(None),
-                    AlgebraicResult::Identity => {}, //nothing to do...
+                    AlgebraicResult::Identity(mask) => {
+                        debug_assert_eq!(mask, SELF_IDENT); //restrict is non-commutative
+                        //nothing to actually do
+                    },
                 }
                 true
             },
@@ -1045,7 +1071,10 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                 match src.borrow().prestrict_dyn(self_node) {
                     AlgebraicResult::Element(restricted) => self.graft_internal(Some(restricted)),
                     AlgebraicResult::None => self.graft_internal(None),
-                    AlgebraicResult::Identity => self.graft_internal(src.into_option()),
+                    AlgebraicResult::Identity(mask) => {
+                        debug_assert_eq!(mask, SELF_IDENT); //restrict is non-commutative
+                        self.graft_internal(src.into_option())
+                    },
                 }
                 true
             },
