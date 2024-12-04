@@ -128,6 +128,81 @@ impl<V> AlgebraicResult<V> {
             Self::Identity(_) => ident,
         }
     }
+    /// Merges two `AlgebraicResult<V>`s into a combined `AlgebraicResult<U>`.  This method is useful to create a
+    /// result for an operation on whole type arguments, by performing the operation on each field of the arguments
+    /// separately
+    #[inline]
+    pub fn merge<U, F, SI, OI>(self, other: Self, mut self_idents: SI, mut other_idents: OI, merge_f: F) -> AlgebraicResult<U>
+        where
+        F: FnOnce(Option<V>, Option<V>) -> AlgebraicResult<U>,
+        SI: AsMut<[Option<V>]>,
+        OI: AsMut<[Option<V>]>,
+    {
+        match self {
+            Self::None => {
+                match other {
+                    Self::None => AlgebraicResult::None,
+                    Self::Element(other_v) => merge_f(None, Some(other_v)),
+                    Self::Identity(other_mask) => {
+                        let self_ident = &self_idents.as_mut()[0];
+                        if self_ident.is_none() {
+                            AlgebraicResult::Identity(other_mask)
+                        } else {
+                            let other_v = std::mem::take(&mut other_idents.as_mut()[other_mask.trailing_zeros() as usize]);
+                            merge_f(None, other_v)
+                        }
+                    },
+                }
+            },
+            Self::Identity(self_mask) => {
+                match other {
+                    Self::None => {
+                        let other_ident = &other_idents.as_mut()[0];
+                        if other_ident.is_none() {
+                            AlgebraicResult::Identity(self_mask)
+                        } else {
+                            let self_v = std::mem::take(&mut self_idents.as_mut()[self_mask.trailing_zeros() as usize]);
+                            merge_f(self_v, None)
+                        }
+                    },
+                    Self::Element(other_v) => {
+                        let self_v = std::mem::take(&mut self_idents.as_mut()[self_mask.trailing_zeros() as usize]);
+                        merge_f(self_v, Some(other_v))
+                    },
+                    Self::Identity(other_mask) => {
+                        let combined_mask = self_mask & other_mask;
+                        if combined_mask > 0 {
+                            AlgebraicResult::Identity(combined_mask)
+                        } else {
+                            let self_v = std::mem::take(&mut self_idents.as_mut()[self_mask.trailing_zeros() as usize]);
+                            let other_v = std::mem::take(&mut other_idents.as_mut()[other_mask.trailing_zeros() as usize]);
+                            merge_f(self_v, other_v)
+                        }
+                    }
+                }
+            },
+            Self::Element(self_v) => {
+                match other {
+                    Self::None => merge_f(Some(self_v), None),
+                    Self::Element(other_v) => merge_f(Some(self_v), Some(other_v)),
+                    Self::Identity(other_mask) => {
+                        let other_v = std::mem::take(&mut other_idents.as_mut()[other_mask.trailing_zeros() as usize]);
+                        merge_f(Some(self_v), other_v)
+                    }
+                }
+            }
+        }
+
+
+
+
+//GOAT, wanna make 3 functions.
+//`merge`` takes two AlgebraicResult<V>, and merges them into an AlgebraicResult<U>
+//`meet` takes another v, and meets it with an existing result, takes an index for the argument index
+//`join` does the same thing, analogous to meet
+
+
+    }
 }
 
 impl<V> AlgebraicResult<Option<V>> {
@@ -186,6 +261,20 @@ impl<V> FatAlgebraicResult<V> {
     #[inline(always)]
     pub(crate) fn element(e: V) -> Self {
         Self {identity_mask: 0, element: Some(e)}
+    }
+    /// Merges two `FatAlgebraicResult<V>`s into an `AlgebraicResult<U>`.  See [AlgebraicResult::merge]
+    #[inline]
+    pub fn merge_and_convert<U, F>(self, other: Self, merge_f: F) -> AlgebraicResult<U>
+        where F: FnOnce(Option<V>, Option<V>) -> AlgebraicResult<U>,
+    {
+        if self.element.is_none() && other.element.is_none() {
+            return AlgebraicResult::None
+        }
+        let combined_mask = self.identity_mask & other.identity_mask;
+        if combined_mask > 0 {
+            return AlgebraicResult::Identity(combined_mask)
+        }
+        merge_f(self.element, other.element)
     }
 }
 
@@ -410,6 +499,11 @@ impl <V: Lattice> Lattice for Box<V> {
 // I have a strong bias towards convenience - e.g. implement some reasonable behavior for the built-in
 // types, with lots of provisos
 //
+
+//GOAT, LatticeCounter and LatticeBitfield should be traits.
+// BitfieldLattice should be implemented on bool
+// Make monad types that can implement these traits on all prim types
+// Make a "convertable_to" trait across all prim types
 
 impl Lattice for &str {
     fn join(&self, _other: &Self) -> Self { self }

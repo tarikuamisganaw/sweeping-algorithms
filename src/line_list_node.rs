@@ -1030,27 +1030,6 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
         }
     }
 
-    /// Internal method to combine the result from separate **Commutative** operations on individual slots into
-    /// an AlgebraicResult for the whole node
-    #[inline]
-    fn combine_fat_results_into_node_result(&self,
-        slot0_result: FatAlgebraicResult<ValOrChild<V>>,
-        slot1_result: FatAlgebraicResult<ValOrChild<V>>,
-    ) -> AlgebraicResult<TrieNodeODRc<V>> {
-        if slot0_result.element.is_none() && slot1_result.element.is_none() {
-            return AlgebraicResult::None
-        }
-        let combined_mask = slot0_result.identity_mask & slot1_result.identity_mask;
-        if combined_mask > 0 {
-            return AlgebraicResult::Identity(combined_mask)
-        }
-        let slot0_payload = slot0_result.element.map(|payload| payload.into());
-        let slot1_payload = slot1_result.element.map(|payload| payload.into());
-
-        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
-        AlgebraicResult::Element(TrieNodeODRc::new(new_node))
-    }
-
     /// Internal method to combine the result from separate **Non-Commutative** operations on individual slots into
     /// an AlgebraicResult for the whole node
     #[inline]
@@ -2248,7 +2227,12 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         debug_assert!(validate_node(self));
         let slot0_result = self.meet_slot_contents::<0>(other);
         let slot1_result = self.meet_slot_contents::<1>(other);
-        self.combine_fat_results_into_node_result(slot0_result, slot1_result)
+        slot0_result.merge_and_convert(slot1_result, |slot0_payload, slot1_payload| {
+            let slot0_payload = slot0_payload.map(|payload| payload.into());
+            let slot1_payload = slot1_payload.map(|payload| payload.into());
+            let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
+            AlgebraicResult::Element(TrieNodeODRc::new(new_node))
+        })
     }
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
         debug_assert!(validate_node(self));
