@@ -885,8 +885,20 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         }
         match self.get_focus().try_borrow() {
             Some(self_node) => {
-                let joined = self_node.join_dyn(src.borrow());
-                self.graft_internal(Some(joined));
+                match self_node.pjoin_dyn(src.borrow()) {
+                    AlgebraicResult::Element(joined) => {
+                        self.graft_internal(Some(joined));
+                    }
+                    AlgebraicResult::Identity(mask) => {
+                        if mask & SELF_IDENT == 0 {
+                            debug_assert!(mask & COUNTER_IDENT > 0);
+                            self.graft_internal(src.into_option());
+                        }
+                    },
+                    AlgebraicResult::None => {
+                        self.graft_internal(None);
+                    }
+                }
                 true
             },
             None => { self.graft_internal(src.into_option()); true }
@@ -900,8 +912,20 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         };
         match self.get_focus().try_borrow() {
             Some(self_node) => {
-                let joined = self_node.join_dyn(src.borrow());
-                self.graft_internal(Some(joined));
+                match self_node.pjoin_dyn(src.borrow()) {
+                    AlgebraicResult::Element(joined) => {
+                        self.graft_internal(Some(joined));
+                    },
+                    AlgebraicResult::Identity(mask) => {
+                        if mask & SELF_IDENT == 0 {
+                            debug_assert!(mask & COUNTER_IDENT > 0);
+                            self.graft_internal(Some(src));
+                        }
+                    },
+                    AlgebraicResult::None => {
+                        self.graft_internal(None);
+                    }
+                }
                 true
             },
             None => { self.graft_internal(Some(src)); true }
@@ -912,16 +936,17 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         match src_zipper.take_focus() {
             None => return false,
             Some(src) => {
-                let new_node = match self.take_focus() {
+                match self.take_focus() {
                     Some(mut self_node) => {
-                        match self_node.make_mut().join_into_dyn(src) {
-                            Ok(()) => self_node,
-                            Err(replacement_node) => replacement_node,
+                        let (status, result) = self_node.make_mut().join_into_dyn(src);
+                        //GOAT!!!! We should be returning the status to the caller!!
+                        match result {
+                            Ok(()) => self.graft_internal(Some(self_node)),
+                            Err(replacement_node) => self.graft_internal(Some(replacement_node)),
                         }
                     },
-                    None => { src }
+                    None => { self.graft_internal(Some(src)) }
                 };
-                self.graft_internal(Some(new_node));
                 true
             }
         }

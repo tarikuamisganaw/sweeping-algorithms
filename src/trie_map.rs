@@ -3,7 +3,7 @@ use core::cell::UnsafeCell;
 use num_traits::{PrimInt, zero};
 use crate::trie_node::*;
 use crate::zipper::*;
-use crate::ring::{AlgebraicResult, COUNTER_IDENT, SELF_IDENT, Lattice, LatticeRef, DistributiveLattice, DistributiveLatticeRef, Quantale};
+use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, Lattice, LatticeRef, DistributiveLattice, DistributiveLatticeRef, Quantale};
 
 /// A map type that uses byte slices `&[u8]` as keys
 ///
@@ -349,21 +349,14 @@ impl<V: Clone + Send + Sync> BytesTrieMap<V> {
         }
     }
 
-    /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
-    /// values in `other`
+    /// Returns a new `BytesTrieMap` containing the union of the paths in `self` and the paths in `other`
+    pub fn join(&self, other: &Self) -> Self where V: Lattice {
+        result_into_map(self.pjoin(other), self, other)
+    }
+
+    /// Returns a new `BytesTrieMap` containing the intersection of the paths in `self` and the paths in `other`
     pub fn meet(&self, other: &Self) -> Self where V: Lattice {
-        match self.pmeet(other) {
-            AlgebraicResult::Element(new_map) => new_map,
-            AlgebraicResult::None => Self::new(),
-            AlgebraicResult::Identity(mask) => {
-                if mask & SELF_IDENT > 0 {
-                    self.clone()
-                } else {
-                    debug_assert_eq!(mask, COUNTER_IDENT);
-                    other.clone()
-                }
-            },
-        }
+        result_into_map(self.pmeet(other), self, other)
     }
 
     /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
@@ -414,24 +407,45 @@ impl<V: Clone + Send + Sync, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieM
     }
 }
 
-impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
-    fn join(&self, other: &Self) -> Self {
-        Self::new_with_root(self.root().join(&other.root()))
+/// Internal function to convert an AlgebraicResult (partial lattice result) into a BytesTrieMap
+fn result_into_map<V: Clone + Send + Sync>(result: AlgebraicResult<BytesTrieMap<V>>, self_map: &BytesTrieMap<V>, other_map: &BytesTrieMap<V>) -> BytesTrieMap<V> {
+    match result {
+        AlgebraicResult::Element(new_map) => new_map,
+        AlgebraicResult::None => BytesTrieMap::new(),
+        AlgebraicResult::Identity(mask) => {
+            if mask & SELF_IDENT > 0 {
+                self_map.clone()
+            } else {
+                debug_assert_eq!(mask, COUNTER_IDENT);
+                other_map.clone()
+            }
+        },
     }
+}
 
-    fn join_into(&mut self, other: Self) {
+impl<V: Clone + Lattice + Send + Sync> Lattice for BytesTrieMap<V> {
+    fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
+        self.root().pjoin(&other.root()).map(|new_root| Self::new_with_root(new_root))
+    }
+    fn join_into(&mut self, other: Self) -> AlgebraicStatus {
         if let Some(other_root) = other.into_root() {
-            match self.get_or_init_root_mut().make_mut().join_into_dyn(other_root) {
+            let (status, result) = self.get_or_init_root_mut().make_mut().join_into_dyn(other_root);
+            match result {
                 Ok(()) => {},
                 Err(replacement) => { *self.get_or_init_root_mut() = replacement; }
             }
+            status
+        } else {
+            if self.is_empty() {
+                AlgebraicStatus::None
+            } else {
+                AlgebraicStatus::Identity
+            }
         }
     }
-
     fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
         self.root().pmeet(&other.root()).map(|new_root| Self::new_with_root(new_root))
     }
-
     fn bottom() -> Self {
         BytesTrieMap::new()
     }
