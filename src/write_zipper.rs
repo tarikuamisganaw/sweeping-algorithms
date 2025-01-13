@@ -473,7 +473,7 @@ pub(crate) struct WriteZipperCore<'a, 'k, V> {
     pub(crate) root_val: Option<&'a mut Option<V>>,
 
     /// The stack of node references.  We need a "rooted" Vec in case we need to upgrade the node at the root of the zipper
-    pub(crate) focus_stack: MutCursorRootedVec<&'a mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
+    pub(crate) focus_stack: MutCursorRootedVec<'a, &'a mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
 }
 
 /// The part of the [WriteZipper] that contains the key-related fields.  So it can be borrowed separately
@@ -689,7 +689,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
     /// See [WriteZipper::new_with_node_and_path_internal]
     pub(crate) fn new_with_node_and_path_internal(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'path [u8]) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(root_node);
-        focus_stack.advance_from_root(|root| Some(root.make_mut()));
+        focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
         debug_assert!((path.len() == 0) != (root_val.is_none())); //We must have either a path or a root_val, but never both
         Self {
             key: KeyFields::new(path),
@@ -1127,7 +1127,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                 self.focus_stack.to_root();
                 let stack_root = self.focus_stack.root_mut().unwrap();
                 **stack_root = TrieNodeODRc::new(EmptyNode::new());
-                self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+                self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
                 true
             }
         }
@@ -1175,7 +1175,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
             self.focus_stack.backtrack();
             let stack_root = self.focus_stack.root_mut().unwrap();
             core::mem::swap(*stack_root, &mut replacement_node);
-            self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+            self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
             if !replacement_node.borrow().node_is_empty() {
                 Some(replacement_node)
             } else {
@@ -1219,7 +1219,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                     self.focus_stack.to_root();
                     let stack_root = self.focus_stack.root_mut().unwrap();
                     **stack_root = src;
-                    self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+                    self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
                 }
             },
             None => { self.remove_branches(); }
@@ -1293,7 +1293,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
                 node
             };
             self.focus_stack.replace_root(node);
-            self.focus_stack.advance_from_root(|root| Some(root.make_mut()));
+            self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
         }
     }
 
@@ -1315,7 +1315,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
         }
 
         //Step until we get to the end of the key or find a leaf node
-        self.focus_stack.advance_if_empty(|root| root.make_mut());
+        self.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
         while self.focus_stack.advance(|node| {
             if let Some((consumed_byte_cnt, next_node)) = node.node_get_child_mut(key) {
                 if consumed_byte_cnt < key.len() {
@@ -1350,7 +1350,7 @@ impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
 
 /// An internal function to replace the node at a the top of the focus stack
 #[inline]
-pub(crate) fn replace_top_node<V>(focus_stack: &mut MutCursorRootedVec<&mut TrieNodeODRc<V>, dyn TrieNode<V>>,
+pub(crate) fn replace_top_node<'cursor, V>(focus_stack: &mut MutCursorRootedVec<'cursor, &'cursor mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
     key: &KeyFields, replacement_node: TrieNodeODRc<V>)
 {
     focus_stack.backtrack();
@@ -1363,14 +1363,14 @@ pub(crate) fn replace_top_node<V>(focus_stack: &mut MutCursorRootedVec<&mut Trie
         None => {
             let stack_root = focus_stack.root_mut().unwrap();
             **stack_root = replacement_node;
-            focus_stack.advance_from_root(|root| Some(root.make_mut()));
+            focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
         }
     }
 }
 
 /// An internal function to replace the node at a the top of the focus stack
 #[inline]
-pub(crate) fn swap_top_node<V: Clone + Send + Sync, F>(focus_stack: &mut MutCursorRootedVec<&mut TrieNodeODRc<V>, dyn TrieNode<V>>,
+pub(crate) fn swap_top_node<'cursor, V: Clone + Send + Sync, F>(focus_stack: &mut MutCursorRootedVec<'cursor, &'cursor mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
     key: &KeyFields, func: F)
     where F: FnOnce(TrieNodeODRc<V>) -> Option<TrieNodeODRc<V>>
 {
@@ -1393,7 +1393,7 @@ pub(crate) fn swap_top_node<V: Clone + Send + Sync, F>(focus_stack: &mut MutCurs
                 Some(replacement_node) => { **stack_root = replacement_node; },
                 None => { },
             }
-            focus_stack.advance_from_root(|root| Some(root.make_mut()));
+            focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
         }
     }
 }

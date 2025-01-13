@@ -2934,8 +2934,6 @@ mod tests {
 //
 //GOAT, remove garbage lattice impls
 //
-//GOAT, upgrade to latest mutcursor
-//
 //GOAT, rename BytesTrieMap to PathMap, consider other renames, marked by GOATs
 //
 //GOAT, document how path existence can't be used to confirm the existence of a value, only the non-existence

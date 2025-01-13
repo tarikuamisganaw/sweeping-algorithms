@@ -142,7 +142,7 @@ impl<'trie, V> ZipperHead<'_, 'trie, V> {
 impl<V> Drop for ZipperHead<'_, '_, V> {
     fn drop(&mut self) {
         let z = self.borrow_z();
-        z.focus_stack.advance_if_empty(|root| root.make_mut());
+        z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
     }
 }
 
