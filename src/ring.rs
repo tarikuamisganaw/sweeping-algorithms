@@ -335,21 +335,28 @@ impl<V> AlgebraicResult<Option<V>> {
 
 /// Status result that is returned from an in-place algebraic operation (a method that takes `&mut self`)
 ///
-/// NOTE: For some operations, it is conceptually valid for both `Identity` and `None` results to be
-/// simultaneously appropriate, for example `None.join_into(None)`. In these situations, `None` should take
-/// precedence over `Identity`, but either of the results can be considered correct so your code must behave
-/// correctly in either case.
+/// NOTE: `AlgebraicStatus` values are ordered, with `Element` being the lowest value and `None` being the
+/// highest.  Higher values make stronger guarantees about the results of the operation, but a lower values
+/// are still correct and your code must behave appropriately.
+///
+/// For example, for example `Empty.join(Empty)` would result in Empty, but also leave the original value
+/// unmodified, therefore both `Identity` and `None` are conceptually valid in that case.
+///
+/// In general, `AlgebraicStatus` return values are a valid signal for loop termination, but should not be
+/// strictly relied upon for other kinds of branching.  For example, `Element` might be returned by
+/// [WriteZipper::join] instead of `Identity` if the internal representation was changed by the method,
+/// however the next call to `join` ought to return `Identity` if nothing new is added.
 ///
 /// This type mirrors [AlgebraicResult]
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AlgebraicStatus {
-    /// A result indicating `self` was completely annhilated and is now empty
+    /// A result indicating `self` contains the operation's output
     #[default]
-    None,
+    Element,
     /// A result indicating `self` was unmodified by the operation
     Identity,
-    /// A result indicating `self` was modified by the operation, and is not empty
-    Element,
+    /// A result indicating `self` was completely annhilated and is now empty
+    None,
 }
 
 impl AlgebraicStatus {
