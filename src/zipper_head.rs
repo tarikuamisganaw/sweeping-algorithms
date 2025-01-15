@@ -10,7 +10,7 @@ use crate::dense_byte_node::CellByteNode;
 //
 //IMPLEMENTATION NOTE: The way to think about distribution of responsibility between WriteZipper and
 // ZipperHead is that WriteZipper is responsible for the trie integrity machinery.  The purpose of the
-// ZipperHead is to provide an client-facing API machanism to coordinate multiple zippers in the same path
+// ZipperHead is to provide an client-facing API machanism to coordinate multiple zippers in the same tree
 // safely.  Therefore it is possible to have a ZipperHead that sits at an ordinary node, or even in the
 // middle of a node, however creating a WriteZipper means the node at the root of the WriteZipper must be
 // upgraded to a CellByteNode.

@@ -80,36 +80,36 @@ mod tests {
 
     #[test]
     fn btm_compound_tree_subtract_test() {
-        let mut l: BytesTrieMap<&str> = BytesTrieMap::new();
-        l.insert(b"hello", "hello");
-        l.insert(b"hello world", "hello world");
-        l.insert(b"hell no we won't go", "hell no we won't go");
-        let mut r: BytesTrieMap<&str> = BytesTrieMap::new();
-        r.insert(b"hello", "hello");
+        let mut l: BytesTrieMap<bool> = BytesTrieMap::new();
+        l.insert(b"hello", true);
+        l.insert(b"hello world", true);
+        l.insert(b"hell no we won't go", true);
+        let mut r: BytesTrieMap<bool> = BytesTrieMap::new();
+        r.insert(b"hello", true);
         let l_no_r = l.subtract(&r);
 
         assert_eq!(l_no_r.get(b"hello"), None);
-        assert_eq!(l_no_r.get(b"hello world"), Some(&"hello world"));
-        assert_eq!(l_no_r.get(b"hell no we won't go"), Some(&"hell no we won't go"));
+        assert_eq!(l_no_r.get(b"hello world"), Some(&true));
+        assert_eq!(l_no_r.get(b"hell no we won't go"), Some(&true));
     }
 
     #[test]
     fn btm_simple_tree_subtract_test() {
-        let mut l: BytesTrieMap<&str> = BytesTrieMap::new();
-        l.insert(b"alligator", "alligator");
-        l.insert(b"allegedly", "allegedly");
-        l.insert(b"albatross", "albatross");
-        l.insert(b"albino", "albino");
-        let mut r: BytesTrieMap<&str> = BytesTrieMap::new();
-        r.insert(b"alligator", "alligator");
-        r.insert(b"albino", "albino");
+        let mut l: BytesTrieMap<bool> = BytesTrieMap::new();
+        l.insert(b"alligator", true);
+        l.insert(b"allegedly", true);
+        l.insert(b"albatross", true);
+        l.insert(b"albino", true);
+        let mut r: BytesTrieMap<bool> = BytesTrieMap::new();
+        r.insert(b"alligator", true);
+        r.insert(b"albino", true);
         let l_no_r = l.subtract(&r);
 
         assert_eq!(l_no_r.val_count(), 2);
         assert_eq!(l_no_r.get(b"alligator"), None);
         assert_eq!(l_no_r.get(b"albino"), None);
-        assert_eq!(l_no_r.get(b"allegedly"), Some(&"allegedly"));
-        assert_eq!(l_no_r.get(b"albatross"), Some(&"albatross"));
+        assert_eq!(l_no_r.get(b"allegedly"), Some(&true));
+        assert_eq!(l_no_r.get(b"albatross"), Some(&true));
     }
 
     #[test]

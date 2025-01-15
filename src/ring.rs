@@ -1,5 +1,5 @@
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 /// The result of an algebraic operation on elements in a partial lattice
@@ -53,6 +53,15 @@ impl<V> AlgebraicResult<V> {
     #[inline]
     pub fn is_element(&self) -> bool {
         matches!(self, AlgebraicResult::Element(_))
+    }
+    /// Returns the identity mask from a [AlgebraicResult::Identity], otherwise returns `None`
+    #[inline]
+    pub fn identity_mask(&self) -> Option<u64> {
+        match self {
+            Self::None => None,
+            Self::Identity(mask) => Some(*mask),
+            Self::Element(_) => None,
+        }
     }
     /// Swaps the mask bits in an [AlgebraicResult::Identity] result, for an arity-2 operation, such that
     /// the [SELF_IDENT] bit becomes the [COUNTER_IDENT] bit, and vise-versa
@@ -519,31 +528,12 @@ pub trait Lattice {
     fn join_into(&mut self, other: Self) -> AlgebraicStatus where Self: Sized {
         let result = self.pjoin(&other);
         in_place_default_impl(result, self, other, || Self::bottom(), |e| e)
-        //GOAT trash
-        // match self.pjoin(&other) {
-        //     AlgebraicResult::None => {
-        //         *self = Self::bottom();
-        //         AlgebraicStatus::None
-        //     },
-        //     AlgebraicResult::Element(v) => {
-        //         *self = v;
-        //         AlgebraicStatus::Element
-        //     },
-        //     AlgebraicResult::Identity(mask) => {
-        //         if mask & SELF_IDENT > 0 {
-        //             AlgebraicStatus::Identity
-        //         } else {
-        //             *self = other;
-        //             AlgebraicStatus::Element
-        //         }
-        //     },
-        // }
     }
 
     /// Implements the intersection operation between two instances of a type in a partial lattice
     fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized;
 
-    //GOAT, we want a meet_with, that has the same semantics as join_into, e.g. mutating in-place.  I
+    //GOAT, we want a meet_into, that has the same semantics as join_into, e.g. mutating in-place.  I
     // don't think there is any benefit to consuming `other`, however, so we can still take `other: &Self`
 
     /// Returns the "least" value for the type in the lattice
@@ -604,7 +594,7 @@ pub trait DistributiveLattice {
     /// Implements the partial subtract operation
     fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized;
 
-    //GOAT, consider a psubtract_from that operates on a `&mut self`
+    //GOAT, We want a psubtract_from (subtract_into??) that operates on a `&mut self`
 }
 
 /// Implements subtract behavior on a reference to a [DistributiveLattice] type
@@ -657,8 +647,11 @@ pub(crate) trait HeteroQuantale<OtherT> {
 }
 
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
-// impls on primitive types
+// impls on primitive & std types
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// =-*   `Option<V>`                                                                                  *-=
 
 impl<V: Lattice + Clone> Lattice for Option<V> {
     fn pjoin(&self, other: &Option<V>) -> AlgebraicResult<Self> {
@@ -706,6 +699,34 @@ impl<V: Lattice + Clone> Lattice for Option<V> {
     }
 }
 
+impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<V> {
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
+        match self {
+            None => { AlgebraicResult::None }
+            Some(s) => {
+                match other {
+                    None => { AlgebraicResult::Identity(SELF_IDENT) }
+                    Some(o) => { s.psubtract(o).map(|v| Some(v)) }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn option_subtract_test() {
+    assert_eq!(Some(()).psubtract(&Some(())), AlgebraicResult::None);
+    assert_eq!(Some(()).psubtract(&None), AlgebraicResult::Identity(SELF_IDENT));
+    assert_eq!(Some(Some(())).psubtract(&Some(Some(()))), AlgebraicResult::None);
+    assert_eq!(Some(Some(())).psubtract(&None), AlgebraicResult::Identity(SELF_IDENT));
+    assert_eq!(Some(Some(())).psubtract(&Some(None)), AlgebraicResult::Identity(SELF_IDENT));
+    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(None))), AlgebraicResult::Identity(SELF_IDENT));
+    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(Some(())))), AlgebraicResult::None);
+}
+
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// =-*   `Option<&V>`                                                                                 *-=
+
 impl<V: Lattice + Clone> LatticeRef for Option<&V> {
     type T = Option<V>;
     fn pjoin(&self, other: &Self) -> AlgebraicResult<Self::T> {
@@ -733,20 +754,6 @@ impl<V: Lattice + Clone> LatticeRef for Option<&V> {
     }
 }
 
-impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<V> {
-    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
-        match self {
-            None => { AlgebraicResult::None }
-            Some(s) => {
-                match other {
-                    None => { AlgebraicResult::Identity(SELF_IDENT) }
-                    Some(o) => { s.psubtract(o).map(|v| Some(v)) }
-                }
-            }
-        }
-    }
-}
-
 impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&V> {
     type T = Option<V>;
     fn psubtract(&self, other: &Self) -> AlgebraicResult<Self::T> {
@@ -762,56 +769,49 @@ impl<V: DistributiveLattice + Clone> DistributiveLatticeRef for Option<&V> {
     }
 }
 
-#[test]
-fn option_subtract_test() {
-    assert_eq!(Some(()).psubtract(&Some(())), AlgebraicResult::None);
-    assert_eq!(Some(()).psubtract(&None), AlgebraicResult::Identity(SELF_IDENT));
-    assert_eq!(Some(Some(())).psubtract(&Some(Some(()))), AlgebraicResult::None);
-    assert_eq!(Some(Some(())).psubtract(&None), AlgebraicResult::Identity(SELF_IDENT));
-    assert_eq!(Some(Some(())).psubtract(&Some(None)), AlgebraicResult::Identity(SELF_IDENT));
-    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(None))), AlgebraicResult::Identity(SELF_IDENT));
-    assert_eq!(Some(Some(Some(()))).psubtract(&Some(Some(Some(())))), AlgebraicResult::None);
-}
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// =-*   `Box<V>`                                                                                     *-=
 
 impl <V: Lattice> Lattice for Box<V> {
     fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
         self.as_ref().pjoin(other.as_ref()).map(|result| Box::new(result))
     }
-
     fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
         self.as_ref().pmeet(other.as_ref()).map(|result| Box::new(result))
     }
-
     fn bottom() -> Self {
         Box::new(V::bottom())
     }
 }
 
-//GOAT: We need to decide upon a strategy RE build-in types.
-// I have a strong bias towards convenience - e.g. implement some reasonable behavior for the built-in
-// types, with lots of provisos
-//
-
-//GOAT, LatticeCounter and LatticeBitfield should be traits.
-// BitfieldLattice should be implemented on bool
-// Make monad types that can implement these traits on all prim types
-// Make a "convertable_to" trait across all prim types
-
-//GOAT, I don't know what a Lattice on &str looks like.  We could make a Lattice impl for a String as a set of chars,
-// but on the other hand, I think we'd be better off with a "LatticeSet" trait, and then it would make more sense
-// to implement that on a HashSet and HashMap
-impl Lattice for &str {
-    fn pjoin(&self, _other: &Self) -> AlgebraicResult<Self> { AlgebraicResult::Identity(SELF_IDENT) }
-    fn pmeet(&self, _other: &Self) -> AlgebraicResult<Self> { AlgebraicResult::Identity(SELF_IDENT) }
-    fn bottom() -> Self { "" }
-}
-
-impl DistributiveLattice for &str {
-    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
-        if self == other {AlgebraicResult::None }
-        else { AlgebraicResult::Element(*self) }
+impl<V: DistributiveLattice> DistributiveLattice for Box<V> {
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
+        self.as_ref().psubtract(other.as_ref()).map(|result| Box::new(result))
     }
 }
+
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// =-*   `&V`                                                                                         *-=
+
+impl <V: Lattice> LatticeRef for &V {
+    type T = V;
+    fn pjoin(&self, other: &Self) -> AlgebraicResult<Self::T> {
+        (**self).pjoin(other)
+    }
+    fn pmeet(&self, other: &Self) -> AlgebraicResult<Self::T> {
+        (**self).pmeet(other)
+    }
+}
+
+impl<V: DistributiveLattice> DistributiveLatticeRef for &V {
+    type T = V;
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self::T> {
+        (**self).psubtract(other)
+    }
+}
+
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// =-*  `()`, aka unit                                                                                *-=
 
 impl DistributiveLattice for () {
     fn psubtract(&self, _other: &Self) -> AlgebraicResult<Self> where Self: Sized {
@@ -825,18 +825,21 @@ impl Lattice for () {
     fn bottom() -> Self { () }
 }
 
+//GOAT trash
 impl Lattice for usize {
     fn pjoin(&self, _other: &usize) -> AlgebraicResult<usize> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &usize) -> AlgebraicResult<usize> { AlgebraicResult::Identity(SELF_IDENT) }
     fn bottom() -> Self { 0 }
 }
 
+//GOAT trash
 impl Lattice for u64 {
     fn pjoin(&self, _other: &u64) -> AlgebraicResult<u64> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u64) -> AlgebraicResult<u64> { AlgebraicResult::Identity(SELF_IDENT) }
     fn bottom() -> Self { 0 }
 }
 
+//GOAT trash
 impl DistributiveLattice for u64 {
     fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
         if self == other { AlgebraicResult::None }
@@ -844,18 +847,21 @@ impl DistributiveLattice for u64 {
     }
 }
 
+//GOAT trash
 impl Lattice for u32 {
     fn pjoin(&self, _other: &u32) -> AlgebraicResult<u32> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u32) -> AlgebraicResult<u32> { AlgebraicResult::Identity(SELF_IDENT) }
     fn bottom() -> Self { 0 }
 }
 
+//GOAT trash
 impl Lattice for u16 {
     fn pjoin(&self, _other: &u16) -> AlgebraicResult<u16> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u16) -> AlgebraicResult<u16> { AlgebraicResult::Identity(SELF_IDENT) }
     fn bottom() -> Self { 0 }
 }
 
+//GOAT trash
 impl DistributiveLattice for u16 {
     fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
         if self == other { AlgebraicResult::None }
@@ -863,16 +869,22 @@ impl DistributiveLattice for u16 {
     }
 }
 
+//GOAT trash
 impl Lattice for u8 {
     fn pjoin(&self, _other: &u8) -> AlgebraicResult<u8> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u8) -> AlgebraicResult<u8> { AlgebraicResult::Identity(SELF_IDENT) }
     fn bottom() -> Self { 0 }
 }
 
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// =-*   `bool`                                                                                       *-=
+// NOTE: There is a default impl for `bool` and not for other primitives because there are fewer states,
+// and therefore fewer meanings for a `bool`.
+
 impl DistributiveLattice for bool {
     fn psubtract(&self, other: &bool) -> AlgebraicResult<Self> {
-        if *self && *other {
-            AlgebraicResult::Element(false)
+        if *self == *other {
+            AlgebraicResult::None
         } else {
             AlgebraicResult::Identity(SELF_IDENT)
         }
@@ -897,64 +909,112 @@ impl Lattice for bool {
     fn bottom() -> Self { false }
 }
 
-impl <K: Clone + Eq + Hash, V: Clone + Lattice> Lattice for HashMap<K, V> {
-    fn pjoin(&self, other: &HashMap<K, V>) -> AlgebraicResult<HashMap<K, V>> {
-        let mut result = HashMap::<K, V>::new();
-        let mut is_ident = self.len() >= other.len();
-        let mut is_counter_ident = self.len() <= other.len();
-        for (key, self_val) in self.iter() {
-            if let Some(other_val) = other.get(key) {
-                // A key in both HashMaps
-                let inner_result = self_val.pjoin(other_val);
-                hashmap_update_ident_flags_with_result(
-                    &mut result, inner_result, key, self_val, other_val, &mut is_ident, &mut is_counter_ident
-                );
-            } else {
-                // A key in self, but not in other
-                result.insert(key.clone(), self_val.clone());
-                is_counter_ident = false;
-            }
-        }
-        for (key, value) in other.iter() {
-            if !self.contains_key(key) {
-                // A key in other, but not in self
-                result.insert(key.clone(), value.clone());
-                is_ident = false;
-            }
-        }
-        hashmap_integrate_into_result(result, is_ident, is_counter_ident, self.len(), other.len())
-    }
+// =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
+// =-*   `SetLattice<K>`, including `HashMap<K, V>` and `HashSet<K>`                                  *-=
 
-    fn pmeet(&self, other: &HashMap<K, V>) -> AlgebraicResult<HashMap<K, V>> {
-        let mut result = HashMap::<K, V>::new();
-        let mut is_ident = true;
-        let mut is_counter_ident = true;
-        for (key, self_val) in self.iter() {
-            if let Some(other_val) = other.get(key) {
-                let inner_result = self_val.pmeet(other_val);
-                hashmap_update_ident_flags_with_result(
-                    &mut result, inner_result, key, self_val, other_val, &mut is_ident, &mut is_counter_ident
-                );
-            } else {
-                is_ident = false;
+/// Implemented on an unordered set type, (e.g. [HashMap], [HashSet], etc.) to get automatic implementations
+/// of the [Lattice] and [DistributiveLattice] traits on the set type with the [set_lattice] and
+/// [set_dist_lattice] macros
+pub trait SetLattice {
+    /// A key type that uniquely identifies an element within the set
+    type K: Clone + Eq;
+
+    /// A payload value type that can be associated with a key in the set
+    type V: Clone;
+
+    /// An [Iterator] type over the contents of the set
+    type Iter<'a>: Iterator<Item=(&'a Self::K, &'a Self::V)> where Self: 'a, Self::V: 'a, Self::K: 'a;
+
+    /// Returns a new empty set with the specified capacity preallocated
+    fn with_capacity(capacity: usize) -> Self;
+
+    /// Returns the number of items in the set
+    fn len(&self) -> usize;
+
+    /// Returns `true` if the set contains the key, otherwise `false`
+    fn contains_key(&self, key: &Self::K) -> bool;
+
+    /// Inserts a new (key, value) pair, replacing the item at `key` if it already existed
+    fn insert(&mut self, key: Self::K, val: Self::V);
+
+    /// Returns a reference to the element in the set, or None if the element is not contained within the set
+    fn get(&self, key: &Self::K) -> Option<&Self::V>;
+
+    /// Return a `Self::Iter` in order to iterate the set
+    fn iter<'a>(&'a self) -> Self::Iter<'a>;
+}
+
+/// A macro to emit the [Lattice] and [DistributiveLattice] implementations for a type that implements [SetLattice]
+macro_rules! set_lattice {
+    ( $type_ident:ident $(< $( $lt:tt $( : $clt:tt $(+ $dlt:tt )* )? ),+ >)? ) => {
+        impl $(< $( $lt $( : $clt $(+ $dlt )* )? ),+ >)? Lattice for $type_ident $(< $( $lt ),+ >)? where Self: SetLattice, <Self as SetLattice>::V: Lattice {
+            fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
+                let self_len = SetLattice::len(self);
+                let other_len = SetLattice::len(other);
+                let mut result = <Self as SetLattice>::with_capacity(self_len.max(other_len));
+                let mut is_ident = self_len >= other_len;
+                let mut is_counter_ident = self_len <= other_len;
+                for (key, self_val) in SetLattice::iter(self) {
+                    if let Some(other_val) = SetLattice::get(other, key) {
+                        // A key in both sets
+                        let inner_result = self_val.pjoin(other_val);
+                        set_lattice_update_ident_flags_with_result(
+                            &mut result, inner_result, key, self_val, other_val, &mut is_ident, &mut is_counter_ident
+                        );
+                    } else {
+                        // A key in self, but not in other
+                        SetLattice::insert(&mut result, key.clone(), self_val.clone());
+                        is_counter_ident = false;
+                    }
+                }
+                for (key, value) in SetLattice::iter(other) {
+                    if !SetLattice::contains_key(self, key) {
+                        // A key in other, but not in self
+                        SetLattice::insert(&mut result, key.clone(), value.clone());
+                        is_ident = false;
+                    }
+                }
+                set_lattice_integrate_into_result(result, is_ident, is_counter_ident, self_len, other_len)
+            }
+            fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
+                let mut result = <Self as SetLattice>::with_capacity(0);
+                let mut is_ident = true;
+                let mut is_counter_ident = true;
+                let (smaller, larger, switch) = if SetLattice::len(self) < SetLattice::len(other) {
+                    (self, other, false)
+                } else {
+                    (other, self, true)
+                };
+                for (key, self_val) in SetLattice::iter(smaller) {
+                    if let Some(other_val) = SetLattice::get(larger, key) {
+                        let inner_result = self_val.pmeet(other_val);
+                        set_lattice_update_ident_flags_with_result(
+                            &mut result, inner_result, key, self_val, other_val, &mut is_ident, &mut is_counter_ident
+                        );
+                    } else {
+                        is_ident = false;
+                    }
+                }
+                if switch {
+                    core::mem::swap(&mut is_ident, &mut is_counter_ident);
+                }
+                set_lattice_integrate_into_result(result, is_ident, is_counter_ident, self.len(), other.len())
+            }
+            fn bottom() -> Self {
+                <Self as SetLattice>::with_capacity(0)
             }
         }
-        hashmap_integrate_into_result(result, is_ident, is_counter_ident, self.len(), other.len())
-    }
-
-    fn bottom() -> Self {
-        HashMap::new()
     }
 }
 
-/// Internal function to integrate an `AlgebraicResult` from an element in a HashMap into the HashMap's own result
+/// Internal function to integrate an `AlgebraicResult` from an element in a set into the set's own overall result
 #[inline]
-fn hashmap_update_ident_flags_with_result<K: Clone + Eq + Hash, V: Clone>(
-    result_map: &mut HashMap<K, V>,
-    result: AlgebraicResult<V>,
-    key: &K,
-    self_val: &V,
-    other_val: &V,
+fn set_lattice_update_ident_flags_with_result<S: SetLattice>(
+    result_set: &mut S,
+    result: AlgebraicResult<S::V>,
+    key: &S::K,
+    self_val: &S::V,
+    other_val: &S::V,
     is_ident: &mut bool,
     is_counter_ident: &mut bool
 ) {
@@ -966,17 +1026,17 @@ fn hashmap_update_ident_flags_with_result<K: Clone + Eq + Hash, V: Clone>(
         AlgebraicResult::Element(new_val) => {
             *is_ident = false;
             *is_counter_ident = false;
-            result_map.insert(key.clone(), new_val);
+            result_set.insert(key.clone(), new_val);
         },
         AlgebraicResult::Identity(mask) => {
             if mask & SELF_IDENT > 0 {
-                result_map.insert(key.clone(), self_val.clone());
+                result_set.insert(key.clone(), self_val.clone());
             } else {
                 *is_ident = false;
             }
             if mask & COUNTER_IDENT > 0 {
                 if mask & SELF_IDENT == 0 {
-                    result_map.insert(key.clone(), other_val.clone());
+                    result_set.insert(key.clone(), other_val.clone());
                 }
             } else {
                 *is_counter_ident = false;
@@ -985,39 +1045,185 @@ fn hashmap_update_ident_flags_with_result<K: Clone + Eq + Hash, V: Clone>(
     }
 }
 
-/// Internal function to make an `AlgebraicResult` from a new result HashMap and flags
+/// Internal function to make an `AlgebraicResult` from a new result set and flags
 #[inline]
-fn hashmap_integrate_into_result<K: Clone + Eq + Hash, V: Clone>(
-    result_map: HashMap<K, V>,
+fn set_lattice_integrate_into_result<S: SetLattice>(
+    result_set: S,
     is_ident: bool,
     is_counter_ident: bool,
-    self_map_len: usize,
-    other_map_len: usize,
-) -> AlgebraicResult<HashMap<K, V>> {
-    let result_len = result_map.len();
+    self_set_len: usize,
+    other_set_len: usize,
+) -> AlgebraicResult<S> {
+    let result_len = result_set.len();
     if result_len == 0 {
         AlgebraicResult::None
     } else {
         let mut ident_mask = 0;
-        if is_ident && self_map_len == result_len {
+        if is_ident && self_set_len == result_len {
             ident_mask |= SELF_IDENT;
         }
-        if is_counter_ident && other_map_len == result_len {
+        if is_counter_ident && other_set_len == result_len {
             ident_mask |= COUNTER_IDENT;
         }
         if ident_mask > 0 {
             AlgebraicResult::Identity(ident_mask)
         } else {
-            AlgebraicResult::Element(result_map)
+            AlgebraicResult::Element(result_set)
         }
     }
 }
 
+impl<K: Clone + Eq + Hash, V: Clone + Lattice> SetLattice for HashMap<K, V> {
+    type K = K;
+    type V = V;
+    type Iter<'a> = std::collections::hash_map::Iter<'a, K, V> where K: 'a, V: 'a;
+    fn with_capacity(capacity: usize) -> Self { Self::with_capacity(capacity) }
+    fn len(&self) -> usize { self.len() }
+    fn contains_key(&self, key: &Self::K) -> bool { self.contains_key(key) }
+    fn insert(&mut self, key: Self::K, val: Self::V) { self.insert(key, val); }
+    fn get(&self, key: &Self::K) -> Option<&Self::V> { self.get(key) }
+    fn iter<'a>(&'a self) -> Self::Iter<'a> { self.iter() }
+}
+
+set_lattice!(HashMap<K, V>);
+//GOAT, set_dist_lattice
+
+impl<K: Clone + Eq + Hash> SetLattice for HashSet<K> {
+    type K = K;
+    type V = ();
+    type Iter<'a> = HashSetIterWrapper<'a, K> where K: 'a;
+    fn with_capacity(capacity: usize) -> Self { Self::with_capacity(capacity) }
+    fn len(&self) -> usize { self.len() }
+    fn contains_key(&self, key: &Self::K) -> bool { self.contains(key) }
+    fn insert(&mut self, key: Self::K, _val: Self::V) { self.insert(key); }
+    fn get(&self, key: &Self::K) -> Option<&Self::V> { self.get(key).map(|_| &()) }
+    fn iter<'a>(&'a self) -> Self::Iter<'a> { HashSetIterWrapper(self.iter()) }
+}
+
+pub struct HashSetIterWrapper<'a, K> (std::collections::hash_set::Iter<'a, K>);
+
+impl<'a, K> Iterator for HashSetIterWrapper<'a, K> {
+    type Item = (&'a K, &'a());
+    fn next(&mut self) -> Option<(&'a K, &'a())> {
+        self.0.next().map(|key| (key, &()))
+    }
+}
+
+set_lattice!(HashSet<K>);
+//GOAT, set_dist_lattice
+
+#[test]
+fn set_lattice_join_test1() {
+    let mut a = HashSet::new();
+    let mut b = HashSet::new();
+
+    //Test None result
+    let joined_result = a.pjoin(&b);
+    assert_eq!(joined_result, AlgebraicResult::None);
+
+    //Straightforward join
+    a.insert("A");
+    b.insert("B");
+    let joined_result = a.pjoin(&b);
+    assert!(joined_result.is_element());
+    let joined = joined_result.unwrap([&a, &b]);
+    assert_eq!(joined.len(), 2);
+    assert!(joined.get("A").is_some());
+    assert!(joined.get("B").is_some());
+
+    //Make "self" contain more entries
+    a.insert("C");
+    let joined_result = a.pjoin(&b);
+    assert!(joined_result.is_element());
+    let joined = joined_result.unwrap([&a, &b]);
+    assert_eq!(joined.len(), 3);
+
+    //Make "other" contain more entries
+    b.insert("D");
+    b.insert("F");
+    b.insert("H");
+    let joined_result = a.pjoin(&b);
+    assert!(joined_result.is_element());
+    let joined = joined_result.unwrap([&a, &b]);
+    assert_eq!(joined.len(), 6);
+
+    //Test identity with self arg
+    let joined_result = joined.pjoin(&b);
+    assert_eq!(joined_result, AlgebraicResult::Identity(SELF_IDENT));
+
+    //Test identity with other arg
+    let joined_result = b.pjoin(&joined);
+    assert_eq!(joined_result, AlgebraicResult::Identity(COUNTER_IDENT));
+
+    //Test mutual identity
+    let joined_result = joined.pjoin(&joined);
+    assert_eq!(joined_result, AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT));
+}
+
+#[test]
+/// Tests a HashMap containing more HashMaps
+//TODO: When the [chalk trait solver](https://github.com/rust-lang/chalk) lands in stable rust, it would be nice
+// to promote this test to sample code and implement an arbitrarily deep recursive structure.  But currently
+// that's impossible due to limits in the stable rust trait sovler.
+fn set_lattice_join_test2() {
+
+    #[derive(Clone)]
+    struct Map<'a>(HashMap::<&'a str, Option<HashMap<&'a str, ()>>>);// TODO, should be struct Map<'a>(HashMap::<&'a str, Option<Box<Map<'a>>>>); see comment above about chalk
+    impl<'a> SetLattice for Map<'a> {
+        type K = &'a str;
+        type V = Option<HashMap<&'a str, ()>>; //Option<Box<Map<'a>>>; TODO, see comment above about chalk
+        type Iter<'it> = std::collections::hash_map::Iter<'it, Self::K, Self::V> where Self: 'it, Self::K: 'it, Self::V: 'it;
+        fn with_capacity(capacity: usize) -> Self { Map(HashMap::with_capacity(capacity)) }
+        fn len(&self) -> usize { self.0.len() }
+        fn contains_key(&self, key: &Self::K) -> bool { self.0.contains_key(key) }
+        fn insert(&mut self, key: Self::K, val: Self::V) { self.0.insert(key, val); }
+        fn get(&self, key: &Self::K) -> Option<&Self::V> { self.0.get(key) }
+        fn iter<'it>(&'it self) -> Self::Iter<'it> { self.0.iter() }
+    }
+    set_lattice!(Map<'a>);
+
+    let mut a = Map::with_capacity(1);
+    let mut b = Map::with_capacity(1);
+
+    // One level join
+    a.0.insert("A", None);
+    b.0.insert("B", None);
+    let joined_result = a.pjoin(&b);
+    assert!(joined_result.is_element());
+    let joined = joined_result.unwrap([&a, &b]);
+    assert_eq!(joined.len(), 2);
+    assert!(joined.get(&"A").is_some());
+    assert!(joined.get(&"B").is_some());
+
+    // Two level join, results should be Element even though the key existed in both args, because the values joined
+    let mut inner_map_1 = HashMap::with_capacity(1);
+    inner_map_1.insert("1", ());
+    a.0.insert("A", Some(inner_map_1));
+    let mut inner_map_2 = HashMap::with_capacity(1);
+    inner_map_2.insert("2", ());
+    b.0.remove("B");
+    b.0.insert("A", Some(inner_map_2));
+    let joined_result = a.pjoin(&b);
+    assert!(joined_result.is_element());
+    let joined = joined_result.unwrap([&a, &b]);
+    assert_eq!(joined.len(), 1);
+    let joined_inner = joined.get(&"A").unwrap().as_ref().unwrap();
+    assert_eq!(joined_inner.len(), 2);
+    assert!(joined_inner.get(&"1").is_some());
+    assert!(joined_inner.get(&"2").is_some());
+
+    // Redoing the join should yield Identity
+    let joined_result = joined.pjoin(&a);
+    assert_eq!(joined_result.identity_mask().unwrap(), SELF_IDENT);
+    let joined_result = b.pjoin(&joined);
+    assert_eq!(joined_result.identity_mask().unwrap(), COUNTER_IDENT);
+}
+
+//GOAT, do a test for the HashMap impl of pmeet and for psubtract
+//GOAT, do an impl of SetLattice for Vec as an indexed set
 
 
-//GOAT, do a test for the HashMap impl of Lattice & DeistributiveLattice
-
-//GOAT, implement Lattice on HashSet
-
-//GOAT, think about impl on Vec (ordered collection) vs. impl on Vec (indexed set)
-//    I see how the indexed_set impl would work, but I don't see how an ordered collection works at all
+//GOAT, LatticeCounter and LatticeBitfield should be traits.
+// BitfieldLattice should be implemented on bool
+// Make monad types that can implement these traits on all prim types
+// Make a "convertable_to" trait across all prim types

@@ -2926,8 +2926,6 @@ mod tests {
 
 //GOAT, make an is_shared() zipper method, with all relevant caveats in the documentation
 //
-//GOAT, add algebraic status return codes from the WriteZipper ops
-//
 //GOAT, tests to make sure the right status codes are returned from all algebraic ops
 //
 //GOAT, merge wrappers for lattice impls on primitives
