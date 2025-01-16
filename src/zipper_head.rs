@@ -20,9 +20,9 @@ pub struct ZipperHead<'parent, 'trie, V> {
 }
 
 // `ZipperHead` can be `Send` but absolutely must not be `Sync`!
-unsafe impl<V: Send + Sync> Send for ZipperHead<'_, '_, V> {}
+unsafe impl<V: Send + Sync + Unpin> Send for ZipperHead<'_, '_, V> {}
 
-impl<'parent, 'trie: 'parent, V: Clone + Send + Sync> ZipperHead<'parent, 'trie, V> {
+impl<'parent, 'trie: 'parent, V: Clone + Send + Sync + Unpin> ZipperHead<'parent, 'trie, V> {
 
     /// Internal method to create a new borrowed ZipperHead from a WriteZipper
     pub(crate) fn new_borrowed(parent_z: &'parent mut WriteZipperCore<'trie, 'static, V>) -> Self {
@@ -157,7 +157,7 @@ impl<V> Drop for ZipperHead<'_, '_, V> {
 /// 3. The zipper focus doesn't exist, in which case we need to create it, and then follow one of the
 ///  other paths.
 /// 4. The target path is the zipper focus
-fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync>(z: &'a mut WriteZipperCore<V>, path: &[u8]) -> (&'a mut TrieNodeODRc<V>, &'a mut Option<V>)
+fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin>(z: &'a mut WriteZipperCore<V>, path: &[u8]) -> (&'a mut TrieNodeODRc<V>, &'a mut Option<V>)
 {
     let node_key_start = z.key.node_key_start();
 

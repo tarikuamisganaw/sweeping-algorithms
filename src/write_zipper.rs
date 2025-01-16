@@ -183,7 +183,7 @@ impl<V> Drop for WriteZipperTracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
-impl<V: Clone + Send + Sync> Zipper for WriteZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperTracked<'_, '_, V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
 
     fn at_root(&self) -> bool { self.z.at_root() }
@@ -219,7 +219,7 @@ impl<'a, 'path, V : Clone> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'p
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<'a, 'path, V: Clone + Send + Sync> WriteZipperTracked<'a, 'path, V> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperTracked<'a, 'path, V> {
     //GOAT, this method currently isn't called
     // /// Creates a new zipper, with a path relative to a node
     // pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], tracker: ZipperTracker) -> Self {
@@ -253,7 +253,7 @@ impl<'a, 'path, V: Clone + Send + Sync> WriteZipperTracked<'a, 'path, V> {
     }
 }
 
-impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V> {
+impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperTracked<'a, '_, V> {
     type ZipperHead<'z> = ZipperHead<'z, 'a, V> where Self: 'z;
     fn get_value(&self) -> Option<&V> { self.z.get_value() }
     fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
@@ -280,7 +280,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperTracked<'a, '_, V
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
 }
 
-impl<V: Clone + Send + Sync> WriteZipperPriv<V> for WriteZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperTracked<'_, '_, V> {
     fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> { self.z.take_focus() }
 }
 
@@ -303,7 +303,7 @@ impl<V> Drop for WriteZipperUntracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
-impl<V: Clone + Send + Sync> Zipper for WriteZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperUntracked<'_, '_, V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
 
     fn at_root(&self) -> bool { self.z.at_root() }
@@ -339,7 +339,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
+impl <'a, 'k, V: Clone + Send + Sync + Unpin> WriteZipperUntracked<'a, 'k, V> {
     /// Creates a new zipper, with a path relative to a node
     #[cfg(debug_assertions)]
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], tracker: Option<ZipperTracker<TrackingWrite>>) -> Self {
@@ -384,7 +384,7 @@ impl <'a, 'k, V: Clone + Send + Sync> WriteZipperUntracked<'a, 'k, V> {
     }
 }
 
-impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'a, '_, V> {
+impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperUntracked<'a, '_, V> {
     type ZipperHead<'z> = ZipperHead<'z, 'a, V> where Self: 'z;
     fn get_value(&self) -> Option<&V> { self.z.get_value() }
     fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
@@ -411,7 +411,7 @@ impl<'a, V: Clone + Send + Sync> WriteZipper<V> for WriteZipperUntracked<'a, '_,
     fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
 }
 
-impl<V: Clone + Send + Sync> WriteZipperPriv<V> for WriteZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperUntracked<'_, '_, V> {
     fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> { self.z.take_focus() }
 }
 
@@ -467,7 +467,7 @@ pub(crate) struct KeyFields<'path> {
     pub(crate) prefix_idx: Vec<usize>,
 }
 
-impl<V: Clone + Send + Sync> Zipper for WriteZipperCore<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperCore<'_, '_, V> {
     type ReadZipperT<'a> = () where Self: 'a;
 
     #[inline]
@@ -661,7 +661,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     }
 }
 
-impl <'a, 'path, V: Clone + Send + Sync> WriteZipperCore<'a, 'path, V> {
+impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'path [u8]) -> Self {
         let (key, node) = node_along_path_mut(root_node, path, true);
