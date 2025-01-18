@@ -1007,7 +1007,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
                         None => return AlgebraicResult::Identity(SELF_IDENT)
                     }
                 };
-                debug_assert!(difference.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap([true, true]));
+                debug_assert!(difference.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or([true, true], true));
                 difference.map(|node| ValOrChildUnion::from(node))
             } else {
                 debug_assert!(onward_key.len() > 0);
@@ -1860,6 +1860,12 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         //Case 1
         if key.len() == 0 {
             if key1.len() > 0 && key0[0] == key1[0] {
+                if key0.len() == 1 && self.is_child_ptr::<0>() {
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().borrow()) });
+                }
+                if key1.len() == 1 && self.is_child_ptr::<1>() {
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<1>().borrow()) });
+                }
                 return (Some(&key0[0..1]), None);
             } else {
                 if self.is_child_ptr::<0>() {
