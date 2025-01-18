@@ -112,27 +112,34 @@ pub trait Zipper: zipper_priv::ZipperPriv {
     /// focus moved upwards, otherwise returns `false` if the zipper was already at the root
     fn ascend_until(&mut self) -> bool;
 
-    /// Ascends the zipper to the nearest upstream value.  Returns `true` if the zipper
-    /// focus moved upwards, otherwise returns `false` if the zipper was already at the root or at a value
-    fn ascend_until_value(&mut self) -> bool {
-        if self.is_value() {
-            return false;
-        }
-        let at_root = !self.ascend_until();
-        if at_root {
-            return false;
-        }
-        loop {
-            if self.is_value() {
-                break;
-            };
-            let done = !self.ascend_until();
-            if done {
-                break;
-            };
-        }
-        return true;
-    }
+    /// Ascends the zipper to the nearest upstream branch point, skipping over values along the way.  Returns
+    /// `true` if the zipper focus moved upwards, otherwise returns `false` if the zipper was already at the
+    /// root
+    fn ascend_until_branch(&mut self) -> bool;
+
+//GOAT, I think this method ought to behave like the other two, and ascend above the current value, instead
+// of stopping if the zipper is on a value.  But does anybody even use it??
+    // /// Ascends the zipper to the nearest upstream value.  Returns `true` if the zipper
+    // /// focus moved upwards, otherwise returns `false` if the zipper was already at the root or at a value
+    // fn ascend_until_value(&mut self) -> bool {
+    //     if self.is_value() {
+    //         return false;
+    //     }
+    //     let at_root = !self.ascend_until();
+    //     if at_root {
+    //         return false;
+    //     }
+    //     loop {
+    //         if self.is_value() {
+    //             break;
+    //         };
+    //         let done = !self.ascend_until();
+    //         if done {
+    //             break;
+    //         };
+    //     }
+    //     return true;
+    // }
 
     //GOAT, this should be deprecated in favor of to_next_sibling_byte and to_prev_sibling_byte
     /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
@@ -277,6 +284,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperTracked<'_, '_, V> {
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
+    fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -380,6 +388,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperUntracked<'_, '_, V> {
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
+    fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -518,6 +527,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperOwned<V> {
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
+    fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -972,16 +982,30 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
         if self.at_root() {
             return false;
         }
+        loop {
+            if self.node_key().len() == 0 {
+                self.ascend_across_nodes();
+            }
+            self.ascend_within_node();
+            if self.child_count() > 1 || self.is_value() || self.at_root() {
+                return true;
+            }
+        }
+    }
 
-        //See if the branch point is in the parent node
-        if self.node_key().len() == 0 {
-            self.ascend_across_nodes();
+    fn ascend_until_branch(&mut self) -> bool {
+        if self.at_root() {
+            return false;
         }
-        self.ascend_within_node();
-        if self.child_count() == 1 {
-            self.ascend_until();
+        loop {
+            if self.node_key().len() == 0 {
+                self.ascend_across_nodes();
+            }
+            self.ascend_within_node();
+            if self.child_count() > 1 || self.at_root() {
+                return true;
+            }
         }
-        true
     }
 
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
@@ -1932,6 +1956,74 @@ mod tests {
             assert!(family.contains(&full_parent_path));
             assert_eq!(full_parent_path, parent_zipper.origin_path().unwrap());
         }
+    }
+
+    #[test]
+    fn read_zipper_ascend_until_test1() {
+        //First a straight-line trie
+        let keys = ["1", "12", "123", "1234", "12345"];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let mut zip = map.read_zipper();
+
+        //Test that ascend_until stops at each value
+        assert!(zip.descend_to(b"12345"));
+        assert_eq!(zip.path(), b"12345");
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"1234");
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"123");
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"12");
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"1");
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"");
+        assert!(!zip.ascend_until());
+        assert!(zip.at_root());
+
+        //Test that ascend_until_branch skips over all the values
+        assert!(zip.descend_to(b"12345"));
+        assert_eq!(zip.path(), b"12345");
+        assert!(zip.ascend_until_branch());
+        assert_eq!(zip.path(), b"");
+        assert!(zip.at_root());
+
+        //Try with some actual branches in the trie.
+        //Some paths encountered will be values only, some will be branches only, and some will be both
+        let keys = ["1", "123", "12345", "1abc", "1234abc"];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let mut zip = map.read_zipper();
+
+        assert!(zip.descend_to(b"12345"));
+        assert_eq!(zip.path(), b"12345");
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"1234"); // "1234" is a branch only
+        assert_eq!(zip.is_value(), false);
+        assert_eq!(zip.child_count(), 2);
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"123"); // "123" is a value only
+        assert_eq!(zip.child_count(), 1);
+        assert_eq!(zip.is_value(), true);
+        assert!(zip.ascend_until()); // Jump over "12" because it's neither a branch nor a value
+        assert_eq!(zip.path(), b"1"); // "1" is both a branch and a value
+        assert_eq!(zip.is_value(), true);
+        assert_eq!(zip.child_count(), 2);
+        assert!(zip.ascend_until());
+        assert_eq!(zip.path(), b"");
+        assert_eq!(zip.child_count(), 1);
+        assert!(!zip.ascend_until());
+        assert!(zip.at_root());
+
+        //Test that ascend_until_branch skips over all the values
+        assert!(zip.descend_to(b"12345"));
+        assert!(zip.ascend_until_branch());
+        assert_eq!(zip.path(), b"1234");
+        assert!(zip.ascend_until_branch());
+        assert_eq!(zip.path(), b"1");
+        assert!(zip.ascend_until_branch());
+        assert_eq!(zip.path(), b"");
+        assert!(!zip.ascend_until_branch());
+        assert!(zip.at_root());
     }
 
     #[test]

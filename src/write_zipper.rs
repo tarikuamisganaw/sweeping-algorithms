@@ -205,6 +205,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperTracked<'_, '_, V> {
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
+    fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.get_value();
         let rz_core = ReadZipperCore::new_with_node_and_path_internal(self.z.focus_stack.top().unwrap().as_tagged(), &self.z.key.node_key(), None, new_root_val);
@@ -325,6 +326,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperUntracked<'_, '_, V> 
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
+    fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.get_value();
         let rz_core = ReadZipperCore::new_with_node_and_path_internal(self.z.focus_stack.top().unwrap().as_tagged(), &self.z.key.node_key(), None, new_root_val);
@@ -611,6 +613,26 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperCore<'_, '_, V> {
     }
 
     fn ascend_until(&mut self) -> bool {
+        if self.at_root() {
+            return false;
+        }
+        loop {
+            self.ascend_within_node();
+            if self.at_root() {
+                return true;
+            }
+            if self.key.node_key().len() == 0 {
+                self.ascend_across_nodes();
+            }
+            if self.child_count() > 1 || self.is_value() {
+                break;
+            }
+        }
+        debug_assert!(self.key.node_key().len() > 0); //We should never finish with a zero-length node-key
+        true
+    }
+
+    fn ascend_until_branch(&mut self) -> bool {
         if self.at_root() {
             return false;
         }
