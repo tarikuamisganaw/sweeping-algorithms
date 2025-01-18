@@ -24,8 +24,8 @@ pub trait ZipperMorphisms<V> {
     fn into_cata<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
-        CollapseF: FnMut(&V, &W, &[u8]) -> W,
-        AlgF: FnMut(&[u64; 4], &[W], &[u8]) -> W;
+        CollapseF: FnMut(&V, W, &[u8]) -> W,
+        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W;
 
 }
 
@@ -33,8 +33,8 @@ impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + Zip
     fn into_cata<W, MapF, CollapseF, AlgF>(mut self, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
-        CollapseF: FnMut(&V, &W, &[u8]) -> W,
-        AlgF: FnMut(&[u64; 4], &[W], &[u8]) -> W
+        CollapseF: FnMut(&V, W, &[u8]) -> W,
+        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W
     {
         //`stack` holds a "frame" at each forking point above the zipper position.  No frames exist for values
         let mut stack = Vec::<StackFrame<W>>::with_capacity(12);
@@ -46,7 +46,7 @@ impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + Zip
         stack.push(StackFrame::new(self.child_count(), self.child_mask()));
         if !self.descend_first_byte() {
             //Empty trie is a special case
-            return alg_f(&[0; 4], &[], self.origin_path().unwrap());
+            return alg_f(&[0; 4], &mut [], self.origin_path().unwrap());
         }
 
         loop {
@@ -76,8 +76,8 @@ impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + Zip
                 while stack[frame_idx].child_idx == self.child_count() {
 
                     //We finished all the children from this branch, so run the aggregate function
-                    let stack_frame = &stack[frame_idx];
-                    let mut w = alg_f(&stack_frame.child_mask, &stack_frame.children, self.origin_path().unwrap());
+                    let stack_frame = &mut stack[frame_idx];
+                    let mut w = alg_f(&stack_frame.child_mask, &mut stack_frame.children, self.origin_path().unwrap());
                     if frame_idx == 0 {
                         return w
                     } else {
@@ -85,7 +85,7 @@ impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + Zip
 
                         //Check to see if we have a value here we need to collapse
                         if let Some(v) = self.get_value() {
-                            w = collapse_f(v, &w, self.origin_path().unwrap());
+                            w = collapse_f(v, w, self.origin_path().unwrap());
                         }
 
                         //Ascend the rest of the way back up to the branch
@@ -126,7 +126,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF>(z: &mut Z, map_f: &mut MapF,
     where
     Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath,
     MapF: FnMut(&V, &[u8]) -> W,
-    CollapseF: FnMut(&V, &W, &[u8]) -> W,
+    CollapseF: FnMut(&V, W, &[u8]) -> W,
 {
     loop {
 
@@ -141,7 +141,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF>(z: &mut Z, map_f: &mut MapF,
             let v = z.get_value().unwrap();
             match cur_w {
                 None => { cur_w = Some(map_f(v, z.origin_path().unwrap())); },
-                Some(w) => { cur_w = Some(collapse_f(v, &w, z.origin_path().unwrap())); }
+                Some(w) => { cur_w = Some(collapse_f(v, w, z.origin_path().unwrap())); }
             }
         } else {
             break;
@@ -249,11 +249,42 @@ mod tests {
                 },
                 |_child_mask, children, _path| {
                     // println!("aggregate path=\"{}\", children={children:?}", String::from_utf8_lossy(_path));
-                    children.into_iter().fold(0, |sum, child| sum + child)
+                    children.into_iter().fold(0, |sum, child| sum + *child)
                 }
             );
             // println!("sum = {sum}\n");
             assert_eq!(sum, expected_sum);
         }
+    }
+
+    #[test]
+    fn cata_test2() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+        // like val count, but without counting internal values
+        let cnt = btm.read_zipper().into_cata(
+            |v, p| { 1usize },
+            |v, w, p| { w },
+            |m, ws, p| { ws.iter().sum() });
+        assert_eq!(cnt, 11);
+
+
+        let longest = btm.read_zipper().into_cata(
+            |v, p| { p.to_vec() },
+            |v, w, p| { w },
+            |m, ws: &mut [Vec<u8>], p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) });
+        assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
+
+        let at_truncated = btm.read_zipper().into_cata(
+            |v, p| { vec![] },
+            |v, w, p| { vec![v.clone()] },
+            |m, ws: &mut [_], p| {
+                let mut r = ws.first_mut().map_or(vec![], std::mem::take);
+                for w in ws[1..].iter_mut() { r.extend(w.drain(..)); }
+                r
+            });
+        assert_eq!(at_truncated, vec![3]);
     }
 }
