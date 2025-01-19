@@ -1,27 +1,76 @@
+//! Functionality for applying various morphisms to [PathMap] and [Zipper]s
+//!
+//! Morphisms are a generalization of the [fold](std::iter::Iterator::fold) pattern, but for a trie or
+//! sub-trie, as opposed to a list / sequence.  Similarly they rely on results being aggregated into
+//! intermediate structures that are themselves joined together to produce a result.
+//!
+//! ### Supported Morphisms:
+//!
+//! #### Catamorphism: Process a trie from the leaves towards the root.
+//!
+//! The word "catamorphism" comes from the Greek for "down", because the root is considered the bottom
+//! of the trie.  This is confusing because elsewhere we use the convention that `descend_` "deeper"
+//! into the trie means moving further from the root while `ascend` moves closer to the root.  The docs
+//! will stick to this convention in-spite of the Greek meaning.
+//!
+//! ### Jumping vs. Ordinary Morphisms
+//!
+//! `jumping_` methods process the trie based on the positions of values.  Therefore the supplied
+//! closures are called to map values, collapse values found along the path, and aggregate intermediate
+//! structures together at branches.  No closure is called to merely propagate the intermediate structure
+//! upwards if there is no value to collapse nor multiple branches to combine.
+//!
+//! Ordinary (non `jumping_`) methods execute the `alg` closure for all non-leaf path positions, regardless
+//! of the existence of values.  In addition, the `map` closure is called for values with no upstream
+//! intermediate structure while the `collapse` closure is called when a structure has been passed from
+//! upstream.
+//!
+//! In general, `jumping` methods will perform substantially better, so you should use them if your `alg`
+//! closure simply passes the intermediate structure upwards when there is only one child branch.
+//!
+//! ### Side Effects
+//!
+//! Most methods come (or will come) with a `_side_effect` and an ordinary flavor.  The side-effecting
+//! flavors take `FnMut` closures, while the ordinary methods take `Fn` closures.  The side-effecting
+//! methods must traverse the entire trie exhaustively, while the ordinary methods may cache and re-use
+//! intermediate results in cases where there is structural sharing within the trie.
+//!
+//! In general, the ordinary methods should be preferred unless sife-effects are necessary
+//!
+
+
+//GOAT QUESTION: Why not combine map_f and collapse_F by passing `Option<W>` to the closure?
+
 use crate::zipper::*;
 
 pub trait ZipperMorphisms<V> {
-    /// Applies a catamorphism to the trie, by traversing in a depth-first order, from the zipper's root
+    /// Applies a "jumping" catamorphism to the trie
+    ///
+    /// ## Explanation of Algorithm
+    /// This method visits the first leaf value in a depth-first traversal from the zipper's root, calls
+    /// `map_f`, and continues in a depth-first traversal 
+    /// by traversing upwards from the leaves in a depth-first order, 
     ///
     /// ## Args
-    /// - `map_f`: `mapper(&self, v: &V, path: &[u8]) -> W`
+    /// - `map_f`: `mapper(v: &V, path: &[u8]) -> W`
     /// Maps value `v` at a leaf `path` into an intermediate result
     ///
-    /// - `collapse_f`: `collapse(&self, v: &V, w: &W, path: &[u8]) -> W`
+    /// - `collapse_f`: `collapse(v: &V, w: W, path: &[u8]) -> W`
     /// Folds value `v` at a non-leaf `path` with the aggregated results from the trie below `path`
     ///
-    /// - `alg_f`: `alg(&self, m: [u64; 4], cs: &[W], path: &[u8]) -> W`
+    /// - `alg_f`: `alg(m: [u64; 4], cs: &mut [W], path: &[u8]) -> W`
     /// Aggregates the results from the child branches, `cs`, descending from `path` into a single result
     ///
     /// In all cases, the `path` arg is the [origin_path](ZipperAbsolutePath::origin_path)
     ///
-    /// GOAT!! Are these names (map, collapse, and alg) part of math canon?  They are not very descriptive and hopefully we can change them.
+    /// GOAT!! Are these names (collapse, and alg) part of math canon?  They are not very descriptive and hopefully we can change them.
+    /// "map" is good because it's a perfect equivalent to map in map->reduce.
     ///
     /// **NOTE**: The traversal order, while depth-first, is subtly different from the order of
     /// [ZipperIteration::to_next_val].  `to_next_val` visits values first before descending to the
     /// branches below, while `cata` calls the `mapper` on the deepest values first, before returning
     /// to higher levels where `collapse` is called.
-    fn into_cata<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
+    fn into_jumping_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
         CollapseF: FnMut(&V, W, &[u8]) -> W,
@@ -30,7 +79,7 @@ pub trait ZipperMorphisms<V> {
 }
 
 impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath {
-    fn into_cata<W, MapF, CollapseF, AlgF>(mut self, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF) -> W
+    fn into_jumping_cata_side_effect<W, MapF, CollapseF, AlgF>(mut self, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
         CollapseF: FnMut(&V, W, &[u8]) -> W,
@@ -218,7 +267,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cata_test1() {
+    fn jumping_cata_test1() {
         let tests = [
             (vec![], 0), //Empty special case
             (vec!["1"], 1), //A branch at the root
@@ -236,7 +285,7 @@ mod tests {
             let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
             let zip = map.read_zipper();
 
-            let sum = zip.into_cata(
+            let sum = zip.into_jumping_cata_side_effect(
                 |_v, path| {
                     let val = (*path.last().unwrap() as char).to_digit(10).unwrap();
                     // println!("map path=\"{}\" val={val}", String::from_utf8_lossy(path));
@@ -258,29 +307,28 @@ mod tests {
     }
 
     #[test]
-    fn cata_test2() {
+    fn jumping_cata_test2() {
         let mut btm = BytesTrieMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
         // like val count, but without counting internal values
-        let cnt = btm.read_zipper().into_cata(
-            |v, p| { 1usize },
-            |v, w, p| { w },
-            |m, ws, p| { ws.iter().sum() });
+        let cnt = btm.read_zipper().into_jumping_cata_side_effect(
+            |_v, _p| { 1usize },
+            |_v, w, _p| { w },
+            |_m, ws, _p| { ws.iter().sum() });
         assert_eq!(cnt, 11);
 
-
-        let longest = btm.read_zipper().into_cata(
-            |v, p| { p.to_vec() },
-            |v, w, p| { w },
-            |m, ws: &mut [Vec<u8>], p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) });
+        let longest = btm.read_zipper().into_jumping_cata_side_effect(
+            |_v, p| { p.to_vec() },
+            |_v, w, _p| { w },
+            |_m, ws: &mut [Vec<u8>], _p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) });
         assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
 
-        let at_truncated = btm.read_zipper().into_cata(
-            |v, p| { vec![] },
-            |v, w, p| { vec![v.clone()] },
-            |m, ws: &mut [_], p| {
+        let at_truncated = btm.read_zipper().into_jumping_cata_side_effect(
+            |_v, _p| { vec![] },
+            |v, _w, _p| { vec![v.clone()] },
+            |_m, ws: &mut [_], _p| {
                 let mut r = ws.first_mut().map_or(vec![], std::mem::take);
                 for w in ws[1..].iter_mut() { r.extend(w.drain(..)); }
                 r
