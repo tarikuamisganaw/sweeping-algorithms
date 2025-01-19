@@ -809,14 +809,18 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
             if full_key.len() == node_key_len+1 {
                 self.regularize();
             }
+            self.focus_iter_token = NODE_ITER_INVALID;
             return true;
         }
 
         let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
-        self.focus_iter_token = new_tok;
 
         if new_tok != NODE_ITER_FINISHED {
             let byte_idx = self.node_key().len();
+            if byte_idx >= key_bytes.len() {
+                return false; //We can't go any deeper down this path
+            }
+            self.focus_iter_token = new_tok;
             self.prefix_buf.push(key_bytes[byte_idx]);
 
             if key_bytes.len() == byte_idx+1 {
@@ -832,6 +836,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
 
             true
         } else {
+            self.focus_iter_token = new_tok;
             false
         }
     }
@@ -1138,7 +1143,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperCo
         if self.child_count() == 0 {
             //We can stop ascending when we succeed in moving to a sibling
             while !self.to_next_sibling_byte() {
-                if !self.ascend(1) {
+                if !self.ascend_byte() {
                     return false;
                 }
             }
@@ -2046,6 +2051,9 @@ mod tests {
                 20 => assert_eq!(zipper.path(), b"roman"),
                 21 => assert_eq!(zipper.path(), b"romane"),
                 23 => assert_eq!(zipper.path(), b"romanus"),
+                24 => assert_eq!(zipper.path(), b"romu"),
+                25 => assert_eq!(zipper.path(), b"romul"),
+                26 => assert_eq!(zipper.path(), b"romulu"),
                 27 => assert_eq!(zipper.path(), b"romulus"),
                 28 => assert_eq!(zipper.path(), b"ru"),
                 32 => assert_eq!(zipper.path(), b"rubens"),
@@ -2407,6 +2415,29 @@ mod tests {
         assert_eq!(zipper.path(), &[6, 193]);
         assert_eq!(zipper.descend_first_byte(), true);
         assert_eq!(zipper.path(), &[6, 193, 7]);
+    }
+
+    #[test]
+    fn zipper_byte_iter_test4() {
+        let keys = vec!["ABC", "ABCDEF", "ABCdef"];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let mut zipper = map.read_zipper();
+
+        //Check that we end up at the first leaf by depth-first search
+        while zipper.descend_first_byte() {}
+        assert_eq!(zipper.path(), b"ABCDEF");
+
+        //Try taking a different branch
+        zipper.reset();
+        assert!(zipper.descend_to(b"ABC"));
+        assert_eq!(zipper.path(), b"ABC");
+        assert!(zipper.descend_indexed_branch(1));
+        assert_eq!(zipper.path(), b"ABCd");
+        assert!(zipper.descend_first_byte());
+        assert_eq!(zipper.path(), b"ABCde");
+        assert!(zipper.descend_first_byte());
+        assert_eq!(zipper.path(), b"ABCdef");
+        assert!(!zipper.descend_first_byte());
     }
 }
 
