@@ -6,12 +6,25 @@
 //!
 //! ### Supported Morphisms:
 //!
-//! #### Catamorphism: Process a trie from the leaves towards the root.
+//! #### Catamorphism
+//!
+//! Process a trie from the leaves towards the root.  This algorithm proceeds in a depth-first order.
+//! - A `map` closure is called on each leaf value; e.g. a value at location where there is no other value
+//! deeper in the trie accessible from that location.  As the algoritm ascends.
+//! - A `collapse` closure is called to merge a value along the path with the intermediate structure being
+//! carried up the trie.
+//! - An `alg` closure integrates intermediate structures from downstream branches into a single structure
+//! for that location.
 //!
 //! The word "catamorphism" comes from the Greek for "down", because the root is considered the bottom
 //! of the trie.  This is confusing because elsewhere we use the convention that `descend_` "deeper"
 //! into the trie means moving further from the root while `ascend` moves closer to the root.  The docs
 //! will stick to this convention in-spite of the Greek meaning.
+//!
+//! **NOTE**: The traversal order, while depth-first, is subtly different from the order of
+//! [ZipperIteration::to_next_val] and [ZipperIteration::to_next_step].  The [Zipper] methods visit values
+//! first before descending to the branches below, while the `cata` methods call the `mapper` on the deepest
+//! values first, before returning to higher levels where `collapse` is called.
 //!
 //! ### Jumping vs. Ordinary Morphisms
 //!
@@ -41,15 +54,13 @@
 
 //GOAT QUESTION: Why not combine map_f and collapse_F by passing `Option<W>` to the closure?
 
+// GOAT!! Are these names (collapse, and alg) part of math canon?  They are not very descriptive and hopefully we can change them.
+// "map" is good because it's a perfect equivalent to map in map->reduce.
+
 use crate::zipper::*;
 
 pub trait ZipperMorphisms<V> {
     /// Applies a "jumping" catamorphism to the trie
-    ///
-    /// ## Explanation of Algorithm
-    /// This method visits the first leaf value in a depth-first traversal from the zipper's root, calls
-    /// `map_f`, and continues in a depth-first traversal 
-    /// by traversing upwards from the leaves in a depth-first order, 
     ///
     /// ## Args
     /// - `map_f`: `mapper(v: &V, path: &[u8]) -> W`
@@ -62,14 +73,6 @@ pub trait ZipperMorphisms<V> {
     /// Aggregates the results from the child branches, `cs`, descending from `path` into a single result
     ///
     /// In all cases, the `path` arg is the [origin_path](ZipperAbsolutePath::origin_path)
-    ///
-    /// GOAT!! Are these names (collapse, and alg) part of math canon?  They are not very descriptive and hopefully we can change them.
-    /// "map" is good because it's a perfect equivalent to map in map->reduce.
-    ///
-    /// **NOTE**: The traversal order, while depth-first, is subtly different from the order of
-    /// [ZipperIteration::to_next_val].  `to_next_val` visits values first before descending to the
-    /// branches below, while `cata` calls the `mapper` on the deepest values first, before returning
-    /// to higher levels where `collapse` is called.
     fn into_jumping_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
