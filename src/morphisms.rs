@@ -223,7 +223,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
     JumpF: FnMut(&[u8], W, &[u8]) -> W,
 {
     loop {
-        let path = z.path();
+        let path = z.origin_path().unwrap();
         debug_assert_eq!(&path[0..path_buf.len()], path_buf); //Since this function is the only place we ascend...
         path_buf.extend(&path[path_buf.len()..]);
 
@@ -233,7 +233,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         let at_fork = z.child_count() > 1;
         let at_root = z.at_root();
 
-        let new_path_len = z.path().len();
+        let new_path_len = z.origin_path().unwrap().len();
         debug_assert!(new_path_len < path_buf.len());
 
         if JUMPING {
