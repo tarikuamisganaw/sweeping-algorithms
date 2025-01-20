@@ -777,10 +777,10 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
         debug_assert!(self.is_regularized());
 
         self.prefix_buf.push(k);
+        self.focus_iter_token = NODE_ITER_INVALID;
         if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
             self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
             self.focus_node = next_node.as_tagged();
-            self.focus_iter_token = NODE_ITER_INVALID;
             return true;
         }
         self.focus_node.node_contains_partial_key(self.node_key())
@@ -800,6 +800,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
             },
             (Some(prefix), None) => {
                 self.prefix_buf.push(prefix);
+                self.focus_iter_token = NODE_ITER_INVALID;
                 true
             },
             (None, _) => false
@@ -932,6 +933,10 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
 
             //Check to see if the iter result has modified more than one byte
             let node_key = self.node_key();
+            if node_key.len() == 0 {
+                self.focus_iter_token = NODE_ITER_INVALID;
+                return false;
+            }
             let fixed_len = node_key.len() - 1;
             if fixed_len > key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
                 return false;
@@ -2469,6 +2474,25 @@ mod tests {
         assert!(zipper.descend_first_byte());
         assert_eq!(zipper.path(), b"ABCdef");
         assert!(!zipper.descend_first_byte());
+    }
+
+    #[test]
+    fn zipper_byte_iter_test5() {
+        let keys = vec![[0, 3], [0, 4], [0, 5]];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+
+        let mut r0 = map.read_zipper();
+        assert_eq!(r0.descend_to_byte(0), true);
+        let mut r1 = r0.fork_read_zipper();
+        assert_eq!(r1.to_next_sibling_byte(), false);
+        assert_eq!(r1.child_mask()[0], (1<<3) | (1<<4) | (1<<5));
+        assert_eq!(r1.descend_to_byte(3), true);
+        assert_eq!(r1.child_mask()[0], 0);
+        assert_eq!(r1.to_next_sibling_byte(), true);
+        assert_eq!(r1.origin_path().unwrap(), &[0, 4]);
+        assert_eq!(r1.path(), &[4]);
+        assert_eq!(r1.to_next_sibling_byte(), true);
+        assert_eq!(r1.to_next_sibling_byte(), false);
     }
 }
 
