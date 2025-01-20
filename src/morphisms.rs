@@ -26,17 +26,15 @@
 //! first before descending to the branches below, while the `cata` methods call the `mapper` on the deepest
 //! values first, before returning to higher levels where `collapse` is called.
 //!
-//! ### Jumping vs. Ordinary Morphisms
+//! ### Jumping Morphisms and the `jump` closure
 //!
-//! `jumping_` methods process the trie based on the positions of values.  Therefore the supplied
-//! closures are called to map values, collapse values found along the path, and aggregate intermediate
-//! structures together at branches.  No closure is called to merely propagate the intermediate structure
-//! upwards if there is no value to collapse nor multiple branches to combine.
+//! Ordinary morphism methods conceptually operate on a trie of bytes.  Therefore they execute the `alg`
+//! closure for all non-leaf path positions, regardless of the existence of values.
 //!
-//! Ordinary (non `jumping_`) methods execute the `alg` closure for all non-leaf path positions, regardless
-//! of the existence of values.  In addition, the `map` closure is called for values with no upstream
-//! intermediate structure while the `collapse` closure is called when a structure has been passed from
-//! upstream.
+//! By contrast, `_jumping` methods conceptually operate on a trie of values.  That means the `alg` closure
+//! is only called at "forking" path positions from which multiple downstream branches descend, and also for
+//! the root.  There is an additional `jump` closure passed to these methods that can process an entire
+//! substring from the path.
 //!
 //! In general, `jumping` methods will perform substantially better, so you should use them if your `alg`
 //! closure simply passes the intermediate structure upwards when there is only one child branch.
@@ -60,7 +58,7 @@
 use crate::zipper::*;
 
 pub trait ZipperMorphisms<V> {
-    /// Applies an ordinary (non-jumping) catamorphism to the trie
+    /// Applies a catamorphism to the trie
     ///
     /// ## Args
     /// - `map_f`: `mapper(v: &V, path: &[u8]) -> W`
@@ -81,45 +79,54 @@ pub trait ZipperMorphisms<V> {
 
     /// Applies a "jumping" catamorphism to the trie
     ///
-    /// See [into_cata_side_effect](ZipperMorphisms::into_cata_side_effect) for a description of the args
-    fn into_jumping_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
+    /// ## Args
+    /// - `jump_f`: `FnMut(sub_path: &[u8], w: W, path: &[u8]) -> W`
+    /// Elevates a result `w` descending from the relative path, `sub_path` to the current position at `path`
+    ///
+    /// See [into_cata_side_effect](ZipperMorphisms::into_cata_side_effect) for explanation of other behavior
+    fn into_cata_jumping_side_effect<W, MapF, CollapseF, AlgF, JumpF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF, jump_f: JumpF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
         CollapseF: FnMut(&V, W, &[u8]) -> W,
-        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W;
+        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
+        JumpF: FnMut(&[u8], W, &[u8]) -> W;
 }
 
 impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath {
-    fn into_jumping_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
-        where
-        MapF: FnMut(&V, &[u8]) -> W,
-        CollapseF: FnMut(&V, W, &[u8]) -> W,
-        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W
-    {
-        cata_side_effect_body::<Self, V, W, MapF, CollapseF, AlgF, true>(self, map_f, collapse_f, alg_f)
-    }
-
     fn into_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
         CollapseF: FnMut(&V, W, &[u8]) -> W,
-        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W
+        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
     {
-        cata_side_effect_body::<Self, V, W, MapF, CollapseF, AlgF, false>(self, map_f, collapse_f, alg_f)
+        cata_side_effect_body::<Self, V, W, MapF, CollapseF, AlgF, _, false>(self, map_f, collapse_f, alg_f, |_, _, _| unreachable!())
+    }
+    fn into_cata_jumping_side_effect<W, MapF, CollapseF, AlgF, JumpF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF, jump_f: JumpF) -> W
+        where
+        MapF: FnMut(&V, &[u8]) -> W,
+        CollapseF: FnMut(&V, W, &[u8]) -> W,
+        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
+        JumpF: FnMut(&[u8], W, &[u8]) -> W
+    {
+        cata_side_effect_body::<Self, V, W, MapF, CollapseF, AlgF, JumpF, true>(self, map_f, collapse_f, alg_f, jump_f)
     }
 }
 
 #[inline(always)]
-fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, const JUMPING: bool>(mut z: Z, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF) -> W
+fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: bool>(mut z: Z, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> W
     where
     Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath,
     MapF: FnMut(&V, &[u8]) -> W,
     CollapseF: FnMut(&V, W, &[u8]) -> W,
-    AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W
+    AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
+    JumpF: FnMut(&[u8], W, &[u8]) -> W,
 {
     //`stack` holds a "frame" at each forking point above the zipper position.  No frames exist for values
     let mut stack = Vec::<StackFrame<W>>::with_capacity(12);
     let mut frame_idx = 0;
+
+    //A scratch space to hold prior paths after we've ascended
+    let mut path_buf = Vec::with_capacity(64);
 
     z.reset();
 
@@ -132,24 +139,20 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, const JUMPING: 
 
     loop {
         //Descend to the next forking point if we're jumping
-        if JUMPING {
-            while z.child_count() < 2 {
-                if !z.descend_until() {
-                    break;
-                }
+        let mut is_leaf = false;
+        while z.child_count() < 2 {
+            if !z.descend_until() {
+                is_leaf = true;
+                break;
             }
         }
 
-        if z.child_count() == 0 {
+        if is_leaf {
             //Map the value from this leaf
             let mut cur_w = z.get_value().map(|v| map_f(v, z.origin_path().unwrap()));
 
-            if JUMPING {
-                //Ascend back to the last fork point
-                cur_w = ascend_to_fork(&mut z, &mut map_f, &mut collapse_f, cur_w);
-            } else {
-                z.ascend_byte();
-            }
+            //Ascend back to the last fork point
+            cur_w = ascend_to_fork::<Z, V, W, MapF, CollapseF, AlgF, JumpF, JUMPING>(&mut z, &mut map_f, &mut collapse_f, &mut alg_f, &mut jump_f, &mut path_buf, cur_w);
 
             //Merge the result into the stack frame
             match cur_w {
@@ -173,12 +176,8 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, const JUMPING: 
                         w = collapse_f(v, w, z.origin_path().unwrap());
                     }
 
-                    if JUMPING {
-                        //Ascend the rest of the way back up to the branch
-                        w = ascend_to_fork(&mut z, &mut map_f, &mut collapse_f, Some(w)).unwrap();
-                    } else {
-                        z.ascend_byte();
-                    }
+                    //Ascend the rest of the way back up to the branch
+                    w = ascend_to_fork::<Z, V, W, MapF, CollapseF, AlgF, JumpF, JUMPING>(&mut z, &mut map_f, &mut collapse_f, &mut alg_f, &mut jump_f, &mut path_buf, Some(w)).unwrap();
 
                     //Merge the result into the stack frame
                     stack[frame_idx].push_val(w);
@@ -208,20 +207,64 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, const JUMPING: 
 }
 
 #[inline(always)]
-fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF>(z: &mut Z, map_f: &mut MapF, collapse_f: &mut CollapseF, mut cur_w: Option<W>) -> Option<W>
+fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: bool>(z: &mut Z, 
+        map_f: &mut MapF,
+        collapse_f: &mut CollapseF,
+        alg_f: &mut AlgF,
+        jump_f: &mut JumpF,
+        path_buf: &mut Vec<u8>,
+        mut cur_w: Option<W>
+) -> Option<W>
     where
     Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath,
     MapF: FnMut(&V, &[u8]) -> W,
     CollapseF: FnMut(&V, W, &[u8]) -> W,
+    AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
+    JumpF: FnMut(&[u8], W, &[u8]) -> W,
 {
     loop {
-        z.ascend_until();
+        let path = z.path();
+        debug_assert_eq!(&path[0..path_buf.len()], path_buf); //Since this function is the only place we ascend...
+        path_buf.extend(&path[path_buf.len()..]);
 
-        if z.at_root() {
+        let ascended = z.ascend_until();
+        debug_assert!(ascended);
+
+        let at_fork = z.child_count() > 1;
+        let at_root = z.at_root();
+
+        let new_path_len = z.path().len();
+        debug_assert!(new_path_len < path_buf.len());
+
+        if JUMPING {
+            if path_buf.len() > new_path_len+1 || (!at_fork && !at_root) {
+                if let Some(w) = cur_w {
+                    cur_w = Some(jump_f(&path_buf[new_path_len..], w, z.origin_path().unwrap()));
+                }
+            }
+            path_buf.truncate(new_path_len);
+        } else {
+            //This is the default code to call the `alg_f` for each intermediate path step
+            // NOTE: the reason this is a special case rather than just a default JumpF is because I want
+            // to be able to re-use the `path_buf`, but that's not possible through the defined interface
+            while path_buf.len() > new_path_len {
+                let byte = path_buf.pop().unwrap();
+                if path_buf.len() > new_path_len || (!at_fork && !at_root) {
+                    if let Some(w) = cur_w {
+                        let mut mask = [0u64; 4];
+                        let word_idx = (byte / 64) as usize;
+                        mask[word_idx] = 1 << (byte % 64);
+                        cur_w = Some(alg_f(&mask, &mut[w], &path_buf));
+                    }
+                }
+            }
+        }
+
+        if at_root {
             return cur_w
         }
 
-        if z.child_count() < 2 {
+        if !at_fork {
             //This unwrap shouldn't panic, because `ascend_until` should only stop at values and forks
             let v = z.get_value().unwrap();
             match cur_w {
@@ -335,12 +378,16 @@ mod tests {
                 // println!("aggregate path=\"{}\", children={children:?}", String::from_utf8_lossy(_path));
                 children.into_iter().fold(0, |sum, child| sum + *child)
             };
+            let jump_f = |_subpath: &[u8], w: u32, _path: &[u8]| {
+                // println!("jump sub-path=\"{}\", upstream={w} path=\"{}\",", String::from_utf8_lossy(_subpath), String::from_utf8_lossy(_path));
+                w
+            };
 
             //Test both the jumping and non-jumping versions, since they ought to do the same thing
             let sum = zip.clone().into_cata_side_effect(map_f, collapse_f, alg_f);
             assert_eq!(sum, expected_sum);
 
-            let sum = zip.into_jumping_cata_side_effect(map_f, collapse_f, alg_f);
+            let sum = zip.into_cata_jumping_side_effect(map_f, collapse_f, alg_f, jump_f);
             assert_eq!(sum, expected_sum);
         }
     }
@@ -360,10 +407,12 @@ mod tests {
             |_m, ws, _p| { ws.iter().sum() });
         assert_eq!(cnt, 11);
 
-        let cnt = btm.read_zipper().into_jumping_cata_side_effect(
+        let cnt = btm.read_zipper().into_cata_jumping_side_effect(
             |_v, _p| { 1usize },
             |_v, w, _p| { w },
-            |_m, ws, _p| { ws.iter().sum() });
+            |_m, ws, _p| { ws.iter().sum() },
+            |_subpath, w, _path| w
+        );
         assert_eq!(cnt, 11);
 
         let longest = btm.read_zipper().into_cata_side_effect(
@@ -372,10 +421,12 @@ mod tests {
             |_m, ws: &mut [Vec<u8>], _p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) });
         assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
 
-        let longest = btm.read_zipper().into_jumping_cata_side_effect(
+        let longest = btm.read_zipper().into_cata_jumping_side_effect(
             |_v, p| { p.to_vec() },
             |_v, w, _p| { w },
-            |_m, ws: &mut [Vec<u8>], _p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) });
+            |_m, ws: &mut [Vec<u8>], _p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) },
+            |_subpath, w, _path| w
+        );
         assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
 
         let at_truncated = btm.read_zipper().into_cata_side_effect(
@@ -388,14 +439,16 @@ mod tests {
             });
         assert_eq!(at_truncated, vec![3]);
 
-        let at_truncated = btm.read_zipper().into_jumping_cata_side_effect(
+        let at_truncated = btm.read_zipper().into_cata_jumping_side_effect(
             |_v, _p| { vec![] },
             |v, _w, _p| { vec![v.clone()] },
             |_m, ws: &mut [_], _p| {
                 let mut r = ws.first_mut().map_or(vec![], std::mem::take);
                 for w in ws[1..].iter_mut() { r.extend(w.drain(..)); }
                 r
-            });
+            },
+            |_subpath, w, _path| w
+        );
         assert_eq!(at_truncated, vec![3]);
     }
 
@@ -435,7 +488,7 @@ mod tests {
             let sum = zip.clone().into_cata_side_effect(map_f, collapse_f, alg_f);
             assert_eq!(sum, expected_sum_ordinary);
 
-            let sum = zip.into_jumping_cata_side_effect(map_f, collapse_f, alg_f);
+            let sum = zip.into_cata_jumping_side_effect(map_f, collapse_f, alg_f, |_subpath, w, _path| w);
             assert_eq!(sum, expected_sum_jumping);
         }
     }
