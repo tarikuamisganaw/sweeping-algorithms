@@ -125,10 +125,8 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JU
     let mut stack = Vec::<StackFrame<W>>::with_capacity(12);
     let mut frame_idx = 0;
 
-    //A scratch space to hold prior paths after we've ascended
-    let mut path_buf = Vec::with_capacity(64);
-
     z.reset();
+    z.prepare_buffers();
 
     //Push a stack frame for the root, and start on the first branch off the root
     stack.push(StackFrame::new(z.child_count(), z.child_mask()));
@@ -152,7 +150,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JU
             let mut cur_w = z.get_value().map(|v| map_f(v, z.origin_path().unwrap()));
 
             //Ascend back to the last fork point
-            cur_w = ascend_to_fork::<Z, V, W, MapF, CollapseF, AlgF, JumpF, JUMPING>(&mut z, &mut map_f, &mut collapse_f, &mut alg_f, &mut jump_f, &mut path_buf, cur_w);
+            cur_w = ascend_to_fork::<Z, V, W, MapF, CollapseF, AlgF, JumpF, JUMPING>(&mut z, &mut map_f, &mut collapse_f, &mut alg_f, &mut jump_f, cur_w);
 
             //Merge the result into the stack frame
             match cur_w {
@@ -177,7 +175,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JU
                     }
 
                     //Ascend the rest of the way back up to the branch
-                    w = ascend_to_fork::<Z, V, W, MapF, CollapseF, AlgF, JumpF, JUMPING>(&mut z, &mut map_f, &mut collapse_f, &mut alg_f, &mut jump_f, &mut path_buf, Some(w)).unwrap();
+                    w = ascend_to_fork::<Z, V, W, MapF, CollapseF, AlgF, JumpF, JUMPING>(&mut z, &mut map_f, &mut collapse_f, &mut alg_f, &mut jump_f, Some(w)).unwrap();
 
                     //Merge the result into the stack frame
                     stack[frame_idx].push_val(w);
@@ -212,7 +210,6 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         collapse_f: &mut CollapseF,
         alg_f: &mut AlgF,
         jump_f: &mut JumpF,
-        path_buf: &mut Vec<u8>,
         mut cur_w: Option<W>
 ) -> Option<W>
     where
@@ -223,9 +220,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
     JumpF: FnMut(&[u8], W, &[u8]) -> W,
 {
     loop {
-        let path = z.origin_path().unwrap();
-        debug_assert_eq!(&path[0..path_buf.len()], path_buf); //Since this function is the only place we ascend...
-        path_buf.extend(&path[path_buf.len()..]);
+        let mut old_path_len = z.origin_path().unwrap().len();
 
         let ascended = z.ascend_until();
         debug_assert!(ascended);
@@ -234,27 +229,26 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         let at_root = z.at_root();
 
         let new_path_len = z.origin_path().unwrap().len();
-        debug_assert!(new_path_len < path_buf.len());
 
         if JUMPING {
-            if path_buf.len() > new_path_len+1 || (!at_fork && !at_root) {
+            if old_path_len > new_path_len+1 || (!at_fork && !at_root) {
                 if let Some(w) = cur_w {
-                    cur_w = Some(jump_f(&path_buf[new_path_len..], w, z.origin_path().unwrap()));
+                    cur_w = Some(jump_f(&z.origin_path_assert_len(old_path_len)[new_path_len..], w, z.origin_path().unwrap()));
                 }
             }
-            path_buf.truncate(new_path_len);
         } else {
             //This is the default code to call the `alg_f` for each intermediate path step
             // NOTE: the reason this is a special case rather than just a default JumpF is because I want
             // to be able to re-use the `path_buf`, but that's not possible through the defined interface
-            while path_buf.len() > new_path_len {
-                let byte = path_buf.pop().unwrap();
-                if path_buf.len() > new_path_len || (!at_fork && !at_root) {
+            while old_path_len > new_path_len {
+                let byte = z.origin_path_assert_len(old_path_len).last().unwrap();
+                old_path_len -= 1;
+                if old_path_len > new_path_len || (!at_fork && !at_root) {
                     if let Some(w) = cur_w {
                         let mut mask = [0u64; 4];
                         let word_idx = (byte / 64) as usize;
                         mask[word_idx] = 1 << (byte % 64);
-                        cur_w = Some(alg_f(&mask, &mut[w], &path_buf));
+                        cur_w = Some(alg_f(&mask, &mut[w], &z.origin_path_assert_len(old_path_len)));
                     }
                 }
             }

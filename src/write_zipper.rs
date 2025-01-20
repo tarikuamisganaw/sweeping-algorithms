@@ -218,6 +218,8 @@ impl<'a, 'path, V : Clone> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'p
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperTracked<'a, 'path, V> {
@@ -339,6 +341,8 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
 impl <'a, 'k, V: Clone + Send + Sync + Unpin> WriteZipperUntracked<'a, 'k, V> {
@@ -681,6 +685,11 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
             }
         }
     }
+    fn origin_path_assert_len(&self, _len: usize) -> &[u8] {
+        unimplemented!()
+    }
+    fn prepare_buffers(&mut self) { self.key.prepare_buffers() }
+
 }
 
 impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {

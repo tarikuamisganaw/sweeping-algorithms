@@ -241,6 +241,11 @@ pub(crate) mod zipper_priv {
 
         fn get_focus(&self) -> AbstractNodeRef<Self::V>;
         fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>>;
+
+        /// Internal method to get the path, beyond its length.  Panics if `len` > the path's capacity, or
+        /// if the zipper is relative and doesn't have an `origin_path`
+        fn origin_path_assert_len(&self, len: usize) -> &[u8];
+        fn prepare_buffers(&mut self);
     }
 }
 use zipper_priv::*;
@@ -301,6 +306,8 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperTracked<'a, '_, V> {
@@ -405,6 +412,8 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_,
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperUntracked<'a, '_, V> {
@@ -544,6 +553,8 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperOwned<V> {
@@ -1049,6 +1060,26 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, 
                 },
                 None => None
             }
+        }
+    }
+    fn origin_path_assert_len(&self, len: usize) -> &[u8] {
+        if self.root_key_offset.is_some() {
+            if self.prefix_buf.capacity() > 0 {
+                assert!(len <= self.prefix_buf.capacity());
+                unsafe{ core::slice::from_raw_parts(&*self.prefix_buf.as_ptr(), len) }
+            } else {
+                assert!(len <= self.origin_path.len());
+                unsafe{ &self.origin_path.as_slice_unchecked() }
+            }
+        } else {
+            panic!()
+        }
+    }
+    /// Internal method to ensure buffers to facilitate movement of zipper are allocated and initialized
+    #[inline(always)]
+    fn prepare_buffers(&mut self) {
+        if self.prefix_buf.capacity() == 0 {
+            self.prepare_buffers_guts()
         }
     }
 }
