@@ -516,6 +516,10 @@ impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
         new_zipper.descend_to(descended_path);
         new_zipper
     }
+    /// Internal method to access `WriteZipperCore` inside `WriteZipperOwned`
+    pub(crate) fn core(&mut self) -> &mut WriteZipperCore<'static, 'static, V> {
+        &mut self.z
+    }
 }
 
 impl<V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperOwned<V> {
@@ -1005,7 +1009,10 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     ///
     /// NOTE: Currently this is an internal-only method to enable the [PathMap::zipper_head] method,
     /// although it might be convenient to expose it publicly.  We'd need to make sure the ZipperHead could
-    /// carry along the tracker
+    /// carry along the tracker.
+    /// UPDATE: No.  We definitely don't want to make this method public because an WriteZipperOwned's
+    /// WriteZipperCore must never be separated from the fields that back its root (map, etc.).  So in general
+    /// it's a very bad idea to consume a WriteZipperCore without also consuming the object that contains it.
     pub(crate) fn into_zipper_head(self) -> ZipperHead<'a, 'a, V> where 'path: 'static {
         ZipperHead::new_owned(self)
     }
