@@ -395,6 +395,11 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 
         //Should we descend?
         if let Some(w) = stack[frame_idx].0.take_next() {
+            //TODO: There is likely a 2x speedup in here, that can be achieved by setting all the children
+            // at the same time.  I'm going to hold off until the explicit path API is fully settled, since
+            // ideally we'd call a WriteZipper method to set multiple downstream paths, but we'd want some
+            // assurances those paths would actually be created, and not pruned because they're empty.
+
             let child_path = stack[frame_idx].0.taken_child_path();
             let child_path_len = child_path.len();
             z.descend_to(child_path);
@@ -461,6 +466,9 @@ impl<W> ChildBuilder<W> {
     }
     /// Pushes a new child branch into the `ChildBuilder` with the specified `byte`
     ///
+    /// If the same `byte` is pushed twice, the earlier data will be overwritten by the later data, and this
+    /// is considered incorrect usage.  Your closure should only push a single value for each child byte.
+    ///
     /// WARNING: The anamorphism methods will visit child branches in the order they are pushed, but the
     /// order they are traversed depends on their path ordering.  Therefore you must push the child branches
     /// in sorted order if you need symmetry between the anamorphism and the corresponding catamorphism.
@@ -470,6 +478,13 @@ impl<W> ChildBuilder<W> {
     /// Pushes a new child branch into the `ChildBuilder` with the specified `sub_path`
     ///
     /// Panics if `sub_path` has a length of 0.
+    ///
+    /// If there is any overlap in the pushed paths, the earlier data will be overwritten by the later data,
+    /// and this is considered incorrect usage.  Your closure should only push a single value for each
+    /// downstream child sub-path.
+    ///
+    /// For example, pushing `b"horse"` and then `b"hour"` is wrong.  Instead you should push `b"ho"`, and
+    /// push the remaining parts of the path from the triggered closures downstream.
     ///
     /// WARNING: The anamorphism methods will visit child branches in the order they are pushed, but the
     /// order they are traversed depends on their path ordering.  Therefore you must push the child branches
