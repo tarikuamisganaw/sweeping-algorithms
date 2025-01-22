@@ -1,6 +1,7 @@
 use core::cell::UnsafeCell;
 
 use num_traits::{PrimInt, zero};
+use crate::morphisms::{new_map_from_ana, ChildBuilder};
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, Lattice, LatticeRef, DistributiveLattice, DistributiveLatticeRef, Quantale};
@@ -123,6 +124,34 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
             },
             None => None
         }
+    }
+
+    /// Creates a new `PathMap` by evaluating the specified anamorphism
+    ///
+    /// `alg_f`: `alg(w: W, val: &mut Option<V>, children: &mut ChildBuilder<W>, path: &[u8])`
+    /// generates the value downstream and downstream children from a path
+    ///
+    /// Setting the `val` option to `Some` within the closure sets the value at the current path.
+    ///
+    /// The example below creates a trie with binary tree, 3 levels deep, where each level has a 'L'
+    /// and an 'R' branch, and the leaves have a unit value.
+    /// ```
+    /// # use pathmap::trie_map::BytesTrieMap;
+    /// let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
+    ///     if idx > 0 {
+    ///         children.push(b"L", idx - 1);
+    ///         children.push(b"R", idx - 1);
+    ///     } else {
+    ///         *val = Some(());
+    ///     }
+    /// });
+    /// ```
+    pub fn new_from_ana<W, AlgF>(w: W, alg_f: AlgF) -> Self
+        where
+        V: 'static,
+        AlgF: FnMut(W, &mut Option<V>, &mut ChildBuilder<W>, &[u8])
+    {
+        new_map_from_ana(w, alg_f)
     }
 
     /// Creates a new read-only [Zipper], starting at the root of a BytesTrieMap

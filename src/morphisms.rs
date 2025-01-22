@@ -9,6 +9,7 @@
 //! #### Catamorphism
 //!
 //! Process a trie from the leaves towards the root.  This algorithm proceeds in a depth-first order.
+//!
 //! - A `map` closure is called on each leaf value; e.g. a value at location where there is no other value
 //! deeper in the trie accessible from that location.  As the algoritm ascends.
 //! - A `collapse` closure is called to merge a value along the path with the intermediate structure being
@@ -26,6 +27,11 @@
 //! first before descending to the branches below, while the `cata` methods call the `mapper` on the deepest
 //! values first, before returning to higher levels where `collapse` is called.
 //!
+//! #### Anamorphism
+//!
+//! Generate a trie from the root.  Conceptually it is the inverse of catamorphism.  This algorithm proceeds
+//! from a starting point corresponding to a root of a trie, and generates branches and leaves recursively.
+//!
 //! ### Jumping Morphisms and the `jump` closure
 //!
 //! Ordinary morphism methods conceptually operate on a trie of bytes.  Therefore they execute the `alg`
@@ -39,14 +45,22 @@
 //! In general, `jumping` methods will perform substantially better, so you should use them if your `alg`
 //! closure simply passes the intermediate structure upwards when there is only one child branch.
 //!
-//! ### Side Effects
+//! ### Side-Effecting vs Factored Iteration
 //!
-//! Most methods come (or will come) with a `_side_effect` and an ordinary flavor.  The side-effecting
-//! flavors take `FnMut` closures, while the ordinary methods take `Fn` closures.  The side-effecting
-//! methods must traverse the entire trie exhaustively, while the ordinary methods may cache and re-use
-//! intermediate results in cases where there is structural sharing within the trie.
+//! Many methods come (or will come) with a `_side_effect` and an ordinary or `factored` flavor.  The
+//! algorithm is identical in both variants but the one to use depends on your situation.
 //!
-//! In general, the ordinary methods should be preferred unless sife-effects are necessary
+//! The `_side_effect` flavor of the methods will exhaustively traverse the entire trie, irrespective of
+//! structural sharing within the trie.  So a subtrie that is included `n` times will be visited `n` times.
+//! They take [`FnMut`] closure arguments, meaning the closures can produce side-effects, and making these
+//! methods useful for things like serialization, etc.
+//!
+//! The ordinary `factored` flavor takes sharing into account, and thus will only visit each shared subtrie
+//! once.  The methods take [`Fn`] closure arguments and they may cache and re-use intermediate results.
+//! This means the intermediate result type must implement [`Clone`].
+//!
+//! In general, the ordinary methods should be preferred unless sife-effects are necessary, because many
+//! operations produce structural sharing so the ordinary `factored` methods will likely be more efficient.
 //!
 
 
@@ -55,10 +69,11 @@
 // GOAT!! Are these names (collapse, and alg) part of math canon?  They are not very descriptive and hopefully we can change them.
 // "map" is good because it's a perfect equivalent to map in map->reduce.
 
+use crate::trie_map::BytesTrieMap;
 use crate::zipper::*;
 
 pub trait ZipperMorphisms<V> {
-    /// Applies a catamorphism to the trie
+    /// Applies a catamorphism to the trie descending from the zipper's root
     ///
     /// ## Args
     /// - `map_f`: `mapper(v: &V, path: &[u8]) -> W`
@@ -69,6 +84,8 @@ pub trait ZipperMorphisms<V> {
     ///
     /// - `alg_f`: `alg(m: [u64; 4], cs: &mut [W], path: &[u8]) -> W`
     /// Aggregates the results from the child branches, `cs`, descending from `path` into a single result
+    ///
+    /// The focus position of the zipper will be ignored and it will be immediately reset to the root.
     ///
     /// In all cases, the `path` arg is the [origin_path](ZipperAbsolutePath::origin_path)
     fn into_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
@@ -334,6 +351,155 @@ impl<W> StackFrame<W> {
     }
 }
 
+/// Internal function to generate a new root trie node from an anamorphism
+pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMap<V>
+    where
+    V: 'static + Clone + Send + Sync + Unpin,
+    AlgF: FnMut(W, &mut Option<V>, &mut ChildBuilder<W>, &[u8])
+{
+    let mut stack = Vec::<(ChildBuilder<W>, usize)>::with_capacity(12);
+    let mut frame_idx = 0;
+
+    let mut z = WriteZipperOwned::new();
+    let mut val = None;
+
+    //The root is a special case
+    stack.push((ChildBuilder::<W>::new(), 0));
+    alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
+    if let Some(val) = core::mem::take(&mut val) {
+        z.set_value(val);
+    }
+    loop {
+
+        //Should we descend?
+        if let Some(w) = stack[frame_idx].0.take_next() {
+            let child_path = stack[frame_idx].0.taken_child_path();
+            let child_path_len = child_path.len();
+            z.descend_to(child_path);
+
+            debug_assert!(frame_idx < stack.len());
+            frame_idx += 1;
+            if frame_idx == stack.len() {
+                stack.push((ChildBuilder::<W>::new(), child_path_len));
+            }
+
+            //Run the alg if we just descended
+            alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
+            if let Some(val) = core::mem::take(&mut val) {
+                z.set_value(val);
+            }
+        } else {
+            //If not, we should ascend
+            if frame_idx == 0 {
+                break
+            }
+            z.ascend(stack[frame_idx].1);
+            stack[frame_idx].0.reset();
+            frame_idx -= 1;
+        }
+    }
+    z.into_map()
+}
+
+/// A [Vec]-like struct for assembling all the downstream branches from a path in the trie
+pub struct ChildBuilder<W> {
+    cur_idx: usize,
+    real_len: usize,
+    inner: Vec<(Vec<u8>, Option<W>)>
+}
+
+impl<W> ChildBuilder<W> {
+    /// Internal method to make a new empty `ChildBuilder`
+    fn new() -> Self {
+        Self { cur_idx: 0, real_len: 0, inner: vec![] }
+    }
+    /// Clears a builder without freeing its memory
+    fn reset(&mut self) {
+        self.cur_idx = 0;
+        self.real_len = 0;
+    }
+    /// Internal method to get the next child from the builder in the push order.  Used by the anamorphism
+    fn take_next(&mut self) -> Option<W> {
+        if self.cur_idx < self.real_len {
+            let (_, w) = &mut self.inner[self.cur_idx];
+            self.cur_idx += 1;
+            Some(core::mem::take(w).unwrap())
+        } else {
+            None
+        }
+    }
+    /// Internal method.  After [Self::take_next] returns `Some`, this method will return the associated path.
+    /// Will panic if called improperly
+    fn taken_child_path(&self) -> &[u8] {
+        self.inner[self.cur_idx-1].0.as_slice()
+    }
+    /// Returns the number of children that have been pushed to the `ChildBuilder`, so far
+    pub fn len(&self) -> usize {
+        self.real_len
+    }
+    /// Pushes a new child branch into the `ChildBuilder` with the specified `byte`
+    ///
+    /// WARNING: The anamorphism methods will visit child branches in the order they are pushed, but the
+    /// order they are traversed depends on their path ordering.  Therefore you must push the child branches
+    /// in sorted order if you need symmetry between the anamorphism and the corresponding catamorphism.
+    pub fn push_byte(&mut self, byte: u8, w: W) {
+        self.push(&[byte], w)
+    }
+    /// Pushes a new child branch into the `ChildBuilder` with the specified `sub_path`
+    ///
+    /// Panics if `sub_path` has a length of 0.
+    ///
+    /// WARNING: The anamorphism methods will visit child branches in the order they are pushed, but the
+    /// order they are traversed depends on their path ordering.  Therefore you must push the child branches
+    /// in sorted order if you need symmetry between the anamorphism and the corresponding catamorphism.
+    pub fn push(&mut self, sub_path: &[u8], w: W) {
+        assert!(sub_path.len() > 0);
+        debug_assert!(self.real_len <= self.inner.len());
+        if self.real_len < self.inner.len() {
+            let child = &mut self.inner[self.real_len];
+            child.0.clear();
+            child.0.extend(sub_path);
+            child.1 = Some(w);
+        } else {
+            self.inner.push((sub_path.to_vec(), Some(w)));
+        }
+        self.real_len += 1;
+    }
+    /// Returns the child mask from the `ChildBuilder`, representing paths that have been pushed so far
+    pub fn child_mask(&self) -> [u64; 4] {
+        let mut mask = [0u64; 4];
+        for (sub_path, _w) in self.inner.iter().take(self.real_len) {
+            let byte = sub_path[0];
+            let word_idx = (byte / 64) as usize;
+            mask[word_idx] |= 1 << (byte % 64);
+        }
+        mask
+    }
+    /// Returns an [`Iterator`] type to iterate over the `(sub_path, w)` pairs that have been pushed
+    pub fn iter(&self) -> ChildBuilderIter<'_, W> {
+        self.into_iter()
+    }
+}
+
+impl<'a, W> IntoIterator for &'a ChildBuilder<W> {
+    type Item = (&'a[u8], &'a W);
+    type IntoIter = ChildBuilderIter<'a, W>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ChildBuilderIter(self.inner.iter().take(self.real_len))
+    }
+}
+
+/// An [`Iterator`] type for a [`ChildBuilder`]
+pub struct ChildBuilderIter<'a, W>(core::iter::Take<core::slice::Iter<'a, (Vec<u8>, Option<W>)>>);
+
+impl<'a, W> Iterator for ChildBuilderIter<'a, W> {
+    type Item = (&'a[u8], &'a W);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(path, w)| (path.as_slice(), w.as_ref().unwrap()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::trie_map::BytesTrieMap;
@@ -487,4 +653,34 @@ mod tests {
         }
     }
 
+    #[test]
+    fn ana_test1() {
+        // Generate 5 'i's
+        let mut invocations = 0;
+        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(5, |idx, val, children, _path| {
+            // println!("path=\"{}\"", String::from_utf8_lossy(_path));
+            *val = Some(());
+            if idx > 0 {
+                children.push(b"i", idx - 1)
+            }
+            invocations += 1;
+        });
+        assert_eq!(map.val_count(), 5);
+        assert_eq!(invocations, 6);
+
+        // Generate all 3-lenght 'L' | 'R' permutations
+        let mut invocations = 0;
+        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
+            // println!("path=\"{}\"", String::from_utf8_lossy(_path));
+            if idx > 0 {
+                children.push(b"L", idx - 1);
+                children.push(b"R", idx - 1);
+            } else {
+                *val = Some(());
+            }
+            invocations += 1;
+        });
+        assert_eq!(map.val_count(), 8);
+        assert_eq!(invocations, 15);
+    }
 }
