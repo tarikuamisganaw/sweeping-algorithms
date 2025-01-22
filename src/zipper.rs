@@ -231,6 +231,11 @@ pub trait ZipperAbsolutePath: Zipper {
     /// Returns the path beginning from the origin to the current focus.  Returns `None` if the zipper
     /// is relative and does not have an origin path
     fn origin_path(&self) -> Option<&[u8]>;
+
+    /// Returns the path from the origin to the zipper root
+    ///
+    /// After [Zipper::reset] is called, `zip.root_prefix_path() == zip.origin_path()`
+    fn root_prefix_path(&self) -> Option<&[u8]>;
 }
 
 pub(crate) mod zipper_priv {
@@ -319,6 +324,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperTr
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperTracked<'_, '_, V> {
     fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
+    fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync> ReadZipperTracked<'a, 'path, V> {
@@ -425,6 +431,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperUn
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperUntracked<'_, '_, V> {
     fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
+    fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync> ReadZipperUntracked<'a, 'path, V> {
@@ -497,6 +504,13 @@ pub struct ReadZipperOwned<V: 'static> {
     z: ReadZipperCore<'static, 'static, V>,
 }
 
+impl<V: 'static + Clone + Send + Sync + Unpin> Clone for ReadZipperOwned<V> {
+    fn clone(&self) -> Self {
+        let new_map = (*self.map).clone();
+        Self::new_with_map(new_map, self.root_prefix_path().unwrap())
+    }
+}
+
 impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
     pub(crate) fn new_with_map(map: BytesTrieMap<V>, path: &[u8]) -> Self {
@@ -566,6 +580,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperOw
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperOwned<V> {
     fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
+    fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
 }
 
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -1232,6 +1247,17 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperCore<'_, '
         if self.root_key_offset.is_some() {
             if self.prefix_buf.len() > 0 {
                 Some(&self.prefix_buf)
+            } else {
+                Some(unsafe{ &self.origin_path.as_slice_unchecked() })
+            }
+        } else {
+            None
+        }
+    }
+    fn root_prefix_path(&self) -> Option<&[u8]> {
+        if self.root_key_offset.is_some() {
+            if self.prefix_buf.len() > 0 {
+                Some(&self.prefix_buf[..self.origin_path.len()])
             } else {
                 Some(unsafe{ &self.origin_path.as_slice_unchecked() })
             }
