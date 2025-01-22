@@ -539,6 +539,8 @@ impl<'a, W> Iterator for ChildBuilderIter<'a, W> {
 
 #[cfg(test)]
 mod tests {
+    use std::ptr::slice_from_raw_parts_mut;
+    use num_traits::AsPrimitive;
     use crate::trie_map::BytesTrieMap;
     use super::*;
 
@@ -719,5 +721,82 @@ mod tests {
         });
         assert_eq!(map.val_count(), 8);
         assert_eq!(invocations, 15);
+    }
+
+    // #[test]
+    fn ana_test2() {
+        // to be revisited with futu or reworked ana
+        let file_content = "Hallo,Afrikaans\nPërshëndetje,Albanian\nእው ሰላም ነው,Amharic\nمرحبًا,Arabic\nBarev,Armenian\nKamisaki,Aymara\nSalam,Azerbaijani\nKaixo,Basque\nВітаю,Belarusian\nহ্যালো,Bengali\nZdravo,Bosnian\nЗдравейте,Bulgarian\nဟယ်လို,Burmese\n你好,Cantonese\nHola,Catalan\nKamusta,Cebuano\nMoni,Chichewa\nBonghjornu,Corsican\nZdravo,Croatian\nAhoj,Czech\nHej,Danish\nHallo,Dutch\nHello,English\nTere,Estonian\nHello,Ewe\nسلام,Farsi (Persian)\nBula,Fijian\nKumusta,Filipino\nHei,Finnish\nBonjour,French\nDia dhuit,Gaelic (Irish)\nOla,Galician\nგამარჯობა,Georgian\nGuten tag,German\nγεια,Greek\nMba'éichapa,Guarani\nBonjou,Haitian Creole\nAloha,Hawaiian\nשלום,Hebrew\nनमस्ते,Hindi\nNyob zoo,Hmong\nSzia,Hungarian\nHalló,Icelandic\nNdewo,Igbo\nHello,Ilocano\nHalo,Indonesian\nCiao,Italian\nこんにちは,Japanese\nСәлеметсіз бе,Kazakh\nសួស្តី,Khmer\nMwaramutse,Kinyarwanda\n안녕하세요,Korean\nSlav,Kurdish\nສະບາຍດີ,Lao\nSalve,Latin\nSveika,Latvian\nSveiki,Lithuanian\nMoien,Luxembourgish\nSalama,Malagasy\nSelamat pagi,Malay\nBongu,Maltese\n你好,Mandarin\nKia ora,Maori\nनमस्कार,Marathi\nсайн уу,Mongolian\nNiltze Tialli Pialli,Nahuatl\nYa’at’eeh,Navajo\nनमस्कार,Nepali\nHei,Norwegian\nسلام,Pashto\nCześć,Polish\nOlá,Portuguese\nਸਤ ਸ੍ਰੀ ਅਕਾਲ,Punjabi\nAkkam,Oromo\nAllianchu,Quechua\nBunâ,Romanian\nПривет,Russian\nTalofa,Samoan\nThobela,Sepedi\nЗдраво,Serbian\nDumela,Sesotho\nAhoj,Slovak\nZdravo,Slovenian\nHello,Somali\nHola,Spanish\nJambo,Swahili\nHallå,Swedish\nKamusta,Tagalog\nIa Orana,Tahitian\nLi-hó,Taiwanese\nவணக்கம்,Tamil\nสวัสดี,Thai\nTashi delek,Tibetan\nMālō e lelei,Tongan\nAvuxeni,Tsonga\nMerhaba,Turkish\nпривіт,Ukrainian\nالسلام عليكم,Urdu\nSalom,Uzbek\nXin chào,Vietnamese\nHelo,Welsh\nMolo,Xhosa\n";
+        let mut lines = file_content.lines().collect::<Vec<_>>();
+
+        let btm = BytesTrieMap::<&str>::new_from_ana(lines.as_mut_slice(), |ss, val, children, path| {
+            // println!("at path {}", std::str::from_utf8(path).unwrap_or("err"));
+            if !ss.is_empty() {
+                if ss.len() == 1 {
+                    if ss[0] != "" {
+                        let det = ss[0].find(',').unwrap_or(usize::MAX);
+                        if det == 0 {
+                            // println!("setting_singular {}", &ss[0][1..]);
+                            *val = Some(&ss[0][1..])
+                        } else if det == usize::MAX {
+                            // println!("setting_singular_noprefix {}", &ss[0][1..]);
+                            *val = Some(&ss[0])
+                        } else {
+                            // println!("pushing_singular {}", &ss[0][0..det]);
+                            let k = ss[0][0..det].as_bytes();
+                            ss[0] = &ss[0][det..];
+                            children.push(k, &mut ss[0..1]);
+                        }
+                    }
+                } else {
+                    ss.sort_by_key(|s| s.chars().next());
+                    // println!("chunk {} {}", ss.len(), ss.into_iter().map(|s| s.chars().next().unwrap_or('\'')).collect::<String>());
+                    // println!("chunk {:?}", ss);
+                    let mut i = 0;
+                    let mut j = 1;
+                    while ss[i].is_empty() {
+                        i += 1;
+                        j += 1;
+                    }
+                    let mut ib = ss[i].chars().next().unwrap();
+                    // println!("processing {}", ss[i]);
+                    if ib == ',' {
+                        // println!("setting0 {}", ss[i]);
+                        val.insert(&ss[i][1..]);
+                        ss[i] = "";
+                    }
+                    for s in unsafe { slice_from_raw_parts_mut(ss[j..].as_ptr().cast_mut(), ss.len() - 1).as_mut().unwrap() }.iter_mut() {
+                        let jb = s.chars().next().unwrap();
+                        // println!("processing {}", s);
+                        if jb == ',' {
+                            // println!("setting {}", &s[1..]);
+                            val.insert(&s[1..]);
+                            *s = "";
+                            j += 1;
+                            continue;
+                        }
+                        if jb != ib {
+                            let mut buf = [0u8; 4];
+                            let bs = char::encode_utf8(ib, buf.as_mut()).as_bytes();
+                            children.push(bs, unsafe { slice_from_raw_parts_mut(ss[i..j].as_ptr().cast_mut(), j - i).as_mut().unwrap() });
+                            // println!("pushing {i}..{j} @ {}", std::str::from_utf8(bs).unwrap_or("err"));
+                            i = j;
+                            ib = jb;
+                        }
+                        let mut it = s.char_indices(); it.next().unwrap();
+                        // println!("old {}, new {}", s, &s[it.next().unwrap().0..]);
+                        *s = &s[it.next().unwrap().0..];
+                        j += 1;
+                    }
+                    // currently doesn't push last chunk; whatever
+                }
+            }
+        });
+
+        let mut rz = btm.read_zipper();
+        while let Some(language) = rz.to_next_val() {
+            println!("language: {}, greeting: {}", language, std::str::from_utf8(rz.path()).unwrap());
+        }
+        // println!("finished");
     }
 }
