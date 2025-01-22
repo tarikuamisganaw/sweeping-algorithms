@@ -220,8 +220,14 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
 
     /// Transforms the map into a [Zipper], which is handy when you need to embed the zipper in another
     /// struct without a lifetime parameter
-    pub fn into_read_zipper(self, path: &[u8]) -> ReadZipperOwned<V> {
+    pub fn into_read_zipper<K: AsRef<[u8]>>(self, path: K) -> ReadZipperOwned<V> {
         ReadZipperOwned::new_with_map(self, path)
+    }
+
+    /// Transforms the map into a [WriteZipper], which is handy when you need to embed the zipper in another
+    /// struct without a lifetime parameter
+    pub fn into_write_zipper<K: AsRef<[u8]>>(self, path: K) -> WriteZipperOwned<V> {
+        WriteZipperOwned::new_with_map(self, path)
     }
 
     // /// Transforms the map into a [ZipperHead] that owns the map's contents.  This is handy when the

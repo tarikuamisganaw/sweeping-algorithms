@@ -513,7 +513,8 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Clone for ReadZipperOwned<V> {
 
 impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
-    pub(crate) fn new_with_map(map: BytesTrieMap<V>, path: &[u8]) -> Self {
+    pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V>, path: K) -> Self {
+        let path = path.as_ref();
         let map = Box::pin(map);
         let root_ref = unsafe{ &*map.root.get() }.as_ref().unwrap().borrow();
         let root_val = unsafe{ &*map.root_val.get() }.as_ref();
