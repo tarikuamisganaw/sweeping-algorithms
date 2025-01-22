@@ -72,7 +72,7 @@
 use crate::trie_map::BytesTrieMap;
 use crate::zipper::*;
 
-pub trait ZipperMorphisms<V> {
+pub trait Catamorphism<V> {
     /// Applies a catamorphism to the trie descending from the zipper's root
     ///
     /// ## Args
@@ -109,7 +109,7 @@ pub trait ZipperMorphisms<V> {
         JumpF: FnMut(&[u8], W, &[u8]) -> W;
 }
 
-impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath {
+impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath {
     fn into_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
@@ -126,6 +126,28 @@ impl<'a, Z, V: 'a> ZipperMorphisms<V> for Z where Z: ReadOnlyZipper<'a, V> + Zip
         JumpF: FnMut(&[u8], W, &[u8]) -> W
     {
         cata_side_effect_body::<Self, V, W, MapF, CollapseF, AlgF, JumpF, true>(self, map_f, collapse_f, alg_f, jump_f)
+    }
+}
+
+impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<V> {
+    fn into_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
+        where
+        MapF: FnMut(&V, &[u8]) -> W,
+        CollapseF: FnMut(&V, W, &[u8]) -> W,
+        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
+    {
+        let rz = self.into_read_zipper(&[]);
+        cata_side_effect_body::<ReadZipperOwned<V>, V, W, MapF, CollapseF, AlgF, _, false>(rz, map_f, collapse_f, alg_f, |_, _, _| unreachable!())
+    }
+    fn into_cata_jumping_side_effect<W, MapF, CollapseF, AlgF, JumpF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF, jump_f: JumpF) -> W
+        where
+        MapF: FnMut(&V, &[u8]) -> W,
+        CollapseF: FnMut(&V, W, &[u8]) -> W,
+        AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
+        JumpF: FnMut(&[u8], W, &[u8]) -> W
+    {
+        let rz = self.into_read_zipper(&[]);
+        cata_side_effect_body::<ReadZipperOwned<V>, V, W, MapF, CollapseF, AlgF, JumpF, true>(rz, map_f, collapse_f, alg_f, jump_f)
     }
 }
 
