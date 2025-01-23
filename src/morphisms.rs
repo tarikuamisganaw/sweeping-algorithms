@@ -286,7 +286,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
                     if let Some(w) = cur_w {
                         let mut mask = [0u64; 4];
                         let word_idx = (byte / 64) as usize;
-                        mask[word_idx] = 1 << (byte % 64);
+                        mask[word_idx] = 1u64 << (byte % 64);
                         cur_w = Some(alg_f(&mask, &mut[w], &z.origin_path_assert_len(old_path_len)));
                     }
                 }
@@ -377,6 +377,7 @@ impl<W> StackFrame<W> {
 pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMap<V>
     where
     V: 'static + Clone + Send + Sync + Unpin,
+    W: Default,
     AlgF: FnMut(W, &mut Option<V>, &mut ChildBuilder<W>, &[u8])
 {
     let mut stack = Vec::<(ChildBuilder<W>, usize)>::with_capacity(12);
@@ -388,6 +389,7 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
     //The root is a special case
     stack.push((ChildBuilder::<W>::new(), 0));
     alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
+    stack[frame_idx].0.finalize();
     if let Some(val) = core::mem::take(&mut val) {
         z.set_value(val);
     }
@@ -395,23 +397,38 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 
         //Should we descend?
         if let Some(w) = stack[frame_idx].0.take_next() {
-            //TODO: There is likely a 2x speedup in here, that can be achieved by setting all the children
-            // at the same time.  I'm going to hold off until the explicit path API is fully settled, since
-            // ideally we'd call a WriteZipper method to set multiple downstream paths, but we'd want some
-            // assurances those paths would actually be created, and not pruned because they're empty.
+            //TODO Optimization Opportunity: There is likely a 2x speedup in here, that can be achieved by
+            // setting all the children at the same time.  I'm going to hold off until the explicit path
+            // API is fully settled, since ideally we'd call a WriteZipper method to set multiple downstream
+            // paths, but we'd want some assurances those paths would actually be created, and not pruned
+            // because they're empty.
+            //BEWARE: This change needs to be accompanied by another change to allow an existing node's path
+            // to be augmented, or the above change could be a performance step backwards.  Specifically,
+            // consider a ListNode that is created with only one child, based on a mask.  Then, if the zipper
+            // descends and tries to create the rest of a path, it would be a disaster if that took the form
+            // of another node, as opposed to just putting the rest of the path into the existing node.
 
-            let child_path = stack[frame_idx].0.taken_child_path();
-            let child_path_len = child_path.len();
-            z.descend_to(child_path);
+            let child_path_byte = stack[frame_idx].0.taken_child_byte();
+            z.descend_to_byte(child_path_byte);
+            let mut child_path_len = 1;
+
+            if let Some(child_path_remains) = stack[frame_idx].0.taken_child_remaining_path() {
+                z.descend_to(child_path_remains);
+                child_path_len += child_path_remains.len();
+            }
 
             debug_assert!(frame_idx < stack.len());
             frame_idx += 1;
             if frame_idx == stack.len() {
                 stack.push((ChildBuilder::<W>::new(), child_path_len));
+            } else {
+                stack[frame_idx].0.reset();
+                stack[frame_idx].1 = child_path_len;
             }
 
             //Run the alg if we just descended
             alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
+            stack[frame_idx].0.finalize();
             if let Some(val) = core::mem::take(&mut val) {
                 z.set_value(val);
             }
@@ -430,117 +447,219 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 
 /// A [Vec]-like struct for assembling all the downstream branches from a path in the trie
 pub struct ChildBuilder<W> {
-    cur_idx: usize,
-    real_len: usize,
-    inner: Vec<(Vec<u8>, Option<W>)>
+    child_mask: [u64; 4],
+    cur_mask_word: usize,
+    cur_struct_idx: usize,
+    cur_path_idx: usize,
+    real_child_structs_len: usize,
+    real_child_paths_len: usize,
+    child_paths: Vec<(usize, Vec<u8>)>,
+    child_structs: Vec<W>,
 }
 
-impl<W> ChildBuilder<W> {
+impl<W: Default> ChildBuilder<W> {
     /// Internal method to make a new empty `ChildBuilder`
     fn new() -> Self {
-        Self { cur_idx: 0, real_len: 0, inner: vec![] }
+        Self {
+            child_mask: [0u64; 4],
+            cur_mask_word: 0,
+            cur_struct_idx: 0,
+            cur_path_idx: 0,
+            real_child_structs_len: 0,
+            real_child_paths_len: 0,
+            child_paths: vec![],
+            child_structs: vec![] }
     }
-    /// Clears a builder without freeing its memory
+    /// Internal method.  Clears a builder without freeing its memory
     fn reset(&mut self) {
-        self.cur_idx = 0;
-        self.real_len = 0;
+        self.child_mask = [0u64; 4];
+        self.cur_mask_word = 0;
+        self.cur_struct_idx = 0;
+        self.cur_path_idx = 0;
+        self.real_child_structs_len = 0;
+        self.real_child_paths_len = 0;
+    }
+    /// Internal method.  Called after the user code has run to fill the builder, but before we start to empty it
+    fn finalize(&mut self) {
+        self.cur_mask_word = 0;
+        while self.cur_mask_word < 4 && self.child_mask[self.cur_mask_word] == 0 {
+            self.cur_mask_word += 1;
+        }
     }
     /// Internal method to get the next child from the builder in the push order.  Used by the anamorphism
     fn take_next(&mut self) -> Option<W> {
-        if self.cur_idx < self.real_len {
-            let (_, w) = &mut self.inner[self.cur_idx];
-            self.cur_idx += 1;
-            Some(core::mem::take(w).unwrap())
+        if self.cur_struct_idx < self.real_child_structs_len {
+            let w = &mut self.child_structs[self.cur_struct_idx];
+            self.cur_struct_idx += 1;
+            Some(core::mem::take(w))
         } else {
             None
         }
     }
-    /// Internal method.  After [Self::take_next] returns `Some`, this method will return the associated path.
-    /// Will panic if called improperly
-    fn taken_child_path(&self) -> &[u8] {
-        self.inner[self.cur_idx-1].0.as_slice()
+    /// Internal method.  After [Self::take_next] returns `Some`, this method will return the first byte of the
+    /// associated path.
+    fn taken_child_byte(&mut self) -> u8 {
+        let least_component = self.child_mask[self.cur_mask_word].trailing_zeros() as u8;
+        debug_assert!(least_component < 64);
+        let byte = (self.cur_mask_word * 64) as u8 + least_component;
+        self.child_mask[self.cur_mask_word] ^= 1u64 << least_component;
+        while self.cur_mask_word < 4 && self.child_mask[self.cur_mask_word] == 0 {
+            self.cur_mask_word += 1;
+        }
+        byte
+    }
+    /// Internal method.  After [Self::take_next] returns `Some`, this method will return the associated path
+    /// beyond the first byte, or `None` if the path is only 1-byte long
+    fn taken_child_remaining_path(&mut self) -> Option<&[u8]> {
+        debug_assert!(self.cur_path_idx <= self.real_child_paths_len);
+        if self.cur_path_idx == self.real_child_paths_len {
+            return None
+        }
+        if self.child_paths[self.cur_path_idx].0 != self.cur_struct_idx-1 {
+            return None
+        }
+        let path = self.child_paths[self.cur_path_idx].1.as_slice();
+        self.cur_path_idx += 1;
+        Some(path)
     }
     /// Returns the number of children that have been pushed to the `ChildBuilder`, so far
     pub fn len(&self) -> usize {
-        self.real_len
+        self.real_child_structs_len
+    }
+    /// Simultaneously sets all child branches with single-byte path continuations
+    ///
+    /// Panics if existing children have already been set / pushed, or if the number of bits set in `mask`
+    /// doesn't match `children.len()`.
+    pub fn set_child_mask<C: AsMut<[W]>>(&mut self, mask: [u64; 4], mut children: C) {
+        if self.real_child_structs_len != 0 {
+            panic!("set_mask called over existing children")
+        }
+        let children = children.as_mut();
+        debug_assert_eq!(mask.iter().fold(0, |sum, word| sum + word.count_ones() as usize), children.len());
+        if children.len() == 0 {
+            return
+        }
+        self.real_child_structs_len = children.len();
+        self.child_structs.clear();
+        self.child_structs.extend(children.into_iter().map(|child| core::mem::take(child)));
+        debug_assert_eq!(self.cur_mask_word, 0);
+        while mask[self.cur_mask_word] == 0 {
+            self.cur_mask_word += 1;
+        }
+        self.child_mask = mask;
     }
     /// Pushes a new child branch into the `ChildBuilder` with the specified `byte`
     ///
-    /// If the same `byte` is pushed twice, the earlier data will be overwritten by the later data, and this
-    /// is considered incorrect usage.  Your closure should only push a single value for each child byte.
-    ///
-    /// WARNING: The anamorphism methods will visit child branches in the order they are pushed, but the
-    /// order they are traversed depends on their path ordering.  Therefore you must push the child branches
-    /// in sorted order if you need symmetry between the anamorphism and the corresponding catamorphism.
+    /// Panics if `byte <=` the first byte of any previosuly pushed paths.
     pub fn push_byte(&mut self, byte: u8, w: W) {
-        self.push(&[byte], w)
+        let mask_word = (byte / 64) as usize;
+        if mask_word < self.cur_mask_word {
+            panic!("children must be pushed in sorted order")
+        }
+        self.cur_mask_word = mask_word;
+        let mask_delta = 1u64 << (byte % 64);
+        if self.child_mask[mask_word] >= mask_delta {
+            panic!("children must be pushed in sorted order")
+        }
+        self.child_mask[mask_word] |= mask_delta;
+
+        //Push the `W`
+        debug_assert!(self.real_child_structs_len <= self.child_structs.len());
+        if self.real_child_structs_len < self.child_structs.len() {
+            let child_struct = &mut self.child_structs[self.real_child_structs_len];
+            *child_struct = w;
+        } else {
+            self.child_structs.push(w);
+        }
+        self.real_child_structs_len += 1;
     }
     /// Pushes a new child branch into the `ChildBuilder` with the specified `sub_path`
     ///
-    /// Panics if `sub_path` has a length of 0.
-    ///
-    /// If there is any overlap in the pushed paths, the earlier data will be overwritten by the later data,
-    /// and this is considered incorrect usage.  Your closure should only push a single value for each
-    /// downstream child sub-path.
+    /// Panics if `sub_path` fails to meet any of the following conditions:
+    /// - `sub_path.len() > 0`.
+    /// - `sub_path` must not begin with the same byte as any previously-pushed path.
+    /// - `sub_path` must alphabetically sort after all previously pushed paths.
     ///
     /// For example, pushing `b"horse"` and then `b"hour"` is wrong.  Instead you should push `b"ho"`, and
     /// push the remaining parts of the path from the triggered closures downstream.
-    ///
-    /// WARNING: The anamorphism methods will visit child branches in the order they are pushed, but the
-    /// order they are traversed depends on their path ordering.  Therefore you must push the child branches
-    /// in sorted order if you need symmetry between the anamorphism and the corresponding catamorphism.
+    //
+    //TODO, could make a `push_unchecked` method to turn these these checks from `assert!` to `debug_assert`.
+    // Not sure if it would make any difference.  Feels unlikely, but might be worth a try after we've implemented
+    // the other speedup ideas
     pub fn push(&mut self, sub_path: &[u8], w: W) {
         assert!(sub_path.len() > 0);
-        debug_assert!(self.real_len <= self.inner.len());
-        if self.real_len < self.inner.len() {
-            let child = &mut self.inner[self.real_len];
-            child.0.clear();
-            child.0.extend(sub_path);
-            child.1 = Some(w);
-        } else {
-            self.inner.push((sub_path.to_vec(), Some(w)));
+
+        //Push the remaining path
+        if sub_path.len() > 1 {
+            debug_assert!(self.real_child_paths_len <= self.child_paths.len());
+            if self.real_child_paths_len < self.child_paths.len() {
+                let child_path = &mut self.child_paths[self.real_child_paths_len];
+                child_path.1.clear();
+                child_path.1.extend(&sub_path[1..]);
+                child_path.0 = self.real_child_structs_len;
+            } else {
+                self.child_paths.push((self.real_child_structs_len, sub_path[1..].to_vec()));
+            }
+            self.real_child_paths_len += 1;
         }
-        self.real_len += 1;
+
+        self.push_byte(sub_path[0], w);
     }
     /// Returns the child mask from the `ChildBuilder`, representing paths that have been pushed so far
     pub fn child_mask(&self) -> [u64; 4] {
-        let mut mask = [0u64; 4];
-        for (sub_path, _w) in self.inner.iter().take(self.real_len) {
-            let byte = sub_path[0];
-            let word_idx = (byte / 64) as usize;
-            mask[word_idx] |= 1 << (byte % 64);
-        }
-        mask
+        self.child_mask
     }
-    /// Returns an [`Iterator`] type to iterate over the `(sub_path, w)` pairs that have been pushed
-    pub fn iter(&self) -> ChildBuilderIter<'_, W> {
-        self.into_iter()
-    }
+    //GOAT, feature removed.  See below
+    // /// Returns an [`Iterator`] type to iterate over the `(sub_path, w)` pairs that have been pushed
+    // pub fn iter(&self) -> ChildBuilderIter<'_, W> {
+    //     self.into_iter()
+    // }
 }
 
-impl<'a, W> IntoIterator for &'a ChildBuilder<W> {
-    type Item = (&'a[u8], &'a W);
-    type IntoIter = ChildBuilderIter<'a, W>;
+//GOAT, the IntoIterator impl is obnoxious because I don't have a contiguous buffer that holds the path anymore
+// It's unnecessary anyway, so I'm just going to chuck it
+//
+// impl<'a, W> IntoIterator for &'a ChildBuilder<W> {
+//     type Item = (&'a[u8], &'a W);
+//     type IntoIter = ChildBuilderIter<'a, W>;
 
-    fn into_iter(self) -> Self::IntoIter {
-        ChildBuilderIter(self.inner.iter().take(self.real_len))
-    }
-}
+//     fn into_iter(self) -> Self::IntoIter {
+//         ChildBuilderIter {
+//             cb: self,
+//             cur_mask: self.child_mask[0],
+//             mask_word: 0,
+//             i: 0
+//         }
+//     }
+// }
 
-/// An [`Iterator`] type for a [`ChildBuilder`]
-pub struct ChildBuilderIter<'a, W>(core::iter::Take<core::slice::Iter<'a, (Vec<u8>, Option<W>)>>);
+// /// An [`Iterator`] type for a [`ChildBuilder`]
+// pub struct ChildBuilderIter<'a, W> {
+//     cb: &'a ChildBuilder<W>,
+//     cur_mask: u64,
+//     mask_word: usize,
+//     i: usize,
+// }
 
-impl<'a, W> Iterator for ChildBuilderIter<'a, W> {
-    type Item = (&'a[u8], &'a W);
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(path, w)| (path.as_slice(), w.as_ref().unwrap()))
-    }
-}
+// impl<'a, W> Iterator for ChildBuilderIter<'a, W> {
+//     type Item = (&'a[u8], &'a W);
+//     fn next(&mut self) -> Option<Self::Item> {
+//         while self.mask_word < 4 {
+//             let tz = self.cur_mask.trailing_zeros();
+//             if tz < 64 {
+
+//                 self.i += 1;
+//             } else {
+//                 self.mask_word += 1;
+//             }
+//         }
+//         None
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
-    use std::ptr::slice_from_raw_parts_mut;
-    use num_traits::AsPrimitive;
+    use core::ptr::slice_from_raw_parts_mut; //GOAT, UNSAFE does NOT belong in these tests.  We don't need every drop of perf in a correctness test!
     use crate::trie_map::BytesTrieMap;
     use super::*;
 
@@ -692,6 +811,7 @@ mod tests {
         }
     }
 
+    /// Generate some basic tries using the [ChildBuilder::push_byte] API
     #[test]
     fn ana_test1() {
         // Generate 5 'i's
@@ -700,7 +820,7 @@ mod tests {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             *val = Some(());
             if idx > 0 {
-                children.push(b"i", idx - 1)
+                children.push_byte(b'i', idx - 1)
             }
             invocations += 1;
         });
@@ -712,8 +832,8 @@ mod tests {
         let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             if idx > 0 {
-                children.push(b"L", idx - 1);
-                children.push(b"R", idx - 1);
+                children.push_byte(b'L', idx - 1);
+                children.push_byte(b'R', idx - 1);
             } else {
                 *val = Some(());
             }
@@ -723,14 +843,14 @@ mod tests {
         assert_eq!(invocations, 15);
     }
 
-    // #[test]
+    #[test]
     fn ana_test2() {
         // to be revisited with futu or reworked ana
         let file_content = "Hallo,Afrikaans\nPërshëndetje,Albanian\nእው ሰላም ነው,Amharic\nمرحبًا,Arabic\nBarev,Armenian\nKamisaki,Aymara\nSalam,Azerbaijani\nKaixo,Basque\nВітаю,Belarusian\nহ্যালো,Bengali\nZdravo,Bosnian\nЗдравейте,Bulgarian\nဟယ်လို,Burmese\n你好,Cantonese\nHola,Catalan\nKamusta,Cebuano\nMoni,Chichewa\nBonghjornu,Corsican\nZdravo,Croatian\nAhoj,Czech\nHej,Danish\nHallo,Dutch\nHello,English\nTere,Estonian\nHello,Ewe\nسلام,Farsi (Persian)\nBula,Fijian\nKumusta,Filipino\nHei,Finnish\nBonjour,French\nDia dhuit,Gaelic (Irish)\nOla,Galician\nგამარჯობა,Georgian\nGuten tag,German\nγεια,Greek\nMba'éichapa,Guarani\nBonjou,Haitian Creole\nAloha,Hawaiian\nשלום,Hebrew\nनमस्ते,Hindi\nNyob zoo,Hmong\nSzia,Hungarian\nHalló,Icelandic\nNdewo,Igbo\nHello,Ilocano\nHalo,Indonesian\nCiao,Italian\nこんにちは,Japanese\nСәлеметсіз бе,Kazakh\nសួស្តី,Khmer\nMwaramutse,Kinyarwanda\n안녕하세요,Korean\nSlav,Kurdish\nສະບາຍດີ,Lao\nSalve,Latin\nSveika,Latvian\nSveiki,Lithuanian\nMoien,Luxembourgish\nSalama,Malagasy\nSelamat pagi,Malay\nBongu,Maltese\n你好,Mandarin\nKia ora,Maori\nनमस्कार,Marathi\nсайн уу,Mongolian\nNiltze Tialli Pialli,Nahuatl\nYa’at’eeh,Navajo\nनमस्कार,Nepali\nHei,Norwegian\nسلام,Pashto\nCześć,Polish\nOlá,Portuguese\nਸਤ ਸ੍ਰੀ ਅਕਾਲ,Punjabi\nAkkam,Oromo\nAllianchu,Quechua\nBunâ,Romanian\nПривет,Russian\nTalofa,Samoan\nThobela,Sepedi\nЗдраво,Serbian\nDumela,Sesotho\nAhoj,Slovak\nZdravo,Slovenian\nHello,Somali\nHola,Spanish\nJambo,Swahili\nHallå,Swedish\nKamusta,Tagalog\nIa Orana,Tahitian\nLi-hó,Taiwanese\nவணக்கம்,Tamil\nสวัสดี,Thai\nTashi delek,Tibetan\nMālō e lelei,Tongan\nAvuxeni,Tsonga\nMerhaba,Turkish\nпривіт,Ukrainian\nالسلام عليكم,Urdu\nSalom,Uzbek\nXin chào,Vietnamese\nHelo,Welsh\nMolo,Xhosa\n";
         let mut lines = file_content.lines().collect::<Vec<_>>();
 
-        let btm = BytesTrieMap::<&str>::new_from_ana(lines.as_mut_slice(), |ss, val, children, path| {
-            // println!("at path {}", std::str::from_utf8(path).unwrap_or("err"));
+        let _btm = BytesTrieMap::<&str>::new_from_ana(lines.as_mut_slice(), |ss, val, children, _path| {
+            // println!("at path {}", std::str::from_utf8(_path).unwrap_or("err"));
             if !ss.is_empty() {
                 if ss.len() == 1 {
                     if ss[0] != "" {
@@ -762,7 +882,7 @@ mod tests {
                     // println!("processing {}", ss[i]);
                     if ib == ',' {
                         // println!("setting0 {}", ss[i]);
-                        val.insert(&ss[i][1..]);
+                        *val = Some(&ss[i][1..]);
                         ss[i] = "";
                     }
                     for s in unsafe { slice_from_raw_parts_mut(ss[j..].as_ptr().cast_mut(), ss.len() - 1).as_mut().unwrap() }.iter_mut() {
@@ -770,7 +890,7 @@ mod tests {
                         // println!("processing {}", s);
                         if jb == ',' {
                             // println!("setting {}", &s[1..]);
-                            val.insert(&s[1..]);
+                            *val = Some(&s[1..]);
                             *s = "";
                             j += 1;
                             continue;
@@ -793,10 +913,92 @@ mod tests {
             }
         });
 
-        let mut rz = btm.read_zipper();
+        let mut rz = _btm.read_zipper();
         while let Some(language) = rz.to_next_val() {
             println!("language: {}, greeting: {}", language, std::str::from_utf8(rz.path()).unwrap());
         }
-        // println!("finished");
+    }
+
+    /// Test the [`ChildBuilder::set_child_mask`] API to set multiple children at once
+    #[test]
+    fn ana_test3() {
+        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(([0u64; 4], 0), |(mut mask, idx), val, children, _path| {
+            // println!("path=\"{}\"", String::from_utf8_lossy(_path));
+            if idx < 5 {
+                mask[1] |= 1u64 << 1+idx;
+                let child_vec = vec![(mask, idx+1); idx+1];
+                children.set_child_mask(mask , child_vec);
+            } else {
+                *val = Some(());
+            }
+        });
+        assert_eq!(map.val_count(), 120); // 1 * 2 * 3 * 4 * 5
+        // for (path, ()) in map.iter() {
+        //     println!("{}", String::from_utf8_lossy(&path));
+        // }
+    }
+    /// Test the [`ChildBuilder::push`] API to set whole string paths
+    #[test]
+    fn ana_test4() {
+        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
+            // println!("path=\"{}\"", String::from_utf8_lossy(_path));
+            if idx > 0 {
+                children.push(b"Left:", idx-1);
+                children.push(b"Right:", idx-1);
+            } else {
+                *val = Some(());
+            }
+        });
+        assert_eq!(map.val_count(), 8);
+        assert_eq!(map.get(b"Left:Right:Left:"), Some(&()));
+        assert_eq!(map.get(b"Right:Left:Right:"), Some(&()));
+        // for (path, ()) in map.iter() {
+        //     println!("{}", String::from_utf8_lossy(&path));
+        // }
+
+        //Try intermixing whole strings and bytes
+        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(7, |idx, val, children, _path| {
+            // println!("path=\"{}\"", String::from_utf8_lossy(_path));
+            if idx > 0 {
+                if idx % 2 == 0 {
+                    children.push_byte(b'+', idx-1);
+                    children.push_byte(b'-', idx-1);
+                } else {
+                    children.push(b"Left", idx-1);
+                    children.push(b"Right", idx-1);
+                }
+            } else {
+                *val = Some(());
+            }
+        });
+        assert_eq!(map.val_count(), 128);
+        assert_eq!(map.get(b"Right-Right+Left-Left"), Some(&()));
+        assert_eq!(map.get(b"Left-Right-Right+Left"), Some(&()));
+        // for (path, ()) in map.iter() {
+        //     println!("{}", String::from_utf8_lossy(&path));
+        // }
+
+        //Intermix them in the same child list
+        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(7, |idx, val, children, _path| {
+            // println!("path=\"{}\"", String::from_utf8_lossy(_path));
+            if idx > 0 {
+                if idx % 2 == 0 {
+                    children.push_byte(b'+', idx-1);
+                    children.push(b"Left", idx-1);
+                } else {
+                    children.push_byte(b'-', idx-1);
+                    children.push(b"Right", idx-1);
+                }
+            } else {
+                *val = Some(());
+            }
+        });
+        assert_eq!(map.val_count(), 128);
+        assert_eq!(map.get(b"Right+-+-+-"), Some(&()));
+        assert_eq!(map.get(b"-+-+-+-"), Some(&()));
+        assert_eq!(map.get(b"RightLeftRightLeftRightLeftRight"), Some(&()));
+        // for (path, ()) in map.iter() {
+        //     println!("{}", String::from_utf8_lossy(&path));
+        // }
     }
 }

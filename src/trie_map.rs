@@ -149,6 +149,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     pub fn new_from_ana<W, AlgF>(w: W, alg_f: AlgF) -> Self
         where
         V: 'static,
+        W: Default,
         AlgF: FnMut(W, &mut Option<V>, &mut ChildBuilder<W>, &[u8])
     {
         new_map_from_ana(w, alg_f)
