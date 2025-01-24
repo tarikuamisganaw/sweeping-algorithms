@@ -953,50 +953,49 @@ mod tests {
     #[test]
     fn ana_test4() {
         let mut greetings_vec = GREETINGS.to_vec();
-        let _btm = BytesTrieMap::<&str>::new_from_ana((&mut greetings_vec[..], 0), |(mut string_slice, n), val, children, _path| {
-            // println!("at path {}", std::str::from_utf8(_path).unwrap_or("err"));
-
+        let begin = greetings_vec.as_ptr() as u64;
+        let btm = BytesTrieMap::<(u32, u32)>::new_from_ana(&mut greetings_vec[..], |mut string_slice, val, children, path| {
+            let n = path.len();
             //Sort the slice by the first byte of each substring
             string_slice.sort_by_key(|s| s.as_bytes().get(n));
 
+            //Discard the strings that are too short (that have ended prematurely)
+            let mut i = 0;
+            while i < string_slice.len() && string_slice[i].len() <= n { i += 1; }
+            (_, string_slice) = string_slice.split_at_mut(i);
+
             while string_slice.len() > 0 {
-
-                //Discard the strings that are too short (that have ended prematurely)
-                let mut i=0;
-                while i < string_slice.len() && string_slice[i].len() <= n {
-                    i += 1;
-                }
-                (_, string_slice) = string_slice.split_at_mut(i);
-                if string_slice.len() == 0 {
-                    return
-                }
-
                 //Find the range of strings that start with the same byte as the first string
-                let mut i = 1;
+                let mut m = 1;
                 let byte = string_slice[0].as_bytes()[n];
-                while i < string_slice.len() && string_slice[i].as_bytes()[n] == byte {
-                    i += 1;
-                }
-                let (same_prefix_set, remaining) = string_slice.split_at_mut(i);
+                while m < string_slice.len() && string_slice[m].as_bytes()[n] == byte { m += 1; }
+                let (same_prefix_set, remaining) = string_slice.split_at_mut(m);
 
                 //If this is the end of a path, set the value
                 if byte == b',' {
-
-                    //There may be multiple values for this key, but we can only set one! :-(
-                    let byte_slice = &same_prefix_set[0].as_bytes()[n+1..];
-                    *val = Some(std::str::from_utf8(byte_slice).unwrap_or("err"))
+                    //There may be multiple values for this key
+                    for j in 0..m { same_prefix_set[j] = &same_prefix_set[j][n+1..]; }
+                    //But we only need to store the index of the first one, and how many there are
+                    *val = Some((unsafe { same_prefix_set.as_ptr().offset_from(begin as _) as u32 }, m as u32))
                 } else {
-
                     //Recursive case
-                    children.push_byte(byte, (same_prefix_set, n+1));
+                    children.push_byte(byte, same_prefix_set);
                 }
                 string_slice = remaining;
             }
         });
 
-        // let mut rz = _btm.read_zipper();
-        // while let Some(language) = rz.to_next_val() {
-        //     println!("language: {}, greeting: {}", language, std::str::from_utf8(rz.path()).unwrap());
-        // }
+        let mut check: Vec<&str> = GREETINGS.into_iter().copied().filter(|x| x.find(",").unwrap_or(0) != 0).collect();
+        check.sort_by_key(|x| x.split_once(",").map(|s| s.0).unwrap_or(&""));
+        let mut it = check.iter();
+
+        let mut rz = btm.read_zipper();
+        while let Some(&(offset, multiplicity)) = rz.to_next_val() {
+            for language in &greetings_vec[offset as usize..(offset+multiplicity) as usize] {
+                let greeting = std::str::from_utf8(rz.path()).unwrap();
+                // println!("language: {}, greeting: {}", language, greeting);
+                assert_eq!(*it.next().unwrap(), format!("{greeting},{language}"));
+            }
+        }
     }
 }
