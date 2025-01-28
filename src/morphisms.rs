@@ -69,6 +69,9 @@
 // GOAT!! Are these names (collapse, and alg) part of math canon?  They are not very descriptive and hopefully we can change them.
 // "map" is good because it's a perfect equivalent to map in map->reduce.
 
+use reusing_vec::ReusingQueue;
+use smallvec::SmallVec;
+
 use crate::trie_map::BytesTrieMap;
 use crate::zipper::*;
 
@@ -394,14 +397,22 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
         z.set_value(val);
     }
     loop {
-
         //Should we descend?
         if let Some(w) = stack[frame_idx].0.take_next() {
             //TODO Optimization Opportunity: There is likely a 2x speedup in here, that can be achieved by
-            // setting all the children at the same time.  I'm going to hold off until the explicit path
-            // API is fully settled, since ideally we'd call a WriteZipper method to set multiple downstream
-            // paths, but we'd want some assurances those paths would actually be created, and not pruned
-            // because they're empty.
+            // setting all the children at the same time.  The reason is that the current behavior will create
+            // a smaller node (ListNode), and then upgrade it if necessary.  But if we know in advance what
+            // the node needs to hold, we could allocate the correct node right off the bat.
+            //
+            // I'm going to hold off on implementing this until the explicit path API is fully settled,
+            // since ideally we'd call a WriteZipper method to set multiple downstream paths, but we'd want
+            // some assurances those paths would actually be created, and not pruned because they're empty.
+            //
+            //I'm thinking this needs to take the form of a TrieNode trait method that looks something like:
+            // `fn set_children_and_values(child_mask, val_mask, branches: &[??], vals: &[V])` or possibly
+            // a node creation method.  Since this is designed to be used by anamorphism (trie construction)
+            // perhaps we don't actually need the downstream nodes at all, and can fill them in later.
+            //
             //BEWARE: This change needs to be accompanied by another change to allow an existing node's path
             // to be augmented, or the above change could be a performance step backwards.  Specifically,
             // consider a ListNode that is created with only one child, based on a mask.  Then, if the zipper
@@ -412,7 +423,7 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
             z.descend_to_byte(child_path_byte);
             let mut child_path_len = 1;
 
-            if let Some(child_path_remains) = stack[frame_idx].0.taken_child_remaining_path() {
+            if let Some(child_path_remains) = stack[frame_idx].0.taken_child_remaining_path(child_path_byte) {
                 z.descend_to(child_path_remains);
                 child_path_len += child_path_remains.len();
             }
@@ -449,12 +460,8 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 pub struct ChildBuilder<W> {
     child_mask: [u64; 4],
     cur_mask_word: usize,
-    cur_struct_idx: usize,
-    cur_path_idx: usize,
-    real_child_structs_len: usize,
-    real_child_paths_len: usize,
-    child_paths: Vec<(usize, Vec<u8>)>,
-    child_structs: Vec<W>,
+    child_paths: ReusingQueue<Vec<u8>>,
+    child_structs: ReusingQueue<W>,
 }
 
 impl<W: Default> ChildBuilder<W> {
@@ -463,21 +470,15 @@ impl<W: Default> ChildBuilder<W> {
         Self {
             child_mask: [0u64; 4],
             cur_mask_word: 0,
-            cur_struct_idx: 0,
-            cur_path_idx: 0,
-            real_child_structs_len: 0,
-            real_child_paths_len: 0,
-            child_paths: vec![],
-            child_structs: vec![] }
+            child_paths: ReusingQueue::new(),
+            child_structs: ReusingQueue::new() }
     }
     /// Internal method.  Clears a builder without freeing its memory
     fn reset(&mut self) {
         self.child_mask = [0u64; 4];
         self.cur_mask_word = 0;
-        self.cur_struct_idx = 0;
-        self.cur_path_idx = 0;
-        self.real_child_structs_len = 0;
-        self.real_child_paths_len = 0;
+        self.child_structs.clear();
+        self.child_paths.clear();
     }
     /// Internal method.  Called after the user code has run to fill the builder, but before we start to empty it
     fn finalize(&mut self) {
@@ -488,13 +489,7 @@ impl<W: Default> ChildBuilder<W> {
     }
     /// Internal method to get the next child from the builder in the push order.  Used by the anamorphism
     fn take_next(&mut self) -> Option<W> {
-        if self.cur_struct_idx < self.real_child_structs_len {
-            let w = &mut self.child_structs[self.cur_struct_idx];
-            self.cur_struct_idx += 1;
-            Some(core::mem::take(w))
-        } else {
-            None
-        }
+        self.child_structs.pop_front().map(|element| core::mem::take(element))
     }
     /// Internal method.  After [Self::take_next] returns `Some`, this method will return the first byte of the
     /// associated path.
@@ -510,28 +505,23 @@ impl<W: Default> ChildBuilder<W> {
     }
     /// Internal method.  After [Self::take_next] returns `Some`, this method will return the associated path
     /// beyond the first byte, or `None` if the path is only 1-byte long
-    fn taken_child_remaining_path(&mut self) -> Option<&[u8]> {
-        debug_assert!(self.cur_path_idx <= self.real_child_paths_len);
-        if self.cur_path_idx == self.real_child_paths_len {
-            return None
+    fn taken_child_remaining_path(&mut self, byte: u8) -> Option<&[u8]> {
+        if self.child_paths.get(0).map(|path| path[0]) != Some(byte) {
+            None
+        } else {
+            self.child_paths.pop_front().map(|v| &v.as_slice()[1..])
         }
-        if self.child_paths[self.cur_path_idx].0 != self.cur_struct_idx-1 {
-            return None
-        }
-        let path = self.child_paths[self.cur_path_idx].1.as_slice();
-        self.cur_path_idx += 1;
-        Some(path)
     }
     /// Returns the number of children that have been pushed to the `ChildBuilder`, so far
     pub fn len(&self) -> usize {
-        self.real_child_structs_len
+        self.child_structs.len()
     }
     /// Simultaneously sets all child branches with single-byte path continuations
     ///
     /// Panics if existing children have already been set / pushed, or if the number of bits set in `mask`
     /// doesn't match `children.len()`.
     pub fn set_child_mask<C: AsMut<[W]>>(&mut self, mask: [u64; 4], mut children: C) {
-        if self.real_child_structs_len != 0 {
+        if self.child_structs.len() != 0 {
             panic!("set_mask called over existing children")
         }
         let children = children.as_mut();
@@ -539,9 +529,10 @@ impl<W: Default> ChildBuilder<W> {
         if children.len() == 0 {
             return
         }
-        self.real_child_structs_len = children.len();
         self.child_structs.clear();
-        self.child_structs.extend(children.into_iter().map(|child| core::mem::take(child)));
+        for child in children {
+            self.child_structs.push_val(core::mem::take(child));
+        }
         debug_assert_eq!(self.cur_mask_word, 0);
         while mask[self.cur_mask_word] == 0 {
             self.cur_mask_word += 1;
@@ -564,14 +555,7 @@ impl<W: Default> ChildBuilder<W> {
         self.child_mask[mask_word] |= mask_delta;
 
         //Push the `W`
-        debug_assert!(self.real_child_structs_len <= self.child_structs.len());
-        if self.real_child_structs_len < self.child_structs.len() {
-            let child_struct = &mut self.child_structs[self.real_child_structs_len];
-            *child_struct = w;
-        } else {
-            self.child_structs.push(w);
-        }
-        self.real_child_structs_len += 1;
+        self.child_structs.push_val(w);
     }
     /// Pushes a new child branch into the `ChildBuilder` with the specified `sub_path`
     ///
@@ -591,19 +575,77 @@ impl<W: Default> ChildBuilder<W> {
 
         //Push the remaining path
         if sub_path.len() > 1 {
-            debug_assert!(self.real_child_paths_len <= self.child_paths.len());
-            if self.real_child_paths_len < self.child_paths.len() {
-                let child_path = &mut self.child_paths[self.real_child_paths_len];
-                child_path.1.clear();
-                child_path.1.extend(&sub_path[1..]);
-                child_path.0 = self.real_child_structs_len;
-            } else {
-                self.child_paths.push((self.real_child_structs_len, sub_path[1..].to_vec()));
-            }
-            self.real_child_paths_len += 1;
+            let child_path = self.child_paths.push_mut();
+            child_path.clear();
+            child_path.extend(sub_path);
         }
 
         self.push_byte(sub_path[0], w);
+    }
+    /// Behaves like [push](Self::push), but will tolerate inputs in any order, and inputs and with
+    /// overlapping initial bytes
+    ///
+    /// DISCUSSION: This method is handy when you are generating paths composed of data types that can't be
+    /// cleanly separated at byte boundaries; for example UTF-8 encoded `char`s.  This method saves you the
+    /// extra work of handling the case where different structures encode with the same initial byte, and of
+    /// concerning yourself with partial encoding generally.
+    ///
+    /// This method is much higher overhead than the ordinary `push` method, and also it introduces
+    /// some ambiguity in the order in which the closure is run for the children.  Specifically it means that
+    /// the same path location in the trie may be visited multiple times, and you cannot rely on closure
+    /// execution proceeding in a strictly depth-first order.  Furthermore, the closure order may not match
+    /// the traversal order of the completed trie.
+    ///
+    /// NOTE: Because a given location may be visited multiple times, values set by later-running closures
+    /// will overwrite a value set by an earlier closure running at the same path.
+    ///
+    /// NOTE: If you push twice to an identical path within the same closure execution, the second push will
+    /// overwrite the first.
+    ///
+    /// NOTE: use of this method will preclude any automatic multi-threading of the anamorphism on downstream
+    /// paths.
+    pub fn tolerant_push(&mut self, sub_path: &[u8], w: W) {
+        let byte = match sub_path.get(0) {
+            Some(byte) => byte,
+            None => return
+        };
+
+        //Find the index in the `child_structs` vec based on the initial byte
+        let mask_word = (byte / 64) as usize;
+        let byte_remainder = byte % 64;
+        let mut byte_index = 0;
+        for i in 0..mask_word {
+            byte_index += self.child_mask[i].count_ones();
+        }
+        if byte_remainder > 0 {
+            byte_index += (self.child_mask[mask_word] & 0xFFFFFFFFFFFFFFFF >> (64-byte_remainder)).count_ones();
+        }
+
+        let mask_delta = 1u64 << (byte % 64);
+        let collision = self.child_mask[mask_word] & mask_delta > 0;
+        self.child_mask[mask_word] |= mask_delta;
+
+//GOAT, my thinking on the data structure changes
+//For the paths, we should go back to storing the whole path, and use the first byte for association.  No need
+// to keep the index association
+//For the W array, we ought to just push the Ws in, in the order we want.  Since we always iterate the W vec
+//If we want to support direct-push of values, we ought to have a separate value mask
+//There should be two value vecs.  One for direct values of the current node, and one for values associated
+// with downstream children / paths.  (we could even piggy-back the downstream value on the path)
+
+//GOAT, THE W vec should have the string pairs hanging off each element.  So the W vec is `Vec<(W, Vec<(Vec<u8>, W)>)>`
+//GOAT, Actually the W needs to be an Option<W>, and at that point, we may as well split the 
+
+//GOAT options:
+// 1. Make one vec that holds length-1 children, and another that holds lenth > 1,
+//     
+
+//GOAT!!! Vec<(Option<W>, Vec<(Vec<u8>, W)>)>
+//GOAT!!! ReusingQueue<SmallVec<(Vec<u8>, W)>>
+
+        //GOAT, need to reset self.cur_mask_word AND real_child_structs_len, scanning the whole child_mask
+        // self.real_child_structs_len = 
+        // self.cur_mask_word = mask_word;
     }
     /// Returns the child mask from the `ChildBuilder`, representing paths that have been pushed so far
     pub fn child_mask(&self) -> [u64; 4] {
@@ -872,12 +914,12 @@ mod tests {
                 *val = Some(());
             }
         });
-        assert_eq!(map.val_count(), 8);
-        assert_eq!(map.get(b"Left:Right:Left:"), Some(&()));
-        assert_eq!(map.get(b"Right:Left:Right:"), Some(&()));
         // for (path, ()) in map.iter() {
         //     println!("{}", String::from_utf8_lossy(&path));
         // }
+        assert_eq!(map.val_count(), 8);
+        assert_eq!(map.get(b"Left:Right:Left:"), Some(&()));
+        assert_eq!(map.get(b"Right:Left:Right:"), Some(&()));
 
         //Try intermixing whole strings and bytes
         let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(7, |idx, val, children, _path| {
@@ -894,12 +936,12 @@ mod tests {
                 *val = Some(());
             }
         });
-        assert_eq!(map.val_count(), 128);
-        assert_eq!(map.get(b"Right-Right+Left-Left"), Some(&()));
-        assert_eq!(map.get(b"Left-Right-Right+Left"), Some(&()));
         // for (path, ()) in map.iter() {
         //     println!("{}", String::from_utf8_lossy(&path));
         // }
+        assert_eq!(map.val_count(), 128);
+        assert_eq!(map.get(b"Right-Right+Left-Left"), Some(&()));
+        assert_eq!(map.get(b"Left-Right-Right+Left"), Some(&()));
 
         //Intermix them in the same child list
         let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(7, |idx, val, children, _path| {
@@ -916,13 +958,13 @@ mod tests {
                 *val = Some(());
             }
         });
+        // for (path, ()) in map.iter() {
+        //     println!("{}", String::from_utf8_lossy(&path));
+        // }
         assert_eq!(map.val_count(), 128);
         assert_eq!(map.get(b"Right+-+-+-"), Some(&()));
         assert_eq!(map.get(b"-+-+-+-"), Some(&()));
         assert_eq!(map.get(b"RightLeftRightLeftRightLeftRight"), Some(&()));
-        // for (path, ()) in map.iter() {
-        //     println!("{}", String::from_utf8_lossy(&path));
-        // }
     }
 
     const GREETINGS: &[&str] = &["Hallo,Afrikaans", "Përshëndetje,Albanian", "እው ሰላም ነው,Amharic", "مرحبًا,Arabic",
@@ -998,4 +1040,37 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn ana_test5() {
+        let _btm = BytesTrieMap::<&str>::new_from_ana(GREETINGS, |string_slice, val, children, _path| {
+
+            fn split_key(in_str: &str) -> (&str, &str) {
+                let det = in_str.find(',').unwrap_or(usize::MAX);
+                if det == 0 {
+                    ("", &in_str[1..])
+                } else if det == usize::MAX {
+                    ("", in_str)
+                } else {
+                    (&in_str[0..det], &in_str[det+1..])
+                }
+            }
+
+            if string_slice.len() == 1 {
+                let (_, split_val) = split_key(string_slice[0]);
+                *val = Some(split_val);
+            } else {
+                for i in 0..string_slice.len() {
+                    let (key, _) = split_key(string_slice[0]);
+                    children.tolerant_push(key.as_bytes(), &string_slice[i..i+1]);
+                }
+            }
+        });
+
+        let mut rz = _btm.read_zipper();
+        while let Some(language) = rz.to_next_val() {
+            println!("language: {}, greeting: {}", language, std::str::from_utf8(rz.path()).unwrap());
+        }
+    }
+
 }
