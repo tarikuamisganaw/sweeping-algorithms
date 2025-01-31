@@ -228,6 +228,8 @@ pub trait ZipperIteration<'a, V>: Zipper {
 /// An interface for a [Zipper] to support accessing the full path buffer used to create the zipper
 pub trait ZipperAbsolutePath: Zipper {
 //GOAT, should this be renamed to `absolute_path`?
+//GOAT, consider removing `Option` on return values, and creating a more limited implementation, where
+// the zippers that implement it have a const parameter, e.g. "const HAS_ABS_PATH: bool"
     /// Returns the path beginning from the origin to the current focus.  Returns `None` if the zipper
     /// is relative and does not have an origin path
     fn origin_path(&self) -> Option<&[u8]>;

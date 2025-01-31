@@ -70,7 +70,6 @@
 // "map" is good because it's a perfect equivalent to map in map->reduce.
 
 use reusing_vec::ReusingQueue;
-use smallvec::SmallVec;
 
 use crate::trie_map::BytesTrieMap;
 use crate::zipper::*;
@@ -381,16 +380,16 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
     where
     V: 'static + Clone + Send + Sync + Unpin,
     W: Default,
-    AlgF: FnMut(W, &mut Option<V>, &mut ChildBuilder<W>, &[u8])
+    AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<W>, &[u8])
 {
-    let mut stack = Vec::<(ChildBuilder<W>, usize)>::with_capacity(12);
+    let mut stack = Vec::<(TrieBuilder<W>, usize)>::with_capacity(12);
     let mut frame_idx = 0;
 
     let mut z = WriteZipperOwned::new();
     let mut val = None;
 
     //The root is a special case
-    stack.push((ChildBuilder::<W>::new(), 0));
+    stack.push((TrieBuilder::<W>::new(), 0));
     alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
     stack[frame_idx].0.finalize();
     if let Some(val) = core::mem::take(&mut val) {
@@ -431,7 +430,7 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
             debug_assert!(frame_idx < stack.len());
             frame_idx += 1;
             if frame_idx == stack.len() {
-                stack.push((ChildBuilder::<W>::new(), child_path_len));
+                stack.push((TrieBuilder::<W>::new(), child_path_len));
             } else {
                 stack[frame_idx].0.reset();
                 stack[frame_idx].1 = child_path_len;
@@ -457,15 +456,23 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 }
 
 /// A [Vec]-like struct for assembling all the downstream branches from a path in the trie
-pub struct ChildBuilder<W> {
+//GOAT, Ideally I would skip the `val` argument to the anamorphism closure, and add a `set_val` method
+// to TrieBuilder.  I'm a little on the fence about it, however, because it increases the size of the
+// TrieBuilder by an `Option<V>`, which is stored for every stack frame, as opposed to just the one place
+// it's needed.  However, this change opens up the possibility to embed the WriteZipper into the TrieBuilder,
+// which can make some operations a bit more efficient.
+//
+//GOAT, If we exposed an interface that allowed values to be set in bulk, (e.g. with a mask), we could
+// plumb it straight through to a node interface
+pub struct TrieBuilder<W> {
     child_mask: [u64; 4],
     cur_mask_word: usize,
     child_paths: ReusingQueue<Vec<u8>>,
     child_structs: ReusingQueue<W>,
 }
 
-impl<W: Default> ChildBuilder<W> {
-    /// Internal method to make a new empty `ChildBuilder`
+impl<W: Default> TrieBuilder<W> {
+    /// Internal method to make a new empty `TrieBuilder`
     fn new() -> Self {
         Self {
             child_mask: [0u64; 4],
@@ -512,7 +519,7 @@ impl<W: Default> ChildBuilder<W> {
             self.child_paths.pop_front().map(|v| &v.as_slice()[1..])
         }
     }
-    /// Returns the number of children that have been pushed to the `ChildBuilder`, so far
+    /// Returns the number of children that have been pushed to the `TrieBuilder`, so far
     pub fn len(&self) -> usize {
         self.child_structs.len()
     }
@@ -539,7 +546,7 @@ impl<W: Default> ChildBuilder<W> {
         }
         self.child_mask = mask;
     }
-    /// Pushes a new child branch into the `ChildBuilder` with the specified `byte`
+    /// Pushes a new child branch into the `TrieBuilder` with the specified `byte`
     ///
     /// Panics if `byte <=` the first byte of any previosuly pushed paths.
     pub fn push_byte(&mut self, byte: u8, w: W) {
@@ -557,7 +564,7 @@ impl<W: Default> ChildBuilder<W> {
         //Push the `W`
         self.child_structs.push_val(w);
     }
-    /// Pushes a new child branch into the `ChildBuilder` with the specified `sub_path`
+    /// Pushes a new child branch into the `TrieBuilder` with the specified `sub_path`
     ///
     /// Panics if `sub_path` fails to meet any of the following conditions:
     /// - `sub_path.len() > 0`.
@@ -643,17 +650,16 @@ impl<W: Default> ChildBuilder<W> {
 //GOAT!!! Vec<(Option<W>, Vec<(Vec<u8>, W)>)>
 //GOAT!!! ReusingQueue<SmallVec<(Vec<u8>, W)>>
 
-        //GOAT, need to reset self.cur_mask_word AND real_child_structs_len, scanning the whole child_mask
-        // self.real_child_structs_len = 
+        //GOAT, we need to reset self.cur_mask_word, scanning the whole child_mask, because any child byte may have been added
         // self.cur_mask_word = mask_word;
     }
-    /// Returns the child mask from the `ChildBuilder`, representing paths that have been pushed so far
+    /// Returns the child mask from the `TrieBuilder`, representing paths that have been pushed so far
     pub fn child_mask(&self) -> [u64; 4] {
         self.child_mask
     }
     //GOAT, feature removed.  See below
     // /// Returns an [`Iterator`] type to iterate over the `(sub_path, w)` pairs that have been pushed
-    // pub fn iter(&self) -> ChildBuilderIter<'_, W> {
+    // pub fn iter(&self) -> TrieBuilderIter<'_, W> {
     //     self.into_iter()
     // }
 }
@@ -661,12 +667,12 @@ impl<W: Default> ChildBuilder<W> {
 //GOAT, the IntoIterator impl is obnoxious because I don't have a contiguous buffer that holds the path anymore
 // It's unnecessary anyway, so I'm just going to chuck it
 //
-// impl<'a, W> IntoIterator for &'a ChildBuilder<W> {
+// impl<'a, W> IntoIterator for &'a TrieBuilder<W> {
 //     type Item = (&'a[u8], &'a W);
-//     type IntoIter = ChildBuilderIter<'a, W>;
+//     type IntoIter = TrieBuilderIter<'a, W>;
 
 //     fn into_iter(self) -> Self::IntoIter {
-//         ChildBuilderIter {
+//         TrieBuilderIter {
 //             cb: self,
 //             cur_mask: self.child_mask[0],
 //             mask_word: 0,
@@ -675,15 +681,15 @@ impl<W: Default> ChildBuilder<W> {
 //     }
 // }
 
-// /// An [`Iterator`] type for a [`ChildBuilder`]
-// pub struct ChildBuilderIter<'a, W> {
-//     cb: &'a ChildBuilder<W>,
+// /// An [`Iterator`] type for a [`TrieBuilder`]
+// pub struct TrieBuilderIter<'a, W> {
+//     cb: &'a TrieBuilder<W>,
 //     cur_mask: u64,
 //     mask_word: usize,
 //     i: usize,
 // }
 
-// impl<'a, W> Iterator for ChildBuilderIter<'a, W> {
+// impl<'a, W> Iterator for TrieBuilderIter<'a, W> {
 //     type Item = (&'a[u8], &'a W);
 //     fn next(&mut self) -> Option<Self::Item> {
 //         while self.mask_word < 4 {
@@ -852,7 +858,7 @@ mod tests {
         }
     }
 
-    /// Generate some basic tries using the [ChildBuilder::push_byte] API
+    /// Generate some basic tries using the [TrieBuilder::push_byte] API
     #[test]
     fn ana_test1() {
         // Generate 5 'i's
@@ -884,7 +890,7 @@ mod tests {
         assert_eq!(invocations, 15);
     }
 
-    /// Test the [`ChildBuilder::set_child_mask`] API to set multiple children at once
+    /// Test the [`TrieBuilder::set_child_mask`] API to set multiple children at once
     #[test]
     fn ana_test2() {
         let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(([0u64; 4], 0), |(mut mask, idx), val, children, _path| {
@@ -902,7 +908,7 @@ mod tests {
         //     println!("{}", String::from_utf8_lossy(&path));
         // }
     }
-    /// Test the [`ChildBuilder::push`] API to set whole string paths
+    /// Test the [`TrieBuilder::push`] API to set whole string paths
     #[test]
     fn ana_test3() {
         let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
@@ -1069,6 +1075,7 @@ mod tests {
 
         let mut rz = _btm.read_zipper();
         while let Some(language) = rz.to_next_val() {
+            //GOAT, this feature (and therefore this test) is WIP
             println!("language: {}, greeting: {}", language, std::str::from_utf8(rz.path()).unwrap());
         }
     }

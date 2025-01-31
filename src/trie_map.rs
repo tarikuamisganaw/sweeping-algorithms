@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
 
 use num_traits::{PrimInt, zero};
-use crate::morphisms::{new_map_from_ana, ChildBuilder};
+use crate::morphisms::{new_map_from_ana, TrieBuilder};
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, Lattice, LatticeRef, DistributiveLattice, DistributiveLatticeRef, Quantale};
@@ -150,7 +150,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         where
         V: 'static,
         W: Default,
-        AlgF: FnMut(W, &mut Option<V>, &mut ChildBuilder<W>, &[u8])
+        AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<W>, &[u8])
     {
         new_map_from_ana(w, alg_f)
     }
