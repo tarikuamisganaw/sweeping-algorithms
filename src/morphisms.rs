@@ -707,6 +707,7 @@ impl<W: Default> TrieBuilder<W> {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use crate::trie_map::BytesTrieMap;
     use super::*;
 
@@ -1001,46 +1002,68 @@ mod tests {
     #[test]
     fn ana_test4() {
         let mut greetings_vec = GREETINGS.to_vec();
-        let begin = greetings_vec.as_ptr() as u64;
-        let btm = BytesTrieMap::<(u32, u32)>::new_from_ana(&mut greetings_vec[..], |mut string_slice, val, children, path| {
+        let btm = BytesTrieMap::<Range<usize>>::new_from_ana(0..greetings_vec.len(), |mut range, val, children, path| {
             let n = path.len();
-            //Sort the slice by the first byte of each substring
+
+            //Sort the keys in the range by the first byte of each substring
+            let string_slice = &mut greetings_vec[range.clone()];
             string_slice.sort_by_key(|s| s.as_bytes().get(n));
 
             //Discard the strings that are too short (that have ended prematurely)
-            let mut i = 0;
-            while i < string_slice.len() && string_slice[i].len() <= n { i += 1; }
-            (_, string_slice) = string_slice.split_at_mut(i);
+            while range.len() > 0 && greetings_vec[range.start].len() <= n { range.start += 1; }
 
-            while string_slice.len() > 0 {
+            while range.len() > 0 {
                 //Find the range of strings that start with the same byte as the first string
-                let mut m = 1;
-                let byte = string_slice[0].as_bytes()[n];
-                while m < string_slice.len() && string_slice[m].as_bytes()[n] == byte { m += 1; }
-                let (same_prefix_set, remaining) = string_slice.split_at_mut(m);
+                let mut m = range.start + 1;
+                let byte = greetings_vec[range.start].as_bytes()[n];
+                while range.contains(&m) && greetings_vec[m].as_bytes()[n] == byte {
+                    m += 1;
+                }
+
+                let (mut same_prefix_range, remaining) = (range.start..m, m..range.end);
 
                 //If this is the end of a path, set the value
                 if byte == b',' {
-                    //There may be multiple values for this key
-                    for j in 0..m { same_prefix_set[j] = &same_prefix_set[j][n+1..]; }
-                    //But we only need to store the index of the first one, and how many there are
-                    *val = Some((unsafe { same_prefix_set.as_ptr().offset_from(begin as _) as u32 }, m as u32))
+
+                    //Sort by the languages
+                    //NOTE: there is some ambiguity in the desired behavior, since the validity test
+                    // sorts the greetings but not the languages.  However, if we don't sort the languages,
+                    // then non-contiguous and non-prefixing empty language strings can't be removed unless
+                    // we attempt to represent the results of a node by a list instead of a range
+                    let string_slice = &mut greetings_vec[same_prefix_range.clone()];
+                    string_slice.sort_by_key(|s| &s[n+1..]);
+
+                    //Discard the strings have nothing after the ','
+                    while same_prefix_range.len() > 0 && greetings_vec[same_prefix_range.start].len() <= n+1 {
+                        same_prefix_range.start += 1;
+                    }
+                    //If we didn't discard all the items
+                    if same_prefix_range.len() > 0 {
+                        *val = Some(same_prefix_range);
+                    }
                 } else {
                     //Recursive case
-                    children.push_byte(byte, same_prefix_set);
+                    children.push_byte(byte, same_prefix_range);
                 }
-                string_slice = remaining;
+                range = remaining;
             }
         });
 
-        let mut check: Vec<&str> = GREETINGS.into_iter().copied().filter(|x| x.find(",").unwrap_or(0) != 0).collect();
+        let mut check: Vec<&str> = GREETINGS.into_iter().copied()
+            .filter(|x| {
+                let comma_idx = x.find(",").unwrap_or(0);
+                comma_idx != 0 && comma_idx < x.len()-1
+            })
+            .collect();
         check.sort_by_key(|x| x.split_once(",").map(|s| s.0).unwrap_or(&""));
         let mut it = check.iter();
 
         let mut rz = btm.read_zipper();
-        while let Some(&(offset, multiplicity)) = rz.to_next_val() {
-            for language in &greetings_vec[offset as usize..(offset+multiplicity) as usize] {
+        while let Some(range) = rz.to_next_val() {
+            for language_idx in range.clone().into_iter() {
                 let greeting = std::str::from_utf8(rz.path()).unwrap();
+                let language = &greetings_vec[language_idx][rz.path().len()+1..];
+
                 // println!("language: {}, greeting: {}", language, greeting);
                 assert_eq!(*it.next().unwrap(), format!("{greeting},{language}"));
             }
