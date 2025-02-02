@@ -75,7 +75,8 @@ use crate::trie_map::BytesTrieMap;
 use crate::zipper::*;
 
 pub trait Catamorphism<V> {
-    /// Applies a catamorphism to the trie descending from the zipper's root
+    /// Applies a catamorphism to the trie descending from the zipper's root, running the `alg_f` at every
+    /// step (at every byte)
     ///
     /// ## Args
     /// - `map_f`: `mapper(v: &V, path: &[u8]) -> W`
@@ -84,7 +85,7 @@ pub trait Catamorphism<V> {
     /// - `collapse_f`: `collapse(v: &V, w: W, path: &[u8]) -> W`
     /// Folds value `v` at a non-leaf `path` with the aggregated results from the trie below `path`
     ///
-    /// - `alg_f`: `alg(m: [u64; 4], cs: &mut [W], path: &[u8]) -> W`
+    /// - `alg_f`: `alg(mask: [u64; 4], cs: &mut [W], path: &[u8]) -> W`
     /// Aggregates the results from the child branches, `cs`, descending from `path` into a single result
     ///
     /// The focus position of the zipper will be ignored and it will be immediately reset to the root.
