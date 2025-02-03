@@ -1,4 +1,99 @@
 
+use crate::ring::*;
+
+/// A 256-bit type containing a bit for every possible value in a byte
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ByteMask(pub [u64; 4]);
+
+impl ByteMask {
+    /// Create a new empty ByteMask
+    #[inline]
+    pub fn new() -> Self {
+        Self(empty_mask())
+    }
+    /// Unwraps the `ByteMask` type to yield the inner array
+    #[inline]
+    pub fn into_inner(self) -> [u64; 4] {
+        self.0
+    }
+    /// Create an iterator over every byte, in ascending order
+    #[inline]
+    pub fn iter(&self) -> ByteMaskIter {
+        self.byte_mask_iter()
+    }
+}
+
+impl BitMask for ByteMask {
+    #[inline]
+    fn count_bits(&self) -> usize { self.0.count_bits() }
+    #[inline]
+    fn is_empty_mask(&self) -> bool { self.0.is_empty_mask() }
+    #[inline]
+    fn test_bit(&self, k: u8) -> bool { self.0.test_bit(k) }
+    #[inline]
+    fn set_bit(&mut self, k: u8) { self.0.set_bit(k) }
+    #[inline]
+    fn clear_bit(&mut self, k: u8) { self.0.clear_bit(k) }
+    #[inline]
+    fn make_empty(&mut self) {self.0.make_empty() }
+}
+
+impl From<[u64; 4]> for ByteMask {
+    #[inline]
+    fn from(mask: [u64; 4]) -> Self {
+        Self(mask)
+    }
+}
+
+impl From<ByteMask> for [u64; 4] {
+    #[inline]
+    fn from(mask: ByteMask) -> Self {
+        mask.0
+    }
+}
+
+impl IntoByteMaskIter for ByteMask {
+    #[inline]
+    fn byte_mask_iter(self) -> ByteMaskIter {
+        self.0.byte_mask_iter()
+    }
+}
+
+impl FromIterator<u8> for ByteMask {
+    #[inline]
+    fn from_iter<I: IntoIterator<Item=u8>>(iter: I) -> Self {
+        let mut result = Self::new();
+        for byte in iter.into_iter() {
+            result.set_bit(byte);
+        }
+        result
+    }
+}
+
+impl Lattice for ByteMask {
+    #[inline]
+    fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
+        self.0.pjoin(&other.0).map(|mask| Self(mask))
+    }
+    #[inline]
+    fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
+        self.0.pmeet(&other.0).map(|mask| Self(mask))
+    }
+    #[inline]
+    fn bottom() -> Self {
+        Self::new()
+    }
+}
+
+impl DistributiveLattice for ByteMask {
+    #[inline]
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
+        self.0.psubtract(&other.0).map(|mask| Self(mask))
+    }
+}
+
+//GOAT, below here is functionality implemented on arrays of u64, which ought to be generalized to additional widths
+
 /// Some useful bit-twiddling methods for working with the mask you might get from [child_mask](crate::zipper::Zipper::child_mask)
 pub trait BitMask {
     /// Returns the number of set bits in `mask`
@@ -10,11 +105,14 @@ pub trait BitMask {
     /// Returns `true` if the `k`th bit in `mask` is set, otherwise returns `false`
     fn test_bit(&self, k: u8) -> bool;
 
-    /// Sets the `k`th bit in `mask`
+    /// Sets the `k`th bit in mask
     fn set_bit(&mut self, k: u8);
 
-    /// Clears the `k`th bit in `mask`
+    /// Clears the `k`th bit in mask
     fn clear_bit(&mut self, k: u8);
+
+    /// Clears all bits in the mask, restoring it to an empty mask
+    fn make_empty(&mut self);
 }
 
 impl BitMask for [u64; 4] {
@@ -38,12 +136,14 @@ impl BitMask for [u64; 4] {
         let idx = (k / 64) as usize;
         self[idx] |= 1 << (k % 64);
     }
-
-    /// Clears the `k`th bit in `mask`
     #[inline]
     fn clear_bit(&mut self, k: u8) {
         let idx = (k / 64) as usize;
         self[idx] ^= 1 << (k % 64);
+    }
+    #[inline]
+    fn make_empty(&mut self) {
+        *self = [0; 4];
     }
 }
 
@@ -106,15 +206,62 @@ impl Iterator for ByteMaskIter {
     }
 }
 
+//GOAT, This needs to be generalized to bit sets of other widths
+impl Lattice for [u64; 4] {
+    #[inline]
+    fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
+        let result = [self[0] | other[0], self[1] | other[1], self[2] | other[2], self[3] | other[3]];
+        bitmask_algebraic_result(result, self, other)
+    }
+    #[inline]
+    fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
+        let result = [self[0] & other[0], self[1] & other[1], self[2] & other[2], self[3] & other[3]];
+        bitmask_algebraic_result(result, self, other)
+    }
+    #[inline]
+    fn bottom() -> Self {
+        empty_mask()
+    }
+}
+
+//GOAT, This should be generalized to bit sets of other widths
+impl DistributiveLattice for [u64; 4] {
+    #[inline]
+    fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
+        let result = [self[0] & !other[0], self[1] & !other[1], self[2] & !other[2], self[3] & !other[3]];
+        bitmask_algebraic_result(result, self, other)
+    }
+}
+
+/// Internal function to compose AlgebraicResult after algebraic operation
+#[inline]
+fn bitmask_algebraic_result(result: [u64; 4], self_mask: &[u64; 4], other_mask: &[u64; 4]) -> AlgebraicResult<[u64; 4]> {
+    if result.is_empty() {
+        return AlgebraicResult::None
+    }
+    let mut mask = 0;
+    if result == *self_mask {
+        mask  = SELF_IDENT;
+    }
+    if result == *other_mask {
+        mask |= COUNTER_IDENT;
+    }
+    if mask > 0 {
+        return AlgebraicResult::Identity(mask)
+    } else {
+        AlgebraicResult::Element(result)
+    }
+}
+
 /// Returns a new empty mask
 #[inline]
-pub const fn mask_empty() -> [u64; 4] {
+pub const fn empty_mask() -> [u64; 4] {
     [0; 4]
 }
 
 #[test]
 fn bit_utils_test() {
-    let mut mask = mask_empty();
+    let mut mask = empty_mask();
     assert_eq!(mask.count_bits(), 0);
     assert_eq!(mask.is_empty_mask(), true);
 
