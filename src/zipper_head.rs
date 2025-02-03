@@ -24,12 +24,45 @@ pub trait ZipperCreation<'trie, V> {
     /// where the returned zipper is constrained by the `'path` lifetime
     unsafe fn read_zipper_at_borrowed_path_unchecked<'a, 'path>(&'a self, path: &'path[u8]) -> ReadZipperUntracked<'a, 'path, V> where 'trie: 'a;
 
+    //GOAT-TrackedOwnedZippers: This is a proposed feature to create owned variants of zippers, but still
+    // track them using the ZipperHead infrastructure.  Creating owned zippers safely is easy to do and
+    // doesn't require a new API.  However, those zippers will operate outside the management of a tracker,
+    // and therefore you won't be able to use the tracker to protect regions of the trie.  Instead, conflicts
+    // will result in reading an old version of the trie, or writing to a new location that overwrites existing
+    // data when it's re-merged.  This isn't "corruption" at the pathmap level, but might be considered
+    // corruption by the calling code.
+    //
+    // /// Creates a new [ReadZipperOwned] with the path specified from the `ZipperHead`
+    // ///
+    // /// This method has the advantage that the returned zipper will have a `'static` lifetime, making it possible
+    // /// to safely send across async (tokio) threads, etc.  However, it has additional overhead vs. other
+    // /// read-zipper creation methods such as [read_zipper_at_path](ZipperCreation::read_zipper_at_path).
+    // fn owned_read_zipper_at_path<K: AsRef<[u8]>>(&self, path: K) -> Result<ReadZipperOwned<V>, Conflict>;
+
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
     fn write_zipper_at_exclusive_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> Result<WriteZipperTracked<'a, 'static, V>, Conflict> where 'trie: 'a;
 
     /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
     /// that no existing zippers may access the specified path at any time before the `WriteZipper` is dropped
     unsafe fn write_zipper_at_exclusive_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperUntracked<'a, 'static, V> where 'trie: 'a;
+
+    //GOAT-TrackedOwnedZippers
+    // /// Creates a [WriteZipperOwned] from the specified path by temporarily cutting the trie
+    // ///
+    // /// This method creates a `'static` lifetime write zipper, which is useful to send across async (tokio)
+    // /// threads, etc.  However, it comes with additional cost and requires the zipper to be replaced by calling
+    // /// [replace_owned_write_zipper](ZipperCreation::replace_owned_write_zipper).
+    // ///
+    // /// If the zipper is not replaced (and is dropped instead) the effect will be the same as calling both
+    // /// [WriteZipper::remove_branches], and [WriteZipper::remove_value].
+    // fn take_owned_write_zipper_at_exclusive_path<K: AsRef<[u8]>>(&self, path: K) -> Result<WriteZipperOwned<V>, Conflict>;
+
+    // /// Consumes a [WriteZipperOwned], and returns it to the trie from which it came
+    // ///
+    // /// This method is the inverse of [take_owned_write_zipper_at_exclusive_path](ZipperCreation::take_owned_write_zipper_at_exclusive_path).
+    // ///
+    // /// May panic if `zipper` did not originate from the `self` `ZipperHead`.
+    // fn replace_owned_write_zipper(&self, zipper: WriteZipperOwned<V>);
 }
 
 trait ZipperCreationPriv<'trie, V> {
