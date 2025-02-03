@@ -35,6 +35,7 @@ use crate::ring::*;
 //Conclusion: Need a massively multi-threaded benchmark to decide what to do with Rc / RcLite
 //
 
+use crate::utils::BitMask;
 use crate::trie_node::*;
 use crate::line_list_node::LineListNode;
 
@@ -300,13 +301,13 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
 
     #[inline]
     fn is_empty(&self) -> bool {
-        self.mask[0] == 0 && self.mask[1] == 0 && self.mask[2] == 0 && self.mask[3] == 0
+        self.mask.is_empty_mask()
     }
 
     /// Returns the number of set bits in the node's bitmask, which should equal `self.values.len()`
     // #[inline]
     // fn len(&self) -> usize {
-    //     return (self.mask[0].count_ones() + self.mask[1].count_ones() + self.mask[2].count_ones() + self.mask[3].count_ones()) as usize;
+    //     self.mask.count_bits()
     // }
 
     /// Determines the nth prefix in the node, counting forwards or backwards
@@ -1284,14 +1285,6 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
         if m == 0u64 { pos }
         else { m.trailing_zeros() as u8 }
     }
-}
-
-#[inline]
-pub(crate) fn test_bit_in_mask(mask: &[u64; 4], k: u8) -> bool {
-    let idx = ((k & 0b11000000) >> 6) as usize;
-    let bit_i = k & 0b00111111;
-    debug_assert!(idx < 4);
-    mask[idx] & (1 << bit_i) > 0
 }
 
 pub trait CoFree: Clone + Default + Send + Sync {

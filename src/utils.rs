@@ -1,7 +1,54 @@
 
+/// Some useful bit-twiddling methods for working with the mask you might get from [child_mask](crate::zipper::Zipper::child_mask)
+pub trait BitMask {
+    /// Returns the number of set bits in `mask`
+    fn count_bits(&self) -> usize;
 
+    /// Returns `true` if all bits in `mask` are clear, otherwise returns `false`
+    fn is_empty_mask(&self) -> bool;
 
-/// An iterator to visit each byte in a byte mask, as you might get from [child_mask](crate::zipper::Zipper::child_mask)
+    /// Returns `true` if the `k`th bit in `mask` is set, otherwise returns `false`
+    fn test_bit(&self, k: u8) -> bool;
+
+    /// Sets the `k`th bit in `mask`
+    fn set_bit(&mut self, k: u8);
+
+    /// Clears the `k`th bit in `mask`
+    fn clear_bit(&mut self, k: u8);
+}
+
+impl BitMask for [u64; 4] {
+    #[inline]
+    fn count_bits(&self) -> usize {
+        return (self[0].count_ones() + self[1].count_ones() + self[2].count_ones() + self[3].count_ones()) as usize;
+    }
+    #[inline]
+    fn is_empty_mask(&self) -> bool {
+        self[0] == 0 && self[1] == 0 && self[2] == 0 && self[3] == 0
+    }
+    #[inline]
+    fn test_bit(&self, k: u8) -> bool {
+        let idx = ((k & 0b11000000) >> 6) as usize;
+        let bit_i = k & 0b00111111;
+        debug_assert!(idx < 4);
+        self[idx] & (1 << bit_i) > 0
+    }
+    #[inline]
+    fn set_bit(&mut self, k: u8) {
+        let idx = (k / 64) as usize;
+        self[idx] |= 1 << (k % 64);
+    }
+
+    /// Clears the `k`th bit in `mask`
+    #[inline]
+    fn clear_bit(&mut self, k: u8) {
+        let idx = (k / 64) as usize;
+        self[idx] ^= 1 << (k % 64);
+    }
+}
+
+/// An iterator to visit each byte in a byte mask in ascending order.  Useful for working with the mask
+/// as you might get from [child_mask](crate::zipper::Zipper::child_mask)
 pub struct ByteMaskIter {
     i: u8,
     mask: [u64; 4],
@@ -57,4 +104,32 @@ impl Iterator for ByteMaskIter {
             }
         }
     }
+}
+
+/// Returns a new empty mask
+#[inline]
+pub const fn mask_empty() -> [u64; 4] {
+    [0; 4]
+}
+
+#[test]
+fn bit_utils_test() {
+    let mut mask = mask_empty();
+    assert_eq!(mask.count_bits(), 0);
+    assert_eq!(mask.is_empty_mask(), true);
+
+    mask.set_bit(b'C');
+    mask.set_bit(b'a');
+    mask.set_bit(b't');
+    assert_eq!(mask.is_empty_mask(), false);
+    assert_eq!(mask.count_bits(), 3);
+
+    mask.set_bit(b'C');
+    mask.set_bit(b'a');
+    mask.set_bit(b'n');
+    assert_eq!(mask.count_bits(), 4);
+
+    mask.clear_bit(b't');
+    assert_eq!(mask.test_bit(b'n'), true);
+    assert_eq!(mask.test_bit(b't'), false);
 }

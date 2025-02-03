@@ -3,9 +3,10 @@ use std::collections::HashMap;
 
 use local_or_heap::LocalOrHeap;
 
+use crate::utils::BitMask;
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree, test_bit_in_mask};
+use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
 use crate::tiny_node::TinyRefNode;
 
 
@@ -1640,7 +1641,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         let mut remove_1 = false;
         if key0.starts_with(key) {
             if key0.len() > key_len {
-                remove_0 = !test_bit_in_mask(&mask, key0[key_len]);
+                remove_0 = !mask.test_bit(key0[key_len]);
             } else {
                 //We can only get here if key0 == key, and the calling code should have descend
                 // through this node if that key specifies an onward link
@@ -1649,7 +1650,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         }
         if key1.starts_with(key) {
             if key1.len() > key_len {
-                remove_1 = !test_bit_in_mask(&mask, key1[key_len]);
+                remove_1 = !mask.test_bit(key1[key_len]);
             } else {
                 debug_assert!(!self.is_child_ptr::<1>()); //See comment above
             }
