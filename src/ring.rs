@@ -539,6 +539,13 @@ pub trait Lattice {
     /// Returns the "least" value for the type in the lattice
     ///
     /// See [Boolean Algebra](https://en.wikipedia.org/wiki/Boolean_algebra_(structure)#Definition).
+    ///
+    ///GOAT: consider removing the `bottom` method from the lattice trait alltogether, now that I understand
+    /// the math terms better, I understand that there are actually two lattices being defined, a Meet lattice
+    /// and a Join lattice, and this bottom is only the bottom type in the join lattice
+    ///
+    ///GOAT: Should I formalize the relationship between the bottom() value and the AlgebraicResult::None
+    /// result by adding a `is_bottom(&self) -> bool` method?  That seems like it may be the correct thing to do.
     fn bottom() -> Self;
 
     //GOAT, this should be temporarily deprecated until we work out the correct function prototype
@@ -910,11 +917,15 @@ impl Lattice for bool {
 }
 
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
-// =-*   `SetLattice<K>`, including `HashMap<K, V>` and `HashSet<K>`                                  *-=
+// =-*   `SetLattice<K>`, including `HashMap<K, V>`, `HashSet<K>`, etc.                               *-=
 
 /// Implemented on an unordered set type, (e.g. [HashMap], [HashSet], etc.) to get automatic implementations
 /// of the [Lattice] and [DistributiveLattice] traits on the set type with the [set_lattice] and
 /// [set_dist_lattice] macros
+///
+/// BEWARE: The `Lattice` and `DistributiveLattice` impls that are derived from the `SetLattice` impl treat
+/// an empty set as equivalent to a nonexistent set.  Therefore, if your arguments contain empty sets, those
+/// sets may or may not be collapsed.  Your code must be aware of this.
 pub trait SetLattice {
     /// A key type that uniquely identifies an element within the set
     type K: Clone + Eq;
@@ -931,20 +942,32 @@ pub trait SetLattice {
     /// Returns the number of items in the set
     fn len(&self) -> usize;
 
+    /// Returns `true` is the set is empty (`len() == 0`), otherwise returns `false`
+    fn is_empty(&self) -> bool;
+
     /// Returns `true` if the set contains the key, otherwise `false`
     fn contains_key(&self, key: &Self::K) -> bool;
 
     /// Inserts a new (key, value) pair, replacing the item at `key` if it already existed
     fn insert(&mut self, key: Self::K, val: Self::V);
 
+    /// Removes the element at `key` from the set
+    fn remove(&mut self, key: &Self::K);
+
     /// Returns a reference to the element in the set, or None if the element is not contained within the set
     fn get(&self, key: &Self::K) -> Option<&Self::V>;
 
+    /// Replaces the element at `key` with the new value `val`.  Will never be called for a non-existent key
+    fn replace(&mut self, key: &Self::K, val: Self::V);
+
     /// Return a `Self::Iter` in order to iterate the set
     fn iter<'a>(&'a self) -> Self::Iter<'a>;
+
+    /// An opportunity to free unused space in the set container, if appropriate
+    fn shrink_to_fit(&mut self);
 }
 
-/// A macro to emit the [Lattice] and [DistributiveLattice] implementations for a type that implements [SetLattice]
+/// A macro to emit the [Lattice] implementation for a type that implements [SetLattice]
 macro_rules! set_lattice {
     ( $type_ident:ident $(< $( $lt:tt $( : $clt:tt $(+ $dlt:tt )* )? ),+ >)? ) => {
         impl $(< $( $lt $( : $clt $(+ $dlt )* )? ),+ >)? Lattice for $type_ident $(< $( $lt ),+ >)? where Self: SetLattice, <Self as SetLattice>::V: Lattice {
@@ -1073,20 +1096,82 @@ fn set_lattice_integrate_into_result<S: SetLattice>(
     }
 }
 
+/// A macro to emit the [DistributiveLattice] implementation for a type that implements [SetLattice]
+macro_rules! set_dist_lattice {
+    ( $type_ident:ident $(< $( $lt:tt $( : $clt:tt $(+ $dlt:tt )* )? ),+ >)? ) => {
+        impl $(< $( $lt $( : $clt $(+ $dlt )* )? ),+ >)? DistributiveLattice for $type_ident $(< $( $lt ),+ >)? where Self: SetLattice + Clone, <Self as SetLattice>::V: DistributiveLattice {
+            fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
+                let mut is_ident = true;
+                let mut result = self.clone();
+                //Two code paths, so that we only iterate over the smaller set
+                if SetLattice::len(self) > SetLattice::len(other) {
+                    for (key, other_val) in SetLattice::iter(other) {
+                        if let Some(self_val) = SetLattice::get(self, key) {
+                            set_lattice_subtract_element(&mut result, key, self_val, other_val, &mut is_ident)
+                        }
+                    }
+                } else {
+                    for (key, self_val) in SetLattice::iter(self) {
+                        if let Some(other_val) = SetLattice::get(other, key) {
+                            set_lattice_subtract_element(&mut result, key, self_val, other_val, &mut is_ident)
+                        }
+                    }
+                }
+                if SetLattice::len(&result) == 0 {
+                    AlgebraicResult::None
+                } else if is_ident {
+                    AlgebraicResult::Identity(SELF_IDENT)
+                } else {
+                    SetLattice::shrink_to_fit(&mut result);
+                    AlgebraicResult::Element(result)
+                }
+            }
+        }
+    }
+}
+
+/// Internal function to subtract set elements and integrate the results
+#[inline]
+fn set_lattice_subtract_element<S: SetLattice>(
+    result_set: &mut S,
+    key: &S::K,
+    self_val: &S::V,
+    other_val: &S::V,
+    is_ident: &mut bool,
+) where S::V: DistributiveLattice {
+    match self_val.psubtract(other_val) {
+        AlgebraicResult::Element(new_val) => {
+            SetLattice::replace(result_set, key, new_val);
+            *is_ident = false;
+        },
+        AlgebraicResult::Identity(mask) => {
+            debug_assert_eq!(mask, SELF_IDENT);
+        },
+        AlgebraicResult::None => {
+            SetLattice::remove(result_set, key);
+            *is_ident = false;
+        }
+    }
+}
+
 impl<K: Clone + Eq + Hash, V: Clone + Lattice> SetLattice for HashMap<K, V> {
     type K = K;
     type V = V;
     type Iter<'a> = std::collections::hash_map::Iter<'a, K, V> where K: 'a, V: 'a;
     fn with_capacity(capacity: usize) -> Self { Self::with_capacity(capacity) }
     fn len(&self) -> usize { self.len() }
+    fn is_empty(&self) -> bool { self.is_empty() }
     fn contains_key(&self, key: &Self::K) -> bool { self.contains_key(key) }
     fn insert(&mut self, key: Self::K, val: Self::V) { self.insert(key, val); }
     fn get(&self, key: &Self::K) -> Option<&Self::V> { self.get(key) }
+    fn replace(&mut self, key: &Self::K, val: Self::V) { *self.get_mut(key).unwrap() = val }
+    fn remove(&mut self, key: &Self::K) { self.remove(key); }
     fn iter<'a>(&'a self) -> Self::Iter<'a> { self.iter() }
+    fn shrink_to_fit(&mut self) { self.shrink_to_fit(); }
 }
 
 set_lattice!(HashMap<K, V>);
-//GOAT, set_dist_lattice
+set_dist_lattice!(HashMap<K, V>);
 
 impl<K: Clone + Eq + Hash> SetLattice for HashSet<K> {
     type K = K;
@@ -1094,10 +1179,14 @@ impl<K: Clone + Eq + Hash> SetLattice for HashSet<K> {
     type Iter<'a> = HashSetIterWrapper<'a, K> where K: 'a;
     fn with_capacity(capacity: usize) -> Self { Self::with_capacity(capacity) }
     fn len(&self) -> usize { self.len() }
+    fn is_empty(&self) -> bool { self.is_empty() }
     fn contains_key(&self, key: &Self::K) -> bool { self.contains(key) }
     fn insert(&mut self, key: Self::K, _val: Self::V) { self.insert(key); }
     fn get(&self, key: &Self::K) -> Option<&Self::V> { self.get(key).map(|_| &()) }
+    fn replace(&mut self, key: &Self::K, _val: Self::V) { debug_assert!(self.contains(key)); /* a noop since we can assume the key already exists */ }
+    fn remove(&mut self, key: &Self::K) { self.remove(key); }
     fn iter<'a>(&'a self) -> Self::Iter<'a> { HashSetIterWrapper(self.iter()) }
+    fn shrink_to_fit(&mut self) { self.shrink_to_fit(); }
 }
 
 pub struct HashSetIterWrapper<'a, K> (std::collections::hash_set::Iter<'a, K>);
@@ -1110,7 +1199,7 @@ impl<'a, K> Iterator for HashSetIterWrapper<'a, K> {
 }
 
 set_lattice!(HashSet<K>);
-//GOAT, set_dist_lattice
+set_dist_lattice!(HashSet<K>);
 
 #[test]
 fn set_lattice_join_test1() {
@@ -1161,53 +1250,111 @@ fn set_lattice_join_test1() {
 }
 
 #[test]
+fn set_lattice_meet_test1() {
+    let mut a = HashSet::new();
+    let mut b = HashSet::new();
+
+    //Test disjoint result
+    a.insert("A");
+    b.insert("B");
+    let meet_result = a.pmeet(&b);
+    assert_eq!(meet_result, AlgebraicResult::None);
+
+    //Straightforward meet
+    a.insert("A");
+    a.insert("C");
+    b.insert("B");
+    b.insert("C");
+    let meet_result = a.pmeet(&b);
+    assert!(meet_result.is_element());
+    let meet = meet_result.unwrap([&a, &b]);
+    assert_eq!(meet.len(), 1);
+    assert!(meet.get("A").is_none());
+    assert!(meet.get("B").is_none());
+    assert!(meet.get("C").is_some());
+
+    //Make "self" contain more entries
+    a.insert("D");
+    let meet_result = a.pmeet(&b);
+    assert!(meet_result.is_element());
+    let meet = meet_result.unwrap([&a, &b]);
+    assert_eq!(meet.len(), 1);
+
+    //Make "other" contain more entries
+    b.insert("D");
+    b.insert("E");
+    b.insert("F");
+    let meet_result = a.pmeet(&b);
+    assert!(meet_result.is_element());
+    let meet = meet_result.unwrap([&a, &b]);
+    assert_eq!(meet.len(), 2);
+
+    //Test identity with self arg
+    let meet_result = meet.pmeet(&b);
+    assert_eq!(meet_result, AlgebraicResult::Identity(SELF_IDENT));
+
+    //Test identity with other arg
+    let meet_result = b.pmeet(&meet);
+    assert_eq!(meet_result, AlgebraicResult::Identity(COUNTER_IDENT));
+
+    //Test mutual identity
+    let meet_result = meet.pmeet(&meet);
+    assert_eq!(meet_result, AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT));
+}
+
+/// Used in [set_lattice_join_test2] and [set_lattice_meet_test2]
+#[derive(Clone, Debug)]
+struct Map<'a>(HashMap::<&'a str, HashMap<&'a str, ()>>);// TODO, should be struct Map<'a>(HashMap::<&'a str, Map<'a>>); see comment above about chalk
+impl<'a> SetLattice for Map<'a> {
+    type K = &'a str;
+    type V = HashMap<&'a str, ()>; //Option<Box<Map<'a>>>; TODO, see comment above about chalk
+    type Iter<'it> = std::collections::hash_map::Iter<'it, Self::K, Self::V> where Self: 'it, Self::K: 'it, Self::V: 'it;
+    fn with_capacity(capacity: usize) -> Self { Map(HashMap::with_capacity(capacity)) }
+    fn len(&self) -> usize { self.0.len() }
+    fn is_empty(&self) -> bool { self.0.is_empty() }
+    fn contains_key(&self, key: &Self::K) -> bool { self.0.contains_key(key) }
+    fn insert(&mut self, key: Self::K, val: Self::V) { self.0.insert(key, val); }
+    fn get(&self, key: &Self::K) -> Option<&Self::V> { self.0.get(key) }
+    fn replace(&mut self, key: &Self::K, val: Self::V) { self.0.replace(key, val) }
+    fn remove(&mut self, key: &Self::K) { self.0.remove(key); }
+    fn iter<'it>(&'it self) -> Self::Iter<'it> { self.0.iter() }
+    fn shrink_to_fit(&mut self) { self.0.shrink_to_fit(); }
+}
+set_lattice!(Map<'a>);
+
+#[test]
 /// Tests a HashMap containing more HashMaps
 //TODO: When the [chalk trait solver](https://github.com/rust-lang/chalk) lands in stable rust, it would be nice
 // to promote this test to sample code and implement an arbitrarily deep recursive structure.  But currently
-// that's impossible due to limits in the stable rust trait sovler.
+// that's not worth the complexity due to limits in the stable rust trait sovler.
 fn set_lattice_join_test2() {
-
-    #[derive(Clone)]
-    struct Map<'a>(HashMap::<&'a str, Option<HashMap<&'a str, ()>>>);// TODO, should be struct Map<'a>(HashMap::<&'a str, Option<Box<Map<'a>>>>); see comment above about chalk
-    impl<'a> SetLattice for Map<'a> {
-        type K = &'a str;
-        type V = Option<HashMap<&'a str, ()>>; //Option<Box<Map<'a>>>; TODO, see comment above about chalk
-        type Iter<'it> = std::collections::hash_map::Iter<'it, Self::K, Self::V> where Self: 'it, Self::K: 'it, Self::V: 'it;
-        fn with_capacity(capacity: usize) -> Self { Map(HashMap::with_capacity(capacity)) }
-        fn len(&self) -> usize { self.0.len() }
-        fn contains_key(&self, key: &Self::K) -> bool { self.0.contains_key(key) }
-        fn insert(&mut self, key: Self::K, val: Self::V) { self.0.insert(key, val); }
-        fn get(&self, key: &Self::K) -> Option<&Self::V> { self.0.get(key) }
-        fn iter<'it>(&'it self) -> Self::Iter<'it> { self.0.iter() }
-    }
-    set_lattice!(Map<'a>);
-
     let mut a = Map::with_capacity(1);
     let mut b = Map::with_capacity(1);
 
-    // One level join
-    a.0.insert("A", None);
-    b.0.insert("B", None);
+    // Top level join
+    let mut inner_map_1 = HashMap::with_capacity(1);
+    inner_map_1.insert("1", ());
+    a.0.insert("A", inner_map_1.clone());
+    b.0.insert("B", inner_map_1);
+    // b.0.insert("C", HashMap::new()); TODO: We might want to test collapse of empty items using the is_bottom() method
     let joined_result = a.pjoin(&b);
     assert!(joined_result.is_element());
     let joined = joined_result.unwrap([&a, &b]);
     assert_eq!(joined.len(), 2);
     assert!(joined.get(&"A").is_some());
     assert!(joined.get(&"B").is_some());
+    assert!(joined.get(&"C").is_none()); //Empty sub-sets should not be merged
 
     // Two level join, results should be Element even though the key existed in both args, because the values joined
-    let mut inner_map_1 = HashMap::with_capacity(1);
-    inner_map_1.insert("1", ());
-    a.0.insert("A", Some(inner_map_1));
     let mut inner_map_2 = HashMap::with_capacity(1);
     inner_map_2.insert("2", ());
     b.0.remove("B");
-    b.0.insert("A", Some(inner_map_2));
+    b.0.insert("A", inner_map_2);
     let joined_result = a.pjoin(&b);
     assert!(joined_result.is_element());
     let joined = joined_result.unwrap([&a, &b]);
     assert_eq!(joined.len(), 1);
-    let joined_inner = joined.get(&"A").unwrap().as_ref().unwrap();
+    let joined_inner = joined.get(&"A").unwrap();
     assert_eq!(joined_inner.len(), 2);
     assert!(joined_inner.get(&"1").is_some());
     assert!(joined_inner.get(&"2").is_some());
@@ -1219,7 +1366,64 @@ fn set_lattice_join_test2() {
     assert_eq!(joined_result.identity_mask().unwrap(), COUNTER_IDENT);
 }
 
-//GOAT, do a test for the HashMap impl of pmeet and for psubtract
+#[test]
+/// Tests a HashMap containing more HashMaps.  See comments on [set_lattice_join_test2]
+fn set_lattice_meet_test2() {
+    let mut a = Map::with_capacity(1);
+    let mut b = Map::with_capacity(1);
+
+    let mut inner_map_a = HashMap::new();
+    inner_map_a.insert("a", ());
+    let mut inner_map_b = HashMap::new();
+    inner_map_b.insert("b", ());
+    let mut inner_map_c = HashMap::new();
+    inner_map_c.insert("c", ());
+
+    // One level meet
+    a.0.insert("A", inner_map_a.clone());
+    a.0.insert("C", inner_map_c.clone());
+    b.0.insert("B", inner_map_b.clone());
+    b.0.insert("C", inner_map_c.clone());
+    let meet_result = a.pmeet(&b);
+    assert!(meet_result.is_element());
+    let meet = meet_result.unwrap([&a, &b]);
+    assert_eq!(meet.len(), 1);
+    assert!(meet.get(&"A").is_none());
+    assert!(meet.get(&"B").is_none());
+    assert!(meet.get(&"C").is_some());
+
+    // Two level meet, results should be None even though the key existed in both args, because the inner values don't overlap
+    let mut inner_map_1 = HashMap::with_capacity(1);
+    inner_map_1.insert("1", ());
+    a.0.insert("A", inner_map_1);
+    let mut inner_map_2 = HashMap::with_capacity(1);
+    inner_map_2.insert("2", ());
+    b.0.remove("B");
+    b.0.remove("C");
+    b.0.insert("A", inner_map_2.clone());
+    let meet_result = a.pmeet(&b);
+    assert!(meet_result.is_none());
+
+    // Two level meet, now should return Element, because the values have some overlap
+    inner_map_2.insert("1", ());
+    b.0.insert("A", inner_map_2);
+    let meet_result = a.pmeet(&b);
+    assert!(meet_result.is_element());
+    let meet = meet_result.unwrap([&a, &b]);
+    assert_eq!(meet.len(), 1);
+    let meet_inner = meet.get(&"A").unwrap();
+    assert_eq!(meet_inner.len(), 1);
+    assert!(meet_inner.get(&"1").is_some());
+    assert!(meet_inner.get(&"2").is_none());
+
+    // Redoing the meet should yield Identity
+    let meet_result = meet.pmeet(&a);
+    assert_eq!(meet_result.identity_mask().unwrap(), SELF_IDENT);
+    let meet_result = b.pmeet(&meet);
+    assert_eq!(meet_result.identity_mask().unwrap(), COUNTER_IDENT);
+}
+
+//GOAT, do a test for the HashMap impl of psubtract
 //GOAT, do an impl of SetLattice for Vec as an indexed set
 
 
