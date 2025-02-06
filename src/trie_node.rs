@@ -127,10 +127,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
 
     /// Generates an iter token that can be passed to [Self::next_items] to continue iteration from the
     /// specified path
-    ///
-    /// Returns `(new_token, complete_node_key)`, where `complete_node_key` is the complete key that
-    /// corresponds to the token, within the node.
-    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]);
+    fn iter_token_for_path(&self, key: &[u8]) -> u128;
 
     /// Steps to the next existing path within the node, in a depth-first order
     ///
@@ -532,7 +529,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         }
     }
     #[inline(always)]
-    pub fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+    pub fn iter_token_for_path(&self, key: &[u8]) -> u128 {
         match self {
             Self::DenseByteNode(node) => node.iter_token_for_path(key),
             Self::LineListNode(node) => node.iter_token_for_path(key),

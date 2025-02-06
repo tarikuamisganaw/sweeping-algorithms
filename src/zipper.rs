@@ -828,20 +828,8 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
     fn descend_first_byte(&mut self) -> bool {
         self.prepare_buffers();
         debug_assert!(self.is_regularized());
-        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(self.node_key());
+        let cur_tok = self.focus_node.iter_token_for_path(self.node_key());
         self.focus_iter_token = cur_tok;
-
-        //Check to see if we can descend within this node
-        let node_key = self.node_key();
-        let node_key_len = node_key.len();
-        if node_key < full_key {
-            self.prefix_buf.push(full_key[node_key_len]);
-            if full_key.len() == node_key_len+1 {
-                self.regularize();
-            }
-            self.focus_iter_token = NODE_ITER_INVALID;
-            return true;
-        }
 
         let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
 
@@ -941,7 +929,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
         debug_assert!(self.is_regularized());
         self.deregularize();
         if self.focus_iter_token == NODE_ITER_INVALID {
-            let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
+            let cur_tok = self.focus_node.iter_token_for_path(self.node_key());
             self.focus_iter_token = cur_tok;
         }
 
@@ -1132,7 +1120,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperCo
         self.prepare_buffers();
         loop {
             if self.focus_iter_token == NODE_ITER_INVALID {
-                let (cur_tok, _full_key) = self.focus_node.iter_token_for_path(self.node_key());
+                let cur_tok = self.focus_node.iter_token_for_path(self.node_key());
                 self.focus_iter_token = cur_tok;
             }
 
@@ -1206,29 +1194,12 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperCo
         }
         true
     }
-    fn descend_first_k_path(&mut self, mut k: usize) -> bool {
+    fn descend_first_k_path(&mut self, k: usize) -> bool {
         self.prepare_buffers();
         debug_assert!(self.is_regularized());
 
-        let node_key = self.node_key();
-        let node_key_len = node_key.len();
-        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
+        let cur_tok = self.focus_node.iter_token_for_path(self.node_key());
         self.focus_iter_token = cur_tok;
-
-        //Check if we can descend within this node
-        if full_key.len() > node_key_len {
-            if full_key.len() >= node_key_len+k {
-                self.prefix_buf.extend(&full_key[node_key_len..node_key_len+k]);
-                if full_key.len() == node_key_len+k {
-                    self.regularize();
-                }
-                return true;
-            } else {
-                self.prefix_buf.extend(&full_key[node_key_len..]);
-                k -= full_key.len()-node_key_len;
-                self.regularize();
-            }
-        }
 
         self.k_path_internal(k, self.prefix_buf.len())
     }
@@ -1358,7 +1329,25 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
         self.prefix_buf.len() - self.origin_path.len()
     }
 
-    /// Ensures the zipper is in its regularized form
+    //GOAT, this isn't used anymore
+    // /// Ensures the zipper is in its regularized form
+    // ///
+    // /// Q: What the heck is "regularized form"?!?!?!
+    // /// A: The same zipper position may be representated with multiple configurations of the zipper's
+    // ///  field variables.  Consider the path: `abcd`, where the zipper points to `c`.  This could be
+    // ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
+    // ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
+    // ///  `node_key()` of `c`, which is called a deregularized form.
+    // fn regularize(&mut self) {
+    //     debug_assert!(self.prefix_buf.len() > self.node_key_start()); //If this triggers, we have uninitialized buffers
+    //     if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+    //         self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+    //         self.focus_node = next_node.as_tagged();
+    //         self.focus_iter_token = self.focus_node.new_iter_token();
+    //     }
+    // }
+
+    /// Ensures the zipper is in a deregularized form
     ///
     /// Q: What the heck is "regularized form"?!?!?!
     /// A: The same zipper position may be representated with multiple configurations of the zipper's
@@ -1366,16 +1355,10 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
     ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
     ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
     ///  `node_key()` of `c`, which is called a deregularized form.
-    fn regularize(&mut self) {
-        debug_assert!(self.prefix_buf.len() > self.node_key_start()); //If this triggers, we have uninitialized buffers
-        if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
-            self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
-            self.focus_node = next_node.as_tagged();
-            self.focus_iter_token = self.focus_node.new_iter_token();
-        }
-    }
-
-    /// Ensures the zipper is in a deregularized form.  See docs for [Self::regularize]
+    ///
+    /// While there are dozens of deregularized forms of the zipper and only one regularized, this
+    /// method puts the zipper in the state where the focus_node will be as close to the focus as
+    /// possible while also ensuring `node_key().len() > 0` or the zipper is at the root.
     #[inline]
     fn deregularize(&mut self) {
         if self.prefix_buf.len() == self.node_key_start() {

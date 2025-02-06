@@ -112,8 +112,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     fn new_iter_token(&self) -> u128 {
         0
     }
-    fn iter_token_for_path(&self, _key: &[u8]) -> (u128, &[u8]) {
-        (0, &[])
+    fn iter_token_for_path(&self, _key: &[u8]) -> u128 {
+        0
     }
     fn next_items(&self, _token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
         (NODE_ITER_FINISHED, &[], None, None)

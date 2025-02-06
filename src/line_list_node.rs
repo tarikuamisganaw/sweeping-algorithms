@@ -1689,21 +1689,21 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     /// - == key1, we should return (2, key1)
     /// - > key1, (NODE_ITER_FINISHED, &[])
     #[inline(always)]
-    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+    fn iter_token_for_path(&self, key: &[u8]) -> u128 {
         if key.len() == 0 {
-            return (0, &[])
+            return 0
         }
         let (key0, key1) = self.get_both_keys();
         if key < key0 {
-            return (0, &[])
+            return 0
         }
         if key < key1 {
-            return (1, key0)
+            return 1
         }
         if key == key1 {
-            return (2, key1)
+            return 2
         }
-        (NODE_ITER_FINISHED, &[])
+        NODE_ITER_FINISHED
     }
     #[inline(always)]
     fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
