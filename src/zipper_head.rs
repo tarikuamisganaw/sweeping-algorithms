@@ -423,6 +423,89 @@ mod tests {
     }
 
     #[test]
+    fn parallel_copy_values_test() {
+        let thread_cnt: usize = 4;
+        let elements = 512;
+        let elements_per_thread = elements / thread_cnt;
+
+        let mut map = BytesTrieMap::<usize>::new();
+        let mut zipper = map.write_zipper_at_path(b"in");
+        for n in 0..thread_cnt {
+            for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
+                zipper.descend_to_byte(n as u8);
+                zipper.descend_to(i.to_be_bytes());
+                zipper.set_value(i);
+                zipper.reset();
+            }
+        }
+        drop(zipper);
+
+        let zipper_head = map.zipper_head();
+
+        std::thread::scope(|scope| {
+
+            let mut zipper_senders: Vec<std::sync::mpsc::Sender<(ReadZipperUntracked<'_, '_, usize>, WriteZipperUntracked<'_, '_, usize>)>> = Vec::with_capacity(thread_cnt);
+            let mut signal_receivers: Vec<std::sync::mpsc::Receiver<bool>> = Vec::with_capacity(thread_cnt);
+
+            //Spawn all the threads
+            for _thread_idx in 0..thread_cnt {
+                let (zipper_tx, zipper_rx) = std::sync::mpsc::channel();
+                zipper_senders.push(zipper_tx);
+                let (signal_tx, signal_rx) = std::sync::mpsc::channel::<bool>();
+                signal_receivers.push(signal_rx);
+
+                scope.spawn(move || {
+                    loop {
+                        let mut sanity_counter = 0;
+
+                        //The thread will block here waiting for the zippers to be sent
+                        match zipper_rx.recv() {
+                            Ok((mut reader_z, mut writer_z)) => {
+                                //We got the zippers, do the stuff
+                                while let Some(val) = reader_z.to_next_val() {
+                                    writer_z.descend_to(reader_z.path());
+                                    writer_z.set_value(*val);
+                                    writer_z.reset();
+
+                                    sanity_counter += 1;
+                                }
+
+                                assert_eq!(sanity_counter, elements_per_thread);
+
+                                //Tell the main thread we're done
+                                signal_tx.send(true).unwrap();
+                            },
+                            Err(_) => {
+                                //The zipper_sender channel is closed, meaning it's time to shut down
+                                break;
+                            }
+                        }
+                    }
+                });
+            }
+
+            let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out").unwrap();
+            writer_z.remove_branches();
+
+            //Dispatch a zipper to each thread
+            for n in 0..thread_cnt {
+                let path = vec![b'o', b'u', b't', n as u8];
+                let writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(path) };
+                let path = vec![b'i', b'n', n as u8];
+                let reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(path) };
+
+                zipper_senders[n].send((reader_z, writer_z)).unwrap();
+            };
+
+            //Wait for the threads to all be done
+            for n in 0..thread_cnt {
+                assert_eq!(signal_receivers[n].recv().unwrap(), true);
+            };
+        });
+        drop(zipper_head);
+    }
+
+    #[test]
     fn zipper_head1() {
         let mut map = BytesTrieMap::<isize>::new();
 

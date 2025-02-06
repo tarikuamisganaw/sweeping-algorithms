@@ -828,13 +828,13 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
     fn descend_first_byte(&mut self) -> bool {
         self.prepare_buffers();
         debug_assert!(self.is_regularized());
-        let node_key = self.node_key();
-        let node_key_len = node_key.len();
-        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(node_key);
+        let (cur_tok, full_key) = self.focus_node.iter_token_for_path(self.node_key());
         self.focus_iter_token = cur_tok;
 
         //Check to see if we can descend within this node
-        if full_key.len() > node_key_len {
+        let node_key = self.node_key();
+        let node_key_len = node_key.len();
+        if node_key < full_key {
             self.prefix_buf.push(full_key[node_key_len]);
             if full_key.len() == node_key_len+1 {
                 self.regularize();
@@ -2522,6 +2522,27 @@ mod tests {
         assert_eq!(r1.path(), &[4]);
         assert_eq!(r1.to_next_sibling_byte(), true);
         assert_eq!(r1.to_next_sibling_byte(), false);
+    }
+
+    /// This test tries to hit an edge case in to_next_value where we begin iteration in the middle of a node
+    #[test]
+    fn zipper_value_iter_test1() {
+        let mut map = BytesTrieMap::<usize>::new();
+        let mut zipper = map.write_zipper_at_path(b"in");
+        for i in 0usize..2 {
+            zipper.descend_to_byte(i as u8);
+            zipper.descend_to(i.to_be_bytes());
+            zipper.set_value(i);
+            zipper.reset();
+        }
+        drop(zipper);
+
+        let mut reader_z = map.read_zipper_at_path([b'i', b'n', 1]);
+        let mut sanity_counter = 0;
+        while let Some(_) = reader_z.to_next_val() {
+            sanity_counter += 1;
+        }
+        assert_eq!(sanity_counter, 1);
     }
 }
 
