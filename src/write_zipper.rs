@@ -1,6 +1,6 @@
-use core::pin::Pin;
 
 use mutcursor::MutCursorRootedVec;
+use maybe_dangling::MaybeDangling;
 
 use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
@@ -429,14 +429,18 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperUntracked
 
 /// A [Zipper] for editing a trie for situations where a lifetime is inconvenient
 pub struct WriteZipperOwned<V: 'static> {
-    prefix_path: Pin<Box<[u8]>>,
-    map: Pin<Box<BytesTrieMap<V>>>,
-    z: WriteZipperCore<'static, 'static, V>,
+    prefix_path: Box<[u8]>,
+    map: MaybeDangling<Box<BytesTrieMap<V>>>,
+    // NOTE About this Box around the WriteZipperCore... The reason this is needed is for the
+    // [WriteZipperOwned::into_map] method.  This box effectively provides a fence, ensuring that the
+    // `&mut` references to the `map` and the `prefix_path` are totally gone before we access `map`.
+    // But I would like to find a zero-cost way to accomplish the same thing without the indirection.
+    z: Box<WriteZipperCore<'static, 'static, V>>,
 }
 
 impl<V: 'static + Clone + Send + Sync + Unpin> Clone for WriteZipperOwned<V> {
     fn clone(&self) -> Self {
-        let new_map = (*self.map).clone();
+        let new_map = (**self.map).clone();
         Self::new_with_map(new_map, &*self.prefix_path)
     }
 }
@@ -487,21 +491,22 @@ impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
     }
     /// Creates a new `WriteZipperOwned`, consuming a `map`
     pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V>, path: K) -> Self {
-        let prefix_path = Pin::new(path.as_ref().to_vec().into_boxed_slice());
-        let path = unsafe{ &*((&*prefix_path) as *const [u8]) };
+        let prefix_path = path.as_ref().to_vec().into_boxed_slice();
+        let path = (&*prefix_path) as *const [u8];
         map.ensure_root();
-        let map = Box::pin(map);
+        let map = MaybeDangling::new(Box::new(map));
         let root_ref = unsafe{ &mut *map.root.get() }.as_mut().unwrap();
         let root_val = match path.len() == 0 {
-            true => Some( unsafe{ &mut *map.root_val.get() } ),
+            true => Some(map.root_val.get()),
             false => None
         };
-        let core = WriteZipperCore::new_with_node_and_path(root_ref, root_val, &*path);
-        Self { map, z: core, prefix_path }
+        let core = unsafe{ WriteZipperCore::new_static_with_node_and_path(root_ref, root_val, &*path) };
+        Self { map, z: Box::new(core), prefix_path }
     }
     /// Consumes the zipper and returns a map contained within the zipper
     pub fn into_map(self) -> BytesTrieMap<V> {
-        let map = Pin::into_inner(self.map);
+        drop(self.z);
+        let map = MaybeDangling::into_inner(self.map);
         *map
     }
     /// Consumes the `WriteZipperOwned`, and returns a [ReadZipperOwned] in its place
@@ -509,7 +514,7 @@ impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
     /// The returned read zipper will have the same root and focus as the the consumed write zipper.
     pub fn into_read_zipper(mut self) -> ReadZipperOwned<V> {
         let descended_path = &self.z.key.prefix_buf[self.z.key.root_key.len()..].to_vec();
-        let mut path: Pin<Box<[u8]>> = Box::pin([]);
+        let mut path: Box<[u8]> = Box::new([]);
         core::mem::swap(&mut self.prefix_path, &mut path);
         let map = self.into_map();
         let mut new_zipper = ReadZipperOwned::new_with_map(map, &*path);
@@ -822,6 +827,17 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     }
     fn prepare_buffers(&mut self) { self.key.prepare_buffers() }
 
+}
+
+impl <V: Clone + Send + Sync + Unpin> WriteZipperCore<'static, 'static, V> {
+    /// Internal method to create a `'static` WriteZipperCore for use in [WriteZipperOwned]
+    pub(crate) unsafe fn new_static_with_node_and_path(root_node: *mut TrieNodeODRc<V>, root_val: Option<*mut Option<V>>, path: *const [u8]) -> Self {
+        let root_ref = unsafe{ &mut *root_node };
+        let path_ref = unsafe{ &*path };
+        let root_val = root_val.map(|v| unsafe{ &mut *v } );
+        let (key, node) = node_along_path_mut(root_ref, path_ref, true);
+        Self::new_with_node_and_path_internal(node, root_val, key)
+    }
 }
 
 impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {

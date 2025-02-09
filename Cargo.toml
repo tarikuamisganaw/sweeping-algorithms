@@ -5,6 +5,7 @@ edition = "2021"
 description = "A key-value store with prefix compression, structural sharing, and powerful algebraic operations"
 
 [dependencies]
+maybe-dangling = "0.1.1"
 dyn-clone = "1.0.17"
 local-or-heap = "0.1.0"
 reusing-vec = {version = "0.2.0", features = ["smallvec"]}

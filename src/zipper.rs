@@ -33,8 +33,6 @@ use crate::zipper_tracking::*;
 
 pub use crate::zipper_head::*;
 
-use core::pin::Pin;
-
 /// An interface common to all zippers, to support basic movement of the zipper and inspecting paths
 pub trait Zipper: zipper_priv::ZipperPriv {
     type ReadZipperT<'a> where Self: 'a;
@@ -505,7 +503,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> std::iter::IntoIterator for Read
 
 /// A [Zipper] that holds ownership of the root node, so there is no need for a lifetime parameter
 pub struct ReadZipperOwned<V: 'static> {
-    map: Pin<Box<BytesTrieMap<V>>>,
+    map: Box<BytesTrieMap<V>>,
     z: ReadZipperCore<'static, 'static, V>,
 }
 
@@ -520,7 +518,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
     pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V>, path: K) -> Self {
         let path = path.as_ref();
-        let map = Box::pin(map);
+        let map = Box::new(map);
         let root_ref = unsafe{ &*map.root.get() }.as_ref().unwrap().borrow();
         let root_val = unsafe{ &*map.root_val.get() }.as_ref();
         let core = ReadZipperCore::new_with_node_and_cloned_path(root_ref, path, Some(path.len()), root_val);
@@ -528,8 +526,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
     }
     /// Consumes the zipper and returns a map contained within the zipper
     pub fn into_map(self) -> BytesTrieMap<V> {
-        let map = Pin::into_inner(self.map);
-        *map
+        *self.map
     }
 }
 
