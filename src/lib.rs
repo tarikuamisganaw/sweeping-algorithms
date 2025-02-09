@@ -117,14 +117,18 @@ mod tests {
 
     #[test]
     fn btm_many_elements_subtract_test() {
-        let n: u64 = 1000; //Arbitrary number of elements
+        #[cfg(miri)]
+        const N: u64 = 20;
+        #[cfg(not(miri))]
+        const N: u64 = 1000;
+
         let overlap = 0.5;
-        let o = ((1. - overlap) * n as f64) as u64;
+        let o = ((1. - overlap) * N as f64) as u64;
 
         let mut vnl = BytesTrieMap::new();
         let mut vnr = BytesTrieMap::new();
-        for i in 0..n { vnl.insert(prefix_key(&i), i); }
-        for i in o..(n+o) { vnr.insert(prefix_key(&i), i); }
+        for i in 0..N { vnl.insert(prefix_key(&i), i); }
+        for i in o..(N+o) { vnr.insert(prefix_key(&i), i); }
         let l_no_r = vnl.subtract(&vnr);
 
         //Validate the ByteTrieMap::subtract against HashSet::difference
@@ -188,7 +192,11 @@ mod tests {
 
     #[test]
     fn btm_subtract_after_join_2() {
+        #[cfg(miri)]
+        const N: u64 = 10;
+        #[cfg(not(miri))]
         const N: u64 = 500;
+
         let mut rng = StdRng::seed_from_u64(1);
         let keys: Vec<Vec<u8>> = (0..N).into_iter().map(|_| {
             let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
@@ -338,7 +346,11 @@ mod tests {
 
     #[test]
     fn map_meet_after_join_test() {
+        #[cfg(miri)]
+        const N: u64 = 20;
+        #[cfg(not(miri))]
         const N: u64 = 1000;
+
         let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
         for i in 0..(N/2) { l.insert(prefix_key(&i), i); }
         let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -356,7 +368,11 @@ mod tests {
 
     #[test]
     fn map_meet_big_test() {
+        #[cfg(miri)]
+        const N: u64 = 20;
+        #[cfg(not(miri))]
         const N: u64 = 16000;
+
         let overlap = 0.5;
         let o = ((1. - overlap) * N as f64) as u64;
 
@@ -372,7 +388,7 @@ mod tests {
         for i in o..(N+o) { r.insert(&keys[i as usize], i); }
 
         let intersection = l.meet(&r);
-        assert_eq!(intersection.val_count(), 8000);
+        assert_eq!(intersection.val_count(), (N/2) as usize);
     }
 
     /// This test is a minimal repro case for a bug where a list node is intersected with a byte node,
@@ -402,7 +418,12 @@ mod tests {
 
     #[test]
     fn btm_ops_test() {
-        for n in (0..5000).into_iter().step_by(97) {
+        #[cfg(miri)]
+        const N: u64 = 20;
+        #[cfg(not(miri))]
+        const N: u64 = 5000;
+
+        for n in (0..N).into_iter().step_by(97) {
             // println!("n={n}");
 
             let overlap = 0.5;
@@ -462,6 +483,7 @@ mod tests {
 
         //all_dense_nodes are terrible at chaining, but there isn't much point in an optimized path for them
         #[cfg(not(feature = "all_dense_nodes"))]
+        #[cfg(not(miri))]
         {
             test_key_len(4096); //2^12 bytes
             test_key_len(16384); //2^14 bytes
