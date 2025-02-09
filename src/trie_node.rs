@@ -841,7 +841,7 @@ mod opaque_dyn_rc_trie_node {
 
     #[derive(Clone)]
     #[repr(transparent)]
-    pub struct TrieNodeODRc<V>(std::sync::Arc<dyn TrieNode<V> + 'static>);
+    pub struct TrieNodeODRc<V>(Arc<dyn TrieNode<V> + 'static>);
 
     impl<V> TrieNodeODRc<V> {
         #[inline]
@@ -870,7 +870,7 @@ mod opaque_dyn_rc_trie_node {
             Arc::strong_count(&self.0)
         }
         #[inline]
-        pub(crate) fn as_arc(&self) -> &std::sync::Arc<dyn TrieNode<V>> {
+        pub(crate) fn as_arc(&self) -> &Arc<dyn TrieNode<V>> {
             &self.0
         }
         #[inline]
@@ -884,7 +884,7 @@ mod opaque_dyn_rc_trie_node {
         /// Returns `true` if both internal Rc ptrs point to the same object
         #[inline]
         pub fn ptr_eq(&self, other: &Self) -> bool {
-            std::sync::Arc::ptr_eq(self.as_arc(), other.as_arc())
+            Arc::ptr_eq(self.as_arc(), other.as_arc())
         }
         //NOTE for future separation into stand-alone crate: Make this contingent on a dyn_clone compile-time feature
         #[inline]

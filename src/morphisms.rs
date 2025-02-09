@@ -275,7 +275,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         if JUMPING {
             if old_path_len > new_path_len+1 || (!at_fork && !at_root) {
                 if let Some(w) = cur_w {
-                    cur_w = Some(jump_f(&z.origin_path_assert_len(old_path_len)[new_path_len..], w, z.origin_path().unwrap()));
+                    cur_w = Some(jump_f(& unsafe{ z.origin_path_assert_len(old_path_len) }[new_path_len..], w, z.origin_path().unwrap()));
                 }
             }
         } else {
@@ -283,14 +283,14 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
             // NOTE: the reason this is a special case rather than just a default JumpF is because I want
             // to be able to re-use the `path_buf`, but that's not possible through the defined interface
             while old_path_len > new_path_len {
-                let byte = z.origin_path_assert_len(old_path_len).last().unwrap();
+                let byte = unsafe{ z.origin_path_assert_len(old_path_len) }.last().unwrap();
                 old_path_len -= 1;
                 if old_path_len > new_path_len || (!at_fork && !at_root) {
                     if let Some(w) = cur_w {
                         let mut mask = [0u64; 4];
                         let word_idx = (byte / 64) as usize;
                         mask[word_idx] = 1u64 << (byte % 64);
-                        cur_w = Some(alg_f(&mask, &mut[w], &z.origin_path_assert_len(old_path_len)));
+                        cur_w = Some(alg_f(&mask, &mut[w], & unsafe{ z.origin_path_assert_len(old_path_len) }));
                     }
                 }
             }

@@ -251,7 +251,10 @@ pub(crate) mod zipper_priv {
 
         /// Internal method to get the path, beyond its length.  Panics if `len` > the path's capacity, or
         /// if the zipper is relative and doesn't have an `origin_path`
-        fn origin_path_assert_len(&self, len: usize) -> &[u8];
+        ///
+        /// This method is unsafe because it relies on the caller to not read uninitialized memory, even if
+        /// the memory has been allocated.
+        unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8];
         fn prepare_buffers(&mut self);
     }
 }
@@ -313,7 +316,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
-    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
@@ -420,7 +423,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_,
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
-    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
@@ -570,7 +573,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
-    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
@@ -1073,11 +1076,11 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, 
             }
         }
     }
-    fn origin_path_assert_len(&self, len: usize) -> &[u8] {
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
         if self.root_key_offset.is_some() {
             if self.prefix_buf.capacity() > 0 {
                 assert!(len <= self.prefix_buf.capacity());
-                unsafe{ core::slice::from_raw_parts(&*self.prefix_buf.as_ptr(), len) }
+                unsafe{ core::slice::from_raw_parts(self.prefix_buf.as_ptr(), len) }
             } else {
                 assert!(len <= self.origin_path.len());
                 unsafe{ &self.origin_path.as_slice_unchecked() }

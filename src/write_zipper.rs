@@ -220,7 +220,7 @@ impl<'a, 'path, V : Clone> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'p
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
-    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
@@ -343,7 +343,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
-    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
@@ -476,7 +476,7 @@ impl<V: Clone> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
-    fn origin_path_assert_len(&self, len: usize) -> &[u8] { self.z.origin_path_assert_len(len) }
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
@@ -817,7 +817,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
             }
         }
     }
-    fn origin_path_assert_len(&self, _len: usize) -> &[u8] {
+    unsafe fn origin_path_assert_len(&self, _len: usize) -> &[u8] {
         unimplemented!()
     }
     fn prepare_buffers(&mut self) { self.key.prepare_buffers() }
@@ -1010,9 +1010,10 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     /// NOTE: Currently this is an internal-only method to enable the [PathMap::zipper_head] method,
     /// although it might be convenient to expose it publicly.  We'd need to make sure the ZipperHead could
     /// carry along the tracker.
-    /// UPDATE: No.  We definitely don't want to make this method public because an WriteZipperOwned's
-    /// WriteZipperCore must never be separated from the fields that back its root (map, etc.).  So in general
-    /// it's a very bad idea to consume a WriteZipperCore without also consuming the object that contains it.
+    /// UPDATE: No.  We definitely don't want to make this method public because a WriteZipperOwned's
+    /// WriteZipperCore must never be separated from the fields that back its root (map, etc.).  and also
+    /// it should not be separated from its tracker.  So in general it's a very bad idea to consume a
+    /// WriteZipperCore without also consuming the object that contains it.
     pub(crate) fn into_zipper_head(self) -> ZipperHead<'a, 'a, V> where 'path: 'static {
         ZipperHead::new_owned(self)
     }
