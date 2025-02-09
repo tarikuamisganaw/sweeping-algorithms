@@ -386,7 +386,8 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
     let mut stack = Vec::<(TrieBuilder<W>, usize)>::with_capacity(12);
     let mut frame_idx = 0;
 
-    let mut z = WriteZipperOwned::new();
+    let mut new_map = BytesTrieMap::new();
+    let mut z = new_map.write_zipper();
     let mut val = None;
 
     //The root is a special case
@@ -453,7 +454,8 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
             frame_idx -= 1;
         }
     }
-    z.into_map()
+    drop(z);
+    new_map
 }
 
 /// A [Vec]-like struct for assembling all the downstream branches from a path in the trie
