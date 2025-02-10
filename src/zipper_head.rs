@@ -146,16 +146,18 @@ impl<V> Drop for ZipperHead<'_, '_, V> {
 ///   uses an `UnsafeCell`.  However in a scenario where all the zipper-creation activity was happening
 ///   from the same thread, it's unclear how much cost in involved locking an unlocking the mutex.
 /// 2. Within `ZipperHeadOwned` there is a `WriteZipperOwned`, which needs to wrap its `WriteZipperCore`
-///   in a `Box`.  This indirection is probably no big deal because the contents will likely be in cache.
+///   in a `Box`.  This indirection is probably no big deal because the contents will likely be in cache,
+///   but it ought to be measured nonetheless.
 pub struct ZipperHeadOwned<V: 'static> {
     z: std::sync::Mutex<WriteZipperOwned<V>>,
     tracker_paths: SharedTrackerPaths,
 }
 
 impl<'parent, 'trie: 'parent, V: Clone + Send + Sync + Unpin> ZipperHeadOwned<V> {
-
-    /// Internal method to create a new borrowed `ZipperHeadOwned` from a `WriteZipperOwned`
-    pub(crate) fn new(z: WriteZipperOwned<V>) -> Self {
+    /// Internal method to create a new `ZipperHeadOwned` from a `WriteZipperOwned`
+    pub(crate) fn new(mut z: WriteZipperOwned<V>) -> Self {
+        // Make sure the zipper's path buffers are initialized if the path is non-zero length
+        debug_assert!(z.core().key.node_key().len() == 0 || z.core().key.prefix_buf.capacity() > 0);
         Self {
             z: std::sync::Mutex::new(z),
             tracker_paths: SharedTrackerPaths::default(),
@@ -544,6 +546,7 @@ mod tests {
 
             let mut writer_z = zipper_head.write_zipper_at_exclusive_path(b"out").unwrap();
             writer_z.remove_branches();
+            drop(writer_z);
 
             //Dispatch a zipper to each thread
             for n in 0..thread_cnt {
@@ -692,7 +695,67 @@ mod tests {
         assert_eq!(map.get("test:4"), Some(&4));
         assert_eq!(map.get("test:5"), Some(&5));
     }
+    /// Tests a zipper head that starts from a path other than the map root 
+    #[test]
+    fn zipper_head8() {
+        let mut map = BytesTrieMap::<isize>::new();
+        map.insert(b"start:0000:hello", 0);
 
+        let mut wz = map.write_zipper();
+        wz.descend_to(b"start:");
+        let zh = wz.zipper_head();
+
+        let mut z0 = zh.write_zipper_at_exclusive_path(b"0000").unwrap();
+        z0.descend_to(b":goodbye");
+        z0.set_value(0);
+
+        drop(z0);
+        drop(zh);
+        drop(wz);
+        assert_eq!(map.val_count(), 2);
+        assert_eq!(map.get(b"start:0000:hello"), Some(&0));
+        assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
+    }
+    /// A test for the tracker logic, testing many parallel [WriteZipper]s at once
+    #[test]
+    fn zipper_head9() {
+        let mut map = BytesTrieMap::<isize>::new();
+        map.insert(b"start:0000:hello", 0);
+        map.insert(b"start:0001:hello", 1);
+        map.insert(b"start:0002:hello", 2);
+        map.insert(b"start:0003:hello", 3);
+
+        let mut wz = map.write_zipper();
+        wz.descend_to(b"start:");
+        let zh = wz.zipper_head();
+
+        let mut z0 = zh.write_zipper_at_exclusive_path(b"0000").unwrap();
+        let mut z1 = zh.write_zipper_at_exclusive_path(b"0001").unwrap();
+        let mut z2 = zh.write_zipper_at_exclusive_path(b"0002").unwrap();
+        let mut z3 = zh.write_zipper_at_exclusive_path(b"0003").unwrap();
+
+        z0.descend_to(b":goodbye");
+        z0.set_value(0);
+        z1.descend_to(b":goodbye");
+        z1.set_value(1);
+        z2.descend_to(b":goodbye");
+        z2.set_value(2);
+        z3.descend_to(b":goodbye");
+        z3.set_value(3);
+
+        drop(z0);
+        drop(z1);
+        drop(z2);
+        drop(z3);
+        drop(zh);
+        drop(wz);
+
+        assert_eq!(map.val_count(), 8);
+        assert_eq!(map.get("start:0000:hello"), Some(&0));
+        assert_eq!(map.get("start:0000:goodbye"), Some(&0));
+        assert_eq!(map.get("start:0003:hello"), Some(&3));
+        assert_eq!(map.get("start:0003:goodbye"), Some(&3));
+    }
     #[test]
     fn hierarchical_zipper_heads1() {
         let mut map = BytesTrieMap::<isize>::new();
@@ -863,12 +926,12 @@ mod tests {
         map.insert(b"start:0002:hello", 2);
         map.insert(b"start:0003:hello", 3);
 
-        let zh = map.into_zipper_head();
+        let zh = map.into_zipper_head(b"start:");
 
-        let mut z0 = zh.write_zipper_at_exclusive_path(b"start:0000").unwrap();
-        let mut z1 = zh.write_zipper_at_exclusive_path(b"start:0001").unwrap();
-        let mut z2 = zh.write_zipper_at_exclusive_path(b"start:0002").unwrap();
-        let mut z3 = zh.write_zipper_at_exclusive_path(b"start:0003").unwrap();
+        let mut z0 = zh.write_zipper_at_exclusive_path(b"0000").unwrap();
+        let mut z1 = zh.write_zipper_at_exclusive_path(b"0001").unwrap();
+        let mut z2 = zh.write_zipper_at_exclusive_path(b"0002").unwrap();
+        let mut z3 = zh.write_zipper_at_exclusive_path(b"0003").unwrap();
 
         z0.descend_to(b":goodbye");
         z0.set_value(0);
@@ -888,5 +951,65 @@ mod tests {
         assert_eq!(map.val_count(), 8);
         assert_eq!(map.get("start:0000:hello"), Some(&0));
         assert_eq!(map.get("start:0000:goodbye"), Some(&0));
+        assert_eq!(map.get("start:0002:hello"), Some(&2));
+        assert_eq!(map.get("start:0002:goodbye"), Some(&2));
+    }
+    /// Parallel version of `owned_zipper_head_test1`, but with a lot more elements, pounding on the
+    /// ZipperHead from each thread
+    #[test]
+    fn parallel_owned_zipper_head_test2() {
+        #[cfg(miri)]
+        let elements = 32;
+        #[cfg(not(miri))]
+        let elements = 1024;
+
+        let thread_cnt: usize = 8;
+        let elements_per_thread = elements / thread_cnt;
+
+        let mut map = BytesTrieMap::<u32>::new();
+        for i in 0u32..(elements as u32) {
+            let mut path = b"start:".to_vec();
+            path.extend(i.to_be_bytes());
+            path.extend(b":hello");
+            map.insert(path, i);
+        }
+
+        let zh = map.into_zipper_head(b"start:");
+        thread::scope(|scope| {
+
+            let mut threads: Vec<ScopedJoinHandle<()>> = Vec::with_capacity(thread_cnt);
+            let zh_ref = &zh;
+
+            //Spawn all the threads
+            for thread_idx in 0..thread_cnt {
+                let thread = scope.spawn(move || {
+                    for i in 0..elements_per_thread {
+                        let idx = (i*thread_cnt + thread_idx) as u32;
+                        let mut z = zh_ref.write_zipper_at_exclusive_path(idx.to_be_bytes()).unwrap();
+                        z.descend_to(b":goodbye");
+                        z.set_value(idx);
+                    }
+                });
+                threads.push(thread);
+            }
+
+            //Wait for the threads to finish
+            for thread in threads {
+                thread.join().unwrap();
+            }
+        });
+        let map = zh.into_map();
+
+        assert_eq!(map.val_count(), elements*2);
+        for i in 0u32..(elements as u32) {
+            let mut path_base = b"start:".to_vec();
+            path_base.extend(i.to_be_bytes());
+            let mut hello_path = path_base.clone();
+            hello_path.extend(b":hello");
+            let mut goodbye_path = path_base.clone();
+            goodbye_path.extend(b":goodbye");
+            assert_eq!(map.get(hello_path), Some(&i));
+            assert_eq!(map.get(goodbye_path), Some(&i));
+        }
     }
 }

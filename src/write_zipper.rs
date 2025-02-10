@@ -428,6 +428,11 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperUntracked
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 
 /// A [Zipper] for editing a trie for situations where a lifetime is inconvenient
+///
+/// I am on the fence about whether this object has much value as part of the public API.  The only benefit
+/// I see is that it saves the caller from creating a new temporary [WriteZipper] and re-traversing to the
+/// zipper root each time, which could be a perf gain.  On the other hand, this object has higher overhead
+/// than the ordinary borrowed `WriteZipper`, both at creation time as well as during use.
 pub struct WriteZipperOwned<V: 'static> {
     prefix_path: Box<[u8]>,
     map: MaybeDangling<Box<BytesTrieMap<V>>>,
@@ -497,10 +502,10 @@ impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
         let map = MaybeDangling::new(Box::new(map));
         let root_ref = unsafe{ &mut *map.root.get() }.as_mut().unwrap();
         let root_val = match path.len() == 0 {
-            true => Some(map.root_val.get()),
+            true => Some(unsafe{ &mut *map.root_val.get() }),
             false => None
         };
-        let core = unsafe{ WriteZipperCore::new_static_with_node_and_path(root_ref, root_val, &*path) };
+        let core = unsafe{ WriteZipperCore::new_with_node_and_path(root_ref, root_val, &*path) };
         Self { map, z: Box::new(core), prefix_path }
     }
     /// Consumes the zipper and returns a map contained within the zipper
@@ -829,17 +834,6 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
 
 }
 
-impl <V: Clone + Send + Sync + Unpin> WriteZipperCore<'static, 'static, V> {
-    /// Internal method to create a `'static` WriteZipperCore for use in [WriteZipperOwned]
-    pub(crate) unsafe fn new_static_with_node_and_path(root_node: *mut TrieNodeODRc<V>, root_val: Option<*mut Option<V>>, path: *const [u8]) -> Self {
-        let root_ref = unsafe{ &mut *root_node };
-        let path_ref = unsafe{ &*path };
-        let root_val = root_val.map(|v| unsafe{ &mut *v } );
-        let (key, node) = node_along_path_mut(root_ref, path_ref, true);
-        Self::new_with_node_and_path_internal(node, root_val, key)
-    }
-}
-
 impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     /// Creates a new zipper, with a path relative to a node
     pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, root_val: Option<&'a mut Option<V>>, path: &'path [u8]) -> Self {
@@ -1026,11 +1020,15 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     /// NOTE: Currently this is an internal-only method to enable the [PathMap::zipper_head] method,
     /// although it might be convenient to expose it publicly.  We'd need to make sure the ZipperHead could
     /// carry along the tracker.
-    /// UPDATE: No.  We definitely don't want to make this method public because a WriteZipperOwned's
+    /// UPDATE: No!!!  We definitely don't want to make this method public because a WriteZipperOwned's
     /// WriteZipperCore must never be separated from the fields that back its root (map, etc.).  and also
     /// it should not be separated from its tracker.  So in general it's a very bad idea to consume a
     /// WriteZipperCore without also consuming the object that contains it.
     pub(crate) fn into_zipper_head(self) -> ZipperHead<'a, 'a, V> where 'path: 'static {
+        //NOTE, we are assuming this method is called from [PathMap::zipper_head] on a freshly-created
+        // WriteZipper at the map root.  Is there is an associated path, we need to call `prepare_buffers`,
+        // just like [WriteZipper::zipper_head] does above.
+        debug_assert_eq!(self.key.node_key().len(), 0);
         ZipperHead::new_owned(self)
     }
     /// See [WriteZipper::graft]
@@ -1672,7 +1670,7 @@ impl<'k> KeyFields<'k> {
     }
     /// Internal method to ensure buffers to facilitate movement of zipper are allocated and initialized
     #[inline]
-    fn prepare_buffers(&mut self) {
+    pub(crate) fn prepare_buffers(&mut self) {
         if self.prefix_buf.capacity() == 0 {
             self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
             self.prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);

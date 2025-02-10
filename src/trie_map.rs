@@ -262,8 +262,13 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
 
     /// Transforms the map into a [ZipperHead] that owns the map's contents.  This is handy when the
     /// ZipperHead needs to be part of another structure
-    pub fn into_zipper_head(self) -> ZipperHeadOwned<V> {
-        ZipperHeadOwned::new(self.into_write_zipper(&[]))
+    pub fn into_zipper_head<K: AsRef<[u8]>>(self, path: K) -> ZipperHeadOwned<V> {
+        let path = path.as_ref();
+        let mut wz = self.into_write_zipper(&path);
+        if path.len() > 0 {
+            wz.core().key.prepare_buffers();
+        }
+        ZipperHeadOwned::new(wz)
     }
 
     /// Returns an iterator over all key-value pairs within the map
@@ -802,7 +807,100 @@ mod tests {
         let map = zipper.into_map();
         assert_eq!(map.val_count(), 7);
     }
+    /// This tests [WriteZipper]s with starting paths inside the map
+    #[test]
+    fn map_write_zipper_test1() {
+        let mut map = BytesTrieMap::<isize>::new();
+        map.insert(b"start:0000:hello", 0);
 
+        let mut z = map.write_zipper_at_path(b"start:0000:");
+        z.descend_to(b"goodbye");
+        z.set_value(0);
+        drop(z);
+
+        assert_eq!(map.val_count(), 2);
+        assert_eq!(map.get(b"start:0000:hello"), Some(&0));
+        assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
+
+        let mut map = BytesTrieMap::<isize>::new();
+        map.insert(b"start:0000:hello", 0);
+        map.insert(b"start:0001:hello", 1);
+        map.insert(b"start:0002:hello", 2);
+        map.insert(b"start:0003:hello", 3);
+
+        let mut z = map.write_zipper_at_path(b"start:0000:");
+        z.descend_to(b"goodbye");
+        z.set_value(0);
+        drop(z);
+
+        let mut z = map.write_zipper_at_path(b"start:0001:");
+        z.descend_to(b"goodbye");
+        z.set_value(1);
+        drop(z);
+
+        let mut z = map.write_zipper_at_path(b"start:0002:");
+        z.descend_to(b"goodbye");
+        z.set_value(2);
+        drop(z);
+
+        let mut z = map.write_zipper_at_path(b"start:0003:");
+        z.descend_to(b"goodbye");
+        z.set_value(3);
+        drop(z);
+
+        assert_eq!(map.val_count(), 8);
+        assert_eq!(map.get(b"start:0000:hello"), Some(&0));
+        assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
+        assert_eq!(map.get(b"start:0003:hello"), Some(&3));
+        assert_eq!(map.get(b"start:0003:goodbye"), Some(&3));
+    }
+    /// Identical logic to `map_write_zipper_test2`, but tests [WriteZipperOwned]
+    #[test]
+    fn map_write_zipper_test2() {
+        let mut map = BytesTrieMap::<isize>::new();
+        map.insert(b"start:0000:hello", 0);
+
+        let mut z = map.into_write_zipper(b"start:0000:");
+        z.descend_to(b"goodbye");
+        z.set_value(0);
+        let map = z.into_map();
+
+        assert_eq!(map.val_count(), 2);
+        assert_eq!(map.get(b"start:0000:hello"), Some(&0));
+        assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
+
+        let mut map = BytesTrieMap::<isize>::new();
+        map.insert(b"start:0000:hello", 0);
+        map.insert(b"start:0001:hello", 1);
+        map.insert(b"start:0002:hello", 2);
+        map.insert(b"start:0003:hello", 3);
+
+        let mut z = map.into_write_zipper(b"start:0000:");
+        z.descend_to(b"goodbye");
+        z.set_value(0);
+        let map = z.into_map();
+
+        let mut z = map.into_write_zipper(b"start:0001:");
+        z.descend_to(b"goodbye");
+        z.set_value(1);
+        let map = z.into_map();
+
+        let mut z = map.into_write_zipper(b"start:0002:");
+        z.descend_to(b"goodbye");
+        z.set_value(2);
+        let map = z.into_map();
+
+        let mut z = map.into_write_zipper(b"start:0003:");
+        z.descend_to(b"goodbye");
+        z.set_value(3);
+        let map = z.into_map();
+
+        assert_eq!(map.val_count(), 8);
+        assert_eq!(map.get(b"start:0000:hello"), Some(&0));
+        assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
+        assert_eq!(map.get(b"start:0003:hello"), Some(&3));
+        assert_eq!(map.get(b"start:0003:goodbye"), Some(&3));
+    }
 }
 
 //GOAT, Consider refactor of zipper traits.  `WriteZipper` -> `PathWriter`.  Zipper is split into the zipper
