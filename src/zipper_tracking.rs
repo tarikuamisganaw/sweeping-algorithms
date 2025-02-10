@@ -109,7 +109,7 @@ impl Conflict {
                 if !zipper.descend_to_byte(head) {
                     return None;
                 }
-                current_path = &path[1..];
+                current_path = &current_path[1..];
             }
         }
     }
@@ -163,6 +163,15 @@ impl Conflict {
 }
 
 /// A shared registry of every outstanding zipper
+///
+/// NOTE for the future: We were considering using a lockless queue in place of the `RwLock` to guard
+/// this object, with the understanding that all new zipper creation would be serialized.  The idea is
+/// that the zipper `Drop` implementations would enquque paths, and then the queue would be drained prior
+/// to creating any new zippers.  So a queue with lockless enqueue means there is no critical section
+/// even if the zippers move to different threads.  This is still a valid approach.  If, however,
+/// `SharedTrackerPaths` is changed to be `!Sync` by replacing the `RwLock`, we should move the
+/// `SharedTrackerPaths` inside the `Mutex` inside [ZipperHeadOwned](crate::zipper::ZipperHeadOwned) so
+/// `ZipperHeadOwned` remains `Sync`
 #[derive(Clone, Default)]
 pub(crate) struct SharedTrackerPaths(Arc<RwLock<TrackerPaths>>);
 
