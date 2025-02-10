@@ -434,7 +434,7 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperUntracked
 /// zipper root each time, which could be a perf gain.  On the other hand, this object has higher overhead
 /// than the ordinary borrowed `WriteZipper`, both at creation time as well as during use.
 pub struct WriteZipperOwned<V: 'static> {
-    prefix_path: Box<[u8]>,
+    prefix_path: MaybeDangling<Box<[u8]>>,
     map: MaybeDangling<Box<BytesTrieMap<V>>>,
     // NOTE About this Box around the WriteZipperCore... The reason this is needed is for the
     // [WriteZipperOwned::into_map] method.  This box effectively provides a fence, ensuring that the
@@ -496,8 +496,8 @@ impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
     }
     /// Creates a new `WriteZipperOwned`, consuming a `map`
     pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V>, path: K) -> Self {
-        let prefix_path = path.as_ref().to_vec().into_boxed_slice();
-        let path = (&*prefix_path) as *const [u8];
+        let prefix_path = MaybeDangling::new(path.as_ref().to_vec().into_boxed_slice());
+        let path = (&**prefix_path) as *const [u8];
         map.ensure_root();
         let map = MaybeDangling::new(Box::new(map));
         let root_ref = unsafe{ &mut *map.root.get() }.as_mut().unwrap();
@@ -519,7 +519,7 @@ impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
     /// The returned read zipper will have the same root and focus as the the consumed write zipper.
     pub fn into_read_zipper(mut self) -> ReadZipperOwned<V> {
         let descended_path = &self.z.key.prefix_buf[self.z.key.root_key.len()..].to_vec();
-        let mut path: Box<[u8]> = Box::new([]);
+        let mut path: MaybeDangling<Box<[u8]>> = MaybeDangling::new(Box::new([]));
         core::mem::swap(&mut self.prefix_path, &mut path);
         let map = self.into_map();
         let mut new_zipper = ReadZipperOwned::new_with_map(map, &*path);
