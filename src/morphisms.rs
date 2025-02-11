@@ -275,7 +275,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         if JUMPING {
             if old_path_len > new_path_len+1 || (!at_fork && !at_root) {
                 if let Some(w) = cur_w {
-                    cur_w = Some(jump_f(& unsafe{ z.origin_path_assert_len(old_path_len) }[new_path_len..], w, z.origin_path().unwrap()));
+                    cur_w = Some(jump_f(& unsafe{ z.origin_path_assert_len(old_path_len) }[new_path_len+1..], w, z.origin_path().unwrap()));
                 }
             }
         } else {
@@ -860,6 +860,51 @@ mod tests {
             let sum = zip.into_cata_jumping_side_effect(map_f, collapse_f, alg_f, |_subpath, w, _path| w);
             assert_eq!(sum, expected_sum_jumping);
         }
+    }
+
+    #[test]
+    fn cata_test4() {
+        #[derive(Debug, PartialEq)]
+        enum Trie<V> {
+            Value(V),
+            Collapse(V, Box<Trie<V>>),
+            Alg(Vec<(char, Trie<V>)>),
+            Jump(String, Box<Trie<V>>)
+        }
+        use Trie::*;
+
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+        let s = btm.read_zipper().into_cata_jumping_side_effect(
+            |v, path| { Some(Box::new(Value(*v))) },
+            |v, w, path| { Some(Box::new(Collapse(*v, w.unwrap()))) },
+            |cm, ws, path| {
+                let mut it = crate::utils::ByteMaskIter::new(cm.clone());
+                Some(Box::new(Alg(ws.iter_mut().map(|w| (it.next().unwrap() as char, *std::mem::take(w).unwrap())).collect())))},
+            |sp, w, path| { Some(Box::new(Jump(std::str::from_utf8(sp).unwrap().to_string(), w.unwrap()))) }
+        );
+
+        assert_eq!(s, Some(Alg([
+            ('a', Jump("rr".into(), Collapse(0, Jump("w".into(), Value(1).into()).into()).into())),
+            ('b', Jump("ow".into(), Value(2).into())),
+            ('c', Jump("annon".into(), Value(3).into())),
+            ('r', Alg([
+                ('o', Jump("m".into(), Alg([
+                    ('\'', Jump("i".into(), Value(12).into())),
+                    ('a', Jump("n".into(), Collapse(4, Alg([
+                        ('e', Value(5)),
+                        ('u', Jump("s".into(), Value(6).into()))
+                    ].into()).into()).into())),
+                    ('u', Jump("lus".into(), Value(7).into()))].into()).into())),
+                ('u', Jump("b".into(), Alg([
+                    ('e', Alg([
+                        ('n', Jump("s".into(), Value(8).into())),
+                        ('r', Value(9))].into())),
+                    ('i', Jump("c".into(), Alg([
+                        ('o', Jump("n".into(), Value(10).into())),
+                        ('u', Jump("ndus".into(), Value(11).into()))].into()).into()))].into()).into()))].into()))].into()).into()));
     }
 
     /// Generate some basic tries using the [TrieBuilder::push_byte] API

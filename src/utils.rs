@@ -178,7 +178,7 @@ impl From<[u64; 4]> for ByteMaskIter {
 
 impl ByteMaskIter {
     /// Make a new `ByteMaskIter` from a mask, as you might get from [child_mask](crate::zipper::Zipper::child_mask)
-    fn new(mask: [u64; 4]) -> Self {
+    pub fn new(mask: [u64; 4]) -> Self {
         Self {
             i: 0,
             mask,
