@@ -907,6 +907,16 @@ mod tests {
                         ('u', Jump("ndus".into(), Value(11).into()))].into()).into()))].into()).into()))].into()))].into()).into()));
     }
 
+    #[test]
+    fn cata_test5() {
+        // let empty = BytesTrieMap::<u64>::new();
+        // println!("{:?}", empty.into_cata_side_effect(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
+
+        // let mut nonempty = BytesTrieMap::<u64>::new();
+        // nonempty.insert(&[1, 2, 3], !0);
+        // println!("{:?}", nonempty.into_cata_side_effect(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
+    }
+
     /// Generate some basic tries using the [TrieBuilder::push_byte] API
     #[test]
     fn ana_test1() {
