@@ -517,6 +517,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Clone for ReadZipperOwned<V> {
 impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
     pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V>, path: K) -> Self {
+        map.ensure_root();
         let path = path.as_ref();
         let map = Box::new(map);
         let root_ref = unsafe{ &*map.root.get() }.as_ref().unwrap().borrow();
@@ -1219,7 +1220,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperCo
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperCore<'_, '_, V> {
     fn origin_path(&self) -> Option<&[u8]> {
         if self.root_key_offset.is_some() {
-            if self.prefix_buf.len() > 0 {
+            if self.prefix_buf.capacity() > 0 {
                 Some(&self.prefix_buf)
             } else {
                 Some(unsafe{ &self.origin_path.as_slice_unchecked() })
@@ -1230,7 +1231,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperCore<'_, '
     }
     fn root_prefix_path(&self) -> Option<&[u8]> {
         if self.root_key_offset.is_some() {
-            if self.prefix_buf.len() > 0 {
+            if self.prefix_buf.capacity() > 0 {
                 Some(&self.prefix_buf[..self.origin_path.len()])
             } else {
                 Some(unsafe{ &self.origin_path.as_slice_unchecked() })
