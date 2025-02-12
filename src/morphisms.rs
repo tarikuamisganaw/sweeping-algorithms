@@ -878,12 +878,12 @@ mod tests {
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
         let s = btm.read_zipper().into_cata_jumping_side_effect(
-            |v, path| { Some(Box::new(Value(*v))) },
-            |v, w, path| { Some(Box::new(Collapse(*v, w.unwrap()))) },
-            |cm, ws, path| {
+            |v, _path| { Some(Box::new(Value(*v))) },
+            |v, w, _path| { Some(Box::new(Collapse(*v, w.unwrap()))) },
+            |cm, ws, _path| {
                 let mut it = crate::utils::ByteMaskIter::new(cm.clone());
                 Some(Box::new(Alg(ws.iter_mut().map(|w| (it.next().unwrap() as char, *std::mem::take(w).unwrap())).collect())))},
-            |sp, w, path| { Some(Box::new(Jump(std::str::from_utf8(sp).unwrap().to_string(), w.unwrap()))) }
+            |sp, w, _path| { Some(Box::new(Jump(std::str::from_utf8(sp).unwrap().to_string(), w.unwrap()))) }
         );
 
         assert_eq!(s, Some(Alg([
