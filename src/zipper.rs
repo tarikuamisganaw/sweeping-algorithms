@@ -182,6 +182,13 @@ pub trait ReadOnlyZipper<'a, V>: Zipper {
     fn get_value(&self) -> Option<&'a V>;
 }
 
+/// An interface for a [Zipper] to access values.  This interface is more limited than [ReadOnlyZipper],
+/// and thus is compatible with more zipper types
+pub trait ZipperValueAccess<V>: Zipper {
+    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
+    fn value(&self) -> Option<&V>;
+}
+
 /// An interface for advanced [Zipper] movements used for various types of iteration; such as iterating
 /// every value, or iterating all paths descending from a common root at a certain depth
 pub trait ZipperIteration<'a, V>: Zipper {
@@ -309,6 +316,10 @@ impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperTra
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
 }
 
+impl<V: Clone + Send + Sync + Unpin> ZipperValueAccess<V> for ReadZipperTracked<'_, '_, V>{
+    fn value(&self) -> Option<&V> { self.z.get_value() }
+}
+
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V> {
     type V = V;
 
@@ -414,6 +425,10 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperUntracked<'_, '_, V> {
 
 impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperUntracked<'a, '_, V>{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperValueAccess<V> for ReadZipperUntracked<'_, '_, V>{
+    fn value(&self) -> Option<&V> { self.z.get_value() }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V> {
@@ -562,8 +577,12 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperOwned<V> {
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperOwned<V>{
+impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperOwned<V> where Self: 'a{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperValueAccess<V> for ReadZipperOwned<V> {
+    fn value(&self) -> Option<&V> { self.z.get_value() }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {

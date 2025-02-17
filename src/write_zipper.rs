@@ -224,6 +224,10 @@ impl<'a, 'path, V : Clone> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'p
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
 
+impl<V: Clone + Send + Sync + Unpin> ZipperValueAccess<V> for WriteZipperTracked<'_, '_, V>{
+    fn value(&self) -> Option<&V> { self.z.get_value() }
+}
+
 impl<'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperTracked<'a, 'path, V> {
     //GOAT, this method currently isn't called
     // /// Creates a new zipper, with a path relative to a node
@@ -345,6 +349,10 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperValueAccess<V> for WriteZipperUntracked<'_, '_, V>{
+    fn value(&self) -> Option<&V> { self.z.get_value() }
 }
 
 impl <'a, 'k, V: Clone + Send + Sync + Unpin> WriteZipperUntracked<'a, 'k, V> {
@@ -487,6 +495,10 @@ impl<V: Clone> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperValueAccess<V> for WriteZipperOwned<V>{
+    fn value(&self) -> Option<&V> { self.z.get_value() }
 }
 
 impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
