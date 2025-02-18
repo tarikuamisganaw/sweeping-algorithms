@@ -759,6 +759,7 @@ impl<V: Clone + Send + Sync, W: Default> TrieBuilder<V, W> {
 mod tests {
     use std::ops::Range;
     use crate::trie_map::BytesTrieMap;
+    use crate::utils::BitMask;
     use super::*;
 
     #[test]
@@ -1208,4 +1209,33 @@ mod tests {
         }
     }
 
+    #[test]
+    fn apo_test1() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arro^w", "bow", "cann^on", "roman", "romane", "romanus^", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom^i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+        let mut alphabetic = [0u64; 4];
+        for c in "abcdefghijklmnopqrstuvwxyz".bytes() { alphabetic.set_bit(c) }
+
+        let counted = BytesTrieMap::new_from_ana(Some(btm), |submap, v, builder, loc| {
+            let srz = submap.unwrap();
+            let mut iter = crate::utils::ByteMaskIter::new(srz.read_zipper().child_mask());
+            while let Some(b) = iter.next() {
+                if alphabetic.test_bit(b) {
+                    // let mut rz = srz.fork_read_zipper(); rz.descend_to_byte(b);
+                    builder.push_byte(b, Some(srz.read_zipper_at_path(&[b]).make_map().unwrap()));
+                }
+                // todo I didn't find a histogram/groupby function, so couldn't aggregate letter counts yet, just returning one
+                else { builder.graft_at_byte(b, &BytesTrieMap::from_iter(loc.into_iter().copied().map(|x| ([x], 1))).into_read_zipper(&[])) }
+            }
+        });
+
+        println!("test");
+        let mut rz = counted.read_zipper();
+        while let Some(v) = rz.to_next_val() {
+            // todo write out useful print function, that shows the count submaps
+            println!("v: {}, p: {}", v, std::str::from_utf8(rz.path()).unwrap());
+        }
+    }
 }
