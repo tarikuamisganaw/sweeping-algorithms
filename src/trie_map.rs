@@ -150,7 +150,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         where
         V: 'static,
         W: Default,
-        AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<W>, &[u8])
+        AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W>, &[u8])
     {
         new_map_from_ana(w, alg_f)
     }

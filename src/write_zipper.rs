@@ -398,6 +398,11 @@ impl <'a, 'k, V: Clone + Send + Sync + Unpin> WriteZipperUntracked<'a, 'k, V> {
         new_zipper.descend_to(descended_path);
         new_zipper
     }
+    /// Internal method to access `WriteZipperCore` inside `WriteZipperUntracked`
+    #[inline]
+    pub(crate) fn core(&mut self) -> &mut WriteZipperCore<'a, 'k, V> {
+        &mut self.z
+    }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperUntracked<'a, '_, V> {
@@ -1437,7 +1442,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
 
     /// Internal implementation of graft, and other methods that do the same thing
     #[inline]
-    fn graft_internal(&mut self, src: Option<TrieNodeODRc<V>>) {
+    pub(crate) fn graft_internal(&mut self, src: Option<TrieNodeODRc<V>>) {
         match src {
             Some(src) => {
                 debug_assert!(!src.borrow().node_is_empty());

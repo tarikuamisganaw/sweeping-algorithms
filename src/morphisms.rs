@@ -72,6 +72,7 @@
 use reusing_vec::ReusingQueue;
 
 use crate::trie_map::BytesTrieMap;
+use crate::trie_node::TrieNodeODRc;
 use crate::zipper::*;
 
 pub trait Catamorphism<V> {
@@ -381,9 +382,9 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
     where
     V: 'static + Clone + Send + Sync + Unpin,
     W: Default,
-    AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<W>, &[u8])
+    AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W>, &[u8])
 {
-    let mut stack = Vec::<(TrieBuilder<W>, usize)>::with_capacity(12);
+    let mut stack = Vec::<(TrieBuilder<V, W>, usize)>::with_capacity(12);
     let mut frame_idx = 0;
 
     let mut new_map = BytesTrieMap::new();
@@ -391,7 +392,7 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
     let mut val = None;
 
     //The root is a special case
-    stack.push((TrieBuilder::<W>::new(), 0));
+    stack.push((TrieBuilder::<V, W>::new(), 0));
     alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
     stack[frame_idx].0.finalize();
     if let Some(val) = core::mem::take(&mut val) {
@@ -399,7 +400,7 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
     }
     loop {
         //Should we descend?
-        if let Some(w) = stack[frame_idx].0.take_next() {
+        if let Some(w_or_node) = stack[frame_idx].0.take_next() {
             //TODO Optimization Opportunity: There is likely a 2x speedup in here, that can be achieved by
             // setting all the children at the same time.  The reason is that the current behavior will create
             // a smaller node (ListNode), and then upgrade it if necessary.  But if we know in advance what
@@ -429,20 +430,30 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
                 child_path_len += child_path_remains.len();
             }
 
-            debug_assert!(frame_idx < stack.len());
-            frame_idx += 1;
-            if frame_idx == stack.len() {
-                stack.push((TrieBuilder::<W>::new(), child_path_len));
-            } else {
-                stack[frame_idx].0.reset();
-                stack[frame_idx].1 = child_path_len;
-            }
+            match w_or_node {
+                // Recursive path with more Ws
+                WOrNode::W(w) => {
+                    debug_assert!(frame_idx < stack.len());
+                    frame_idx += 1;
+                    if frame_idx == stack.len() {
+                        stack.push((TrieBuilder::<V, W>::new(), child_path_len));
+                    } else {
+                        stack[frame_idx].0.reset();
+                        stack[frame_idx].1 = child_path_len;
+                    }
 
-            //Run the alg if we just descended
-            alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
-            stack[frame_idx].0.finalize();
-            if let Some(val) = core::mem::take(&mut val) {
-                z.set_value(val);
+                    //Run the alg if we just descended
+                    alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
+                    stack[frame_idx].0.finalize();
+                    if let Some(val) = core::mem::take(&mut val) {
+                        z.set_value(val);
+                    }
+                },
+                // Path from a graft, we shouldn't descend
+                WOrNode::Node(node) => {
+                    z.core().graft_internal(Some(node));
+                    z.ascend(child_path_len);
+                }
             }
         } else {
             //If not, we should ascend
@@ -467,14 +478,30 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 //
 //GOAT, If we exposed an interface that allowed values to be set in bulk, (e.g. with a mask), we could
 // plumb it straight through to a node interface
-pub struct TrieBuilder<W> {
+pub struct TrieBuilder<V, W> {
     child_mask: [u64; 4],
     cur_mask_word: usize,
     child_paths: ReusingQueue<Vec<u8>>,
-    child_structs: ReusingQueue<W>,
+    child_structs: ReusingQueue<WOrNode<V, W>>,
 }
 
-impl<W: Default> TrieBuilder<W> {
+/// Internal structure 
+enum WOrNode<V, W> {
+    W(W),
+    Node(TrieNodeODRc<V>)
+}
+
+impl<V, W: Default> Default for WOrNode<V, W> {
+    fn default() -> Self {
+        //GOAT, the default impl here is mainly to facilitate core::mem::take, therefore, the default
+        // should be the cheapest thing to create.  At some point that will be a TrieNodeODRc pointing
+        // at a static empty node, but that's currently not implemented yet.
+        // Alternatively we could use a MaybeUninit.
+        Self::W(W::default())
+    }
+}
+
+impl<V: Clone + Send + Sync, W: Default> TrieBuilder<V, W> {
     /// Internal method to make a new empty `TrieBuilder`
     fn new() -> Self {
         Self {
@@ -498,7 +525,7 @@ impl<W: Default> TrieBuilder<W> {
         }
     }
     /// Internal method to get the next child from the builder in the push order.  Used by the anamorphism
-    fn take_next(&mut self) -> Option<W> {
+    fn take_next(&mut self) -> Option<WOrNode<V, W>> {
         self.child_structs.pop_front().map(|element| core::mem::take(element))
     }
     /// Internal method.  After [Self::take_next] returns `Some`, this method will return the first byte of the
@@ -541,7 +568,7 @@ impl<W: Default> TrieBuilder<W> {
         }
         self.child_structs.clear();
         for child in children {
-            self.child_structs.push_val(core::mem::take(child));
+            self.child_structs.push_val(WOrNode::W(core::mem::take(child)));
         }
         debug_assert_eq!(self.cur_mask_word, 0);
         while mask[self.cur_mask_word] == 0 {
@@ -565,7 +592,7 @@ impl<W: Default> TrieBuilder<W> {
         self.child_mask[mask_word] |= mask_delta;
 
         //Push the `W`
-        self.child_structs.push_val(w);
+        self.child_structs.push_val(WOrNode::W(w));
     }
     /// Pushes a new child branch into the `TrieBuilder` with the specified `sub_path`
     ///
@@ -659,6 +686,26 @@ impl<W: Default> TrieBuilder<W> {
     /// Returns the child mask from the `TrieBuilder`, representing paths that have been pushed so far
     pub fn child_mask(&self) -> [u64; 4] {
         self.child_mask
+    }
+    /// Grafts the subtrie below the focus of the `read_zipper` at the specified `byte`
+    ///
+    /// WARNING: This method is incompatible with [Self::set_child_mask] and must follow the same
+    /// rules as [Self::push_byte]
+    pub fn graft_at_byte<Z: Zipper<V=V>>(&mut self, byte: u8, read_zipper: &Z) {
+        let mask_word = (byte / 64) as usize;
+        if mask_word < self.cur_mask_word {
+            panic!("children must be pushed in sorted order")
+        }
+        self.cur_mask_word = mask_word;
+        let mask_delta = 1u64 << (byte % 64);
+        if self.child_mask[mask_word] >= mask_delta {
+            panic!("children must be pushed in sorted order and each initial byte must be unique")
+        }
+        self.child_mask[mask_word] |= mask_delta;
+
+        //Clone the read_zipper's focus and push it
+        let node = read_zipper.get_focus().into_option();
+        self.child_structs.push_val(WOrNode::Node(node.unwrap())); //GOAT!! Currently we panic if the read_zipper is at an nonexistent path
     }
     //GOAT, feature removed.  See below
     // /// Returns an [`Iterator`] type to iterate over the `(sub_path, w)` pairs that have been pushed
