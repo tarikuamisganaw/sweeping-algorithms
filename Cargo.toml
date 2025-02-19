@@ -21,6 +21,7 @@ racy_refcount = [] # Uses ordinary memory access instead of atomics for refcount
 all_dense_nodes = [] # Exclusively use the DenseByteNode type, which generally performs worse but is useful for compatibility and perf comparisons.
 bridge_nodes = [] # Enable the experimental BridgeNode type.  Incompatible with `all_dense_nodes`
 counters = [] # Enable features to inspect performance properties of tries.  Mainly useful when tuning performance of the PathMap internals.
+graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
 
 [dev-dependencies]
 divan = "0.1.14"

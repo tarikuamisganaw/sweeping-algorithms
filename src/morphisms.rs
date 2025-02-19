@@ -1218,10 +1218,11 @@ mod tests {
         let mut alphabetic = [0u64; 4];
         for c in "abcdefghijklmnopqrstuvwxyz".bytes() { alphabetic.set_bit(c) }
 
-        let counted = BytesTrieMap::new_from_ana(Some(btm), |submap, v, builder, loc| {
+        let counted = BytesTrieMap::new_from_ana(Some(btm), |submap, _v, builder, loc| {
             let srz = submap.unwrap();
-            let mut iter = crate::utils::ByteMaskIter::new(srz.read_zipper().child_mask());
-            while let Some(b) = iter.next() {
+
+            let iter = crate::utils::ByteMaskIter::new(srz.read_zipper().child_mask());
+            for b in iter {
                 if alphabetic.test_bit(b) {
                     // let mut rz = srz.fork_read_zipper(); rz.descend_to_byte(b);
                     builder.push_byte(b, Some(srz.read_zipper_at_path(&[b]).make_map().unwrap()));

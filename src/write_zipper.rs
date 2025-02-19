@@ -54,16 +54,18 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     /// Replaces the trie below the zipper's focus with the subtrie downstream from the focus of `read_zipper`
     ///
     /// If there is a value at the zipper's focus, it will not be affected.
+    /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
     ///
     /// WARNING: If the `read_zipper` is not on an existing path (according to [Zipper::path_exists]) then the
     /// effect will be the same as [Self::remove_branches] causing the trie to be pruned below the graft location.
     /// Since dangling paths aren't allowed, This method may cause the trie to be pruned above the zipper's focus,
     /// and may lead to `path_exists` returning `false`, where it previously returned `true`
-    fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z);
+    fn graft<Z: Zipper<V=V> + ZipperValueAccess<V>>(&mut self, read_zipper: &Z);
 
     /// Replaces the trie below the zipper's focus with the contents of a [BytesTrieMap], consuming the map
     ///
     /// If there is a value at the zipper's focus, it will not be affected.
+    /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
     ///
     /// WARNING: If the `map` is empty then the effect will be the same as [Self::remove_branches] causing the
     /// trie to be pruned below the graft location.  Since dangling paths aren't allowed, This method may cause
@@ -74,12 +76,18 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of
     /// `read_zipper`
     ///
+    /// GOAT: Should the ordinary zipper alg ops also be affected by `graft_root_vals` behavior?
+    /// In other words, should we join, meet, subtract, etc. the values at the zipper focus as well??
+    /// It actually makes sense that the answer should be yes.  If this is the decision, the `join_map`
+    /// method has an implementation that could likely be factord out and shared among all the ops.
+    ///
     /// If the &self zipper is at a path that does not exist, this method behaves like graft.
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice;
 
     /// Joins (union of) the trie below the zipper's focus with the contents of a [BytesTrieMap],
     /// consuming the map
     ///
+    /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
     /// GOAT QUESTION!!!!! Should this method join the map's root value into the value at the zipper's
     /// focus?  The argument for `yes` is that a root value is part of a map.  The argument for `no` is
     /// an analogy to `graft` and `graft_map` that currently don't bother the values.  Personally, I
@@ -158,6 +166,7 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
 
     /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
     ///
+    /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
     /// A value at the zipper's focus will not be affected, and will not be included in the resulting map.
     /// GOAT: See discussion in [Zipper::make_map] about whether this behavior should be changed
     fn take_map(&mut self) -> Option<BytesTrieMap<V>>;
@@ -281,7 +290,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperTracked<'
     fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
-    fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
+    fn graft<Z: Zipper<V=V> + ZipperValueAccess<V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
@@ -424,7 +433,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperUntracked
     fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
-    fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
+    fn graft<Z: Zipper<V=V> + ZipperValueAccess<V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
@@ -568,7 +577,7 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperOwned<V> {
     fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
-    fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
+    fn graft<Z: Zipper<V=V> + ZipperValueAccess<V>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
@@ -830,7 +839,17 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperCore<'_, '_, V> {
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
-        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(Some(node), None))
+        #[cfg(not(feature = "graft_root_vals"))]
+        let root_val = None;
+        #[cfg(feature = "graft_root_vals")]
+        let root_val = self.get_value().cloned();
+
+        let root_node = self.get_focus().into_option();
+        if root_node.is_some() || root_val.is_some() {
+            Some(BytesTrieMap::new_with_root(root_node, root_val))
+        } else {
+            None
+        }
     }
 }
 
@@ -1059,14 +1078,27 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
         ZipperHead::new_owned(self)
     }
     /// See [WriteZipper::graft]
-    pub fn graft<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) {
-        self.graft_internal(read_zipper.get_focus().into_option())
+    pub fn graft<Z: Zipper<V=V> + ZipperValueAccess<V>>(&mut self, read_zipper: &Z) {
+        self.graft_internal(read_zipper.get_focus().into_option());
+
+        #[cfg(feature = "graft_root_vals")]
+        let _ = match read_zipper.value() {
+            Some(src_val) => self.set_value(src_val.clone()),
+            None => self.remove_value()
+        };
     }
     /// See [WriteZipper::graft_map]
     pub fn graft_map(&mut self, map: BytesTrieMap<V>) {
-        //GOAT, see the question on the correct behavior on [WriteZipper::join_map]
-        let (src_root_node, _src_root_val) = map.into_root();
+        let (src_root_node, src_root_val) = map.into_root();
         self.graft_internal(src_root_node);
+
+        #[cfg(not(feature = "graft_root_vals"))]
+        let _ = src_root_val;
+        #[cfg(feature = "graft_root_vals")]
+        let _ = match src_root_val {
+            Some(src_val) => self.set_value(src_val),
+            None => self.remove_value()
+        };
     }
     /// See [WriteZipper::join]
     pub fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice {
@@ -1106,9 +1138,19 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     }
     /// See [WriteZipper::join_map]
     pub fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice {
+        let (src_root_node, src_root_val) = map.into_root();
+
+        #[cfg(not(feature = "graft_root_vals"))]
+        let _ = src_root_val;
+        #[cfg(feature = "graft_root_vals")]
+        let val_status = match (self.get_value_mut(), src_root_val) {
+            (Some(self_val), Some(src_val)) => { self_val.join_into(src_val) },
+            (None, Some(src_val)) => { self.set_value(src_val); AlgebraicStatus::Element },
+            (Some(_), None) => { AlgebraicStatus::Identity },
+            (None, None) => { AlgebraicStatus::None },
+        };
+
         let self_focus = self.get_focus();
-        //GOAT, see the question on the correct behavior on [WriteZipper::join_map]
-        let (src_root_node, _src_root_val) = map.into_root();
         let src = match src_root_node {
             Some(src) => src,
             None => {
@@ -1119,7 +1161,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
                 }
             }
         };
-        match self_focus.try_borrow() {
+        let node_status = match self_focus.try_borrow() {
             Some(self_node) => {
                 match self_node.pjoin_dyn(src.borrow()) {
                     AlgebraicResult::Element(joined) => {
@@ -1142,7 +1184,12 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
                 }
             },
             None => { self.graft_internal(Some(src)); AlgebraicStatus::Element }
-        }
+        };
+
+        #[cfg(not(feature = "graft_root_vals"))]
+        return node_status;
+        #[cfg(feature = "graft_root_vals")]
+        return node_status.merge(val_status, true, true)
     }
     /// See [WriteZipper::join_into]
     pub fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice {
@@ -1393,8 +1440,20 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     }
     /// See [WriteZipper::take_map]
     pub fn take_map(&mut self) -> Option<BytesTrieMap<V>> {
-        self.take_focus().map(|node| BytesTrieMap::new_with_root(Some(node), None))
+        #[cfg(not(feature = "graft_root_vals"))]
+        let root_val = None;
+        #[cfg(feature = "graft_root_vals")]
+        let root_val = self.remove_value();
+
+        let root_node = self.take_focus();
         //GOAT, we should prune upstream here!!
+
+        self.get_focus().into_option();
+        if root_node.is_some() || root_val.is_some() {
+            Some(BytesTrieMap::new_with_root(root_node, root_val))
+        } else {
+            None
+        }
     }
     /// See [WriteZipper::remove_unmasked_branches]
     pub fn remove_unmasked_branches(&mut self, mask: [u64; 4]) {

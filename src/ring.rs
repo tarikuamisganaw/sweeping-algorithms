@@ -387,7 +387,9 @@ impl AlgebraicStatus {
     /// Merges two `AlgebraicStatus` values into one.  Useful when composing the status from operations on individual fields
     ///
     /// The `self_none` and `b_none` args indicate whether the `self` and `b` args, respectively, correspond to `None`
-    /// values prior to the operation.
+    /// values prior to the operation.  Pass `true` if the existing values were already `none` or `false` if they
+    /// were made `None` by the operation.  For operations that cannot convert a non-`None` value to `None`,
+    /// (such as join) it is safe to pass (`true`, `true`) regardless of the actual original values.
     ///
     /// See [AlgebraicResult::merge].
     #[inline]

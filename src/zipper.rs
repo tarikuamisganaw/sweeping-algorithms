@@ -173,6 +173,7 @@ pub trait Zipper: zipper_priv::ZipperPriv {
     /// Returns a new [BytesTrieMap] containing everything below the zipper's focus or `None` if no
     /// subtrie exists below the focus
     ///
+    /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
     /// This method does not clone the value at the focus as the map's root.
     /// GOAT QUESTION: Should this method include the focus value as the map's root value?  That
     /// makes conceptual sense given the fact that maps have root values, however the main argument
@@ -1081,7 +1082,17 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
-        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(Some(node), None))
+        #[cfg(not(feature = "graft_root_vals"))]
+        let root_val = None;
+        #[cfg(feature = "graft_root_vals")]
+        let root_val = self.get_value().cloned();
+
+        let root_node = self.get_focus().into_option();
+        if root_node.is_some() || root_val.is_some() {
+            Some(BytesTrieMap::new_with_root(root_node, root_val))
+        } else {
+            None
+        }
     }
 }
 

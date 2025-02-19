@@ -510,26 +510,23 @@ impl<V: Clone + Lattice + Send + Sync + Unpin> Lattice for BytesTrieMap<V> {
     fn join_into(&mut self, other: Self) -> AlgebraicStatus {
         let (other_root_node, other_root_val) = other.into_root();
 
-        let (root_node_status, node_was_none) = if let Some(other_root) = other_root_node {
+        let root_node_status = if let Some(other_root) = other_root_node {
             let (status, result) = self.get_or_init_root_mut().make_mut().join_into_dyn(other_root);
             match result {
                 Ok(()) => {},
                 Err(replacement) => { *self.get_or_init_root_mut() = replacement; }
             }
-            (status, false)
+            status
         } else {
             if self.is_empty() {
-                (AlgebraicStatus::None, true)
+                AlgebraicStatus::None
             } else {
-                (AlgebraicStatus::Identity, true)
+                AlgebraicStatus::Identity
             }
         };
 
-        let self_root_val = self.root_val_mut();
-        let val_was_none = self_root_val.is_none();
         let root_val_status = self.root_val_mut().join_into(other_root_val);
-
-        root_node_status.merge(root_val_status, node_was_none, val_was_none)
+        root_node_status.merge(root_val_status, true, true)
     }
     fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
         let meet_node = self.root().pmeet(&other.root());
