@@ -28,6 +28,6 @@ GOAT: OEIS
 GOAT: Aunt Knowledge Graph
 GOAT: Multi-Threaded Map-Reduce
 
-# Future Work and Unresolved Issues
+# Discussions, Future Work, and Unresolved Issues
 
-GOAT!
+- [Root Values in Maps & Zippers](./A.0001_map_root_values.md)
