@@ -170,7 +170,19 @@ pub trait Zipper: zipper_priv::ZipperPriv {
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a>;
 
-    /// Returns a new [BytesTrieMap] containing everything below the zipper's focus
+    /// Returns a new [BytesTrieMap] containing everything below the zipper's focus or `None` if no
+    /// subtrie exists below the focus
+    ///
+    /// This method does not clone the value at the focus as the map's root.
+    /// GOAT QUESTION: Should this method include the focus value as the map's root value?  That
+    /// makes conceptual sense given the fact that maps have root values, however the main argument
+    /// for "no" is keeping compatibility with [WriteZipper::graft_map] and keeping an analogous API
+    /// to [WriteZipper::take_map].  Changing `WriteZipper::graft_map` probably entails a corresponding
+    /// change to [WriteZipper::graft] also, to keep API consistency.
+    ///
+    /// Personally I think it might make sense for all of the entry points to change behavior.
+    /// Perhaps the biggest argument against the change is that it effectively doubles the cost of
+    /// graft.  This is related to a similar question on [WriteZipper::join_map]
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>>;
 
 }
@@ -1069,7 +1081,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
-        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(Some(node)))
+        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(Some(node), None))
     }
 }
 

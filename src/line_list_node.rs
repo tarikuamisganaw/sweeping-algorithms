@@ -1432,6 +1432,10 @@ fn merge_list_nodes<V: Clone + Send + Sync + Lattice>(a: &LineListNode<V>, b: &L
                     return Ok(AlgebraicResult::Element(joined_node))
                 }
             },
+            0 => {
+                debug_assert!(a.node_is_empty() && b.node_is_empty());
+                return Ok(AlgebraicResult::None)
+            },
             _ => unreachable!()
         }
     }
@@ -2957,3 +2961,13 @@ mod tests {
 //GOAT, look at the `move_to(path)` zipper movement API, to avoid ascending too far
 
 //GOAT, implement IntoIterator on PathMap
+
+//GOAT, the following tests appear to leak memory, when running under miri:
+// * test write_zipper::tests::write_zipper_drop_head_long_key_test ... ok
+// * test write_zipper::tests::write_zipper_drop_head_test1 ... ok
+// * test write_zipper::tests::write_zipper_drop_head_test2 ... ok
+// * test write_zipper::tests::write_zipper_insert_prefix_test ... ok
+// * test write_zipper::tests::write_zipper_remove_prefix_test ... ok
+// * test write_zipper::tests::write_zipper_test_zipper_conversion ... ok
+
+//GOAT, replace the `[u64; 4]` types in the interface with the `ByteMask` type, and provide an "as_u64_slice" accessor for `ByteMask`

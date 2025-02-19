@@ -79,6 +79,13 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
 
     /// Joins (union of) the trie below the zipper's focus with the contents of a [BytesTrieMap],
     /// consuming the map
+    ///
+    /// GOAT QUESTION!!!!! Should this method join the map's root value into the value at the zipper's
+    /// focus?  The argument for `yes` is that a root value is part of a map.  The argument for `no` is
+    /// an analogy to `graft` and `graft_map` that currently don't bother the values.  Personally, I
+    /// believe `yes` is more conceptually correct, and that the behavior of `graft` and `graft_map`
+    /// should probably be revisited.  **HOWEVER** the currently implemented behavior is **NO**!
+    /// This is related to a question in [Zipper::make_map]
     fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice;
 
     /// Joins the subtrie below the focus of `src_zipper` with the subtrie below the focus of `self`,
@@ -150,6 +157,9 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     fn remove_branches(&mut self) -> bool;
 
     /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
+    ///
+    /// A value at the zipper's focus will not be affected, and will not be included in the resulting map.
+    /// GOAT: See discussion in [Zipper::make_map] about whether this behavior should be changed
     fn take_map(&mut self) -> Option<BytesTrieMap<V>>;
 
     /// Uses a 256-bit mask to remove multiple branches below the zipper's focus
@@ -820,7 +830,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperCore<'_, '_, V> {
     }
 
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
-        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(Some(node)))
+        self.get_focus().into_option().map(|node| BytesTrieMap::new_with_root(Some(node), None))
     }
 }
 
@@ -1054,7 +1064,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     }
     /// See [WriteZipper::graft_map]
     pub fn graft_map(&mut self, map: BytesTrieMap<V>) {
-        self.graft_internal(map.into_root());
+        //GOAT, see the question on the correct behavior on [WriteZipper::join_map]
+        let (src_root_node, _src_root_val) = map.into_root();
+        self.graft_internal(src_root_node);
     }
     /// See [WriteZipper::join]
     pub fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice {
@@ -1095,7 +1107,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     /// See [WriteZipper::join_map]
     pub fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice {
         let self_focus = self.get_focus();
-        let src = match map.into_root() {
+        //GOAT, see the question on the correct behavior on [WriteZipper::join_map]
+        let (src_root_node, _src_root_val) = map.into_root();
+        let src = match src_root_node {
             Some(src) => src,
             None => {
                 if self_focus.is_none() {
@@ -1379,7 +1393,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     }
     /// See [WriteZipper::take_map]
     pub fn take_map(&mut self) -> Option<BytesTrieMap<V>> {
-        self.take_focus().map(|node| BytesTrieMap::new_with_root(Some(node)))
+        self.take_focus().map(|node| BytesTrieMap::new_with_root(Some(node), None))
         //GOAT, we should prune upstream here!!
     }
     /// See [WriteZipper::remove_unmasked_branches]

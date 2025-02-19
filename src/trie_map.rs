@@ -32,7 +32,8 @@ unsafe impl<V: Send + Sync> Sync for BytesTrieMap<V> {}
 impl<V: Clone + Send + Sync + Unpin> Clone for BytesTrieMap<V> {
     fn clone(&self) -> Self {
         let root_ref = unsafe{ &*self.root.get() };
-        Self::new_with_root(root_ref.clone())
+        let root_val_ref = unsafe{ &*self.root_val.get() };
+        Self::new_with_root(root_ref.clone(), root_val_ref.clone())
     }
 }
 
@@ -40,6 +41,14 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     #[inline]
     pub(crate) fn root(&self) -> Option<&TrieNodeODRc<V>> {
         unsafe{ &*self.root.get() }.as_ref()
+    }
+    #[inline]
+    pub(crate) fn root_val(&self) -> Option<&V> {
+        unsafe{ &*self.root_val.get() }.as_ref()
+    }
+    #[inline]
+    pub(crate) fn root_val_mut(&mut self) -> &mut Option<V> {
+        unsafe{ &mut *self.root_val.get() }
     }
     #[inline]
     pub(crate) fn get_or_init_root_mut(&mut self) -> &mut TrieNodeODRc<V> {
@@ -70,15 +79,15 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
 
     /// Creates a new empty map
     pub const fn new() -> Self {
-        Self::new_with_root(None)
+        Self::new_with_root(None, None)
     }
 
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
     #[inline]
-    pub(crate) const fn new_with_root(root: Option<TrieNodeODRc<V>>) -> Self {
+    pub(crate) const fn new_with_root(root_node: Option<TrieNodeODRc<V>>, root_val: Option<V>) -> Self {
         Self {
-            root: UnsafeCell::new(root),
-            root_val: UnsafeCell::new(None),
+            root: UnsafeCell::new(root_node),
+            root_val: UnsafeCell::new(root_val),
         }
     }
 
@@ -113,17 +122,19 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         new_map
     }
 
-    /// Internal Method.  Removes and returns the root from a BytesTrieMap
+    /// Internal Method.  Removes and returns the root node and root_val from a BytesTrieMap
     #[inline]
-    pub(crate) fn into_root(self) -> Option<TrieNodeODRc<V>> {
-        match self.root() {
+    pub(crate) fn into_root(self) -> (Option<TrieNodeODRc<V>>, Option<V>) {
+        let root_node = match self.root() {
             Some(root) => if !root.borrow().node_is_empty() {
                 self.root.into_inner()
             } else {
                 None
             },
             None => None
-        }
+        };
+        let root_val = self.root_val.into_inner();
+        (root_node, root_val)
     }
 
     /// Creates a new `PathMap` by evaluating the specified anamorphism
@@ -358,10 +369,10 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
 
     /// Returns `true` if the map is empty, otherwise returns `false`
     pub fn is_empty(&self) -> bool {
-        match self.root() {
+        (match self.root() {
             Some(root) => root.borrow().node_is_empty(),
             None => true
-        }
+        } && self.root_val().is_none())
     }
 
     /// Returns a reference to the value at the specified path
@@ -400,18 +411,25 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
 
     /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
     /// values in `other`
+    ///
+    /// NOTE: if `other` has a root value, this function returns a clone of `self` because other's root
+    /// value validates all paths.  If `other` does not have a root value, the returned map won't have
+    /// one either.
     pub fn restrict(&self, other: &Self) -> Self {
+        if other.root_val().is_some() {
+            return self.clone()
+        }
         let self_root = self.root();
         let other_root = other.root();
         if self_root.is_none() || other_root.is_none() {
             Self::new()
         } else {
             match self_root.unwrap().borrow().prestrict_dyn(other_root.unwrap().borrow()) {
-                AlgebraicResult::Element(new_root) => Self::new_with_root(Some(new_root)),
+                AlgebraicResult::Element(new_root) => Self::new_with_root(Some(new_root), None),
                 AlgebraicResult::None => Self::new(),
                 AlgebraicResult::Identity(mask) => {
                     debug_assert_eq!(mask, SELF_IDENT);
-                    self.clone()
+                    Self::new_with_root(Some(self.root().cloned().unwrap()), None)
                 }
             }
         }
@@ -421,18 +439,25 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     pub fn subtract(&self, other: &Self) -> Self
         where V: DistributiveLattice
     {
-        match (self.root(), other.root()) {
-            (Some(self_root), Some(other_root)) => match self_root.psubtract(other_root) {
-                AlgebraicResult::Element(subtracted) => Self::new_with_root(Some(subtracted)),
-                AlgebraicResult::None => Self::new(),
-                AlgebraicResult::Identity(mask) => {
-                    debug_assert_eq!(mask, SELF_IDENT);
-                    self.clone()
-                },
+        let subtracted_root_val = match self.root_val().psubtract(&other.root_val()) {
+            AlgebraicResult::Element(new_val) => new_val,
+            AlgebraicResult::Identity(mask) => {
+                debug_assert_eq!(mask, SELF_IDENT);
+                self.root_val().cloned()
             },
-            (Some(_), None) => self.clone(),
-            (None, _) => Self::new(),
-        }
+            AlgebraicResult::None => None,
+        };
+
+        let subtracted_root_node = match self.root().psubtract(&other.root()) {
+            AlgebraicResult::Element(subtracted_node) => subtracted_node,
+            AlgebraicResult::Identity(mask) => {
+                debug_assert_eq!(mask, SELF_IDENT);
+                self.root().cloned()
+            },
+            AlgebraicResult::None => None,
+        };
+
+        Self::new_with_root(subtracted_root_node, subtracted_root_val)
     }
 }
 
@@ -464,26 +489,66 @@ fn result_into_map<V: Clone + Send + Sync + Unpin>(result: AlgebraicResult<Bytes
 
 impl<V: Clone + Lattice + Send + Sync + Unpin> Lattice for BytesTrieMap<V> {
     fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
-        self.root().pjoin(&other.root()).map(|new_root| Self::new_with_root(new_root))
+        let joined_node = self.root().pjoin(&other.root());
+        let joined_root_val = self.root_val().pjoin(&other.root_val());
+        joined_node.merge(joined_root_val, |which_arg| {
+            match which_arg {
+                0 => Some(self.root().cloned()),
+                1 => Some(other.root().cloned()),
+                _ => unreachable!()
+            }
+        }, |which_arg| {
+            match which_arg {
+                0 => Some(self.root_val().cloned()),
+                1 => Some(other.root_val().cloned()),
+                _ => unreachable!()
+            }
+        }, |root_node, root_val| {
+            AlgebraicResult::Element(Self::new_with_root(root_node.flatten(), root_val.flatten()))
+        })
     }
     fn join_into(&mut self, other: Self) -> AlgebraicStatus {
-        if let Some(other_root) = other.into_root() {
+        let (other_root_node, other_root_val) = other.into_root();
+
+        let (root_node_status, node_was_none) = if let Some(other_root) = other_root_node {
             let (status, result) = self.get_or_init_root_mut().make_mut().join_into_dyn(other_root);
             match result {
                 Ok(()) => {},
                 Err(replacement) => { *self.get_or_init_root_mut() = replacement; }
             }
-            status
+            (status, false)
         } else {
             if self.is_empty() {
-                AlgebraicStatus::None
+                (AlgebraicStatus::None, true)
             } else {
-                AlgebraicStatus::Identity
+                (AlgebraicStatus::Identity, true)
             }
-        }
+        };
+
+        let self_root_val = self.root_val_mut();
+        let val_was_none = self_root_val.is_none();
+        let root_val_status = self.root_val_mut().join_into(other_root_val);
+
+        root_node_status.merge(root_val_status, node_was_none, val_was_none)
     }
     fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
-        self.root().pmeet(&other.root()).map(|new_root| Self::new_with_root(new_root))
+        let meet_node = self.root().pmeet(&other.root());
+        let meet_root_val = self.root_val().pmeet(&other.root_val());
+        meet_node.merge(meet_root_val, |which_arg| {
+            match which_arg {
+                0 => Some(self.root().cloned()),
+                1 => Some(other.root().cloned()),
+                _ => unreachable!()
+            }
+        }, |which_arg| {
+            match which_arg {
+                0 => Some(self.root_val().cloned()),
+                1 => Some(other.root_val().cloned()),
+                _ => unreachable!()
+            }
+        }, |root_node, root_val| {
+            AlgebraicResult::Element(Self::new_with_root(root_node.flatten(), root_val.flatten()))
+        })
     }
     fn bottom() -> Self {
         BytesTrieMap::new()
@@ -492,14 +557,46 @@ impl<V: Clone + Lattice + Send + Sync + Unpin> Lattice for BytesTrieMap<V> {
 
 impl<V: Clone + Send + Sync + Unpin + DistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
     fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
-        self.root().psubtract(&other.root()).map(|root| Self::new_with_root(root))
+        let subtract_node = self.root().psubtract(&other.root());
+        let subtract_root_val = self.root_val().psubtract(&other.root_val());
+        subtract_node.merge(subtract_root_val, |which_arg| {
+            match which_arg {
+                0 => Some(self.root().cloned()),
+                1 => Some(other.root().cloned()),
+                _ => unreachable!()
+            }
+        }, |which_arg| {
+            match which_arg {
+                0 => Some(self.root_val().cloned()),
+                1 => Some(other.root_val().cloned()),
+                _ => unreachable!()
+            }
+        }, |root_node, root_val| {
+            AlgebraicResult::Element(Self::new_with_root(root_node.flatten(), root_val.flatten()))
+        })
     }
 }
 
 impl<V: Clone + Send + Sync + Unpin> Quantale for BytesTrieMap<V> {
     fn prestrict(&self, other: &Self) -> AlgebraicResult<Self> {
+        if other.root_val().is_some() {
+            return AlgebraicResult::Identity(SELF_IDENT)
+        }
         match (self.root(), other.root()) {
-            (Some(self_root), Some(other_root)) => self_root.prestrict(other_root).map(|root| Self::new_with_root(Some(root)) ),
+            (Some(self_root), Some(other_root)) => {
+                match self_root.prestrict(other_root) {
+                    AlgebraicResult::Element(new_root) => AlgebraicResult::Element(Self::new_with_root(Some(new_root), None)),
+                    AlgebraicResult::Identity(mask) => {
+                        debug_assert_eq!(mask, SELF_IDENT);
+                        if self.root_val().is_some() {
+                            AlgebraicResult::Element(Self::new_with_root(Some(self_root.clone()), None))
+                        } else {
+                            AlgebraicResult::Identity(SELF_IDENT)
+                        }
+                    },
+                    AlgebraicResult::None => AlgebraicResult::None,
+                }
+            },
             _ => AlgebraicResult::None,
         }
     }
@@ -739,7 +836,7 @@ mod tests {
     }
 
     #[test]
-    fn map_root_value_test() {
+    fn map_root_value_test1() {
         let mut map = BytesTrieMap::<usize>::new();
 
         //Direct-map operations on root value
@@ -789,6 +886,131 @@ mod tests {
         drop(z);
         drop(map_head);
         assert_eq!(map.get([]), Some(&2));
+    }
+
+    /// Tests algebraic ops on maps with root values, but no trie
+    #[test]
+    fn map_root_value_test2() {
+        let mut map_a = BytesTrieMap::<()>::new();
+        assert_eq!(map_a.get([]), None);
+        assert_eq!(map_a.insert([], ()), None);
+        assert_eq!(map_a.get([]), Some(&()));
+        let map_b = BytesTrieMap::<()>::new();
+
+        let joined = map_a.join(&map_b);
+        assert_eq!(joined.get([]), Some(&()));
+
+        let mut cloned = map_b.clone();
+        cloned.join_into(map_a.clone());
+        assert_eq!(cloned.get([]), Some(&()));
+
+        let meet = map_a.meet(&map_b);
+        assert_eq!(meet.get([]), None);
+
+        let meet = map_a.meet(&map_a);
+        assert_eq!(meet.get([]), Some(&()));
+
+        let subtract = map_a.subtract(&map_b);
+        assert_eq!(subtract.get([]), Some(&()));
+
+        let subtract = map_a.subtract(&map_a);
+        assert_eq!(subtract.get([]), None);
+
+        let subtract = map_a.subtract(&map_a);
+        assert_eq!(subtract.get([]), None);
+
+        let restrict = map_a.restrict(&map_a);
+        assert_eq!(restrict.get([]), Some(&()));
+
+        let restrict = map_a.restrict(&map_b);
+        assert_eq!(restrict.get([]), None);
+    }
+
+    /// Tests algebraic ops on maps with root values and a downstream trie
+    #[test]
+    fn map_root_value_test3() {
+        //Both a root val and a trie
+        let mut map_a = BytesTrieMap::<()>::new();
+        assert_eq!(map_a.insert([], ()), None);
+        assert_eq!(map_a.insert("AA", ()), None);
+
+        //Trie different from map_a, but no root val
+        let mut map_b = BytesTrieMap::<()>::new();
+        assert_eq!(map_b.insert("BB", ()), None);
+
+        //Trie same as map_a, but no root val
+        let mut map_c = BytesTrieMap::<()>::new();
+        assert_eq!(map_c.insert("AA", ()), None);
+
+        //Root val but no trie
+        let mut map_d = BytesTrieMap::<()>::new();
+        assert_eq!(map_d.insert([], ()), None);
+
+        //pjoin
+        let joined_result = map_a.pjoin(&map_b);
+        assert!(joined_result.is_element());
+        let joined = joined_result.unwrap([&map_a, &map_b]);
+        assert_eq!(joined.get([]), Some(&()));
+        assert_eq!(joined.get("AA"), Some(&()));
+        assert_eq!(joined.get("BB"), Some(&()));
+
+        let joined_result = map_a.pjoin(&map_c);
+        assert!(joined_result.is_identity());
+
+        let joined_result = map_a.pjoin(&map_d);
+        assert!(joined_result.is_identity());
+
+        //pmeet
+        let meet_result = map_a.pmeet(&map_a);
+        assert!(meet_result.is_identity());
+
+        let meet_result = map_a.pmeet(&map_b);
+        assert!(meet_result.is_none());
+
+        let meet_result = map_a.pmeet(&map_c);
+        assert!(meet_result.is_element());
+        let meet = meet_result.unwrap([&map_a, &map_c]);
+        assert_eq!(meet.get([]), None);
+        assert_eq!(meet.get("AA"), Some(&()));
+        assert_eq!(meet.get("BB"), None);
+
+        let meet_result = map_a.pmeet(&map_d);
+        assert!(meet_result.is_element());
+        let meet = meet_result.unwrap([&map_a, &map_d]);
+        assert_eq!(meet.get([]), Some(&()));
+        assert_eq!(meet.get("AA"), None);
+
+        //psubtract
+        let subtract_result = map_a.psubtract(&map_a);
+        assert!(subtract_result.is_none());
+
+        let subtract_result = map_a.psubtract(&map_b);
+        assert!(subtract_result.is_identity());
+
+        let subtract_result = map_a.psubtract(&map_c);
+        assert!(subtract_result.is_element());
+        let subtract = subtract_result.unwrap([&map_a, &map_c]);
+        assert_eq!(subtract.get([]), Some(&()));
+        assert_eq!(subtract.get("AA"), None);
+
+        let subtract_result = map_a.psubtract(&map_d);
+        assert!(subtract_result.is_element());
+        let subtract = subtract_result.unwrap([&map_a, &map_d]);
+        assert_eq!(subtract.get([]), None);
+        assert_eq!(subtract.get("AA"), Some(&()));
+
+        //prestrict
+        let restrict_result = map_a.prestrict(&map_b);
+        assert!(restrict_result.is_none());
+
+        let restrict_result = map_a.prestrict(&map_c);
+        assert!(restrict_result.is_element());
+        let restrict = restrict_result.unwrap([&map_a, &map_c]);
+        assert_eq!(restrict.get([]), None);
+        assert_eq!(restrict.get("AA"), Some(&()));
+
+        let restrict_result = map_a.prestrict(&map_d);
+        assert!(restrict_result.is_identity());
     }
 
     #[test]
