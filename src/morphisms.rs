@@ -1228,7 +1228,11 @@ mod tests {
                     builder.push_byte(b, Some(srz.read_zipper_at_path(&[b]).make_map().unwrap()));
                 }
                 // todo I didn't find a histogram/groupby function, so couldn't aggregate letter counts yet, just returning one
-                else { builder.graft_at_byte(b, &BytesTrieMap::from_iter(loc.into_iter().copied().map(|x| ([x], 1))).into_read_zipper(&[])) }
+                else {
+                    let new_map = BytesTrieMap::from_iter(loc.into_iter().copied().map(|x| ([x], 1)));
+                    let temp_zipper = new_map.read_zipper();
+                    builder.graft_at_byte(b, &temp_zipper)
+                }
             }
         });
 
