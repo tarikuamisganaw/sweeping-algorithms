@@ -1218,14 +1218,16 @@ mod tests {
         let mut alphabetic = [0u64; 4];
         for c in "abcdefghijklmnopqrstuvwxyz".bytes() { alphabetic.set_bit(c) }
 
-        let counted = BytesTrieMap::new_from_ana(Some(btm), |submap, _v, builder, loc| {
-            let srz = submap.unwrap();
+        let rz = btm.read_zipper();
+        let counted = BytesTrieMap::new_from_ana(Some(rz), |srz, _v, builder, loc| {
+            let srz = srz.unwrap();
 
-            let iter = crate::utils::ByteMaskIter::new(srz.read_zipper().child_mask());
+            let iter = crate::utils::ByteMaskIter::new(srz.child_mask());
             for b in iter {
                 if alphabetic.test_bit(b) {
-                    // let mut rz = srz.fork_read_zipper(); rz.descend_to_byte(b);
-                    builder.push_byte(b, Some(srz.read_zipper_at_path(&[b]).make_map().unwrap()));
+                    let mut new_rz = srz.clone();
+                    new_rz.descend_to_byte(b);
+                    builder.push_byte(b, Some(new_rz));
                 }
                 // todo I didn't find a histogram/groupby function, so couldn't aggregate letter counts yet, just returning one
                 else {
