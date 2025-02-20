@@ -16,7 +16,7 @@ pub trait ZipperCreation<'trie, V> {
     fn read_zipper_at_borrowed_path<'a, 'path>(&'a self, path: &'path[u8]) -> Result<ReadZipperTracked<'a, 'path, V>, Conflict> where 'trie: 'a;
 
     /// Creates a new read-only [Zipper] with the path specified from the `ZipperHead`, where the caller
-    /// guarantees that there are and there never will be any conflicts with any [WriteZipper]s at this time
+    /// guarantees that there are and there never will be any conflicts with any [write zippers](ZipperWriting)s at this time
     /// or any time before the returned zipper is dropped
     unsafe fn read_zipper_at_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> ReadZipperUntracked<'a, 'static, V> where 'trie: 'a;
 
@@ -39,11 +39,12 @@ pub trait ZipperCreation<'trie, V> {
     // /// read-zipper creation methods such as [read_zipper_at_path](ZipperCreation::read_zipper_at_path).
     // fn owned_read_zipper_at_path<K: AsRef<[u8]>>(&self, path: K) -> Result<ReadZipperOwned<V>, Conflict>;
 
-    /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`
+    /// Creates a new [write zippers](ZipperWriting) with the specified path from the `ZipperHead`
     fn write_zipper_at_exclusive_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> Result<WriteZipperTracked<'a, 'static, V>, Conflict> where 'trie: 'a;
 
-    /// Creates a new [WriteZipper] with the specified path from the `ZipperHead`, where the caller guarantees
-    /// that no existing zippers may access the specified path at any time before the `WriteZipper` is dropped
+    /// Creates a new [write zippers](ZipperWriting) with the specified path from the `ZipperHead`, where the
+    /// caller guarantees that no existing zippers may access the specified path at any time before the
+    /// write zipper is dropped
     unsafe fn write_zipper_at_exclusive_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperUntracked<'a, 'static, V> where 'trie: 'a;
 
     //GOAT-TrackedOwnedZippers
@@ -617,7 +618,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
-        assert_eq!(zipper.get_value(), Some(&3));
+        assert_eq!(zipper.value(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'2');
         zipper.set_value(2);
@@ -656,7 +657,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
-        assert_eq!(zipper.get_value(), Some(&3));
+        assert_eq!(zipper.value(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'5');
         zipper.set_value(5);
@@ -682,7 +683,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test:").unwrap();
         assert!(zipper.descend_to(b"3"));
-        assert_eq!(zipper.get_value(), Some(&3));
+        assert_eq!(zipper.value(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'5');
         zipper.set_value(5);

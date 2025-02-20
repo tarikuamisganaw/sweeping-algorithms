@@ -217,7 +217,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         }
     }
 
-    /// Creates a new [WriteZipper] starting at the root of a BytesTrieMap
+    /// Creates a new [write zipper](ZipperWriting) starting at the root of a BytesTrieMap
     pub fn write_zipper(&mut self) -> WriteZipperUntracked<'_, 'static, V> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
@@ -232,7 +232,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         }
     }
 
-    /// Creates a new [WriteZipper] with the specified path from the root of the map
+    /// Creates a new [write zipper](ZipperWriting) with the specified path from the root of the map
     pub fn write_zipper_at_path<'a, 'path>(&'a mut self, path: &'path[u8]) -> WriteZipperUntracked<'a, 'path, V> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
@@ -265,8 +265,8 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         ReadZipperOwned::new_with_map(self, path)
     }
 
-    /// Transforms the map into a [WriteZipper], which is handy when you need to embed the zipper in another
-    /// struct without a lifetime parameter
+    /// Transforms the map into a [WriteZipperOwned], which is handy when you need to embed the zipper
+    /// in another struct without a lifetime parameter
     pub fn into_write_zipper<K: AsRef<[u8]>>(self, path: K) -> WriteZipperOwned<V> {
         WriteZipperOwned::new_with_map(self, path)
     }
@@ -845,22 +845,22 @@ mod tests {
 
         //Through a WriteZipper, created at the root
         let mut z = map.write_zipper();
-        assert_eq!(z.get_value(), None);
+        assert_eq!(z.value(), None);
         assert_eq!(z.set_value(1), None);
-        assert_eq!(z.get_value(), Some(&1));
+        assert_eq!(z.value(), Some(&1));
         *z.get_value_mut().unwrap() = 2;
         assert_eq!(z.remove_value(), Some(2));
-        assert_eq!(z.get_value(), None);
+        assert_eq!(z.value(), None);
         drop(z);
 
         //Through a WriteZipper, created at a zero-length path
         let mut z = map.write_zipper_at_path(&[]);
-        assert_eq!(z.get_value(), None);
+        assert_eq!(z.value(), None);
         assert_eq!(z.set_value(1), None);
-        assert_eq!(z.get_value(), Some(&1));
+        assert_eq!(z.value(), Some(&1));
         *z.get_value_mut().unwrap() = 2;
         assert_eq!(z.remove_value(), Some(2));
-        assert_eq!(z.get_value(), None);
+        assert_eq!(z.value(), None);
         drop(z);
 
         //Through read zippers
@@ -876,9 +876,9 @@ mod tests {
         //Through ZipperHeads
         let map_head = map.zipper_head();
         let mut z = map_head.write_zipper_at_exclusive_path([]).unwrap();
-        assert_eq!(z.get_value(), None);
+        assert_eq!(z.value(), None);
         assert_eq!(z.set_value(1), None);
-        assert_eq!(z.get_value(), Some(&1));
+        assert_eq!(z.value(), Some(&1));
         *z.get_value_mut().unwrap() = 2;
         drop(z);
         drop(map_head);

@@ -1,4 +1,4 @@
-//! Functionality for applying various morphisms to [PathMap] and [Zipper]s
+//! Functionality for applying various morphisms to [PathMap] and [Zipper](crate::zipper::Zipper)s
 //!
 //! Morphisms are a generalization of the [fold](std::iter::Iterator::fold) pattern, but for a trie or
 //! sub-trie, as opposed to a list / sequence.  Similarly they rely on results being aggregated into
@@ -23,9 +23,11 @@
 //! will stick to this convention in-spite of the Greek meaning.
 //!
 //! **NOTE**: The traversal order, while depth-first, is subtly different from the order of
-//! [ZipperIteration::to_next_val] and [ZipperIteration::to_next_step].  The [Zipper] methods visit values
-//! first before descending to the branches below, while the `cata` methods call the `mapper` on the deepest
-//! values first, before returning to higher levels where `collapse` is called.
+//! [ZipperIteration::to_next_val](crate::zipper::ZipperIteration::to_next_val) and
+//! [ZipperIteration::to_next_step](crate::zipper::ZipperIteration::to_next_step).  The
+//! [ZipperIteration](crate::zipper::ZipperIteration) methods visit values first before descending to the
+//! branches below, while the `cata` methods call the `mapper` on the deepest values first, before
+//! returning to higher levels where `collapse` is called.
 //!
 //! #### Anamorphism
 //!
@@ -104,7 +106,7 @@ pub trait Catamorphism<V> {
     /// - `jump_f`: `FnMut(sub_path: &[u8], w: W, path: &[u8]) -> W`
     /// Elevates a result `w` descending from the relative path, `sub_path` to the current position at `path`
     ///
-    /// See [into_cata_side_effect](ZipperMorphisms::into_cata_side_effect) for explanation of other behavior
+    /// See [into_cata_side_effect](Catamorphism::into_cata_side_effect) for explanation of other behavior
     fn into_cata_jumping_side_effect<W, MapF, CollapseF, AlgF, JumpF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF, jump_f: JumpF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
@@ -113,7 +115,7 @@ pub trait Catamorphism<V> {
         JumpF: FnMut(&[u8], W, &[u8]) -> W;
 }
 
-impl<Z, V> Catamorphism<V> for Z where Z: ZipperValueAccess<V> + ZipperAbsolutePath {
+impl<Z, V> Catamorphism<V> for Z where Z: Zipper<V> + ZipperAbsolutePath {
     fn into_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
@@ -158,7 +160,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
 #[inline(always)]
 fn cata_side_effect_body<Z, V, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: bool>(mut z: Z, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> W
     where
-    Z: ZipperValueAccess<V> + ZipperAbsolutePath,
+    Z: Zipper<V> + ZipperAbsolutePath,
     MapF: FnMut(&V, &[u8]) -> W,
     CollapseF: FnMut(&V, W, &[u8]) -> W,
     AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
@@ -256,7 +258,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         mut cur_w: Option<W>
 ) -> Option<W>
     where
-    Z: ZipperValueAccess<V> + ZipperAbsolutePath,
+    Z: Zipper<V> + ZipperAbsolutePath,
     MapF: FnMut(&V, &[u8]) -> W,
     CollapseF: FnMut(&V, W, &[u8]) -> W,
     AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
@@ -691,7 +693,7 @@ impl<V: Clone + Send + Sync, W: Default> TrieBuilder<V, W> {
     ///
     /// WARNING: This method is incompatible with [Self::set_child_mask] and must follow the same
     /// rules as [Self::push_byte]
-    pub fn graft_at_byte<Z: ZipperValueAccess<V>>(&mut self, byte: u8, read_zipper: &Z) {
+    pub fn graft_at_byte<Z: Zipper<V>>(&mut self, byte: u8, read_zipper: &Z) {
         let mask_word = (byte / 64) as usize;
         if mask_word < self.cur_mask_word {
             panic!("children must be pushed in sorted order")

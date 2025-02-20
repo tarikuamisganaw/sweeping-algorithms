@@ -1,6 +1,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
+use crate::zipper::*;
 
 /// The result of an algebraic operation on elements in a partial lattice
 ///
@@ -353,7 +354,7 @@ impl<V> AlgebraicResult<Option<V>> {
 ///
 /// In general, `AlgebraicStatus` return values are a valid signal for loop termination, but should not be
 /// strictly relied upon for other kinds of branching.  For example, `Element` might be returned by
-/// [WriteZipper::join] instead of `Identity` if the internal representation was changed by the method,
+/// [ZipperWriting::join] instead of `Identity` if the internal representation was changed by the method,
 /// however the next call to `join` ought to return `Identity` if nothing new is added.
 ///
 /// This type mirrors [AlgebraicResult]
@@ -922,8 +923,8 @@ impl Lattice for bool {
 // =-*   `SetLattice<K>`, including `HashMap<K, V>`, `HashSet<K>`, etc.                               *-=
 
 /// Implemented on an unordered set type, (e.g. [HashMap], [HashSet], etc.) to get automatic implementations
-/// of the [Lattice] and [DistributiveLattice] traits on the set type with the [set_lattice] and
-/// [set_dist_lattice] macros
+/// of the [Lattice] and [DistributiveLattice] traits on the set type with the [set_lattice](crate::set_lattice) and
+/// [set_dist_lattice](crate::set_dist_lattice) macros
 ///
 /// BEWARE: The `Lattice` and `DistributiveLattice` impls that are derived from the `SetLattice` impl treat
 /// an empty set as equivalent to a nonexistent set.  Therefore, if your arguments contain empty sets, those
@@ -970,6 +971,7 @@ pub trait SetLattice {
 }
 
 /// A macro to emit the [Lattice] implementation for a type that implements [SetLattice]
+#[macro_export]
 macro_rules! set_lattice {
     ( $type_ident:ident $(< $( $lt:tt $( : $clt:tt $(+ $dlt:tt )* )? ),+ >)? ) => {
         impl $(< $( $lt $( : $clt $(+ $dlt )* )? ),+ >)? Lattice for $type_ident $(< $( $lt ),+ >)? where Self: SetLattice, <Self as SetLattice>::V: Lattice {
@@ -1099,6 +1101,7 @@ fn set_lattice_integrate_into_result<S: SetLattice>(
 }
 
 /// A macro to emit the [DistributiveLattice] implementation for a type that implements [SetLattice]
+#[macro_export]
 macro_rules! set_dist_lattice {
     ( $type_ident:ident $(< $( $lt:tt $( : $clt:tt $(+ $dlt:tt )* )? ),+ >)? ) => {
         impl $(< $( $lt $( : $clt $(+ $dlt )* )? ),+ >)? DistributiveLattice for $type_ident $(< $( $lt ),+ >)? where Self: SetLattice + Clone, <Self as SetLattice>::V: DistributiveLattice {

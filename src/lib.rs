@@ -18,7 +18,7 @@ pub mod trie_map;
 /// Cursors that can move over a trie, to inspect and modify contained elements or entire branches
 pub mod zipper;
 
-/// Functionality for applying various morphisms to [PathMap] and [Zipper]s
+/// Functionality for applying various morphisms to [PathMap] and [Zipper](crate::zipper::Zipper)s
 pub mod morphisms;
 
 /// Handy conveniences and utilities to use with a [PathMap]
