@@ -5,10 +5,8 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use crate::trie_map::BytesTrieMap;
-use crate::write_zipper::ZipperWriting;
-use crate::zipper::ZipperReadOnly;
+use crate::zipper::{ZipperMoving, ZipperReadOnly, ZipperValueAccess, ZipperWriting};
 use crate::zipper::ReadZipperUntracked;
-use crate::zipper::Zipper;
 use crate::zipper::ZipperAbsolutePath;
 use crate::zipper::ZipperIteration;
 
