@@ -11,7 +11,7 @@ use crate::zipper_tracking::*;
 use crate::ring::{AlgebraicResult, AlgebraicStatus, DistributiveLattice, Lattice, COUNTER_IDENT, SELF_IDENT};
 
 /// Implemented on [Zipper] types that allow modification of the trie
-pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
+pub trait ZipperWriting<V>: Zipper + WriteZipperPriv<V> {
     /// A [ZipperHead] that can be created from this zipper
     type ZipperHead<'z> where Self: 'z;
 
@@ -99,7 +99,7 @@ pub trait WriteZipper<V>: Zipper + WriteZipperPriv<V> {
     /// Joins the subtrie below the focus of `src_zipper` with the subtrie below the focus of `self`,
     /// consuming `src_zipper`'s subtrie
     //GOAT, `WriteZipper::join` already is "join_into", so `WriteZipper::join_into` should be renamed to something like `take_and_join`
-    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice;
+    fn join_into<Z: Zipper<V=V> + ZipperWriting<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice;
 
     /// Collapses all the paths below the zipper's focus by removing the leading `byte_cnt` bytes from
     /// each path and joining together all of the downstream sub-paths
@@ -281,7 +281,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperTracked<'a, 'path, V>
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperTracked<'a, '_, V> {
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperWriting<V> for WriteZipperTracked<'a, '_, V> {
     type ZipperHead<'z> = ZipperHead<'z, 'a, V> where Self: 'z;
     fn get_value(&self) -> Option<&V> { self.z.get_value() }
     fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
@@ -294,7 +294,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperTracked<'
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
-    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
+    fn join_into<Z: Zipper<V=V> + ZipperWriting<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
@@ -424,7 +424,7 @@ impl <'a, 'k, V: Clone + Send + Sync + Unpin> WriteZipperUntracked<'a, 'k, V> {
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperUntracked<'a, '_, V> {
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperWriting<V> for WriteZipperUntracked<'a, '_, V> {
     type ZipperHead<'z> = ZipperHead<'z, 'a, V> where Self: 'z;
     fn get_value(&self) -> Option<&V> { self.z.get_value() }
     fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
@@ -437,7 +437,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperUntracked
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
-    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
+    fn join_into<Z: Zipper<V=V> + ZipperWriting<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
@@ -568,7 +568,7 @@ impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperOwned<V> {
+impl<V: Clone + Send + Sync + Unpin> ZipperWriting<V> for WriteZipperOwned<V> {
     type ZipperHead<'z> = ZipperHead<'z, 'static, V> where Self: 'z;
     fn get_value(&self) -> Option<&V> { self.z.get_value() }
     fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
@@ -581,7 +581,7 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipper<V> for WriteZipperOwned<V> {
     fn graft_map(&mut self, map: BytesTrieMap<V>) { self.z.graft_map(map) }
     fn join<Z: Zipper<V=V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
     fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
-    fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
+    fn join_into<Z: Zipper<V=V> + ZipperWriting<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
     fn remove_prefix(&mut self, n: usize) -> bool { self.z.remove_prefix(n) }
@@ -1192,7 +1192,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
         return node_status.merge(val_status, true, true)
     }
     /// See [WriteZipper::join_into]
-    pub fn join_into<Z: Zipper<V=V> + WriteZipper<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice {
+    pub fn join_into<Z: Zipper<V=V> + ZipperWriting<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice {
         match src_zipper.take_focus() {
             None => {
                 if self.get_focus().is_none() {

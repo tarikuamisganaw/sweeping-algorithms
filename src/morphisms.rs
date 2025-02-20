@@ -113,7 +113,7 @@ pub trait Catamorphism<V> {
         JumpF: FnMut(&[u8], W, &[u8]) -> W;
 }
 
-impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath {
+impl<Z, V> Catamorphism<V> for Z where Z: ZipperValueAccess<V> + ZipperAbsolutePath {
     fn into_cata_side_effect<W, MapF, CollapseF, AlgF>(self, map_f: MapF, collapse_f: CollapseF, alg_f: AlgF) -> W
         where
         MapF: FnMut(&V, &[u8]) -> W,
@@ -156,9 +156,9 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
 }
 
 #[inline(always)]
-fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: bool>(mut z: Z, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> W
+fn cata_side_effect_body<Z, V, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: bool>(mut z: Z, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> W
     where
-    Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath,
+    Z: ZipperValueAccess<V> + ZipperAbsolutePath,
     MapF: FnMut(&V, &[u8]) -> W,
     CollapseF: FnMut(&V, W, &[u8]) -> W,
     AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
@@ -190,7 +190,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JU
 
         if is_leaf {
             //Map the value from this leaf
-            let mut cur_w = z.get_value().map(|v| map_f(v, z.origin_path().unwrap()));
+            let mut cur_w = z.value().map(|v| map_f(v, z.origin_path().unwrap()));
 
             //Ascend back to the last fork point
             cur_w = ascend_to_fork::<Z, V, W, MapF, CollapseF, AlgF, JumpF, JUMPING>(&mut z, &mut map_f, &mut collapse_f, &mut alg_f, &mut jump_f, cur_w);
@@ -213,7 +213,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JU
                     frame_idx -= 1;
 
                     //Check to see if we have a value here we need to collapse
-                    if let Some(v) = z.get_value() {
+                    if let Some(v) = z.value() {
                         w = collapse_f(v, w, z.origin_path().unwrap());
                     }
 
@@ -256,7 +256,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         mut cur_w: Option<W>
 ) -> Option<W>
     where
-    Z: ReadOnlyZipper<'a, V> + ZipperAbsolutePath,
+    Z: ZipperValueAccess<V> + ZipperAbsolutePath,
     MapF: FnMut(&V, &[u8]) -> W,
     CollapseF: FnMut(&V, W, &[u8]) -> W,
     AlgF: FnMut(&[u64; 4], &mut [W], &[u8]) -> W,
@@ -303,7 +303,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
 
         if !at_fork {
             //This unwrap shouldn't panic, because `ascend_until` should only stop at values and forks
-            let v = z.get_value().unwrap();
+            let v = z.value().unwrap();
             match cur_w {
                 None => { cur_w = Some(map_f(v, z.origin_path().unwrap())); },
                 Some(w) => { cur_w = Some(collapse_f(v, w, z.origin_path().unwrap())); }

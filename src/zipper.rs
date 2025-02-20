@@ -29,6 +29,7 @@ use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
 
 pub use crate::write_zipper::*;
+pub use crate::trie_ref::*;
 use crate::zipper_tracking::*;
 
 pub use crate::zipper_head::*;
@@ -190,7 +191,9 @@ pub trait Zipper: zipper_priv::ZipperPriv {
 
 /// An interface for a [Zipper] that cannot modify the trie.  Allows values to be read from the trie with
 /// a lifetime that may outlive the zipper
-pub trait ReadOnlyZipper<'a, V>: Zipper {
+///
+/// This trait will never be implemented on the same type as [ZipperWriting]
+pub trait ZipperReadOnly<'a, V>: Zipper {
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     fn get_value(&self) -> Option<&'a V>;
 }
@@ -325,7 +328,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperTracked<'_, '_, V> {
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperTracked<'a, '_, V>{
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperTracked<'a, '_, V>{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
 }
 
@@ -436,7 +439,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperUntracked<'_, '_, V> {
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperUntracked<'a, '_, V>{
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperUntracked<'a, '_, V>{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
 }
 
@@ -590,7 +593,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperOwned<V> {
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperOwned<V> where Self: 'a{
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperOwned<V> where Self: 'a{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
 }
 
@@ -1138,7 +1141,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, 
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ReadOnlyZipper<'a, V> for ReadZipperCore<'a, '_, V>{
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperCore<'a, '_, V>{
     fn get_value(&self) -> Option<&'a V> {
         let key = self.node_key();
         if key.len() > 0 {
