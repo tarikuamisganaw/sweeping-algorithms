@@ -25,6 +25,8 @@
 //! - [ascend_until](zipper::ZipperMoving::ascend_until)
 //!
 
+use maybe_dangling::MaybeDangling;
+
 use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
 
@@ -590,13 +592,17 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> std::iter::IntoIterator for Read
 
 /// A [Zipper] that holds ownership of the root node, so there is no need for a lifetime parameter
 pub struct ReadZipperOwned<V: 'static> {
-    map: Box<BytesTrieMap<V>>,
-    z: ReadZipperCore<'static, 'static, V>,
+    map: MaybeDangling<Box<BytesTrieMap<V>>>,
+    // NOTE About this Box around the WriteZipperCore... The reason this is needed is for the
+    // [WriteZipperOwned::into_map] method.  This box effectively provides a fence, ensuring that the
+    // `&mut` references to the `map` and the `prefix_path` are totally gone before we access `map`.
+    // But I would like to find a zero-cost way to accomplish the same thing without the indirection.
+    z: Box<ReadZipperCore<'static, 'static, V>>,
 }
 
 impl<V: 'static + Clone + Send + Sync + Unpin> Clone for ReadZipperOwned<V> {
     fn clone(&self) -> Self {
-        let new_map = (*self.map).clone();
+        let new_map = (**self.map).clone();
         Self::new_with_map(new_map, self.root_prefix_path().unwrap())
     }
 }
@@ -606,15 +612,17 @@ impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
     pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V>, path: K) -> Self {
         map.ensure_root();
         let path = path.as_ref();
-        let map = Box::new(map);
-        let root_ref = unsafe{ &*map.root.get() }.as_ref().unwrap().borrow();
-        let root_val = unsafe{ &*map.root_val.get() }.as_ref();
+        let map = MaybeDangling::new(Box::new(map));
+        let root_ref = unsafe{ &*(*map).root.get() }.as_ref().unwrap().borrow();
+        let root_val = Option::as_ref( unsafe{ &*(*map).root_val.get() } );
         let core = ReadZipperCore::new_with_node_and_cloned_path(root_ref, path, Some(path.len()), root_val);
-        Self { map, z: core }
+        Self { map, z: Box::new(core) }
     }
     /// Consumes the zipper and returns a map contained within the zipper
     pub fn into_map(self) -> BytesTrieMap<V> {
-        *self.map
+        drop(self.z);
+        let map = MaybeDangling::into_inner(self.map);
+        *map
     }
 }
 

@@ -407,6 +407,5 @@ mod tests {
         assert_eq!(trie_ref.get_value(), None);
         assert_eq!(trie_ref.path_exists(), true);
         assert_eq!(trie_ref.child_count(), 1);
-
     }
 }

@@ -157,7 +157,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
     }
 }
 
-#[inline(always)]
+#[inline]
 fn cata_side_effect_body<Z, V, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: bool>(mut z: Z, mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> W
     where
     Z: Zipper<V> + ZipperAbsolutePath,
