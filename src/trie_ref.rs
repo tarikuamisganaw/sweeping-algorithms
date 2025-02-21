@@ -16,6 +16,12 @@ pub struct TrieRef<'a, V> {
     val_or_key: ValRefOrKey<'a, V>
 }
 
+impl<V> Default for TrieRef<'_, V> {
+    fn default() -> Self {
+        Self::new_invalid()
+    }
+}
+
 /// A TrieRef will never have both a non-zero-len node_key and a non-None value reference
 #[repr(C)]
 union ValRefOrKey<'a, V> {
@@ -57,7 +63,6 @@ impl<'a, V> TrieRef<'a, V> {
         let (node, key, val) = node_along_path(root_node, path, root_val);
         let node_key_len = key.len();
         let val_or_key = if node_key_len > 0 && node_key_len <= MAX_NODE_KEY_BYTES {
-            debug_assert!(val.is_none());
             let mut node_key_bytes = [MaybeUninit::uninit(); MAX_NODE_KEY_BYTES];
             unsafe {
                 let src_ptr = key.as_ptr();
@@ -212,9 +217,9 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for TrieRef<'a, V
             None
         }
     }
-    #[inline]
-    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> {
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> {
         if self.is_valid() {
+            let path = path.as_ref();
             let node_key = self.node_key();
             if node_key.len() > 0 {
                 trie_ref_at_path(self.focus_node.borrow(), None, node_key, path)
@@ -279,7 +284,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn trie_ref_test() {
+    fn trie_ref_test1() {
         //TODO: If we want to get a `TrieRef` down to 32 bytes, we can push the tag in [TaggedNodeRef]
         // into 3 or 4 unused bits in the pointer
         //
@@ -386,5 +391,22 @@ mod tests {
         assert_eq!(trie_ref2.get_value(), Some(&()));
         assert_eq!(trie_ref2.path_exists(), true);
         assert_eq!(trie_ref2.child_count(), 1);
+    }
+
+    #[test]
+    fn trie_ref_test2() {
+        let rs = ["arro^w", "bow", "cann^on", "roman", "romane", "romanus^", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom^i"];
+        let btm: BytesTrieMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i) ).collect();
+
+        let trie_ref = btm.trie_ref_at_path([]);
+        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.path_exists(), true);
+        assert_eq!(trie_ref.child_count(), 4);
+
+        let trie_ref = trie_ref.trie_ref_at_path([b'a']);
+        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.path_exists(), true);
+        assert_eq!(trie_ref.child_count(), 1);
+
     }
 }

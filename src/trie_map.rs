@@ -166,7 +166,14 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         new_map_from_ana(w, alg_f)
     }
 
-    /// Creates a new read-only [Zipper], starting at the root of a BytesTrieMap
+    /// Creates a new [TrieRef], referring to a position from the root of the `BytesTrieMap`
+    pub fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'_, V> {
+        self.ensure_root();
+        let path = path.as_ref();
+        trie_ref_at_path(self.root().unwrap().borrow(), self.root_val(), &[], path)
+    }
+
+    /// Creates a new read-only [Zipper], starting at the root of a `BytesTrieMap`
     pub fn read_zipper(&self) -> ReadZipperUntracked<V> {
         self.ensure_root();
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();

@@ -214,7 +214,7 @@ pub trait ZipperReadOnly<'a, V> {
     fn get_value(&self) -> Option<&'a V>;
 
     /// Returns a [TrieRef] for the specified path, relative to the current focus
-    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V>;
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V>;
 }
 
 /// An interface for advanced [Zipper] movements used for various types of iteration; such as iterating
@@ -383,7 +383,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperTracked<'_, '_, 
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperTracked<'a, '_, V>{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
-    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V> {
@@ -497,7 +497,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperUntracked<'_, '_
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperUntracked<'a, '_, V> {
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
-    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V> {
@@ -654,7 +654,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperOwned<V> {
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperOwned<V> where Self: 'a{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
-    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
@@ -1213,7 +1213,8 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperCor
             }
         }
     }
-    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> {
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> {
+        let path = path.as_ref();
         trie_ref_at_path(self.focus_node.borrow(), self.root_val, self.node_key(), path)
     }
 }
