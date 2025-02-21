@@ -6,6 +6,7 @@ use crate::empty_node::EmptyNode;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
+use crate::zipper::zipper_priv::*;
 
 /// A borrowed read-only reference to a location in a trie
 ///
@@ -142,31 +143,21 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for TrieRef<'_, V> {
         }
     }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        unimplemented!() //GOAT finish this impl!!
-        // let new_root_val = self.get_value();
-        // let (new_root_path, new_root_key_offset) = match &self.root_key_offset {
-        //     Some(_) => {
-        //         let new_root_path = self.origin_path().unwrap();
-        //         let new_root_key_offset = new_root_path.len() - self.node_key().len();
-        //         (new_root_path, Some(new_root_key_offset))
-        //     },
-        //     None => (self.node_key(), None)
-        // };
-        // Self::ReadZipperT::new_with_node_and_path_internal(self.focus_node.clone(), new_root_path, new_root_key_offset, new_root_val)
+        let core_z = ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), None, self.get_value());
+        Self::ReadZipperT::new_forked_with_inner_zipper(core_z)
     }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
-        unimplemented!() //GOAT finish this impl!!
-        // #[cfg(not(feature = "graft_root_vals"))]
-        // let root_val = None;
-        // #[cfg(feature = "graft_root_vals")]
-        // let root_val = self.get_value().cloned();
+        #[cfg(not(feature = "graft_root_vals"))]
+        let root_val = None;
+        #[cfg(feature = "graft_root_vals")]
+        let root_val = self.get_value().cloned();
 
-        // let root_node = self.get_focus().into_option();
-        // if root_node.is_some() || root_val.is_some() {
-        //     Some(BytesTrieMap::new_with_root(root_node, root_val))
-        // } else {
-        //     None
-        // }
+        let root_node = self.get_focus().into_option();
+        if root_node.is_some() || root_val.is_some() {
+            Some(BytesTrieMap::new_with_root(root_node, root_val))
+        } else {
+            None
+        }
     }
 }
 
@@ -280,8 +271,7 @@ pub(crate) fn trie_ref_at_path<'a, 'paths, V>(mut node: &'a dyn TrieNode<V>, roo
 
 #[cfg(test)]
 mod tests {
-    use crate::{trie_map::BytesTrieMap, utils::ByteMask};
-    use super::*;
+    use crate::{trie_map::BytesTrieMap, utils::ByteMask, zipper::*};
 
     #[test]
     fn trie_ref_test1() {
@@ -395,7 +385,7 @@ mod tests {
 
     #[test]
     fn trie_ref_test2() {
-        let rs = ["arro^w", "bow", "cann^on", "roman", "romane", "romanus^", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom^i"];
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus^", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         let btm: BytesTrieMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i) ).collect();
 
         let trie_ref = btm.trie_ref_at_path([]);
@@ -407,5 +397,16 @@ mod tests {
         assert_eq!(trie_ref.get_value(), None);
         assert_eq!(trie_ref.path_exists(), true);
         assert_eq!(trie_ref.child_count(), 1);
+
+        let trie_ref = btm.trie_ref_at_path(b"r");
+        let mut z = trie_ref.fork_read_zipper();
+        assert_eq!(z.val_count(), 9);
+        z.descend_to(b"om");
+        assert_eq!(z.val_count(), 5);
+        assert_eq!(z.path(), b"om");
+        assert_eq!(z.origin_path(), None);
+
+        let new_map = trie_ref.make_map().unwrap();
+        assert_eq!(new_map.val_count(), 9);
     }
 }
