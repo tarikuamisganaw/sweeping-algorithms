@@ -374,7 +374,7 @@ impl<W> StackFrame<W> {
     }
     fn advance_word_idx(&mut self) {
         if self.remaining_children_mask == 0 {
-            if self.remaining_children_mask < 3 {
+            if self.mask_word_idx < 3 {
                 self.mask_word_idx += 1;
                 while self.child_mask[self.mask_word_idx] == 0 && self.mask_word_idx < 3 {
                     self.mask_word_idx += 1;
@@ -1008,6 +1008,44 @@ mod tests {
         assert_eq!(collapse_cnt, 1);
         assert_eq!(alg_cnt, 2);
         assert_eq!(jump_cnt, 3);
+    }
+
+    /// Covers the full spectrum of byte values
+    #[test]
+    fn cata_test7() {
+        let mut btm = BytesTrieMap::new();
+        let rs = [[0, 0, 0, 0], [0, 255, 170, 170], [0, 255, 255, 255], [0, 255, 88, 88]];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r, i); });
+
+        let mut map_cnt = 0;
+        let mut collapse_cnt = 0;
+        let mut alg_cnt = 0;
+        let mut jump_cnt = 0;
+
+        btm.read_zipper().into_cata_jumping_side_effect(
+            |_, _path| {
+                // println!("map: {_path:?}");
+                map_cnt += 1;
+            },
+            |_, _, _path| {
+                // println!("collapse: {_path:?}");
+                collapse_cnt += 1;
+            },
+            |_, _, _path| {
+                // println!("alg: {_path:?}");
+                alg_cnt += 1;
+            },
+            |_sub_path, _, _path| {
+                // println!("jump: over {_sub_path:?} to {_path:?}");
+                jump_cnt += 1;
+            }
+        );
+        // println!("map_cnt={map_cnt}, collapse_cnt={collapse_cnt}, alg_cnt={alg_cnt}, jump_cnt={jump_cnt}");
+
+        assert_eq!(map_cnt, 4);
+        assert_eq!(collapse_cnt, 0);
+        assert_eq!(alg_cnt, 3);
+        assert_eq!(jump_cnt, 4);
     }
 
     /// Generate some basic tries using the [TrieBuilder::push_byte] API
