@@ -276,9 +276,15 @@ fn ascend_to_fork<'a, Z, V: 'a, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: 
         let new_path_len = z.origin_path().unwrap().len();
 
         if JUMPING {
-            if old_path_len > new_path_len+1 || (!at_fork && !at_root) {
+            //We don't call the jump_f with a char that's part of the bitmask to the alg_f, so we
+            // need to pretend like we're running the `jump_f` one char deeper in the trie than the
+            // actual zipper focus
+            if old_path_len > new_path_len+1 {
                 if let Some(w) = cur_w {
-                    cur_w = Some(jump_f(& unsafe{ z.origin_path_assert_len(old_path_len) }[new_path_len+1..], w, z.origin_path().unwrap()));
+                    let old_origin_path = unsafe{ z.origin_path_assert_len(old_path_len) };
+                    let jump_path = &old_origin_path[new_path_len+1..];
+                    let origin_path = &old_origin_path[..new_path_len+1];
+                    cur_w = Some(jump_f(jump_path, w, origin_path));
                 }
             }
         } else {
@@ -965,6 +971,43 @@ mod tests {
         let mut nonempty = BytesTrieMap::<u64>::new();
         nonempty.insert(&[1, 2, 3], !0);
         println!("{:?}", nonempty.into_cata_side_effect(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
+    }
+
+    #[test]
+    fn cata_test6() {
+        let mut btm = BytesTrieMap::new();
+        let rs = ["Hello, my name is", "Helsinki", "Hell"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+        let mut map_cnt = 0;
+        let mut collapse_cnt = 0;
+        let mut alg_cnt = 0;
+        let mut jump_cnt = 0;
+
+        btm.read_zipper().into_cata_jumping_side_effect(
+            |_, _path| {
+                // println!("map: \"{}\"", String::from_utf8_lossy(_path));
+                map_cnt += 1;
+            },
+            |_, _, _path| {
+                // println!("collapse: \"{}\"", String::from_utf8_lossy(_path));
+                collapse_cnt += 1;
+            },
+            |_, _, _path| {
+                // println!("alg: \"{}\"", String::from_utf8_lossy(_path));
+                alg_cnt += 1;
+            },
+            |_sub_path, _, _path| {
+                // println!("jump: over \"{}\" to \"{}\"", String::from_utf8_lossy(_sub_path), String::from_utf8_lossy(_path));
+                jump_cnt += 1;
+            }
+        );
+        // println!("map_cnt={map_cnt}, collapse_cnt={collapse_cnt}, alg_cnt={alg_cnt}, jump_cnt={jump_cnt}");
+
+        assert_eq!(map_cnt, 2);
+        assert_eq!(collapse_cnt, 1);
+        assert_eq!(alg_cnt, 2);
+        assert_eq!(jump_cnt, 3);
     }
 
     /// Generate some basic tries using the [TrieBuilder::push_byte] API
