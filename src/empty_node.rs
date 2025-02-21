@@ -1,43 +1,17 @@
 
-use core::marker::PhantomData;
-use core::fmt::{Debug, Formatter};
+use core::fmt::Debug;
 use std::collections::HashMap;
 
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::dense_byte_node::CellByteNode;
 
-pub struct EmptyNode<V> {
-    phantom: PhantomData<V>
-}
+pub(crate) static EMPTY_NODE: EmptyNode = EmptyNode;
 
-impl<V> Clone for EmptyNode<V> {
-    fn clone(&self) -> Self {
-        Self::new()
-    }
-}
+#[derive(Clone, Copy, Default, Debug)]
+pub struct EmptyNode;
 
-impl<V> Default for EmptyNode<V> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<V> Debug for EmptyNode<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "EmptyNode")
-    }
-}
-
-impl<V> EmptyNode<V> {
-    pub fn new() -> Self {
-        Self {
-            phantom: <_>::default()
-        }
-    }
-}
-
-impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
+impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
     fn node_contains_partial_key(&self, _key: &[u8]) -> bool {
         false
     }
@@ -188,9 +162,9 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode<V> {
     }
 }
 
-impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for EmptyNode<V> {
+impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for EmptyNode {
     fn as_tagged(&self) -> TaggedNodeRef<V> {
-        TaggedNodeRef::EmptyNode(self)
+        TaggedNodeRef::EmptyNode(EmptyNode)
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
         TaggedNodeRefMut::Unsupported

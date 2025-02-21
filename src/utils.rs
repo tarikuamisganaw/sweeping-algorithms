@@ -38,6 +38,15 @@ impl BitMask for ByteMask {
     fn make_empty(&mut self) {self.0.make_empty() }
 }
 
+impl From<u8> for ByteMask {
+    #[inline]
+    fn from(singleton_byte: u8) -> Self {
+        let mut new_mask = Self::new();
+        new_mask.set_bit(singleton_byte);
+        new_mask
+    }
+}
+
 impl From<[u64; 4]> for ByteMask {
     #[inline]
     fn from(mask: [u64; 4]) -> Self {
@@ -67,6 +76,20 @@ impl FromIterator<u8> for ByteMask {
             result.set_bit(byte);
         }
         result
+    }
+}
+
+impl PartialEq<ByteMask> for [u64; 4] {
+    #[inline]
+    fn eq(&self, other: &ByteMask) -> bool {
+        *self == other.0
+    }
+}
+
+impl PartialEq<[u64; 4]> for ByteMask {
+    #[inline]
+    fn eq(&self, other: &[u64; 4]) -> bool {
+        self.0 == *other
     }
 }
 

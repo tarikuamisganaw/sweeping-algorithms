@@ -13,6 +13,8 @@ use crate::line_list_node::LineListNode;
 #[cfg(feature = "bridge_nodes")]
 use crate::bridge_node::BridgeNode;
 
+/// The maximum key length any node type may require to access any value or sub-path within the node
+pub(crate) const MAX_NODE_KEY_BYTES: usize = 23;
 
 /// The abstract interface to all nodes, from which tries are built
 ///
@@ -402,7 +404,6 @@ impl<'a, V: Clone + Send + Sync> AbstractNodeRef<'a, V> {
 }
 
 /// A reference to a node with a concrete type
-#[derive(Clone, Copy)]
 pub enum TaggedNodeRef<'a, V> {
     DenseByteNode(&'a DenseByteNode<V>),
     LineListNode(&'a LineListNode<V>),
@@ -410,8 +411,24 @@ pub enum TaggedNodeRef<'a, V> {
     #[cfg(feature = "bridge_nodes")]
     BridgeNode(&'a BridgeNode<V>),
     CellByteNode(&'a CellByteNode<V>),
-    EmptyNode(&'a EmptyNode<V>),
+    EmptyNode(EmptyNode),
 }
+impl<V> Clone for TaggedNodeRef<'_, V> {
+    fn clone(&self) -> Self {
+        //Ugh!  This manual impl is so we can implement `Copy` without a bound on `V: Copy`
+        //But hopefully there is a way to do this without so much boilerplate (or unsafe either)
+        match self {
+            Self::DenseByteNode(node) => Self::DenseByteNode(node),
+            Self::LineListNode(node) => Self::LineListNode(node),
+            Self::TinyRefNode(node) => Self::TinyRefNode(node),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => Self::BridgeNode(node),
+            Self::CellByteNode(node) => Self::CellByteNode(node),
+            Self::EmptyNode(_) => Self::EmptyNode(EmptyNode),
+        }
+    }
+}
+impl<V> Copy for TaggedNodeRef<'_, V> {}
 
 /// A mutable reference to a node with a concrete type
 pub enum TaggedNodeRefMut<'a, V> {
@@ -438,7 +455,7 @@ impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
 }
 
 impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
-    pub fn borrow(&self) -> &dyn TrieNode<V> {
+    pub fn borrow(&self) -> &'a dyn TrieNode<V> {
         match self {
             Self::DenseByteNode(node) => *node as &dyn TrieNode<V>,
             Self::LineListNode(node) => *node as &dyn TrieNode<V>,
@@ -446,7 +463,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => *node as &dyn TrieNode<V>,
             Self::TinyRefNode(node) => *node as &dyn TrieNode<V>,
             Self::CellByteNode(node) => *node as &dyn TrieNode<V>,
-            Self::EmptyNode(node) => *node as &dyn TrieNode<V>,
+            Self::EmptyNode(_) => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V>,
         }
     }
     pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
@@ -525,7 +542,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.new_iter_token(),
             Self::TinyRefNode(node) => node.new_iter_token(),
             Self::CellByteNode(node) => node.new_iter_token(),
-            Self::EmptyNode(node) => node.new_iter_token(),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::new_iter_token(&crate::empty_node::EMPTY_NODE),
         }
     }
     #[inline(always)]
@@ -537,7 +554,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.iter_token_for_path(key),
             Self::TinyRefNode(node) => node.iter_token_for_path(key),
             Self::CellByteNode(node) => node.iter_token_for_path(key),
-            Self::EmptyNode(node) => node.iter_token_for_path(key),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::iter_token_for_path(&crate::empty_node::EMPTY_NODE, key),
         }
     }
     #[inline(always)]
@@ -549,7 +566,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.next_items(token),
             Self::TinyRefNode(node) => node.next_items(token),
             Self::CellByteNode(node) => node.next_items(token),
-            Self::EmptyNode(node) => node.next_items(token),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::next_items(&crate::empty_node::EMPTY_NODE, token),
         }
     }
 
@@ -568,7 +585,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.nth_child_from_key(key, n),
             Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
             Self::CellByteNode(node) => node.nth_child_from_key(key, n),
-            Self::EmptyNode(node) => node.nth_child_from_key(key, n),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::nth_child_from_key(&crate::empty_node::EMPTY_NODE, key, n),
         }
     }
     pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<&'a dyn TrieNode<V>>) {
@@ -579,7 +596,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.first_child_from_key(key),
             Self::TinyRefNode(node) => node.first_child_from_key(key),
             Self::CellByteNode(node) => node.first_child_from_key(key),
-            Self::EmptyNode(node) => node.first_child_from_key(key),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::first_child_from_key(&crate::empty_node::EMPTY_NODE, key),
         }
     }
     #[inline(always)]
@@ -591,7 +608,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.count_branches(key),
             Self::TinyRefNode(node) => node.count_branches(key),
             Self::CellByteNode(node) => node.count_branches(key),
-            Self::EmptyNode(node) => node.count_branches(key),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::count_branches(&crate::empty_node::EMPTY_NODE, key),
         }
     }
     #[inline(always)]
@@ -603,7 +620,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.node_branches_mask(key),
             Self::TinyRefNode(node) => node.node_branches_mask(key),
             Self::CellByteNode(node) => node.node_branches_mask(key),
-            Self::EmptyNode(node) => node.node_branches_mask(key),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::node_branches_mask(&crate::empty_node::EMPTY_NODE, key),
         }
     }
     #[inline(always)]
@@ -615,7 +632,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.is_leaf(key),
             Self::TinyRefNode(node) => node.is_leaf(key),
             Self::CellByteNode(node) => node.is_leaf(key),
-            Self::EmptyNode(node) => node.is_leaf(key),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::is_leaf(&crate::empty_node::EMPTY_NODE, key),
         }
     }
     pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
@@ -626,7 +643,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.prior_branch_key(key),
             Self::TinyRefNode(node) => node.prior_branch_key(key),
             Self::CellByteNode(node) => node.prior_branch_key(key),
-            Self::EmptyNode(node) => node.prior_branch_key(key),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::prior_branch_key(&crate::empty_node::EMPTY_NODE, key),
         }
     }
     pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&'a dyn TrieNode<V>>) {
@@ -637,7 +654,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::BridgeNode(node) => node.get_sibling_of_child(key, next),
             Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
             Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
-            Self::EmptyNode(node) => node.get_sibling_of_child(key, next),
+            Self::EmptyNode(_) => <EmptyNode as TrieNode<V>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
         }
     }
     pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
@@ -902,10 +919,11 @@ mod opaque_dyn_rc_trie_node {
     }
 
     //NOTE for future separation into stand-alone crate: Make this impl contingent on a "DefaultT" argument to the macro
-    type DefaultT<V> = super::EmptyNode<V>;
-    impl<V> Default for TrieNodeODRc<V> where DefaultT<V>: Default + TrieNode<V> {
+    //NOTE2, in the general case, we may also want a DefaultT that is parameterized with a type, e.g. `DefaultT<V>`
+    type DefaultT = super::EmptyNode;
+    impl<V> Default for TrieNodeODRc<V> where DefaultT: Default + TrieNode<V> {
         fn default() -> Self {
-            Self::new(DefaultT::<V>::default())
+            Self::new(DefaultT::default())
         }
     }
 

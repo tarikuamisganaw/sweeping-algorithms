@@ -30,9 +30,9 @@ use crate::trie_map::BytesTrieMap;
 
 pub use crate::write_zipper::*;
 pub use crate::trie_ref::*;
-use crate::zipper_tracking::*;
-
 pub use crate::zipper_head::*;
+
+use crate::zipper_tracking::*;
 
 /// The most fundamantal interface for a zipper, compatible with all zipper types
 pub trait Zipper<V>: zipper_priv::ZipperPriv<V=V> {
@@ -87,7 +87,7 @@ pub trait Zipper<V>: zipper_priv::ZipperPriv<V=V> {
 }
 
 /// An interface to enable moving a zipper around the trie and inspecting paths
-pub trait ZipperMoving {
+pub trait ZipperMoving: ZipperMovingPriv {
     /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
     fn at_root(&self) -> bool;
 
@@ -212,6 +212,9 @@ pub trait ZipperMoving {
 pub trait ZipperReadOnly<'a, V> {
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     fn get_value(&self) -> Option<&'a V>;
+
+    /// Returns a [TrieRef] for the specified path, relative to the current focus
+    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V>;
 }
 
 /// An interface for advanced [Zipper] movements used for various types of iteration; such as iterating
@@ -276,9 +279,47 @@ pub(crate) mod zipper_priv {
     pub trait ZipperPriv {
         type V;
 
+        /// Returns an abstracted reference to the node at the zipper's focus
+        ///
+        /// The meaning of each returned value:
+        /// - `AbstractNodeRef::None`
+        /// The focus is on a non-existant path
+        ///
+        /// - `BorrowedDyn(&'a dyn TrieNode<V>)`
+        /// The focus is on an existing node, but the node's `TrieNodeODRc` is not available so
+        /// a "shallow copy" i.e. refcount bump, is not possible
+        ///
+        /// - `BorrowedRc(&'a TrieNodeODRc<V>)`
+        /// The focus is on an existing node, and we can access the `TrieNodeODRc`.  This is the
+        /// ideal situation. (fastest path)
+        ///
+        /// - `BorrowedTiny(TinyRefNode<'a, V>)`
+        /// The focus is on a position inside a node, and the TinyRefNode is effectively a pointer
+        /// to that position
+        ///
+        /// - `OwnedRc(TrieNodeODRc<V>)`
+        /// We needed to make a brand new node to represent this position.  This is the worst case
+        /// scenario for performance because allocation was necessary
         fn get_focus(&self) -> AbstractNodeRef<Self::V>;
-        fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>>;
 
+        /// Attemps to return a node at the zipper's focus.  Returns `None` if the focus is not
+        /// on a node.
+        ///
+        /// DISCUSSION - What's the difference between `try_borrow_focus` and `get_focus`???
+        /// The difference is in the intended use each is optimized for.
+        ///
+        /// * `get_focus` will return something that behaves like a node no matter what, if the
+        /// focus is on an existing path.  So it succeeds regardless of the underlying trie
+        /// structure.  It is used to get the source for algebraic and graft operations.
+        ///
+        /// * `try_borrow_focus` will only return a node if the zipper is positioned on a node
+        /// in the underlying structure.  This enables the underlying structure to be cut, in
+        /// preparation for safely splitting it into multiple independent regions, as when a
+        /// [ZipperHead] needs to make a WriteZipper that can be sent to another thread. 
+        fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>>;
+    }
+
+    pub trait ZipperMovingPriv {
         /// Internal method to get the path, beyond its length.  Panics if `len` > the path's capacity, or
         /// if the zipper is relative and doesn't have an `origin_path`
         ///
@@ -342,6 +383,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperTracked<'_, '_, 
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperTracked<'a, '_, V>{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
+    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V> {
@@ -349,6 +391,9 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+}
+
+impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperTracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -452,6 +497,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperUntracked<'_, '_
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperUntracked<'a, '_, V> {
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
+    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V> {
@@ -459,6 +505,9 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_,
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+}
+
+impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperUntracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -605,6 +654,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperOwned<V> {
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperOwned<V> where Self: 'a{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
+    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
@@ -612,6 +662,9 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+}
+
+impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -647,7 +700,7 @@ pub(crate) struct ReadZipperCore<'a, 'path, V> {
     root_key_offset: Option<usize>,
     /// A special-case to access a value at the root node, because that value would be otherwise inaccessible
     root_val: Option<&'a V>,
-    /// A reference to the root node
+    /// A reference to the focus node
     focus_node: TaggedNodeRef<'a, V>,
     /// An iter token corresponding to the location of the `node_key` within the `focus_node`, or NODE_ITER_INVALID
     /// if iteration is not in-process
@@ -1122,6 +1175,9 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, 
             }
         }
     }
+}
+
+impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperCore<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
         if self.root_key_offset.is_some() {
             if self.prefix_buf.capacity() > 0 {
@@ -1156,6 +1212,9 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperCor
                 self.root_val.clone() //Just clone the ref, not the value itself
             }
         }
+    }
+    fn trie_ref_at_path(&self, path: &[u8]) -> TrieRef<'a, V> {
+        trie_ref_at_path(self.focus_node.borrow(), self.root_val, self.node_key(), path)
     }
 }
 
@@ -1291,7 +1350,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperCore<'_, '
 }
 
 /// Internal function to walk along a path to the final node reference
-fn node_along_path<'a, 'path, V>(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_val: Option<&'a V>) -> (&'a dyn TrieNode<V>, &'path [u8], Option<&'a V>) {
+pub(crate) fn node_along_path<'a, 'path, V>(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_val: Option<&'a V>) -> (&'a dyn TrieNode<V>, &'path [u8], Option<&'a V>) {
     let mut key = path;
     let mut node = root_node;
     let mut val = root_val;
@@ -1317,6 +1376,9 @@ fn node_along_path<'a, 'path, V>(root_node: &'a dyn TrieNode<V>, path: &'path [u
 impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
 
     /// Creates a new zipper, with a path relative to a node
+    ///
+    /// The `root_key_offset` parameter indicates whether this zipper path buffer holds the whole
+    /// path or just the part of the path necessary to access the root focus within the root node
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], mut root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
         let (node, key, val) = node_along_path(root_node, path, root_val);
 

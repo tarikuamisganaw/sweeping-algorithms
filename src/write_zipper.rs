@@ -235,6 +235,9 @@ impl<'a, 'path, V : Clone> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'p
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+}
+
+impl<'a, 'path, V : Clone> zipper_priv::ZipperMovingPriv for WriteZipperTracked<'a, 'path, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -360,6 +363,9 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+}
+
+impl<'a, 'k, V : Clone> zipper_priv::ZipperMovingPriv for WriteZipperUntracked<'a, 'k, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -509,6 +515,9 @@ impl<V: Clone> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+}
+
+impl<V: Clone> zipper_priv::ZipperMovingPriv for WriteZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -856,6 +865,9 @@ impl<'a, 'k, V: Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
             }
         }
     }
+}
+
+impl<'a, 'k, V: Clone> zipper_priv::ZipperMovingPriv for WriteZipperCore<'a, 'k, V> {
     unsafe fn origin_path_assert_len(&self, _len: usize) -> &[u8] {
         unimplemented!()
     }
@@ -1413,7 +1425,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
             } else {
                 self.focus_stack.to_root();
                 let stack_root = self.focus_stack.root_mut().unwrap();
-                **stack_root = TrieNodeODRc::new(EmptyNode::new());
+                **stack_root = TrieNodeODRc::new(EmptyNode);
                 self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
                 true
             }
@@ -1474,7 +1486,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
             debug_assert!(self.at_root());
-            let mut replacement_node = TrieNodeODRc::new(EmptyNode::new());
+            let mut replacement_node = TrieNodeODRc::new(EmptyNode);
             self.focus_stack.backtrack();
             let stack_root = self.focus_stack.root_mut().unwrap();
             core::mem::swap(*stack_root, &mut replacement_node);
@@ -1690,7 +1702,7 @@ pub(crate) fn swap_top_node<'cursor, V: Clone + Send + Sync, F>(focus_stack: &mu
         },
         None => {
             let stack_root = focus_stack.root_mut().unwrap();
-            let mut temp_node = TrieNodeODRc::new(EmptyNode::new());
+            let mut temp_node = TrieNodeODRc::new(EmptyNode);
             core::mem::swap(&mut temp_node, *stack_root);
             match func(temp_node) {
                 Some(replacement_node) => { **stack_root = replacement_node; },

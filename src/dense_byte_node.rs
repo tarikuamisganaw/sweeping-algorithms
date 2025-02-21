@@ -552,7 +552,7 @@ impl<V: Clone + Send + Sync> CellByteNode<V> {
         let rec = match rec {
             Some(rec) => rec,
             None => {
-                *rec = Some(TrieNodeODRc::new(crate::empty_node::EmptyNode::new()));
+                *rec = Some(TrieNodeODRc::new(crate::empty_node::EmptyNode));
                 rec.as_mut().unwrap()
             }
         };

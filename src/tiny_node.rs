@@ -2,6 +2,9 @@
 //! It is used when it's necessary to have a node type to refer to the a point in the trie that exists within
 //! another node.  For example, when describing the source for a `graft` operation.
 //!
+//! The purpose of this node type is to allow for a zero-alloc way to create a pointer into a location
+//! in the middle of another node that behaves as a node unto itself.
+//!
 //! `TinyRefNode` is fundamentall read-only, and will panic in any attempt to write to this node type.
 
 use core::mem::MaybeUninit;
