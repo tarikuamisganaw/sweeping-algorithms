@@ -164,7 +164,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
 
 impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for EmptyNode {
     fn as_tagged(&self) -> TaggedNodeRef<V> {
-        TaggedNodeRef::EmptyNode(EmptyNode)
+        TaggedNodeRef::EmptyNode
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
         TaggedNodeRefMut::Unsupported

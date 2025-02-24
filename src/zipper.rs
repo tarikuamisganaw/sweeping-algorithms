@@ -211,7 +211,7 @@ pub trait ZipperMoving: ZipperMovingPriv {
 /// a lifetime that may outlive the zipper
 ///
 /// This trait will never be implemented on the same type as [ZipperWriting]
-pub trait ZipperReadOnly<'a, V> {
+pub trait ZipperReadOnly<'a, V>: ZipperReadOnlyPriv<'a, V> {
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     fn get_value(&self) -> Option<&'a V>;
 
@@ -278,6 +278,8 @@ pub trait ZipperAbsolutePath: ZipperMoving {
 pub(crate) mod zipper_priv {
     use crate::trie_node::*;
 
+    use super::ReadZipperCore;
+
     pub trait ZipperPriv {
         type V;
 
@@ -328,7 +330,31 @@ pub(crate) mod zipper_priv {
         /// This method is unsafe because it relies on the caller to not read uninitialized memory, even if
         /// the memory has been allocated.
         unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8];
+
+        /// Make sure the path buffer is allocated, to facilitate zipper movement
         fn prepare_buffers(&mut self);
+    }
+
+    pub trait ZipperReadOnlyPriv<'a, V> {
+        /// Internal method returns the minimal components that compose the zipper, which are:
+        ///
+        /// `(focus_node, node_key, focus_val)`
+        ///
+        /// This method will always return either a zero-length `node_key` or `None` for
+        /// `focus_val` (it may return both of those things, but always at least one)
+        fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>);
+
+        /// Returns a the [ReadZipperCore] from inside the zipper leaving a placeholder in the zipper.
+        /// Returns `None` if the zipper doesn't support movement
+        ///
+        /// WARNING: Separating a core from its container is very dangerous.  This method should not be
+        /// used lightly.  The reason this method doesn't consume the zipper because we need to keep the
+        /// original around to keep the tracker, or parhaps a backing map, active as long as we're working
+        /// with this core.
+        ///
+        /// NOTE: (This isn't in its own trait because I didn't want to further
+        /// pollute the API, given we already have [ZipperReadOnly] and [ZipperMoving])
+        fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>>;
     }
 }
 use zipper_priv::*;
@@ -386,6 +412,15 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperTracked<'_, '_, 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperTracked<'a, '_, V>{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperTracked<'a, '_, V>{
+    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
+    fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], None, None);
+        core::mem::swap(&mut temp_core, &mut self.z);
+        Some(temp_core.make_static_path())
+    }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V> {
@@ -500,6 +535,15 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperUntracked<'_, '_
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperUntracked<'a, '_, V> {
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperUntracked<'a, '_, V>{
+    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
+    fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(self.z.focus_node, &[], None, None);
+        core::mem::swap(&mut temp_core, &mut self.z);
+        Some(temp_core.make_static_path())
+    }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V> {
@@ -663,6 +707,15 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperOwned<V> {
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperOwned<V> where Self: 'a{
     fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperOwned<V> where Self: 'a {
+    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
+    fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(self.z.focus_node, &[], None, None);
+        core::mem::swap(&mut temp_core, &mut self.z);
+        Some(temp_core.make_static_path())
+    }
 }
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
@@ -1227,6 +1280,21 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for ReadZipperCor
     }
 }
 
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperCore<'a, '_, V> {
+    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
+        let focus_node = self.focus_node.borrow();
+        let node_key = self.node_key();
+        if node_key.len() > 0 {
+            (focus_node, node_key, None)
+        } else {
+            (focus_node, &[], self.get_value())
+        }
+    }
+    fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
+        unreachable!()
+    }
+}
+
 //GOAT.  Need to add `to_first_val` method that moves the zipper to the root, and if the root contains a
 // value, returns it, and otherwise calls to_next_val().
 //
@@ -1388,6 +1456,12 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
     ///
     /// The `root_key_offset` parameter indicates whether this zipper path buffer holds the whole
     /// path or just the part of the path necessary to access the root focus within the root node
+    ///
+    /// TODO: New method to make `ReadZipperCore` with an `origin_path` above the passed-in `root_node`
+    /// regardless of `root_key_offset`, it's currently impossible to use `new_with_node_and_path` to create
+    /// a zipper with a path that starts before the `root_node`.  One might want to do this in order to set
+    /// an origin_path that extended above the zipper's root.  Also such an API would speed up the
+    /// `fork_read_zipper` operation by avoiding re-traversing the node path
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], mut root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
         let (node, key, val) = node_along_path(root_node, path, root_val);
 
@@ -1440,6 +1514,21 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
             focus_iter_token: NODE_ITER_INVALID,
             prefix_buf,
             ancestors: Vec::with_capacity(EXPECTED_DEPTH),
+        }
+    }
+
+    /// Makes a version of `self` that has an allocated path buffer and a `'static`` path lifetime
+    #[inline]
+    pub(crate) fn make_static_path(mut self) -> ReadZipperCore<'a, 'static, V> {
+        self.prepare_buffers();
+        ReadZipperCore {
+            origin_path: SliceOrLen::Len(self.origin_path.len()),
+            root_key_offset: self.root_key_offset,
+            root_val: self.root_val,
+            focus_node: self.focus_node,
+            focus_iter_token: NODE_ITER_INVALID,
+            prefix_buf: self.prefix_buf,
+            ancestors: self.ancestors,
         }
     }
 
@@ -1739,6 +1828,13 @@ impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
         let new_len = self.origin_path.len().max(self.node_key_start() + branch_key.len());
         self.prefix_buf.truncate(new_len);
     }
+    /// Push a new node-path pair onto the zipper.  This is used in the internal implementation of
+    /// the [crate::experimental::ProductZipper]
+    pub(crate) fn push_node(&mut self, node: TaggedNodeRef<'a, V>) {
+        self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+        self.focus_node = node;
+        self.focus_iter_token = NODE_ITER_INVALID;
+    }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin> std::iter::IntoIterator for ReadZipperCore<'a, 'path, V> {
@@ -1867,6 +1963,39 @@ mod tests {
         assert!(rz.ascend(1));
         // ' < a < u
         // 39 105 117
+    }
+
+    #[test]
+    fn test_zipper_ascend_until() {
+        // Try with a 3-way branch, so we definitely don't have a pair node
+        let keys = [b"AAa", b"AAb", b"AAc"];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+
+        let mut rz = map.read_zipper();
+        assert!(!rz.descend_to(b"AAaDDd"));
+        assert_eq!(rz.path(), b"AAaDDd");
+        assert!(rz.ascend_until());
+        assert_eq!(rz.path(), b"AAa");
+        assert!(rz.ascend_until());
+        assert_eq!(rz.path(), b"AA");
+        assert!(rz.ascend_until());
+        assert_eq!(rz.path(), b"");
+        assert!(!rz.ascend_until());
+
+        // Now try with what's likely to be represented as a pair node
+        let keys = [b"AAa", b"AAb"];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+
+        let mut rz = map.read_zipper();
+        assert!(!rz.descend_to(b"AAaDDd"));
+        assert_eq!(rz.path(), b"AAaDDd");
+        assert!(rz.ascend_until());
+        assert_eq!(rz.path(), b"AAa");
+        assert!(rz.ascend_until());
+        assert_eq!(rz.path(), b"AA");
+        assert!(rz.ascend_until());
+        assert_eq!(rz.path(), b"");
+        assert!(!rz.ascend_until());
     }
 
     #[test]

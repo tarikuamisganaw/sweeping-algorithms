@@ -984,8 +984,13 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
     }
 
     fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
-        debug_assert!(key.len() == 1);
-        &[]
+        debug_assert!(key.len() >= 1);
+        if key.len() == 1 {
+            &[]
+        } else {
+            let k = key[0] as usize;
+            &ALL_BYTES[k..=k]
+        }
     }
 
     fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
@@ -1068,7 +1073,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.pjoin(other_byte_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
-            TaggedNodeRef::EmptyNode(_) => {
+            TaggedNodeRef::EmptyNode => {
                 AlgebraicResult::Identity(SELF_IDENT)
             }
         }
@@ -1160,7 +1165,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.pmeet(other_byte_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
-            TaggedNodeRef::EmptyNode(_) => AlgebraicResult::None
+            TaggedNodeRef::EmptyNode => AlgebraicResult::None
         }
     }
 
@@ -1183,7 +1188,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.psubtract(other_byte_node).map(|new_node| TrieNodeODRc::new(new_node))
             },
-            TaggedNodeRef::EmptyNode(_) => AlgebraicResult::Identity(SELF_IDENT),
+            TaggedNodeRef::EmptyNode => AlgebraicResult::Identity(SELF_IDENT),
         }
     }
 
@@ -1206,7 +1211,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.prestrict(other_byte_node).map(|node| TrieNodeODRc::new(node))
             },
-            TaggedNodeRef::EmptyNode(_) => AlgebraicResult::None,
+            TaggedNodeRef::EmptyNode => AlgebraicResult::None,
         }
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {

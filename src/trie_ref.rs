@@ -57,7 +57,7 @@ impl<V> Copy for TrieRef<'_, V> {}
 
 impl<'a, V> TrieRef<'a, V> {
     pub(crate) fn new_invalid() -> Self {
-        Self { focus_node: TaggedNodeRef::EmptyNode(EmptyNode), val_or_key: ValRefOrKey { val_ref: (BAD_SENTINEL, None) } }
+        Self { focus_node: TaggedNodeRef::EmptyNode, val_or_key: ValRefOrKey { val_ref: (BAD_SENTINEL, None) } }
     }
     /// Internal constructor
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, root_val: Option<&'a V>, path: &[u8]) -> Self {
@@ -220,6 +220,15 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for TrieRef<'a, V
         } else {
             TrieRef::new_invalid()
         }
+    }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for TrieRef<'a, V> {
+    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
+        (self.focus_node.borrow(), self.node_key(), self.root_val())
+    }
+    fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
+        None
     }
 }
 

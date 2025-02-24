@@ -24,6 +24,9 @@ pub mod morphisms;
 /// Handy conveniences and utilities to use with a [PathMap]
 pub mod utils;
 
+/// Extensions to the API that may or may not become permanant
+pub mod experimental;
+
 /// Track outstanding zippers to be sure they don't conflict
 mod zipper_tracking;
 

@@ -1992,13 +1992,25 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         //The key-add logic elsewhere in this file would have split the node if the overlap between the keys
         // were more than one character. However list-node keys are allowed to have the first character in
         // common to avoid the possibility of needing zero-length keys.
-        //Therefore there are only two possible cases:
+        //Therefore there are 3 possible cases:
+        // - Case0 - key is a superset of one of the existing keys, so the result is the existing key
         // - Case1 - key.len() > 1 and the node keys' first bytes are the same and therfore we have a 1-byte banch key or
         // - Case2 - key.len() == 1, or the node keys' first bytes are different, in which case we have a zero-length branch key
-        if key.len() == 1 {
+        let key_len = key.len();
+        if key_len == 1 {
             return &[]
         }
         let (key0, key1) = self.get_both_keys();
+        if key_len > key0.len() {
+            if &key[..key0.len()] == key0 {
+                return key0
+            }
+        }
+        if key_len > key1.len() {
+            if &key[..key1.len()] == key1 {
+                return key1
+            }
+        }
         let key_byte = key.get(0);
         if key0.get(0) == key_byte && key1.get(0) == key_byte {
             &key0[0..1]
@@ -2173,7 +2185,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                     AlgebraicStatus::Element => AlgebraicResult::Element(TrieNodeODRc::new(new_node))
                 }
             },
-            TaggedNodeRef::EmptyNode(_) => {
+            TaggedNodeRef::EmptyNode => {
                 AlgebraicResult::Identity(SELF_IDENT)
             }
         }
@@ -2205,7 +2217,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                 debug_assert!(!status.is_none());
                 (AlgebraicStatus::Element, Err(TrieNodeODRc::new(new_node)))
             },
-            TaggedNodeRef::EmptyNode(_) => (AlgebraicStatus::Identity, Ok(()))
+            TaggedNodeRef::EmptyNode => (AlgebraicStatus::Identity, Ok(()))
         }
     }
 
