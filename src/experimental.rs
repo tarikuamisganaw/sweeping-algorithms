@@ -285,9 +285,10 @@ mod tests {
     use crate::zipper::*;
     use crate::trie_map::BytesTrieMap;
     use crate::experimental::ProductZipper;
+    use crate::morphisms::Catamorphism;
 
     #[test]
-    fn produt_zipper_test1() {
+    fn product_zipper_test1() {
         let keys = [b"AAa", b"AAb", b"AAc"];
         let keys2 = [b"DDd", b"EEe", b"FFf"];
         let map: BytesTrieMap<u64> = keys.into_iter().enumerate().map(|(i, v)| (v, i as u64)).collect();
@@ -389,5 +390,51 @@ mod tests {
         assert_eq!(pz.get_value(), None);
         assert_eq!(pz.child_count(), 1);
         assert!(pz.at_root());
+    }
+
+    #[test]
+    fn product_zipper_test2() {
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+
+        let paths: Vec<Vec<u8>> = vec![];
+        let paths_ptr = (&paths) as *const Vec<Vec<u8>>;
+        unsafe {
+        p.into_cata_side_effect(
+            |_, p| { paths_ptr.cast_mut().as_mut().unwrap().push(p.to_vec()); },
+            |_, _, p| { paths_ptr.cast_mut().as_mut().unwrap().push(p.to_vec()); },
+            |_, _, _| ());
+        }
+        for p in paths {
+            println!("{:?}", std::str::from_utf8(&p[..]).unwrap());
+        }
+    }
+
+    #[test]
+    fn product_zipper_test2_nested() {
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let mut p = ProductZipper::new(l.read_zipper(), [ProductZipper::new(r.read_zipper(), [e.read_zipper()])]);
+
+        let paths: Vec<Vec<u8>> = vec![];
+        let paths_ptr = (&paths) as *const Vec<Vec<u8>>;
+        unsafe {
+            p.into_cata_side_effect(
+                |_, p| { paths_ptr.cast_mut().as_mut().unwrap().push(p.to_vec()); },
+                |_, _, p| { paths_ptr.cast_mut().as_mut().unwrap().push(p.to_vec()); },
+                |_, _, _| ());
+        }
+        for p in paths {
+            println!("{:?}", std::str::from_utf8(&p[..]).unwrap());
+        }
     }
 }
