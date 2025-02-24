@@ -2,7 +2,6 @@
 use core::slice;
 use std::mem::MaybeUninit;
 
-use crate::empty_node::EmptyNode;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -143,7 +142,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for TrieRef<'_, V> {
         }
     }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        let core_z = ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), None, self.get_value());
+        let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), None, self.get_value());
         Self::ReadZipperT::new_forked_with_inner_zipper(core_z)
     }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
@@ -227,7 +226,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for TrieRef<'
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
         (self.focus_node.borrow(), self.node_key(), self.root_val())
     }
-    fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
+    fn take_core(&mut self) -> Option<read_zipper_core::ReadZipperCore<'a, 'static, V>> {
         None
     }
 }

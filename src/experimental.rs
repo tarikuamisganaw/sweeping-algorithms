@@ -23,7 +23,7 @@ use zipper_priv::*;
 /// and how the linkages could be parameterized after-the-fact, or re-parameterized en masse (without
 /// visiting each node), or when the parameters could be changed and when they would be fixed.
 pub struct ProductZipper<'factor_z, 'trie, V> {
-    z: ReadZipperCore<'trie, 'static, V>,
+    z: read_zipper_core::ReadZipperCore<'trie, 'static, V>,
     secondaries: Vec<TrieRef<'trie, V>>,
     factor_paths: Vec<usize>,
     /// We need to hang onto the zippers for the life of this object, so their trackers stay alive
@@ -225,7 +225,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> zipper_priv::ZipperReadOn
     fn borrow_raw_parts<'z>(&'z self) -> (&'trie dyn TrieNode<V>, &'z [u8], Option<&'trie V>) {
         panic!("Making a product zipper from another product zipper no supported.  Use `new_factors` instead.");
     }
-    fn take_core(&mut self) -> Option<ReadZipperCore<'trie, 'static, V>> {
+    fn take_core(&mut self) -> Option<read_zipper_core::ReadZipperCore<'trie, 'static, V>> {
         panic!("Making a product zipper from another product zipper no supported.  Use `new_factors` instead.");
     }
 }
