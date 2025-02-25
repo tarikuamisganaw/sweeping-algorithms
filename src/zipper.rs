@@ -423,14 +423,14 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZippe
     }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperTracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -447,7 +447,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperTracked<'_
     fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
 }
 
-impl<'a, 'path, V: Clone + Send + Sync> ReadZipperTracked<'a, 'path, V> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperTracked<'a, 'path, V> {
     /// See [ReadZipperCore::new_with_node_and_path]
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, tracker: ZipperTracker<TrackingRead>) -> Self {
         let core = ReadZipperCore::new_with_node_and_path(root_node, path, root_key_offset, root_val);
@@ -546,14 +546,14 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZippe
     }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperUntracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -570,7 +570,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperUntracked<
     fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
 }
 
-impl<'a, 'path, V: Clone + Send + Sync> ReadZipperUntracked<'a, 'path, V> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperUntracked<'a, 'path, V> {
     /// See [ReadZipperCore::new_with_node_and_path]
     #[cfg(debug_assertions)]
     pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
@@ -718,14 +718,14 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZippe
     }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
+impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperOwned<V> {
+impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
 }
@@ -1152,7 +1152,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, V> {
+    impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, V> {
         type V = V;
 
         fn get_focus(&self) -> AbstractNodeRef<Self::V> {
@@ -1174,7 +1174,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for ReadZipperCore<'_, '_, V> {
+    impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperCore<'_, '_, V> {
         unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
             if self.root_key_offset.is_some() {
                 if self.prefix_buf.capacity() > 0 {
@@ -1362,7 +1362,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<'a, 'path, V: Clone + Send + Sync> ReadZipperCore<'a, 'path, V> {
+    impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperCore<'a, 'path, V> {
 
         /// Creates a new zipper, with a path relative to a node
         ///
