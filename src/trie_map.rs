@@ -1018,6 +1018,22 @@ mod tests {
     }
 
     #[test]
+    fn map_root_value_test4() {
+        let mut map0 = BytesTrieMap::<usize>::new();
+        let mut map1 = BytesTrieMap::<usize>::new();
+        map1.insert([], 0);
+
+        let mut wz = map0.write_zipper();
+        wz.graft(&map1.read_zipper());
+        drop(wz);
+
+        #[cfg(feature = "graft_root_vals")]
+        assert_eq!(map0.get([]), Some(&0));
+        #[cfg(not(feature = "graft_root_vals"))]
+        assert_eq!(map0.get([]), None);
+    }
+
+    #[test]
     fn owned_read_zipper_test() {
         let table = ["A", "AB", "Ab", "ABC", "ABc", "ABCD", "B"];
         let map: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();

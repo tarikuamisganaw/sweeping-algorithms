@@ -223,6 +223,8 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// `None` if `key` does not specify a path within the node
     ///
     /// If `key.len() == 0` this method will return a reference to or a clone of the node.
+    ///
+    /// If `self.node_is_empty() == true`, this method should return `AbstractNodeRef::None`
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V>;
 
     /// Returns a node which is the the portion of the node rooted at `key`, or `None` if `key` does

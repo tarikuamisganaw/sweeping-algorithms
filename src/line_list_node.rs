@@ -2077,7 +2077,11 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
 
         //Zero-length key means clone this node
         if key.len() == 0 {
-            return AbstractNodeRef::BorrowedDyn(self)
+            return if !self.node_is_empty() {
+                AbstractNodeRef::BorrowedDyn(self)
+            } else {
+                AbstractNodeRef::None
+            }
         }
         //Exact match with a path to a child node means return that node
         let (key0, key1) = self.get_both_keys();

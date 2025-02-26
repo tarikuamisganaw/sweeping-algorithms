@@ -1025,7 +1025,11 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
         if key.len() < 2 {
             if key.len() == 0 {
-                AbstractNodeRef::BorrowedDyn(self)
+                if !self.node_is_empty() {
+                    AbstractNodeRef::BorrowedDyn(self)
+                } else {
+                    AbstractNodeRef::None
+                }
             } else {
                 match self.get(key[0]).and_then(|cf| cf.rec()) {
                     Some(link) => AbstractNodeRef::BorrowedRc(link),

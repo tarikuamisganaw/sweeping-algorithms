@@ -218,6 +218,8 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         panic!();
     }
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
+        //I don't think there is a set of circumstances that can give us an empty TinyRefNode
+        debug_assert!(!self.node_is_empty());
 
         //Zero-length key means borrow this node
         if key.len() == 0 {
