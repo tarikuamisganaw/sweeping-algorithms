@@ -948,7 +948,13 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
                             Some(other_onward_node) => {
                                 (self_onward_link.borrow().pmeet_dyn(other_onward_node.borrow()), Some(other_onward_node))
                             },
-                            None => return FatAlgebraicResult::new(COUNTER_IDENT, None)
+                            None => {
+                                if other.node_is_empty() {
+                                    return FatAlgebraicResult::new(COUNTER_IDENT, None)
+                                } else {
+                                    return FatAlgebraicResult::new(0, None)
+                                }
+                            }
                         }
                     };
                     match meet_result {
@@ -980,11 +986,19 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
                             }
                         }
                     } else {
-                        FatAlgebraicResult::new(COUNTER_IDENT, None)
+                        if other.node_is_empty() {
+                            FatAlgebraicResult::new(COUNTER_IDENT, None)
+                        } else {
+                            FatAlgebraicResult::new(0, None)
+                        }
                     }
                 }
             } else {
-                FatAlgebraicResult::new(COUNTER_IDENT, None)
+                if other.node_is_empty() {
+                    FatAlgebraicResult::new(COUNTER_IDENT, None)
+                } else {
+                    FatAlgebraicResult::new(0, None)
+                }
             }
         } else {
             FatAlgebraicResult::new(SELF_IDENT, None)

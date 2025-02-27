@@ -2033,6 +2033,46 @@ mod tests {
     }
 
     #[test]
+    fn write_zipper_meet_test1() {
+        let a_keys = ["12345", "1aaaa", "1bbbb", "1cccc", "1dddd"];
+        let b_keys = ["12345", "1zzzz"];
+        let a: BytesTrieMap<()> = a_keys.iter().map(|k| (k, ())).collect();
+        let mut b: BytesTrieMap<()> = b_keys.iter().map(|k| (k, ())).collect();
+
+        let az = a.read_zipper();
+        assert_eq!(az.val_count(), a_keys.len());
+
+        //Test an Element result
+        let mut bz = b.write_zipper();
+        assert_eq!(bz.val_count(), b_keys.len());
+        let result = bz.meet(&az);
+        assert_eq!(result, AlgebraicStatus::Element);
+        assert_eq!(bz.val_count(), 1);
+        assert!(bz.descend_to("12345"));
+        assert_eq!(bz.value(), Some(&()));
+
+        //Test an Identity result
+        let b_keys = ["12345"];
+        let mut b: BytesTrieMap<()> = b_keys.iter().map(|k| (k, ())).collect();
+        let mut bz = b.write_zipper();
+        let result = bz.meet(&az);
+        assert_eq!(result, AlgebraicStatus::Identity);
+        assert_eq!(bz.val_count(), 1);
+        assert!(bz.descend_to("12345"));
+        assert_eq!(bz.value(), Some(&()));
+
+        //Test a None result
+        let a_keys = ["1aaaa", "1bbbb", "1cccc", "1dddd"];
+        let a: BytesTrieMap<()> = a_keys.iter().map(|k| (k, ())).collect();
+        let az = a.read_zipper();
+        assert_eq!(az.val_count(), a_keys.len());
+        bz.reset();
+        let result = bz.meet(&az);
+        assert_eq!(result, AlgebraicStatus::None);
+        assert_eq!(bz.child_count(), 0);
+    }
+
+    #[test]
     fn write_zipper_movement_test() {
         let keys = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
