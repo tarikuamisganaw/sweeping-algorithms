@@ -177,7 +177,12 @@ fn cata_side_effect_body<Z, V, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: b
     stack.push(StackFrame::new(z.child_count(), z.child_mask()));
     if !z.descend_first_byte() {
         //Empty trie is a special case
-        return alg_f(&[0; 4], &mut [], z.origin_path().unwrap());
+        let empty_w = alg_f(&[0; 4], &mut [], z.origin_path().unwrap());
+        if let Some(root_val) = z.value() {
+            return collapse_f(root_val, empty_w, z.origin_path().unwrap())
+        } else {
+            return empty_w
+        }
     }
 
     loop {
@@ -210,7 +215,11 @@ fn cata_side_effect_body<Z, V, W, MapF, CollapseF, AlgF, JumpF, const JUMPING: b
                 let stack_frame = &mut stack[frame_idx];
                 let mut w = alg_f(&stack_frame.child_mask, &mut stack_frame.children, z.origin_path().unwrap());
                 if frame_idx == 0 {
-                    return w
+                    if let Some(root_val) = z.value() {
+                        return collapse_f(root_val, w, z.origin_path().unwrap())
+                    } else {
+                        return w
+                    }
                 } else {
                     frame_idx -= 1;
 
@@ -1046,6 +1055,38 @@ mod tests {
         assert_eq!(collapse_cnt, 0);
         assert_eq!(alg_cnt, 3);
         assert_eq!(jump_cnt, 4);
+    }
+
+    /// Tests that cata hits the root value
+    #[test]
+    fn cata_test8() {
+        let keys = ["", "ab", "abc"];
+        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+
+        btm.into_cata_jumping_side_effect(
+            |v, path| {
+                // println!("map: {path:?}");
+                assert_eq!(path, &[97, 98, 99]);
+                assert_eq!(*v, 2);
+            },
+            |v, _, path| {
+                // println!("collapse: {path:?}");
+                match *v {
+                    1 => assert_eq!(path, &[97, 98]),
+                    0 => assert_eq!(path, &[]),
+                    _ => unreachable!(),
+                }
+            },
+            |_mask, _, path| {
+                // println!("alg: {path:?}");
+                assert_eq!(path, &[]);
+            },
+            |sub_path, _, path| {
+                // println!("jump: over {sub_path:?} to {path:?}");
+                assert_eq!(sub_path, &[98]);
+                assert_eq!(path, &[97]);
+            }
+        )
     }
 
     /// Generate some basic tries using the [TrieBuilder::push_byte] API
