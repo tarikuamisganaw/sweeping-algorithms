@@ -2235,6 +2235,33 @@ mod tests {
     }
 
     #[test]
+    fn zipper_iter_test4() {
+        const R_KEY_CNT: usize = 9;
+        let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let mut map: BytesTrieMap::<()> = keys.into_iter().map(|k| (k, ())).collect();
+
+        // Test val_count & iteration on a ReadZipper
+        let rz = map.read_zipper_at_borrowed_path(b"r");
+        assert_eq!(rz.val_count(), R_KEY_CNT);
+        let mut count = 0;
+        for (_path, _) in rz {
+            count += 1;
+        }
+        assert_eq!(count, R_KEY_CNT);
+
+        // Test val_count & iteration on a ReadZipper forked off of a WriteZipper
+        let wz = map.write_zipper_at_path(b"r");
+        assert_eq!(wz.val_count(), R_KEY_CNT);
+        let rz = wz.fork_read_zipper();
+        assert_eq!(rz.val_count(), R_KEY_CNT);
+        let mut count = 0;
+        for (_path, _) in rz {
+            count += 1;
+        }
+        assert_eq!(count, R_KEY_CNT);
+    }
+
+    #[test]
     fn path_concat_test() {
         let parent_path = "�parent";
         let exprs = [

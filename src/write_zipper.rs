@@ -206,7 +206,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperTracked<'_, '_, V>
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.value();
-        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.z.focus_stack.top().unwrap().as_tagged(), &self.z.key.node_key(), None, new_root_val);
+        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), &self.z.key.node_key(), None, new_root_val);
         Self::ReadZipperT::new_forked_with_inner_zipper(rz_core)
     }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
@@ -334,7 +334,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperUntracked<'_, '_, 
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.value();
-        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.z.focus_stack.top().unwrap().as_tagged(), &self.z.key.node_key(), None, new_root_val);
+        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), &self.z.key.node_key(), None, new_root_val);
         Self::ReadZipperT::new_forked_with_inner_zipper(rz_core)
     }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
@@ -486,7 +486,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperOwned<V> {
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.value();
-        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.z.focus_stack.top().unwrap().as_tagged(), &self.z.key.node_key(), None, new_root_val);
+        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), &self.z.key.node_key(), None, new_root_val);
         Self::ReadZipperT::new_forked_with_inner_zipper(rz_core)
     }
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { self.z.make_map() }
