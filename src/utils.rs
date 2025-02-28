@@ -6,9 +6,11 @@ use crate::ring::*;
 pub struct ByteMask(pub [u64; 4]);
 
 impl ByteMask {
+    pub const EMPTY: ByteMask = Self(empty_mask());
+
     /// Create a new empty ByteMask
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(empty_mask())
     }
     /// Unwraps the `ByteMask` type to yield the inner array
