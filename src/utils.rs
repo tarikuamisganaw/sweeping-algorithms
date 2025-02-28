@@ -2,7 +2,7 @@
 use crate::ring::*;
 
 /// A 256-bit type containing a bit for every possible value in a byte
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct ByteMask(pub [u64; 4]);
 
 impl ByteMask {
@@ -20,6 +20,12 @@ impl ByteMask {
     #[inline]
     pub fn iter(&self) -> ByteMaskIter {
         self.byte_mask_iter()
+    }
+}
+
+impl core::fmt::Debug for ByteMask {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_set().entries(self.iter()).finish()
     }
 }
 
