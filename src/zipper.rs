@@ -1976,6 +1976,66 @@ mod tests {
     }
 
     #[test]
+    fn zipper_indexed_bytes_test1() {
+        // Try with a wide shallow trie
+        let keys = ["0", "1", "2", "3", "4", "5", "6"];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let mut zip = map.read_zipper();
+
+        zip.descend_to("2");
+        assert_eq!(zip.value(), Some(&()));
+        assert_eq!(zip.child_count(), 0);
+        assert!(!zip.descend_indexed_branch(1));
+        assert_eq!(zip.path(), b"2");
+
+        zip.reset();
+        assert!(zip.descend_indexed_branch(2));
+        assert_eq!(zip.value(), Some(&()));
+        assert_eq!(zip.child_count(), 0);
+        assert_eq!(zip.path(), b"2");
+        assert!(!zip.descend_indexed_branch(1));
+        assert_eq!(zip.path(), b"2");
+
+        zip.reset();
+        assert!(!zip.descend_indexed_branch(7));
+        assert_eq!(zip.value(), None);
+        assert_eq!(zip.child_count(), 7);
+        assert_eq!(zip.path(), b"");
+
+        // Try with a narrow deeper trie
+        let keys = ["000", "1Z", "00AAA", "00AA000", "00AA00AAA"];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let mut zip = map.read_zipper();
+
+        zip.descend_to("000");
+        assert_eq!(zip.value(), Some(&()));
+        assert_eq!(zip.path(), b"000");
+        assert_eq!(zip.child_count(), 0);
+        assert!(!zip.descend_indexed_branch(1));
+        assert_eq!(zip.path(), b"000");
+
+        zip.reset();
+        assert!(!zip.descend_indexed_branch(2));
+        assert_eq!(zip.child_count(), 2);
+        assert!(zip.descend_indexed_branch(1));
+        assert_eq!(zip.path(), b"1");
+        assert_eq!(zip.value(), None);
+        assert_eq!(zip.child_count(), 1);
+        assert!(!zip.descend_indexed_branch(1));
+        assert_eq!(zip.value(), None);
+        assert_eq!(zip.path(), b"1");
+
+        zip.reset();
+        assert!(zip.descend_indexed_branch(0));
+        assert_eq!(zip.path(), b"0");
+        assert_eq!(zip.value(), None);
+        assert_eq!(zip.child_count(), 1);
+        assert!(!zip.descend_indexed_branch(1));
+        assert_eq!(zip.value(), None);
+        assert_eq!(zip.path(), b"0");
+    }
+
+    #[test]
     fn test_zipper_ascend_until() {
         // Try with a 3-way branch, so we definitely don't have a pair node
         let keys = [b"AAa", b"AAb", b"AAc"];

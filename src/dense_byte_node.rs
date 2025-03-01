@@ -878,7 +878,10 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         })
     }
     fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
-        debug_assert_eq!(key.len(), 0);
+        if key.len() > 0 {
+            return (None, None)
+        }
+
         // NOTE: This code was originally written to support indexing from the front or the back of
         // the list.  However, this capability can't be exposed in the higher-level interface because
         // index stability can't be guaranteed in many (any) node implementations, and index ordering

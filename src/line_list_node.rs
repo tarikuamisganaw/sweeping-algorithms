@@ -1827,12 +1827,17 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
             }
             1 => {
                 if self.is_used::<1>() {
+                    //The only way we can get a valid child branch at index 1 is if key_length == 0,
+                    // because ListNode has a rule that overlap is only allowed at the first byte
+                    if key.len() > 0 {
+                        return (None, None)
+                    }
                     let (key0, key1) = self.get_both_keys();
-                    if key1.starts_with(key) && key1.len() > key.len() {
-                        if key.len() == 0 && key0[0] == key1[0] {
+                    if key1.len() > 0 {
+                        if key0[0] == key1[0] {
                             return (None, None)
                         }
-                        if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
+                        if key1.len() == 1 && self.is_child_ptr::<1>() {
                             return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
                         } else {
                             return (Some(key1[key.len()]), None)
@@ -1840,7 +1845,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
                     }
                 }
             },
-            _ => unreachable!()
+            _ => {}
         }
         (None, None)
     }
