@@ -307,7 +307,7 @@ mod tests {
     use crate::zipper::*;
     use crate::trie_map::BytesTrieMap;
     use crate::experimental::ProductZipper;
-    use crate::morphisms::Catamorphism;
+    use crate::morphisms::{Catamorphism, SplitCata};
 
     /// Tests a very simple two-level product zipper
     #[test]
@@ -417,60 +417,58 @@ mod tests {
     /// Tests a 3-level product zipper, with a catamorphism, and no funny-business in the tries
     #[test]
     fn product_zipper_test2() {
-        panic!()
-        // let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes()];
-        // let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes()];
-        // let epaths = ["foo".as_bytes(), "pho".as_bytes()];
-        // let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        // let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        // let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
-        // let p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
 
-        // let mut map_cnt = 0;
-        // let mut collapse_cnt = 0;
-        // p.into_cata_side_effect(
-        //     |_, _p| {
-        //         // println!("Map  {}", String::from_utf8_lossy(_p));
-        //         map_cnt += 1;
-        //     },
-        //     |_, _, _p| {
-        //         // println!("Col *{}", String::from_utf8_lossy(_p));
-        //         collapse_cnt += 1
-        //     },
-        //     |_, _, _| ());
+        let mut map_cnt = 0;
+        let mut collapse_cnt = 0;
+        p.into_cata_side_effect(SplitCata::new(
+            |_, _p| {
+                // println!("Map  {}", String::from_utf8_lossy(_p));
+                map_cnt += 1;
+            },
+            |_, _, _p| {
+                // println!("Col *{}", String::from_utf8_lossy(_p));
+                collapse_cnt += 1
+            },
+            |_, _, _| ()));
 
-        // // println!("{map_cnt} {collapse_cnt}");
-        // assert_eq!(map_cnt, 18);
-        // assert_eq!(collapse_cnt, 12);
+        // println!("{map_cnt} {collapse_cnt}");
+        assert_eq!(map_cnt, 18);
+        assert_eq!(collapse_cnt, 12);
     }
 
     /// Same as `product_zipper_test2` but with tries that contain values along the paths
     #[test]
     fn product_zipper_test3() {
-        panic!()
-        // let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
-        // let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
-        // let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
-        // let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        // let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        // let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
-        // let p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
 
-        // let mut map_cnt = 0;
-        // let mut collapse_cnt = 0;
-        // p.into_cata_side_effect(
-        //     |_, _p| {
-        //         // println!("Map  {}", String::from_utf8_lossy(_p));
-        //         map_cnt += 1;
-        //     },
-        //     |_, _, _p| {
-        //         // println!("Col *{}", String::from_utf8_lossy(_p));
-        //         collapse_cnt += 1
-        //     },
-        //     |_, _, _| ());
+        let mut map_cnt = 0;
+        let mut collapse_cnt = 0;
+        p.into_cata_side_effect(SplitCata::new(
+            |_, _p| {
+                // println!("Map  {}", String::from_utf8_lossy(_p));
+                map_cnt += 1;
+            },
+            |_, _, _p| {
+                // println!("Col *{}", String::from_utf8_lossy(_p));
+                collapse_cnt += 1
+            },
+            |_, _, _| ()));
 
-        // // println!("{map_cnt} {collapse_cnt}");
-        // assert_eq!(map_cnt, 18);
-        // assert_eq!(collapse_cnt, 21);
+        // println!("{map_cnt} {collapse_cnt}");
+        assert_eq!(map_cnt, 18);
+        assert_eq!(collapse_cnt, 21);
     }
 }

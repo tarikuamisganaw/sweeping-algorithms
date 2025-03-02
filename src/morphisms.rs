@@ -103,6 +103,104 @@ pub trait Catamorphism<V> {
         where AlgF: FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W;
 }
 
+pub struct SplitCata;
+
+impl SplitCata {
+    pub fn new<'a, V, W, MapF, CollapseF, AlgF>(mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF) -> impl FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W + 'a
+        where
+        MapF: FnMut(&V, &[u8]) -> W + 'a,
+        CollapseF: FnMut(&V, W, &[u8]) -> W + 'a,
+        AlgF: FnMut(&ByteMask, &mut [W], &[u8]) -> W + 'a,
+    {
+        move |mask, children, val, path| -> W {
+            // println!("STEPPING path=\"{path:?}\", mask={mask:?}, children_cnt={}, val={}", children.len(), val.is_some());
+            if children.len() == 0 {
+                return match val {
+                    Some(val) => map_f(val, path),
+                    None => {
+                        // This degenerate case can only occur at the root
+                        debug_assert_eq!(path.len(), 0);
+                        alg_f(mask, children, path)
+                    }
+                }
+            }
+            let w = alg_f(mask, children, path);
+            match val {
+                Some(val) => collapse_f(val, w, path),
+                None => w
+            }
+        }
+    }
+}
+
+pub struct SplitCataJumping;
+
+impl SplitCataJumping {
+    pub fn new<'a, V, W, MapF, CollapseF, AlgF, JumpF>(mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> impl FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W + 'a
+        where
+        //TODO GOAT!!: It would be nice to get rid of this Default bound on all morphism Ws.  In this case, the plan
+        // for doing that would be to create a new type called a TakableSlice.  It would be able to deref
+        // into a regular mutable slice of `T` so it would work just like an ordinary slice.  Additionally
+        // there would be special `take(idx: usize)` methods. it would have an additional bitmask to keep
+        // track of which elements have already been taken.  So each element would be backed by a MaybeUninit,
+        // and taking an element twice would be a panic.  There would be an additional `try_take` method to
+        // avoid the panic.
+        //Additionally, if `T: Default`, the `take` method would become the ordinary mem::take, and would always
+        // succeed, therefore the abstraction would have minimal cost
+        //Creating a new TakableSlice would be very cheap as it could be transmuted from an existing slice of T.
+        // The tricky part is making sure Drop does the right thing, dropping the elements that were taken, and
+        // not double-dropping the ones that weren't.  For this reason, I think the right solution would be to
+        // require a `TakableSlice` be borrowed from a `TakableVec`, and then making sure the `TakableVec`
+        // methods like `clear` do the right thing.
+        //When all this work is done, this object probably deserves a stand-alone crate.
+        W: Default,
+        MapF: FnMut(&V, &[u8]) -> W + 'a,
+        CollapseF: FnMut(&V, W, &[u8]) -> W + 'a,
+        AlgF: FnMut(&ByteMask, &mut [W], &[u8]) -> W + 'a,
+        JumpF: FnMut(&[u8], W, &[u8]) -> W + 'a,
+    {
+        move |mask, children, stem, val, path| -> W {
+            // println!("JUMPING  path=\"{path:?}\", mask={mask:?}, stem={stem:?}, children_cnt={}, val={}", children.len(), val.is_some());
+            let w = if children.len() == 0 {
+                match val {
+                    Some(val) => map_f(val, path),
+                    None => {
+                        // This degenerate case can only occur at the root
+                        debug_assert_eq!(path.len(), 0);
+                        alg_f(mask, children, path)
+                    }
+                }
+            } else {
+                let w = if children.len() > 1 {
+                    alg_f(mask, children, path)
+                } else {
+                    core::mem::take(&mut children[0])
+                };
+                match val {
+                    Some(val) => collapse_f(val, w, path),
+                    None => w
+                }
+            };
+            debug_assert!(stem.len() <= path.len());
+            let jump_dst_path = &path[..(path.len() - stem.len())];
+            let w = if stem.len() > 0 && jump_dst_path.len() > 0 || stem.len() > 1 {
+                jump_f(&stem[0..], w, jump_dst_path)
+            } else {
+                w
+            };
+            //If we jumped all the way to the root, run the alg one last time on the root to match the old behavior
+            if jump_dst_path.len() == 0 && stem.len() > 0 {
+                let mut temp_mask = ByteMask::EMPTY;
+                temp_mask.set_bit(stem[0]);
+                let mut temp_children = [w];
+                alg_f(&temp_mask, &mut temp_children[..], &[])
+            } else {
+                w
+            }
+        }
+    }
+}
+
 impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath {
     fn into_cata_side_effect<W, AlgF>(self, mut alg_f: AlgF) -> W
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
@@ -253,15 +351,14 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
             //GOAT QUESTION: I'm on the fence about whether it makes more sense to include the stem in the
             // path.  I'm leaning to "yes" because having the contiguous buffer is more useful than not having
             // it because you can cheaply slice the buffer, but you can't re-compose it without needing to do a
-            // copy.   The "no" code is commented out below.
-            //
-            // let origin_path = z.origin_path().unwrap();
-            // let prefix_path = &unsafe{ z.origin_path_assert_len(old_path_len) }[origin_path.len()..];
+            // copy.  It may make more conceptual sense to do "no" behavior like the old `jump_f`.
 
-            // w = alg_f(child_mask, children, prefix_path, old_val, origin_path);
-
-            let origin_path = &unsafe{ z.origin_path_assert_len(old_path_len) };
-            let stem_path = &origin_path[z.origin_path().unwrap().len()..];
+            let origin_path = unsafe{ z.origin_path_assert_len(old_path_len) };
+            let stem_path = if z.child_count() != 1 || z.is_value() {
+                &origin_path[z.origin_path().unwrap().len()+1..]
+            } else {
+                &origin_path[z.origin_path().unwrap().len()..]
+            };
 
             w = alg_f(child_mask, children, stem_path, old_val, origin_path);
 
@@ -878,211 +975,208 @@ mod tests {
 
     #[test]
     fn cata_test3() {
-        panic!()
-        // let tests = [
-        //     (vec![], 0, 0),
-        //     (vec!["i"], 1, 1), //1 leaf, 1 node
-        //     (vec!["i", "ii"], 2, 1), //1 leaf, 2 total "nodes"
-        //     (vec!["ii", "iiiii"], 5, 1), //1 leaf, 5 total "nodes"
-        //     (vec!["ii", "iii", "iiiii", "iiiiiii"], 7, 1), //1 leaf, 7 total "nodes"
-        //     (vec!["ii", "iiii", "iij", "iijjj"], 7, 3), //2 leaves, 1 fork, 7 total "nodes"
-        // ];
-        // for (keys, expected_sum_ordinary, expected_sum_jumping) in tests {
-        //     let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
-        //     let zip = map.read_zipper();
+        let tests = [
+            (vec![], 0, 0),
+            (vec!["i"], 1, 1), //1 leaf, 1 node
+            (vec!["i", "ii"], 2, 1), //1 leaf, 2 total "nodes"
+            (vec!["ii", "iiiii"], 5, 1), //1 leaf, 5 total "nodes"
+            (vec!["ii", "iii", "iiiii", "iiiiiii"], 7, 1), //1 leaf, 7 total "nodes"
+            (vec!["ii", "iiii", "iij", "iijjj"], 7, 3), //2 leaves, 1 fork, 7 total "nodes"
+        ];
+        for (keys, expected_sum_ordinary, expected_sum_jumping) in tests {
+            let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+            let zip = map.read_zipper();
 
-        //     let map_f = |_v: &(), _path: &[u8]| {
-        //         // println!("map path=\"{}\"", String::from_utf8_lossy(_path));
-        //         1
-        //     };
-        //     let collapse_f = |_v: &(), upstream: u32, _path: &[u8]| {
-        //         // println!("collapse path=\"{}\", upstream={upstream}", String::from_utf8_lossy(_path));
-        //         upstream
-        //     };
-        //     let alg_f = |_child_mask: &[u64; 4], children: &mut [u32], path: &[u8]| {
-        //         // println!("aggregate path=\"{}\", children={children:?}", String::from_utf8_lossy(path));
-        //         let sum = children.into_iter().fold(0, |sum, child| sum + *child);
-        //         if path.len() > 0 {
-        //             sum + 1
-        //         } else {
-        //             sum
-        //         }
-        //     };
+            let map_f = |_v: &(), _path: &[u8]| {
+                // println!("map path=\"{}\"", String::from_utf8_lossy(_path));
+                1
+            };
+            let collapse_f = |_v: &(), upstream: u32, _path: &[u8]| {
+                // println!("collapse path=\"{}\", upstream={upstream}", String::from_utf8_lossy(_path));
+                upstream
+            };
+            let alg_f = |_child_mask: &ByteMask, children: &mut [u32], path: &[u8]| {
+                // println!("aggregate path=\"{}\", children={children:?}", String::from_utf8_lossy(path));
+                let sum = children.into_iter().fold(0, |sum, child| sum + *child);
+                if path.len() > 0 {
+                    sum + 1
+                } else {
+                    sum
+                }
+            };
 
-        //     //Test both the jumping and non-jumping versions
-        //     let sum = zip.clone().into_cata_side_effect(map_f, collapse_f, alg_f);
-        //     assert_eq!(sum, expected_sum_ordinary);
+            //Test both the jumping and non-jumping versions
+            let sum = zip.clone().into_cata_side_effect(SplitCata::new(map_f, collapse_f, alg_f));
+            assert_eq!(sum, expected_sum_ordinary);
 
-        //     let sum = zip.into_cata_jumping_side_effect(map_f, collapse_f, alg_f, |_subpath, w, _path| w);
-        //     assert_eq!(sum, expected_sum_jumping);
-        // }
+            let sum = zip.into_cata_jumping_side_effect(SplitCataJumping::new(map_f, collapse_f, alg_f, |_subpath, w, _path| w));
+            assert_eq!(sum, expected_sum_jumping);
+        }
     }
 
     #[test]
     fn cata_test4() {
-        panic!()
-        // #[derive(Debug, PartialEq)]
-        // enum Trie<V> {
-        //     Value(V),
-        //     Collapse(V, Box<Trie<V>>),
-        //     Alg(Vec<(char, Trie<V>)>),
-        //     Jump(String, Box<Trie<V>>)
-        // }
-        // use Trie::*;
+        #[derive(Debug, PartialEq)]
+        enum Trie<V> {
+            Value(V),
+            Collapse(V, Box<Trie<V>>),
+            Alg(Vec<(char, Trie<V>)>),
+            Jump(String, Box<Trie<V>>)
+        }
+        use Trie::*;
 
-        // let mut btm = BytesTrieMap::new();
-        // let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        // rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
-        // let s = btm.read_zipper().into_cata_jumping_side_effect(
-        //     |v, _path| { Some(Box::new(Value(*v))) },
-        //     |v, w, _path| { Some(Box::new(Collapse(*v, w.unwrap()))) },
-        //     |cm, ws, _path| {
-        //         let mut it = crate::utils::ByteMaskIter::new(cm.clone());
-        //         Some(Box::new(Alg(ws.iter_mut().map(|w| (it.next().unwrap() as char, *std::mem::take(w).unwrap())).collect())))},
-        //     |sp, w, _path| { Some(Box::new(Jump(std::str::from_utf8(sp).unwrap().to_string(), w.unwrap()))) }
-        // );
+        let s = btm.read_zipper().into_cata_jumping_side_effect(SplitCataJumping::new(
+            |v, _path| { Some(Box::new(Value(*v))) },
+            |v, w, _path| { Some(Box::new(Collapse(*v, w.unwrap()))) },
+            |cm, ws, _path| {
+                let mut it = cm.iter();
+                Some(Box::new(Alg(ws.iter_mut().map(|w| (it.next().unwrap() as char, *std::mem::take(w).unwrap())).collect())))},
+            |sp, w, _path| { Some(Box::new(Jump(std::str::from_utf8(sp).unwrap().to_string(), w.unwrap()))) }
+        ));
 
-        // assert_eq!(s, Some(Alg([
-        //     ('a', Jump("rr".into(), Collapse(0, Jump("w".into(), Value(1).into()).into()).into())),
-        //     ('b', Jump("ow".into(), Value(2).into())),
-        //     ('c', Jump("annon".into(), Value(3).into())),
-        //     ('r', Alg([
-        //         ('o', Jump("m".into(), Alg([
-        //             ('\'', Jump("i".into(), Value(12).into())),
-        //             ('a', Jump("n".into(), Collapse(4, Alg([
-        //                 ('e', Value(5)),
-        //                 ('u', Jump("s".into(), Value(6).into()))
-        //             ].into()).into()).into())),
-        //             ('u', Jump("lus".into(), Value(7).into()))].into()).into())),
-        //         ('u', Jump("b".into(), Alg([
-        //             ('e', Alg([
-        //                 ('n', Jump("s".into(), Value(8).into())),
-        //                 ('r', Value(9))].into())),
-        //             ('i', Jump("c".into(), Alg([
-        //                 ('o', Jump("n".into(), Value(10).into())),
-        //                 ('u', Jump("ndus".into(), Value(11).into()))].into()).into()))].into()).into()))].into()))].into()).into()));
+        assert_eq!(s, Some(Alg([
+            ('a', Jump("rr".into(), Collapse(0, Jump("w".into(), Value(1).into()).into()).into())),
+            ('b', Jump("ow".into(), Value(2).into())),
+            ('c', Jump("annon".into(), Value(3).into())),
+            ('r', Alg([
+                ('o', Jump("m".into(), Alg([
+                    ('\'', Jump("i".into(), Value(12).into())),
+                    ('a', Jump("n".into(), Collapse(4, Alg([
+                        ('e', Value(5)),
+                        ('u', Jump("s".into(), Value(6).into()))
+                    ].into()).into()).into())),
+                    ('u', Jump("lus".into(), Value(7).into()))].into()).into())),
+                ('u', Jump("b".into(), Alg([
+                    ('e', Alg([
+                        ('n', Jump("s".into(), Value(8).into())),
+                        ('r', Value(9))].into())),
+                    ('i', Jump("c".into(), Alg([
+                        ('o', Jump("n".into(), Value(10).into())),
+                        ('u', Jump("ndus".into(), Value(11).into()))].into()).into()))].into()).into()))].into()))].into()).into()));
     }
 
+    /// Tests going from a map directly to a catamorphism
     #[test]
     fn cata_test5() {
-        panic!()
-        // let empty = BytesTrieMap::<u64>::new();
-        // println!("{:?}", empty.into_cata_side_effect(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
+        let empty = BytesTrieMap::<u64>::new();
+        let result = empty.into_cata_side_effect(SplitCata::new(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
+        assert_eq!(result, 3);
 
-        // let mut nonempty = BytesTrieMap::<u64>::new();
-        // nonempty.insert(&[1, 2, 3], !0);
-        // println!("{:?}", nonempty.into_cata_side_effect(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
+        let mut nonempty = BytesTrieMap::<u64>::new();
+        nonempty.insert(&[1, 2, 3], !0);
+        let result = nonempty.into_cata_side_effect(SplitCata::new(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
+        assert_eq!(result, 3);
     }
 
     #[test]
     fn cata_test6() {
-        panic!()
-        // let mut btm = BytesTrieMap::new();
-        // let rs = ["Hello, my name is", "Helsinki", "Hell"];
-        // rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        let mut btm = BytesTrieMap::new();
+        let rs = ["Hello, my name is", "Helsinki", "Hell"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
-        // let mut map_cnt = 0;
-        // let mut collapse_cnt = 0;
-        // let mut alg_cnt = 0;
-        // let mut jump_cnt = 0;
+        let mut map_cnt = 0;
+        let mut collapse_cnt = 0;
+        let mut alg_cnt = 0;
+        let mut jump_cnt = 0;
 
-        // btm.read_zipper().into_cata_jumping_side_effect(
-        //     |_, _path| {
-        //         // println!("map: \"{}\"", String::from_utf8_lossy(_path));
-        //         map_cnt += 1;
-        //     },
-        //     |_, _, _path| {
-        //         // println!("collapse: \"{}\"", String::from_utf8_lossy(_path));
-        //         collapse_cnt += 1;
-        //     },
-        //     |_, _, _path| {
-        //         // println!("alg: \"{}\"", String::from_utf8_lossy(_path));
-        //         alg_cnt += 1;
-        //     },
-        //     |_sub_path, _, _path| {
-        //         // println!("jump: over \"{}\" to \"{}\"", String::from_utf8_lossy(_sub_path), String::from_utf8_lossy(_path));
-        //         jump_cnt += 1;
-        //     }
-        // );
-        // // println!("map_cnt={map_cnt}, collapse_cnt={collapse_cnt}, alg_cnt={alg_cnt}, jump_cnt={jump_cnt}");
+        btm.read_zipper().into_cata_jumping_side_effect(SplitCataJumping::new(
+            |_, _path| {
+                // println!("map: \"{}\"", String::from_utf8_lossy(_path));
+                map_cnt += 1;
+            },
+            |_, _, _path| {
+                // println!("collapse: \"{}\"", String::from_utf8_lossy(_path));
+                collapse_cnt += 1;
+            },
+            |_, _, _path| {
+                // println!("alg: \"{}\"", String::from_utf8_lossy(_path));
+                alg_cnt += 1;
+            },
+            |_sub_path, _, _path| {
+                // println!("jump: over \"{}\" to \"{}\"", String::from_utf8_lossy(_sub_path), String::from_utf8_lossy(_path));
+                jump_cnt += 1;
+            }
+        ));
+        // println!("map_cnt={map_cnt}, collapse_cnt={collapse_cnt}, alg_cnt={alg_cnt}, jump_cnt={jump_cnt}");
 
-        // assert_eq!(map_cnt, 2);
-        // assert_eq!(collapse_cnt, 1);
-        // assert_eq!(alg_cnt, 2);
-        // assert_eq!(jump_cnt, 3);
+        assert_eq!(map_cnt, 2);
+        assert_eq!(collapse_cnt, 1);
+        assert_eq!(alg_cnt, 2);
+        assert_eq!(jump_cnt, 3);
     }
 
     /// Covers the full spectrum of byte values
     #[test]
     fn cata_test7() {
-        panic!()
-        // let mut btm = BytesTrieMap::new();
-        // let rs = [[0, 0, 0, 0], [0, 255, 170, 170], [0, 255, 255, 255], [0, 255, 88, 88]];
-        // rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r, i); });
+        let mut btm = BytesTrieMap::new();
+        let rs = [[0, 0, 0, 0], [0, 255, 170, 170], [0, 255, 255, 255], [0, 255, 88, 88]];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r, i); });
 
-        // let mut map_cnt = 0;
-        // let mut collapse_cnt = 0;
-        // let mut alg_cnt = 0;
-        // let mut jump_cnt = 0;
+        let mut map_cnt = 0;
+        let mut collapse_cnt = 0;
+        let mut alg_cnt = 0;
+        let mut jump_cnt = 0;
 
-        // btm.read_zipper().into_cata_jumping_side_effect(
-        //     |_, _path| {
-        //         // println!("map: {_path:?}");
-        //         map_cnt += 1;
-        //     },
-        //     |_, _, _path| {
-        //         // println!("collapse: {_path:?}");
-        //         collapse_cnt += 1;
-        //     },
-        //     |_, _, _path| {
-        //         // println!("alg: {_path:?}");
-        //         alg_cnt += 1;
-        //     },
-        //     |_sub_path, _, _path| {
-        //         // println!("jump: over {_sub_path:?} to {_path:?}");
-        //         jump_cnt += 1;
-        //     }
-        // );
-        // // println!("map_cnt={map_cnt}, collapse_cnt={collapse_cnt}, alg_cnt={alg_cnt}, jump_cnt={jump_cnt}");
+        btm.read_zipper().into_cata_jumping_side_effect(SplitCataJumping::new(
+            |_, _path| {
+                // println!("map: {_path:?}");
+                map_cnt += 1;
+            },
+            |_, _, _path| {
+                // println!("collapse: {_path:?}");
+                collapse_cnt += 1;
+            },
+            |_mask, _, _path| {
+                // println!("alg: {_path:?}, mask: {_mask:?}");
+                alg_cnt += 1;
+            },
+            |_sub_path, _, _path| {
+                // println!("jump: over {_sub_path:?} to {_path:?}");
+                jump_cnt += 1;
+            }
+        ));
+        // println!("map_cnt={map_cnt}, collapse_cnt={collapse_cnt}, alg_cnt={alg_cnt}, jump_cnt={jump_cnt}");
 
-        // assert_eq!(map_cnt, 4);
-        // assert_eq!(collapse_cnt, 0);
-        // assert_eq!(alg_cnt, 3);
-        // assert_eq!(jump_cnt, 4);
+        assert_eq!(map_cnt, 4);
+        assert_eq!(collapse_cnt, 0);
+        assert_eq!(alg_cnt, 3);
+        assert_eq!(jump_cnt, 4);
     }
 
     /// Tests that cata hits the root value
     #[test]
     fn cata_test8() {
-        panic!()
-        // let keys = ["", "ab", "abc"];
-        // let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let keys = ["", "ab", "abc"];
+        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
 
-        // btm.into_cata_jumping_side_effect(
-        //     |v, path| {
-        //         // println!("map: {path:?}");
-        //         assert_eq!(path, &[97, 98, 99]);
-        //         assert_eq!(*v, 2);
-        //     },
-        //     |v, _, path| {
-        //         // println!("collapse: {path:?}");
-        //         match *v {
-        //             1 => assert_eq!(path, &[97, 98]),
-        //             0 => assert_eq!(path, &[]),
-        //             _ => unreachable!(),
-        //         }
-        //     },
-        //     |_mask, _, path| {
-        //         // println!("alg: {path:?}");
-        //         assert_eq!(path, &[]);
-        //     },
-        //     |sub_path, _, path| {
-        //         // println!("jump: over {sub_path:?} to {path:?}");
-        //         assert_eq!(sub_path, &[98]);
-        //         assert_eq!(path, &[97]);
-        //     }
-        // )
+        btm.into_cata_jumping_side_effect(SplitCataJumping::new(
+            |v, path| {
+                // println!("map: {path:?}");
+                assert_eq!(path, &[97, 98, 99]);
+                assert_eq!(*v, 2);
+            },
+            |v, _, path| {
+                // println!("collapse: {path:?}");
+                match *v {
+                    1 => assert_eq!(path, &[97, 98]),
+                    0 => assert_eq!(path, &[]),
+                    _ => unreachable!(),
+                }
+            },
+            |_mask, _, path| {
+                // println!("alg: {path:?}");
+                assert_eq!(path, &[]);
+            },
+            |sub_path, _, path| {
+                // println!("jump: over {sub_path:?} to {path:?}");
+                assert_eq!(sub_path, &[98]);
+                assert_eq!(path, &[97]);
+            }
+        ))
     }
 
     /// Generate some basic tries using the [TrieBuilder::push_byte] API
