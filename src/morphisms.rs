@@ -100,7 +100,7 @@ pub trait Catamorphism<V> {
     ///
     /// See [into_cata_side_effect](Catamorphism::into_cata_side_effect) for explanation of other behavior
     fn into_cata_jumping_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W;
+        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W;
 }
 
 pub struct SplitCata;
@@ -136,7 +136,7 @@ impl SplitCata {
 pub struct SplitCataJumping;
 
 impl SplitCataJumping {
-    pub fn new<'a, V, W, MapF, CollapseF, AlgF, JumpF>(mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> impl FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W + 'a
+    pub fn new<'a, V, W, MapF, CollapseF, AlgF, JumpF>(mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF, mut jump_f: JumpF) -> impl FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W + 'a
         where
         //TODO GOAT!!: It would be nice to get rid of this Default bound on all morphism Ws.  In this case, the plan
         // for doing that would be to create a new type called a TakableSlice.  It would be able to deref
@@ -159,8 +159,8 @@ impl SplitCataJumping {
         AlgF: FnMut(&ByteMask, &mut [W], &[u8]) -> W + 'a,
         JumpF: FnMut(&[u8], W, &[u8]) -> W + 'a,
     {
-        move |mask, children, stem, val, path| -> W {
-            // println!("JUMPING  path=\"{path:?}\", mask={mask:?}, stem={stem:?}, children_cnt={}, val={}", children.len(), val.is_some());
+        move |mask, children, jump_len, val, path| -> W {
+            // println!("JUMPING  path=\"{path:?}\", mask={mask:?}, jump_len={jump_len}, children_cnt={}, val={}", children.len(), val.is_some());
             let w = if children.len() == 0 {
                 match val {
                     Some(val) => map_f(val, path),
@@ -181,10 +181,11 @@ impl SplitCataJumping {
                     None => w
                 }
             };
-            debug_assert!(stem.len() <= path.len());
-            let jump_dst_path = &path[..(path.len() - stem.len())];
-            let w = if stem.len() > 0 && jump_dst_path.len() > 0 || stem.len() > 1 {
-                jump_f(&stem[0..], w, jump_dst_path)
+            debug_assert!(jump_len <= path.len());
+            let jump_dst_path = &path[..(path.len() - jump_len)];
+            let stem = &path[(path.len() - jump_len)..];
+            let w = if jump_len > 0 && jump_dst_path.len() > 0 || jump_len > 1 {
+                jump_f(stem, w, jump_dst_path)
             } else {
                 w
             };
@@ -205,13 +206,13 @@ impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper<V> + ZipperReadOnly<'a,
     fn into_cata_side_effect<W, AlgF>(self, mut alg_f: AlgF) -> W
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
     {
-        cata_side_effect_body::<Self, V, W, _, false>(self, |mask, children, prefix_path, val, path| {
-            debug_assert!(prefix_path.len() == 0);
+        cata_side_effect_body::<Self, V, W, _, false>(self, |mask, children, jump_len, val, path| {
+            debug_assert!(jump_len == 0);
             alg_f(mask, children, val, path)
         })
     }
     fn into_cata_jumping_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W
+        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W
     {
         cata_side_effect_body::<Self, V, W, AlgF, true>(self, alg_f)
     }
@@ -222,13 +223,13 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
     {
         let rz = self.into_read_zipper(&[]);
-        cata_side_effect_body::<ReadZipperOwned<V>, V, W, _, false>(rz, |mask, children, prefix_path, val, path| {
-            debug_assert!(prefix_path.len() == 0);
+        cata_side_effect_body::<ReadZipperOwned<V>, V, W, _, false>(rz, |mask, children, jump_len, val, path| {
+            debug_assert!(jump_len == 0);
             alg_f(mask, children, val, path)
         })
     }
     fn into_cata_jumping_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W
+        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W
     {
         let rz = self.into_read_zipper(&[]);
         cata_side_effect_body::<ReadZipperOwned<V>, V, W, AlgF, true>(rz, alg_f)
@@ -239,7 +240,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
 fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, mut alg_f: AlgF) -> W
     where
     Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
-    AlgF: FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W
+    AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W
 {
     //`stack` holds a "frame" at each forking point above the zipper position.  No frames exist for values
     let mut stack = Vec::<StackFrame<W>>::with_capacity(12);
@@ -252,7 +253,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, m
     stack.push(StackFrame::new(z.child_count(), ByteMask::from(z.child_mask())));
     if !z.descend_first_byte() {
         //Empty trie is a special case
-        return alg_f(&ByteMask::EMPTY, &mut [], &[], z.value(), z.origin_path().unwrap())
+        return alg_f(&ByteMask::EMPTY, &mut [], 0, z.value(), z.origin_path().unwrap())
     }
 
     loop {
@@ -280,7 +281,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, m
                     let stack_frame = &mut stack[0];
                     let val = z.value();
                     let w = if stack_frame.child_cnt > 1 || val.is_some() || !JUMPING {
-                        alg_f(&stack_frame.child_mask, &mut stack_frame.children, &[], val, z.origin_path().unwrap())
+                        alg_f(&stack_frame.child_mask, &mut stack_frame.children, 0, val, z.origin_path().unwrap())
                     } else {
                         debug_assert_eq!(stack_frame.children.len(), 1);
                         stack_frame.children.pop().unwrap()
@@ -325,7 +326,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
 ) -> W
     where
     Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
-    AlgF: FnMut(&ByteMask, &mut [W], &[u8], Option<&V>, &[u8]) -> W,
+    AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W,
 {
     let mut w;
     let mut mask;
@@ -348,19 +349,14 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
             let ascended = z.ascend_until();
             debug_assert!(ascended);
 
-            //GOAT QUESTION: I'm on the fence about whether it makes more sense to include the stem in the
-            // path.  I'm leaning to "yes" because having the contiguous buffer is more useful than not having
-            // it because you can cheaply slice the buffer, but you can't re-compose it without needing to do a
-            // copy.  It may make more conceptual sense to do "no" behavior like the old `jump_f`.
-
             let origin_path = unsafe{ z.origin_path_assert_len(old_path_len) };
-            let stem_path = if z.child_count() != 1 || z.is_value() {
-                &origin_path[z.origin_path().unwrap().len()+1..]
+            let jump_len = if z.child_count() != 1 || z.is_value() {
+                old_path_len - (z.origin_path().unwrap().len()+1)
             } else {
-                &origin_path[z.origin_path().unwrap().len()..]
+                old_path_len - z.origin_path().unwrap().len()
             };
 
-            w = alg_f(child_mask, children, stem_path, old_val, origin_path);
+            w = alg_f(child_mask, children, jump_len, old_val, origin_path);
 
             if z.child_count() != 1 || z.at_root() {
                 return w
@@ -381,7 +377,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
             let origin_path = z.origin_path().unwrap();
             let byte = *origin_path.last().unwrap_or(&0);
             let val = z.value();
-            w = alg_f(child_mask, children, &[], val, origin_path);
+            w = alg_f(child_mask, children, 0, val, origin_path);
 
             let ascended = z.ascend_byte();
             debug_assert!(ascended);
@@ -888,8 +884,8 @@ mod tests {
             });
             assert_eq!(sum, expected_sum);
 
-            let sum = zip.into_cata_jumping_side_effect(|child_mask: &ByteMask, children: &mut [u32], _stem: &[u8], val: Option<&()>, path: &[u8]| {
-                // println!("JUMPING  path=\"{}\", mask={child_mask:?}, children={children:?}, stem={}, val={}", String::from_utf8_lossy(path), String::from_utf8_lossy(_stem), val.is_some(), );
+            let sum = zip.into_cata_jumping_side_effect(|child_mask: &ByteMask, children: &mut [u32], _jump_len: usize, val: Option<&()>, path: &[u8]| {
+                // println!("JUMPING  path=\"{}\", mask={child_mask:?}, children={children:?}, jump_len={_jump_len}, val={}", String::from_utf8_lossy(path), val.is_some(), );
                 alg(child_mask, children, val, path)
             });
             assert_eq!(sum, expected_sum);
