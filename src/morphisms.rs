@@ -212,7 +212,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, m
                 stack.push(StackFrame::new(child_cnt, child_mask));
                 debug_assert!(stack.len() > frame_idx);
             } else {
-                stack[frame_idx].reset(child_mask);
+                stack[frame_idx].reset(child_cnt, child_mask);
             }
 
             //Descend the first child branch
@@ -325,11 +325,11 @@ impl<W> StackFrame<W> {
             remaining_children_mask: 0,
             children: Vec::with_capacity(child_cnt)
         };
-        frame.reset(child_mask);
+        frame.reset(child_cnt, child_mask);
         frame
     }
     /// Resets a StackFrame to the state needed to iterate a new forking point
-    fn reset(&mut self, child_mask: ByteMask) {
+    fn reset(&mut self, child_cnt: usize, child_mask: ByteMask) {
         self.mask_word_idx = 0;
         self.child_idx = 0;
         while child_mask.0[self.mask_word_idx] == 0 && self.mask_word_idx < 3 {
@@ -337,6 +337,7 @@ impl<W> StackFrame<W> {
         }
         self.remaining_children_mask = child_mask.0[self.mask_word_idx];
         self.child_mask = child_mask;
+        self.child_cnt = child_cnt;
         self.children.clear();
     }
     fn push_val(&mut self, w: W) {
@@ -800,63 +801,79 @@ mod tests {
 
     #[test]
     fn cata_test2() {
-        panic!()
-        // let mut btm = BytesTrieMap::new();
-        // let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        // rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
-        // //These algorithms should perform the same with both "jumping" and "non-jumping" versions
+        //These algorithms should perform the same with both "jumping" and "non-jumping" versions
 
-        // // like val count, but without counting internal values
-        // let cnt = btm.read_zipper().into_cata_side_effect(
-        //     |_v, _p| { 1usize },
-        //     |_v, w, _p| { w },
-        //     |_m, ws, _p| { ws.iter().sum() });
-        // assert_eq!(cnt, 11);
+        // like val count, but without counting internal values
+        fn leaf_cnt(children: &[usize], val: Option<&usize>) -> usize {
+            if children.len() > 0 {
+                children.iter().sum() //Internal node
+            } else {
+                assert!(val.is_some()); //Cata doesn't include dangling paths, but it might in the future
+                1 //leaf node
+            }
+        }
+        let cnt = btm.read_zipper().into_cata_side_effect(|_mask, children, val, _path| {
+            // println!("STEPPING path=\"{}\", mask={_mask:?}, children={children:?}, val={val:?}", String::from_utf8_lossy(_path));
+            leaf_cnt(children, val)
+        });
+        assert_eq!(cnt, 11);
 
-        // let cnt = btm.read_zipper().into_cata_jumping_side_effect(
-        //     |_v, _p| { 1usize },
-        //     |_v, w, _p| { w },
-        //     |_m, ws, _p| { ws.iter().sum() },
-        //     |_subpath, w, _path| w
-        // );
-        // assert_eq!(cnt, 11);
+        let cnt = btm.read_zipper().into_cata_jumping_side_effect(|_mask, children, _stem, val, _path| {
+            // println!("JUMPING  path=\"{}\", mask={_mask:?}, children={children:?}, stem={}, val={val:?}", String::from_utf8_lossy(_path), String::from_utf8_lossy(_stem));
+            leaf_cnt(children, val)
+        });
+        assert_eq!(cnt, 11);
 
-        // let longest = btm.read_zipper().into_cata_side_effect(
-        //     |_v, p| { p.to_vec() },
-        //     |_v, w, _p| { w },
-        //     |_m, ws: &mut [Vec<u8>], _p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) });
-        // assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
+        // Finds the longest path in the trie
+        fn longest_path(children: &mut[Vec<u8>], path: &[u8]) -> Vec<u8> {
+            if children.len() == 0 {
+                path.to_vec()
+            } else {
+                children.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take)
+            }
+        }
+        let longest = btm.read_zipper().into_cata_side_effect(|_mask, children: &mut[Vec<u8>], _val, path| {
+            // println!("STEPPING path=\"{}\", mask={_mask:?}, children={children:?}, val={_val:?}", String::from_utf8_lossy(path));
+            longest_path(children, path)
+        });
+        assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
 
-        // let longest = btm.read_zipper().into_cata_jumping_side_effect(
-        //     |_v, p| { p.to_vec() },
-        //     |_v, w, _p| { w },
-        //     |_m, ws: &mut [Vec<u8>], _p| { ws.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take) },
-        //     |_subpath, w, _path| w
-        // );
-        // assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
+        let longest = btm.read_zipper().into_cata_jumping_side_effect(|_mask, children: &mut[Vec<u8>], _stem, _val, path| {
+            // println!("JUMPING  path=\"{}\", mask={_mask:?}, children={children:?}, stem={}, val={_val:?}", String::from_utf8_lossy(path), String::from_utf8_lossy(_stem));
+            longest_path(children, path)
+        });
+        assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
 
-        // let at_truncated = btm.read_zipper().into_cata_side_effect(
-        //     |_v, _p| { vec![] },
-        //     |v, _w, _p| { vec![v.clone()] },
-        //     |_m, ws: &mut [_], _p| {
-        //         let mut r = ws.first_mut().map_or(vec![], std::mem::take);
-        //         for w in ws[1..].iter_mut() { r.extend(w.drain(..)); }
-        //         r
-        //     });
-        // assert_eq!(at_truncated, vec![3]);
+        // Finds all values that are positioned at branch points (where children.len() > 0)
+        fn vals_at_branches(children: &mut [Vec<usize>], val: Option<&usize>) -> Vec<usize> {
+            if children.len() > 0 {
+                match val {
+                    Some(val) => vec![*val],
+                    None => {
+                        let mut r = children.first_mut().map_or(vec![], std::mem::take);
+                        for w in children[1..].iter_mut() { r.extend(w.drain(..)); }
+                        r
+                    }
+                }
+            } else {
+                vec![]
+            }
+        }
+        let at_truncated = btm.read_zipper().into_cata_side_effect(|_mask, children: &mut[Vec<usize>], val, _path| {
+            // println!("STEPPING path=\"{}\", mask={_mask:?}, children={children:?}, val={val:?}", String::from_utf8_lossy(_path));
+            vals_at_branches(children, val)
+        });
+        assert_eq!(at_truncated, vec![3]);
 
-        // let at_truncated = btm.read_zipper().into_cata_jumping_side_effect(
-        //     |_v, _p| { vec![] },
-        //     |v, _w, _p| { vec![v.clone()] },
-        //     |_m, ws: &mut [_], _p| {
-        //         let mut r = ws.first_mut().map_or(vec![], std::mem::take);
-        //         for w in ws[1..].iter_mut() { r.extend(w.drain(..)); }
-        //         r
-        //     },
-        //     |_subpath, w, _path| w
-        // );
-        // assert_eq!(at_truncated, vec![3]);
+        let at_truncated = btm.read_zipper().into_cata_jumping_side_effect(|_mask, children: &mut[Vec<usize>], _stem, val, _path| {
+            // println!("JUMPING  path=\"{}\", mask={_mask:?}, children={children:?}, stem={}, val={val:?}", String::from_utf8_lossy(_path), String::from_utf8_lossy(_stem));
+            vals_at_branches(children, val)
+        });
+        assert_eq!(at_truncated, vec![3]);
     }
 
     #[test]
