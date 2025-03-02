@@ -103,6 +103,8 @@ pub trait Catamorphism<V> {
         where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W;
 }
 
+/// GOAT, document this, largely by transplanting the docs from the original API.  Also fix the docs on
+/// the real API to be accurate with the updated interface
 pub struct SplitCata;
 
 impl SplitCata {
@@ -133,6 +135,8 @@ impl SplitCata {
     }
 }
 
+/// GOAT, document this, largely by transplanting the docs from the original API.  Also fix the docs on
+/// the real API to be accurate with the updated interface
 pub struct SplitCataJumping;
 
 impl SplitCataJumping {
