@@ -2356,13 +2356,13 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         let new_key1 = &key1[chop_bytes-1..];
 
         let overlap = find_prefix_overlap(&key0[chop_bytes..], &key1[chop_bytes..]);
-        let merged_payload = if let AlgebraicResult::Element((_shared_key, merged_payload)) = merge_guts::<V, 0, 1>(overlap+1, new_key0, &temp_node, new_key1, &temp_node) {
-            merged_payload
-        } else {
-            //`merge_guts` shouldn't return AlgebraicResult::None because that should have been caught by an earlier case
-            //And it shouldn't return AlgebraicResult::Identity because two values or two onward links can't have the same key
-            // in the same node.  Check out the implamentation of `factor_prefix` for more discussion
-            unreachable!()
+        let merged_payload = match merge_guts::<V, 0, 1>(overlap+1, new_key0, &temp_node, new_key1, &temp_node) {
+            AlgebraicResult::Element((_shared_key, merged_payload)) => merged_payload,
+            AlgebraicResult::Identity(mask) => {
+                debug_assert!(mask & SELF_IDENT > 0);
+                temp_node.clone_payload::<0>().unwrap()
+            },
+            AlgebraicResult::None => unreachable!() //`merge_guts` shouldn't return AlgebraicResult::None because that should have been caught by an earlier case
         };
 
         if let ValOrChild::Child(mut child_node) = merged_payload {

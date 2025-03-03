@@ -2268,6 +2268,16 @@ mod tests {
     }
 
     #[test]
+    fn write_zipper_drop_head_test3() {
+        let keys = [[0, 0], [0, 1], [1, 0], [1, 1]];
+        let mut map: BytesTrieMap<()> = keys.iter().map(|k| (k, ())).collect();
+        let mut wz = map.write_zipper();
+
+        wz.drop_head(1);
+        assert_eq!(wz.val_count(), 2);
+    }
+
+    #[test]
     fn write_zipper_insert_prefix_test() {
         let keys = [
             "123:Bob:Fido",
