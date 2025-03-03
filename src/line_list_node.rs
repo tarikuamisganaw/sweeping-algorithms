@@ -856,21 +856,11 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
                     unsafe{ new_node.set_payload_owned::<0>(shared_key, merged_payload) };
                     *self = new_node;
                 },
-                AlgebraicResult::Identity(_mask) => {
-                    //The identity result won't be returned from `merge_guts` unless the keys are identical, but
-                    // identical keys can only happen in a case where one slot holds a value and the other holds
-                    // an onward link, which can't be merged.
-                    unreachable!();
-                    //GOAT: I don't think this code is actually needed
-                    // let mut new_node = Self::new();
-                    // //The only way `merge_guts` will return an identity result is when the keys are identical
-                    // if mask & SELF_IDENT > 0 {
-                    //     unsafe{ new_node.set_payload_owned::<0>(key0, self.clone_payload::<0>().unwrap()) };
-                    // } else {
-                    //     debug_assert!(mask & COUNTER_IDENT > 0);
-                    //     unsafe{ new_node.set_payload_owned::<0>(key0, self.clone_payload::<1>().unwrap()) };
-                    // }
-                    // *self = new_node;
+                AlgebraicResult::Identity(mask) => {
+                    debug_assert!(mask & SELF_IDENT > 0);
+                    let mut new_node = Self::new();
+                    unsafe{ new_node.set_payload_owned::<0>(key0, self.clone_payload::<0>().unwrap()) };
+                    *self = new_node;
                 },
                 AlgebraicResult::None => {}
             }
