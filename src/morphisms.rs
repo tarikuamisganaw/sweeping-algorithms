@@ -369,8 +369,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
             w_array = [w];
             children = &mut w_array[..];
 
-            //SAFETY: We know we won't over-read the buffer because we can only get here if we just ascended
-            let byte = *unsafe{ z.origin_path_assert_len(origin_path.len()+1) }.last().unwrap();
+            let byte = *origin_path.last().unwrap();
             mask = ByteMask::EMPTY;
             mask.set_bit(byte);
             child_mask = &mask;
@@ -1177,6 +1176,43 @@ mod tests {
                 assert_eq!(path, &[97]);
             }
         ))
+    }
+
+    #[test]
+    fn cata_test9() {
+        let keys = [vec![0], vec![0, 1, 2], vec![0, 1, 3]];
+        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+
+        btm.into_cata_jumping_side_effect(|mask, children, jump_len, val, path| {
+            // println!("mask={mask:?}, children={children:?}, jump_len={jump_len}, val={val:?}, path={path:?}");
+            match path {
+                [0, 1, 2] => {
+                    assert_eq!(jump_len, 0);
+                    assert_eq!(children.len(), 0);
+                    assert_eq!(*mask, ByteMask::EMPTY);
+                    assert_eq!(val, Some(&1));
+                },
+                [0, 1, 3] => {
+                    assert_eq!(jump_len, 0);
+                    assert_eq!(children.len(), 0);
+                    assert_eq!(*mask, ByteMask::EMPTY);
+                    assert_eq!(val, Some(&2));
+                },
+                [0, 1] => {
+                    assert_eq!(jump_len, 0);
+                    assert_eq!(children.len(), 2);
+                    assert_eq!(*mask, ByteMask::from_iter([2, 3]));
+                    assert_eq!(val, None);
+                },
+                [0] => {
+                    assert_eq!(jump_len, 1);
+                    assert_eq!(children.len(), 1);
+                    assert_eq!(*mask, ByteMask::from(1));
+                    assert_eq!(val, Some(&0));
+                },
+                _ => panic!()
+            }
+        })
     }
 
     /// Generate some basic tries using the [TrieBuilder::push_byte] API
