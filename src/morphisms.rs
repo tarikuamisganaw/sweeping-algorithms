@@ -369,7 +369,8 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
             w_array = [w];
             children = &mut w_array[..];
 
-            let byte = *origin_path.last().unwrap();
+            // SAFETY: We will never over-read the path buffer because we only get here after we ascended
+            let byte = *unsafe{ z.origin_path_assert_len(old_path_len-jump_len) }.last().unwrap();
             mask = ByteMask::EMPTY;
             mask.set_bit(byte);
             child_mask = &mask;
@@ -1208,6 +1209,31 @@ mod tests {
                     assert_eq!(jump_len, 1);
                     assert_eq!(children.len(), 1);
                     assert_eq!(*mask, ByteMask::from(1));
+                    assert_eq!(val, Some(&0));
+                },
+                _ => panic!()
+            }
+        })
+    }
+
+    #[test]
+    fn cata_testa() {
+        let keys = [vec![0, 128, 1], vec![0, 128, 1, 255, 2]];
+        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+
+        btm.into_cata_jumping_side_effect(|mask, children, jump_len, val, path| {
+            println!("mask={mask:?}, children={children:?}, jump_len={jump_len}, val={val:?}, path={path:?}");
+            match path {
+                [0, 128, 1, 255, 2] => {
+                    assert_eq!(jump_len, 1);
+                    assert_eq!(children.len(), 0);
+                    assert_eq!(*mask, ByteMask::EMPTY);
+                    assert_eq!(val, Some(&1));
+                },
+                [0, 128, 1] => {
+                    assert_eq!(jump_len, 3);
+                    assert_eq!(children.len(), 1);
+                    assert_eq!(*mask, ByteMask::from(255));
                     assert_eq!(val, Some(&0));
                 },
                 _ => panic!()
