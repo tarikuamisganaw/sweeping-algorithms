@@ -397,10 +397,11 @@ fn prepare_node_at_path_end<'a, V: Clone + Send + Sync>(start_node: &'a mut Trie
     //If remaining_key is non-zero length, split and upgrade the intervening node
     if remaining_key.len() > 0 {
         let node_ref = node.make_mut();
-        let new_parent = match node_ref.take_node_at_key(remaining_key) {
+        let mut new_parent = match node_ref.take_node_at_key(remaining_key) {
             Some(downward_node) => downward_node,
             None => TrieNodeODRc::new(CellByteNode::new())
         };
+        make_cell_node(&mut new_parent);
         let result = node_ref.node_set_branch(remaining_key, new_parent);
         match result {
             Ok(_) => { },
@@ -613,7 +614,7 @@ mod tests {
     fn zipper_head4() {
         let mut map = BytesTrieMap::<isize>::new();
 
-        //Make a WriteZipper in a plece that will require splitting an existing path
+        //Make a WriteZipper in a place that will require splitting an existing path
         map.insert(b"test:3", 3);
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
@@ -756,6 +757,49 @@ mod tests {
         assert_eq!(map.get("start:0000:goodbye"), Some(&0));
         assert_eq!(map.get("start:0003:hello"), Some(&3));
         assert_eq!(map.get("start:0003:goodbye"), Some(&3));
+    }
+
+    /// Test more cases in the logic to upgrade nodes before creating zippers
+    #[test]
+    fn zipper_heada() {
+        //This hits the case where we attempt to make a WriteZipper rooted in the middle of an existing ListNode
+        // This tests the `prepare_node_at_path_end` code path in the WriteZipper creation
+        let mut map = BytesTrieMap::<()>::new();
+        map.insert([1], ());
+        map.insert([2], ());
+        map.insert([3, 193, 4], ());
+        map.insert([3, 194, 21, 134], ());
+        map.insert([3, 194, 21, 133], ());
+
+        let zh = map.zipper_head();
+        let wz = zh.write_zipper_at_exclusive_path([3, 194, 21]).unwrap();
+        drop(wz);
+        drop(zh);
+        drop(map);
+
+        //This hits the case where we need to upgrade a node that was used to make the root of a ReadZipper
+        // This tests the `splitting_borrow_focus` code path in ReadZipper creation
+        let mut map = BytesTrieMap::<()>::new();
+        map.insert([1], ());
+        map.insert([2], ());
+        map.insert([3, 193, 4], ());
+        map.insert([3, 194, 21, 134], ());
+        map.insert([3, 194, 21, 133], ());
+
+        let zh = map.zipper_head();
+        let mut rz = zh.read_zipper_at_borrowed_path(&[3, 194, 21]).unwrap();
+        let mut wz = zh.write_zipper_at_exclusive_path(&[3, 194, 22]).unwrap();
+
+        assert_eq!(rz.value(), None);
+        assert!(rz.descend_first_byte());
+        assert_eq!(rz.value(), Some(&()));
+
+        assert_eq!(wz.value(), None);
+        assert!(wz.set_value(()).is_none());
+        drop(wz);
+        drop(rz);
+        drop(zh);
+        assert_eq!(map.get([3, 194, 22]), Some(&()));
     }
     #[test]
     fn hierarchical_zipper_heads1() {

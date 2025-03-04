@@ -442,10 +442,25 @@ pub enum TaggedNodeRefMut<'a, V> {
     Unsupported,
 }
 
+//NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
+impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRefMut<'_, V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::DenseByteNode(node) => write!(f, "{node:?}"),
+            Self::LineListNode(node) => write!(f, "{node:?}"),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => write!(f, "{node:?}"),
+            Self::CellByteNode(node) => write!(f, "{node:?}"),
+            Self::Unsupported => write!(f, "Unsupported node type"),
+        }
+    }
+}
+
+//NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
 impl<V: Clone + Send + Sync> core::fmt::Debug for TaggedNodeRef<'_, V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::DenseByteNode(node) => write!(f, "{node:?}"), //Don't want to restrict the impl to V: Debug
+            Self::DenseByteNode(node) => write!(f, "{node:?}"),
             Self::LineListNode(node) => write!(f, "{node:?}"),
             #[cfg(feature = "bridge_nodes")]
             Self::BridgeNode(node) => write!(f, "{node:?}"),
