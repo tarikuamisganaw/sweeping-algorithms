@@ -1049,9 +1049,8 @@ pub(crate) mod read_zipper_core {
                 self.focus_iter_token = cur_tok;
             }
 
-            let (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
-
-            if new_tok != NODE_ITER_FINISHED {
+            let (mut new_tok, mut key_bytes, mut child_node, mut _value) = self.focus_node.next_items(self.focus_iter_token);
+            while new_tok != NODE_ITER_FINISHED {
 
                 //Check to see if the iter result has modified more than one byte
                 let node_key = self.node_key();
@@ -1064,25 +1063,32 @@ pub(crate) mod read_zipper_core {
                     return false;
                 }
 
-                self.focus_iter_token = new_tok;
-                *self.prefix_buf.last_mut().unwrap() = key_bytes[0];
+                if key_bytes.len() >= node_key.len() {
+                    if key_bytes[..node_key.len()] > *node_key {
+                        *self.prefix_buf.last_mut().unwrap() = key_bytes[node_key.len()-1];
+                        self.focus_iter_token = new_tok;
 
-                if key_bytes.len() == 1 {
-                    match child_node {
-                        None => {},
-                        Some(rec) => {
-                            self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
-                            self.focus_node = rec.borrow().as_tagged();
-                            self.focus_iter_token = NODE_ITER_INVALID
-                        },
+                        //Re-regularize the zipper before returning
+                        if key_bytes.len() == 1 {
+                            match child_node {
+                                None => {},
+                                Some(rec) => {
+                                    self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                                    self.focus_node = rec.borrow().as_tagged();
+                                    self.focus_iter_token = NODE_ITER_INVALID
+                                },
+                            }
+                        }
+
+                        return true
                     }
                 }
 
-                true
-            } else {
-                self.focus_iter_token = NODE_ITER_FINISHED;
-                false
+                (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(new_tok);
             }
+
+            self.focus_iter_token = NODE_ITER_FINISHED;
+            false
         }
 
         fn to_prev_sibling_byte(&mut self) -> bool {
@@ -2851,6 +2857,22 @@ mod tests {
         assert_eq!(r1.path(), &[4]);
         assert_eq!(r1.to_next_sibling_byte(), true);
         assert_eq!(r1.to_next_sibling_byte(), false);
+    }
+
+    #[test]
+    fn zipper_byte_iter_test6() {
+        let keys = [
+            [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75, 128, 131, 193, 49],
+            [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 84, 3, 193, 75, 192, 192, 3, 193, 75, 128, 131, 193, 49],
+        ];
+        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let mut rz = map.read_zipper();
+
+        rz.descend_to([2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75]);
+        assert_eq!(rz.to_next_sibling_byte(), false);
+        rz.reset();
+        rz.descend_to([2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75]);
+        assert_eq!(rz.to_next_sibling_byte(), true);
     }
 
     /// This test tries to hit an edge case in to_next_value where we begin iteration in the middle of a node
