@@ -307,7 +307,7 @@ mod tests {
     use crate::zipper::*;
     use crate::trie_map::BytesTrieMap;
     use crate::experimental::ProductZipper;
-    use crate::morphisms::Catamorphism;
+    use crate::morphisms::{Catamorphism, SplitCata};
 
     /// Tests a very simple two-level product zipper
     #[test]
@@ -427,7 +427,7 @@ mod tests {
 
         let mut map_cnt = 0;
         let mut collapse_cnt = 0;
-        p.into_cata_side_effect(
+        p.into_cata_side_effect(SplitCata::new(
             |_, _p| {
                 // println!("Map  {}", String::from_utf8_lossy(_p));
                 map_cnt += 1;
@@ -436,7 +436,7 @@ mod tests {
                 // println!("Col *{}", String::from_utf8_lossy(_p));
                 collapse_cnt += 1
             },
-            |_, _, _| ());
+            |_, _, _| ()));
 
         // println!("{map_cnt} {collapse_cnt}");
         assert_eq!(map_cnt, 18);
@@ -456,7 +456,7 @@ mod tests {
 
         let mut map_cnt = 0;
         let mut collapse_cnt = 0;
-        p.into_cata_side_effect(
+        p.into_cata_side_effect(SplitCata::new(
             |_, _p| {
                 // println!("Map  {}", String::from_utf8_lossy(_p));
                 map_cnt += 1;
@@ -465,7 +465,7 @@ mod tests {
                 // println!("Col *{}", String::from_utf8_lossy(_p));
                 collapse_cnt += 1
             },
-            |_, _, _| ());
+            |_, _, _| ()));
 
         // println!("{map_cnt} {collapse_cnt}");
         assert_eq!(map_cnt, 18);
