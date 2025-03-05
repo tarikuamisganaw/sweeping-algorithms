@@ -68,8 +68,8 @@ pub struct SeOutputs {
 
 /// Filename of the raw hex data file at the `out_dir_path` formal parameter in [`write_trie`] 
 pub const RAW_HEX_DATA_FILENAME             : &'static str = "raw_hex.data";
-/// Filename of the raw hex meta data file at the `out_dir_path` formal parameter in [`write_trie`] 
-pub const META_DATA_FILENAME                : &'static str = "raw_hex_meta.data";
+/// Filename of the meta data file at the `out_dir_path` formal parameter in [`write_trie`] 
+pub const META_DATA_FILENAME                : &'static str = "meta.json";
 /// Filename of the zero compressesed data file at the `out_dir_path` formal parameter in [`write_trie`] 
 pub const ZERO_COMPRESSED_HEX_DATA_FILENAME : &'static str = "zero_compressed_hex.data";
 
