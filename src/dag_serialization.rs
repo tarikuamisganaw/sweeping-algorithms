@@ -275,12 +275,14 @@ pub fn write_trie<V : ZipperValue>(
 
 
   meta_file.write_fmt(format_args!("\
-    \n\"PATHS_COUNT\"                    : {paths_count:?},\
-    \n\"MAX_PATH_LEN\"                   : {max_len:?},\
-    \n\"VAL_COUNT\"                      : {val_count:?},\
-    \n\"RAW_FILE_OFFSETS\"               : {value_offsets:?},\
-    \n\"ZEROES_COMPRESSED_FILE_OFFSETS\" : {zeroes_offsets:?},\
-    \n\"HASHES\"                         : {values:#?},\
+    {{\
+    \n  \"PATHS_COUNT\"                    : {paths_count:?},\
+    \n  \"MAX_PATH_LEN\"                   : {max_len:?},\
+    \n  \"VAL_COUNT\"                      : {val_count:?},\
+    \n  \"RAW_FILE_OFFSETS\"               : {value_offsets:?},\
+    \n  \"ZEROES_COMPRESSED_FILE_OFFSETS\" : {zeroes_offsets:?},\
+    \n  \"HASHES\"                         : {values:?}\
+    \n}}
     \n",
     zeroes_offsets=compressed.offsets
   ))?;
@@ -1495,8 +1497,6 @@ mod test {
     ).unwrap();
     
     let read = std::fs::File::open(serialized.zeroes_compressed_data_path).unwrap();
-    dbg_hex_line_numbers(&read, &path).unwrap();
-    let read = std::fs::File::open(serialized.raw_data_path).unwrap();
     dbg_hex_line_numbers(&read, &path).unwrap();
 
     let de_path = path.join(ZERO_COMPRESSED_HEX_DATA_FILENAME);
