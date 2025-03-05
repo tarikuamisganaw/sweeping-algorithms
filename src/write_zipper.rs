@@ -2072,6 +2072,71 @@ mod tests {
         assert_eq!(bz.child_count(), 0);
     }
 
+    /// This tests a ByteNode meeting a ListNode through a WriteZipper positioned above the root.  This is
+    /// designed to shake out bugs in the abstract-meet function, such as the bug where the `ListNode` `self`
+    /// was a perfect subset of the `DenseNode` `other`, but the `COUNTER_IDENT` flag was set in error.
+    #[test]
+    fn write_zipper_meet_test2() {
+        let a_keys = [
+            vec![193, 11],
+            vec![194, 1, 0],
+            vec![194, 2, 5],
+            vec![194, 3, 2],
+            vec![194, 5, 8],
+            vec![194, 6, 4],
+            vec![194, 7, 63],
+            vec![194, 7, 160],
+            vec![194, 7, 161],
+            vec![194, 7, 162],
+            vec![194, 7, 163],
+            vec![194, 7, 164],
+        ];
+        let b_keys = [
+            vec![194, 7, 163, 194, 4, 160],
+            vec![194, 7, 163, 194, 7, 162],
+            vec![194, 7, 163, 194, 7, 163],
+            vec![194, 7, 163, 194, 8, 0],
+        ];
+
+        let a: BytesTrieMap<()> = a_keys.iter().map(|k| (k, ())).collect();
+        let mut b: BytesTrieMap<()> = b_keys.iter().map(|k| (k, ())).collect();
+
+        let rz = a.read_zipper();
+
+        let mut wz = b.write_zipper();
+        wz.descend_to([194, 7, 163]);
+
+        //Create enough peer branches that we can be reasonably sure we're a byte node now
+        // and then clean them up
+        wz.descend_to([0, 0, 0, 0]);
+        wz.set_value(());
+        wz.ascend(4);
+        wz.descend_to([1, 0, 0, 1]);
+        wz.set_value(());
+        wz.ascend(4);
+        wz.descend_to([2, 0, 0, 2]);
+        wz.set_value(());
+        wz.ascend(4);
+        wz.descend_to([0, 0, 0, 0]);
+        wz.remove_value();
+        wz.ascend(4);
+        wz.descend_to([1, 0, 0, 1]);
+        wz.remove_value();
+        wz.ascend(4);
+        wz.descend_to([2, 0, 0, 2]);
+        wz.remove_value();
+        wz.ascend(4);
+
+        wz.meet(&rz);
+
+        assert_eq!(wz.val_count(), 2);
+        assert!(wz.descend_to([194, 7, 162]));
+        assert!(wz.value().is_some());
+        assert!(wz.ascend(3));
+        assert!(wz.descend_to([194, 7, 163]));
+        assert!(wz.value().is_some());
+    }
+
     #[test]
     fn write_zipper_movement_test() {
         let keys = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
