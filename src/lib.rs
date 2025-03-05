@@ -37,7 +37,7 @@ mod zipper_head;
 #[cfg(feature = "counters")]
 pub mod counters;
 
-pub mod dag_serialization;
+pub mod serialization;
 
 mod trie_node;
 mod write_zipper;
@@ -50,6 +50,11 @@ mod tiny_node;
 mod bridge_node;
 
 mod old_cursor;
+
+/// A supertrait that encapsulates the bounds for a value that can be put in a [PathMap]
+pub trait TrieValue: Clone + Send + Sync + Unpin + 'static {}
+
+impl<T> TrieValue for T where T : Clone + Send + Sync + Unpin + 'static {}
 
 #[cfg(test)]
 mod tests {

@@ -1,16 +1,17 @@
 #![cfg_attr(rustfmt, rustfmt::skip)]
 
-
-
 use std::{any::type_name, hash::Hasher, io::{BufRead, BufReader, BufWriter, Read, Seek, Write}, path::PathBuf};
 
 use crate::{morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{ZipperMoving, ZipperWriting}};
+use crate::TrieValue;
 extern crate alloc;
 use alloc::collections::BTreeMap;
 use gxhash::{self, GxHasher};
 
 macro_rules! hex { () => { b'A'..=b'F' | b'0'..=b'9'}; }
 
+//GOAT, Document this module and clean up this list of desiderata
+//
 // Serialization requirements:
 // Should at least maintain the current sharing
 // Serialization should not traverse all paths (i.e. use pointer caching)
@@ -55,11 +56,6 @@ const HEX_OFFSET_LEN : usize = OFFSET_LEN*2+1;
 /// the leading byte of a hex offset is a b'x'
 type HexOffset = [u8; HEX_OFFSET_LEN];
 
-// the bare minimum constraints in oreder to use cata
-pub trait ZipperValue               : Clone + Send + Sync + Unpin + 'static {}
-impl<T>   ZipperValue for T where T : Clone + Send + Sync + Unpin + 'static {}
-
-
 pub struct SeOutputs {
   pub raw_data_path               : PathBuf,
   pub zeroes_compressed_data_path : PathBuf,
@@ -73,7 +69,7 @@ pub const META_DATA_FILENAME                : &'static str = "meta.json";
 /// Filename of the zero compressesed data file at the `out_dir_path` formal parameter in [`write_trie`] 
 pub const ZERO_COMPRESSED_HEX_DATA_FILENAME : &'static str = "zero_compressed_hex.data";
 
-pub fn write_trie<V : ZipperValue>(
+pub fn write_trie<V: TrieValue>(
   memo            : impl AsRef<str>, 
   trie            : BytesTrieMap<V>,
   serialize_value : impl for<'read, 'encode> Fn(&'read V, &'encode mut Vec<u8>)->ValueSlice<'read, 'encode>,
@@ -90,8 +86,9 @@ pub fn write_trie<V : ZipperValue>(
 
   let mut meta_path = out_dir_path.as_ref().to_path_buf();
   meta_path.push(META_DATA_FILENAME);
-  
-  std::fs::remove_file(&data_path)?;
+
+  let _ = std::fs::remove_file(&data_path);
+
   let mut data_file = std::fs::File::create_new(&data_path)?;
   data_file.write_fmt(format_args!("{:?} :: {:?}\n", type_name::<BytesTrieMap<V>>(), memo.as_ref()))?;
   let mut meta_file = std::fs::File::create(&meta_path)?;
@@ -120,7 +117,7 @@ pub fn write_trie<V : ZipperValue>(
         []| [ _, _, ..] => {
                             // reset the scratch buffer
                             ctx.algf_scratch.len = 0;
-                            
+
                             let jump_sub_slice = ctx.lazy_bytes_pool.pop().unwrap_or(Vec::new());
 
                             // with the exception of the hash, this is the basis of the "nil" node
@@ -131,33 +128,33 @@ pub fn write_trie<V : ZipperValue>(
                               paths_count : 0,
                               jump_sub_slice
                             };
-                            
+
                             let mut hasher = gxhash::GxHasher::with_seed(0); // the accumulation for the hash happens here
-                            
+
                             for each in accumulators {
                               let Accumulator { mut hash_idx, max_len, val_count, paths_count, jump_sub_slice } = core::mem::replace(each, Ok(Accumulator::zeroed()))?;
-                            
+
 
                               '_deal_with_lost_bytes : {
                                 hash_idx = maybe_make_path_node(ctx, &jump_sub_slice, hash_idx)?;
                                 ctx.lazy_bytes_pool.push(jump_sub_slice);
                               };
-                            
+
                               hasher.write_u128(hash_idx.0);
                               let offset = hash_idx.1.to_be_bytes();
                               let _type_check : Offset = offset;
-                              
+
                               ctx.algf_scratch.buffer[ctx.algf_scratch.len] = offset_to_hex_be(offset);
-                              
+
                               acc.max_len      = acc.max_len.max(max_len);
                               acc.val_count   += val_count;
                               acc.paths_count += paths_count;
-                              
+
                               ctx.algf_scratch.len+=1;
                             }
                             let branches_hash = hasher.finish_u128();
                             // we now have all needed hashes
-                            
+
                             // find correct offset
                             let branches_idx =
                                 if let Some(&offset) = ctx.entry.get(&branches_hash) {
@@ -165,32 +162,29 @@ pub fn write_trie<V : ZipperValue>(
                                 } else {
                                   // it does not exist we write it to the file
                                   let Ctx { count, entry: values, value_offsets, data_file, algf_scratch, .. } = ctx;
-                                  
+
                                   let cur_idx = *count;
                                   data_file.write(&[Tag::Branches as u8, b' '])?;
                                   data_file.write_all(algf_scratch.buffer[0..algf_scratch.len].as_flattened())?;
                                   data_file.write(&[b'\n'])?;
-                                  
+
                                   let new_pos = data_file.stream_position()?;
-                            
+
                                   value_offsets.push(new_pos);
-                                  
-                            
+
                                   values.insert(branches_hash, cur_idx);
                                   *count += INCR;
-                                  
+
                                   cur_idx
                                 };
-                            
-                            
+
                             let branches_hash_idx = (branches_hash, branches_idx);
-                            
-                            
+
                             let child_mask_hash_idx = serialize_with_rollback( ctx,
                                                                                Tag::ChildMask,
                                                                                &mut bytemask.0.map(|word| word.reverse_bits().to_be_bytes()).as_flattened().into_iter().copied(),
                                                                              )?;
-                            
+
                             let hash_idx = write_node(ctx, Tag::BranchNode, child_mask_hash_idx, branches_hash_idx)?;
                             Accumulator {
                               hash_idx,
@@ -215,7 +209,7 @@ pub fn write_trie<V : ZipperValue>(
         Some(value) => { let value =
                              {
                                let mut tmp = core::mem::replace(&mut ctx.serialize_scratch, Vec::new());
-                               
+
                                let slice = serialize_value(value, &mut tmp);
                                let slice = match slice { ValueSlice::Encode(items) => { &*items},
                                                          ValueSlice::Read(items)   => items,
@@ -223,16 +217,16 @@ pub fn write_trie<V : ZipperValue>(
                                let v        = serialize_with_rollback( ctx, Tag::Value,
                                                                         &mut slice.into_iter().copied(),
                                                                       )?;
-                               
+
                                tmp.clear();
                                let _ = core::mem::replace(&mut ctx.serialize_scratch, tmp);
-                              
+
                                v
                              };
                          let cont = acc0;
 
                          let hash_idx = write_node(ctx, Tag::ValueNode, value, cont.hash_idx)?;
-                         
+
                          Accumulator {
                            hash_idx,
                            val_count  : cont.val_count+1,
@@ -243,7 +237,7 @@ pub fn write_trie<V : ZipperValue>(
       };
 
       acc1.jump_sub_slice.clear();
-      
+
       if origin_path.len() == jump_length {
         acc1.hash_idx = maybe_make_path_node(ctx, origin_path, acc1.hash_idx)?;
         Ok(acc1)
@@ -342,12 +336,8 @@ fn serialize_with_rollback (
   hasher.write_u8(tag as u8);
   context.data_file.write(&[tag as u8, b' '])?;
   for b in i {
-
-    
-
     hasher.write_u8(b);
     context.data_file.write( &byte_to_hex_pair_be(b) )?;
-    
   }
   let hash = hasher.finish_u128();
   context.data_file.write(&[b'\n'])?;
@@ -377,10 +367,10 @@ fn write_node(
     None          => {
                        let cur_idx = context.count;
                        let v_offset = value_idx.to_be_bytes();
-                      
+
                        let c_offset = cont_idx.to_be_bytes();
                        let _type_check : [Offset; 2] = [v_offset, c_offset];
-                       
+
                        context.data_file.write(&[tag as u8, b' '])?;
                        context.data_file.write(&offset_to_hex_be( v_offset ))?;
                        context.data_file.write(&offset_to_hex_be( c_offset ))?;
@@ -388,7 +378,7 @@ fn write_node(
 
                        context.entry.insert(hash, cur_idx);
                        context.count += INCR;
-                       
+
                        let new_pos = context.data_file.stream_position()?;
                        context.value_offsets.push(new_pos);
                        Ok((hash, cur_idx))
@@ -637,7 +627,7 @@ fn offset_and_childmask_zero_compressor(
                  } else {
                    *zeroes += 1;
                  }
-                 
+
                }
       b'x'  => { 
                  if *zeroes > 0 {
@@ -649,7 +639,6 @@ fn offset_and_childmask_zero_compressor(
                  byte_boundary = false;
                  hit_x = true;
                  *zeroes = 0;
-                 
                }
       _     => {
                  if *zeroes > 0 {
@@ -659,7 +648,6 @@ fn offset_and_childmask_zero_compressor(
                  if hit_x && !byte_boundary {
                    out.write(b"0")?;
                  }
-                 
                  out.write(&[ascii])?;
                  hit_x = false
                }
@@ -681,7 +669,7 @@ fn offset_and_childmask_zero_compressor(
 // /////////////////
 
 /// deserialize the serialized pathmap
-pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>, de : impl Fn(&[u8])->V)-> Result<BytesTrieMap<V>, std::io::Error> {
+pub fn deserialize_file<V: TrieValue>(file_path : impl AsRef<std::path::Path>, de : impl Fn(&[u8])->V)-> Result<BytesTrieMap<V>, std::io::Error> {
   let f = std::fs::File::open(file_path.as_ref())?;
   let mut reader = BufReader::new(f);
 
@@ -705,7 +693,7 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
   }
 
   #[cfg(debug_assertions)]
-  impl<V : ZipperValue> core::fmt::Debug for Deserialized<V> {
+  impl<V: TrieValue> core::fmt::Debug for Deserialized<V> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
       match self {
         Deserialized::Path(range)           => write!(f,"Path({}..{})", range.start, range.end),
@@ -735,7 +723,6 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
                ),
           b' ',data @ ..] = bytes else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected `<tag byte><space>`")); };
 
-          
   // // these are for debugging
   // println!("0x{:_>16x} {} {:?}\n{:#?}", deserialized.len(), *t as char, std::str::from_utf8(data), deserialized);
   // println!("0x{:_>16x} {} {:?}", deserialized.len(), *t as char, std::str::from_utf8(data));
@@ -746,7 +733,7 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
       // paths currently have no compression yet
       Tag::PATH         => { 
                              let start = paths_buffer.len();
-                             
+
                              let mut cur = data;
                              loop {
                                match cur {
@@ -759,7 +746,7 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
                                 _                    => return Err(std::io::Error::other("Malformed serialized ByteTrie, expected path as `(<hex_top><Hex_bot>)*`"))
                                }
                              }
-                             
+
                              let end = paths_buffer.len();
 
 
@@ -784,11 +771,11 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
                                                         }
                                }
                              }
-                            
+
                              let value = de(&val_scratch);
 
                              val_scratch.clear();
-                            
+
                              deserialized.push(Deserialized::Value(value));
                            }
 
@@ -814,14 +801,14 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
                            }
       Tag::PATH_NODE    => { let mut node_buf     = [0_u64 ; 2];
                              decompress_zeros_compression_offset(data, &mut node_buf)?;
-                             
+
                              let [path_idx, node_idx] = node_buf.map(|x| x as usize);
-                             
+
                              let Deserialized::Path(path) = &deserialized[path_idx] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected path")); };
                              let Deserialized::Node(node) = &deserialized[node_idx] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected node")); };
 
                              let mut path_node = BytesTrieMap::new();
-                             
+
                              let mut wz        = path_node.write_zipper();
                              wz.descend_to(&paths_buffer[path.start..path.end]);
                              wz.graft(&node.read_zipper());
@@ -841,24 +828,23 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
                              let Deserialized::Value(value) = &deserialized[val_idx]  else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected value")); };
                              let Deserialized::Node(node)   = &deserialized[node_idx] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected node")); };
 
-                             
                              let mut value_node = node.clone();
                              value_node.insert(&[], value.clone());
-                  
+
                              deserialized.push(Deserialized::Node(value_node));
                            } 
-                           
+
       Tag::BRANCH_NODE  => { let mut node_buf     = [0_u64 ; 2];
                              decompress_zeros_compression_offset(data, &mut node_buf)?;
 
                              let [mask_idx, branches_idx] = node_buf.map(|x| x as usize);
-                             
+
                              let Deserialized::ChildMask(mask) = &deserialized[mask_idx] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected childmask as `(/?<hex_top><Hex_bot>)*`")); };
                              let iter = crate::utils::ByteMaskIter::new(*mask);
 
                              let Deserialized::Branches(r) = &deserialized[branches_idx] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected branches")); };
                              let branches = &branches_buffer[r.start..r.end];
-                             
+
                              core::debug_assert_eq!(mask.into_iter().copied().map(u64::count_ones).sum::<u32>() as usize, branches.len());
 
                              let mut branch_node = BytesTrieMap::new();
@@ -866,7 +852,7 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
 
                              for (byte, &idx) in iter.into_iter().zip(branches) {
                                let Deserialized::Node(node) = &deserialized[idx as usize] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected node")); };
-                               
+
                                core::debug_assert!(!node.is_empty());
 
                                wz.descend_to_byte(byte);
@@ -882,10 +868,6 @@ pub fn deserialize_file<V : ZipperValue>(file_path : impl AsRef<std::path::Path>
 
       _ => core::unreachable!()
     }
-
-
-    
-
 
     line.clear();
   }
@@ -903,7 +885,6 @@ fn decompress_zeros_compression_offset(mut encoded_hex : &[u8], buffer : &mut [u
     *each = 0;
   }
 
-
   let mut count = 0;
   let mut x = false;
 
@@ -919,11 +900,10 @@ fn decompress_zeros_compression_offset(mut encoded_hex : &[u8], buffer : &mut [u
                                                           encoded_hex = rest;
                                                         }
       [b'/', top @ hex!(), bot @ hex!(), rest @ .. ] => { let hex_zeros = hex_pair_be_to_byte([*top,*bot]);
-                                                          
-                                                         
+
                                                           // whole bytes
                                                           let zeroes = hex_zeros/2;
-                                                          
+
                                                           debug_assert!(zeroes <= 6 );
                                                           buffer[count] <<= zeroes * u8::BITS as u8;
 
@@ -963,10 +943,10 @@ fn decompress_zeros_compression_child_mask(mut encoded_hex : &[u8], )->Result<[[
                                                           break
                                                         }
       [b'/', top @ hex!(), bot @ hex!(), rest @ .. ] => { let hex_zeros = hex_pair_be_to_byte([*top,*bot]);
-                                                         
+
                                                           // whole bytes
-                                                          let zeroes = hex_zeros/2;                                                        
-                                                          
+                                                          let zeroes = hex_zeros/2;
+
                                                           let total :usize = bytes + zeroes as usize + count * U64_BYTES;
                                                           (count,bytes) = (total / U64_BYTES, total % U64_BYTES);
                                                           encoded_hex = rest;
@@ -978,7 +958,7 @@ fn decompress_zeros_compression_child_mask(mut encoded_hex : &[u8], )->Result<[[
                                                           bytes += 1;
                                                           count += bytes as usize / U64_BYTES;
                                                           bytes %= U64_BYTES;
-                                                          
+
                                                           encoded_hex = rest;
                                                         }
       _                                              => { return Err(std::io::Error::other("Malformed serialized ByteTrie, childmask")); }
@@ -994,7 +974,7 @@ mod test {
   use std::sync::Arc;
 
   #[test]
-  fn trivial() {
+  fn serialization_trivial_test() {
     const LEN : usize = 0x_80;
     // const LEN : usize = 0x_02;
     #[allow(long_running_const_eval)]
@@ -1013,7 +993,7 @@ mod test {
     let as_arc = |bs : &[u8]| alloc::sync::Arc::<[u8]>::from(bs);
     trie.insert(b"a", as_arc(b""));
     trie.insert(b"abc", as_arc(b""));
-   
+
     trie.insert(b"ab", as_arc(b""));
     trie.insert(b"abcd", as_arc(b""));
 
@@ -1047,7 +1027,7 @@ mod test {
     trie.insert(b"axbxexz", as_arc(b"")); 
     trie.insert(b"axbexyzccca", as_arc(b"")); 
     trie.insert(b"axbexyz", as_arc(b"")); 
-    
+
     trie.insert(b"", as_arc(b"abc"));
 
 
@@ -1160,7 +1140,7 @@ mod test {
     trie.insert(b"axbxexz", as_arc(b""));
     trie.insert(b"axbexyzccca", as_arc(b""));
     trie.insert(b"axbexyz", as_arc(b""));
-    
+
     trie.insert(b"a", as_arc(b""));
     trie.insert(b"ab", as_arc(b""));
     trie.insert(b"b", as_arc(b""));
@@ -1495,7 +1475,7 @@ mod test {
         v
       )}, &path
     ).unwrap();
-    
+
     let read = std::fs::File::open(serialized.zeroes_compressed_data_path).unwrap();
     dbg_hex_line_numbers(&read, &path).unwrap();
 
@@ -1532,7 +1512,7 @@ mod test {
 // we could consider making some of the following public later
 
 // for debugging
-fn _trace<V : ZipperValue>(trie : BytesTrieMap<V>) {
+fn _trace<V: TrieValue>(trie : BytesTrieMap<V>) {
   let counter = core::sync::atomic::AtomicUsize::new(0);
   trie.into_cata_jumping_side_effect(|bytemask, accs, jump_len, v, o| {
     let n = counter.fetch_add(1, core::sync::atomic::Ordering::SeqCst);
