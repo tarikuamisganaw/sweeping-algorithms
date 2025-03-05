@@ -8,14 +8,10 @@
 //!
 //! #### Catamorphism
 //!
-//! Process a trie from the leaves towards the root.  This algorithm proceeds in a depth-first order.
-//!
-//! - A `map` closure is called on each leaf value; e.g. a value at location where there is no other value
-//! deeper in the trie accessible from that location.  As the algoritm ascends.
-//! - A `collapse` closure is called to merge a value along the path with the intermediate structure being
-//! carried up the trie.
-//! - An `alg` closure integrates intermediate structures from downstream branches into a single structure
-//! for that location.
+//! Process a trie from the leaves towards the root.  This algorithm proceeds in a depth-first order,
+//! working from the leaves upward calling a closure on each path in the trie.  A summary "accumulator"
+//! type `W` is used to represent the information about the trie and carry it upwards to the next invocation
+//! of the closure.
 //!
 //! The word "catamorphism" comes from the Greek for "down", because the root is considered the bottom
 //! of the trie.  This is confusing because elsewhere we use the convention that `descend_` "deeper"
@@ -72,39 +68,60 @@ use crate::trie_map::BytesTrieMap;
 use crate::trie_node::TrieNodeODRc;
 use crate::zipper::*;
 
+/// Provides methods to perform a catamorphism on types that can reference or contain a trie
 pub trait Catamorphism<V> {
     /// Applies a catamorphism to the trie descending from the zipper's root, running the `alg_f` at every
     /// step (at every byte)
     ///
-    /// ## Args
-    /// - `map_f`: `mapper(v: &V, path: &[u8]) -> W`
-    /// Maps value `v` at a leaf `path` into an intermediate result
+    /// ## Arguments to `alg_f`:
+    /// `(child_mask: &`[`ByteMask`]`, children: &mut [W], value: Option<&V>, path: &[u8]`
     ///
-    /// - `collapse_f`: `collapse(v: &V, w: W, path: &[u8]) -> W`
-    /// Folds value `v` at a non-leaf `path` with the aggregated results from the trie below `path`
+    /// - `child_mask`: A [`ByteMask`] indicating the corresponding byte for each downstream branche in
+    /// `children`.
     ///
-    /// - `alg_f`: `alg(mask: [u64; 4], cs: &mut [W], path: &[u8]) -> W`
-    /// Aggregates the results from the child branches, `cs`, descending from `path` into a single result
+    /// - `children`: A slice containing all the `W` values from previous invocations of `alg_f` for
+    /// downstream branches.
+    ///
+    /// - `value`: A value associated with a given path in the trie, or `None` if the trie has no value at
+    /// that path.
+    ///
+    /// - `path`: The [`origin_path`](ZipperAbsolutePath::origin_path) for the invocation.  The `alg_f` will
+    /// be run exactly once for each unique path in the trie.
+    ///
+    /// ## Behavior
     ///
     /// The focus position of the zipper will be ignored and it will be immediately reset to the root.
-    ///
-    /// In all cases, the `path` arg is the [origin_path](ZipperAbsolutePath::origin_path)
     fn into_cata_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W;
 
     /// Applies a "jumping" catamorphism to the trie
     ///
-    /// ## Args
-    /// - `jump_f`: `FnMut(sub_path: &[u8], w: W, path: &[u8]) -> W`
-    /// Elevates a result `w` descending from the relative path, `sub_path` to the current position at `path`
+    /// A "jumping" catamorphism is a form of catamorphism where the `alg_f` "jumps over" (isn't called for)
+    /// path bytes in the trie where there isn't either a `value` or a branch where `children.len() > 1`.
     ///
-    /// See [into_cata_side_effect](Catamorphism::into_cata_side_effect) for explanation of other behavior
+    /// ## Arguments to `alg_f`:
+    /// `(child_mask: &`[`ByteMask`]`, children: &mut [W], jumped_byte_cnt: usize, value: Option<&V>, path: &[u8]`
+    ///
+    /// - `jumped_byte_cnt`: The number of bytes before the `alg_f` will be called again.  The "jumped" substring
+    /// is equal to `path[path.len()-jumped_byte_cnt..]`
+    ///
+    /// See [into_cata_side_effect](Catamorphism::into_cata_side_effect) for explanation of other arguments and
+    /// behavior
     fn into_cata_jumping_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
         where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W;
 }
 
-/// GOAT, document this, largely by transplanting the docs from the original API.  Also fix the docs on
-/// the real API to be accurate with the updated interface
+/// A compatibility shim to provide a 3-function catamorphism API
+///
+/// ## Args
+/// - `map_f`: `mapper(v: &V, path: &[u8]) -> W`
+/// Maps value `v` at a leaf `path` into an intermediate result
+///
+/// - `collapse_f`: `collapse(v: &V, w: W, path: &[u8]) -> W`
+/// Folds value `v` at a non-leaf `path` with the aggregated results from the trie below `path`
+///
+/// - `alg_f`: `alg(mask: ByteMask, children: &mut [W], path: &[u8]) -> W`
+/// Aggregates the results from the child branches, `children`, descending from `path` into a single result
 pub struct SplitCata;
 
 impl SplitCata {
@@ -135,8 +152,12 @@ impl SplitCata {
     }
 }
 
-/// GOAT, document this, largely by transplanting the docs from the original API.  Also fix the docs on
-/// the real API to be accurate with the updated interface
+/// A compatibility shim to provide a 4-function "jumping" catamorphism API
+///
+/// - `jump_f`: `FnMut(sub_path: &[u8], w: W, path: &[u8]) -> W`
+/// Elevates a result `w` descending from the relative path, `sub_path` to the current position at `path`
+///
+/// See [`SplitCata`] for a description of additional args
 pub struct SplitCataJumping;
 
 impl SplitCataJumping {
