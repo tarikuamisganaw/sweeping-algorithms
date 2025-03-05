@@ -23,6 +23,21 @@ macro_rules! hex { () => { b'A'..=b'F' | b'0'..=b'9'}; }
 // I added a few, let me know what you think @Luke Peterson @Remy_Clarke
 // Big plus if we have skip-ahead (which allows for search, even better if it allows for partial deserialization) (modifié)
 
+//GOAT TODO to make this a nice public-facing API:
+// - We decided this format will be called the "topo_dag" format.  Change function names to reflect that
+// - Option to Replace the hashes in the output file with sequential indices, because the hashes have very high
+//  entropy, and compress poorly.  And they're big.  The advantage of keeping the hashes is it lets us extend
+//  the file piecemeal with new data.  So that's why we probably want the indices to be an option, and the hashes
+//  to be available in some situations.
+// - Make a single file format that encapsulates both the metadata and the serialized data, using separate sections.
+// - We should specify a private header that includes a file version.  LP: You have no idea how much time I've
+//  lost from my life debugging code when it had loaded an incompatible version of a private file format.
+// - Look at a single-pass approach to generate the file, so there is no need for a 2-pass algorithm and a temporary file
+// - Eliminate sub-file-names from the publicly exposed API.  e.g. `pub const RAW_HEX_DATA_FILENAME`, etc.
+// - Create separate entry points to encode it as either compressed or uncompressed.
+// - Abstract away filesystem calls, and implement in terms of std::io traits.  i.e. `std::io::Read`, `std::io::Write`, `std::io::Seek`
+// - Separate the trie optimization functionality from the format encode functionality, and move trie optimization
+//  to a separate module
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
@@ -306,7 +321,6 @@ fn rollback_or_advance (
     if let Some(&offset) = context.entry.get(&hash) {
       // rollback and use lookup value
 
-      
       let cur_pos = context.data_file.stream_position()?;
       context.data_file.seek_relative(rollback_pos as i64 - cur_pos as i64)?;
       (hash, offset)
