@@ -37,6 +37,8 @@ mod zipper_head;
 #[cfg(feature = "counters")]
 pub mod counters;
 
+pub mod dag_serialization;
+
 mod trie_node;
 mod write_zipper;
 mod trie_ref;
