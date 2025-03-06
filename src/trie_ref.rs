@@ -323,6 +323,7 @@ mod tests {
 
         // With the current node types, there likely isn't any reason the node would be split at "He"
         let trie_ref = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"He");
+        #[cfg(not(feature = "all_dense_nodes"))]
         assert_eq!(trie_ref.node_key(), b"He");
         assert_eq!(trie_ref.get_value(), None);
         assert_eq!(trie_ref.path_exists(), true);
