@@ -38,6 +38,7 @@ mod zipper_head;
 pub mod counters;
 
 pub mod serialization;
+pub mod path_serialization;
 
 mod trie_node;
 mod write_zipper;
