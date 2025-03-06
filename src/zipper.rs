@@ -884,10 +884,15 @@ pub(crate) mod read_zipper_core {
             }
         }
         fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
+            let k = k.as_ref();
+            if k.len() == 0 {
+                return self.path_exists() //Zero-length path is a no-op
+            }
+
             self.prepare_buffers();
             debug_assert!(self.is_regularized());
 
-            self.prefix_buf.extend(k.as_ref());
+            self.prefix_buf.extend(k);
             let mut key_start = self.node_key_start();
             let mut key = &self.prefix_buf[key_start..];
 
