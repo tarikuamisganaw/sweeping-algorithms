@@ -1051,7 +1051,6 @@ pub(crate) mod read_zipper_core {
 
             let (mut new_tok, mut key_bytes, mut child_node, mut _value) = self.focus_node.next_items(self.focus_iter_token);
             while new_tok != NODE_ITER_FINISHED {
-
                 //Check to see if the iter result has modified more than one byte
                 let node_key = self.node_key();
                 if node_key.len() == 0 {
@@ -1059,30 +1058,28 @@ pub(crate) mod read_zipper_core {
                     return false;
                 }
                 let fixed_len = node_key.len() - 1;
-                if fixed_len > key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
+                if fixed_len >= key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
                     return false;
                 }
 
-                if key_bytes.len() >= node_key.len() {
-                    if key_bytes[..node_key.len()] > *node_key {
-                        *self.prefix_buf.last_mut().unwrap() = key_bytes[node_key.len()-1];
-                        self.focus_iter_token = new_tok;
+                if key_bytes[fixed_len] > node_key[fixed_len] {
+                    *self.prefix_buf.last_mut().unwrap() = key_bytes[node_key.len()-1];
+                    self.focus_iter_token = new_tok;
 
-                        //If this operation landed us at the end of the path within the node, then we
-                        // should re-regularize the zipper before returning
-                        if key_bytes.len() == 1 {
-                            match child_node {
-                                None => {},
-                                Some(rec) => {
-                                    self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
-                                    self.focus_node = rec.borrow().as_tagged();
-                                    self.focus_iter_token = NODE_ITER_INVALID
-                                },
-                            }
+                    //If this operation landed us at the end of the path within the node, then we
+                    // should re-regularize the zipper before returning
+                    if key_bytes.len() == 1 {
+                        match child_node {
+                            None => {},
+                            Some(rec) => {
+                                self.ancestors.push((self.focus_node.clone(), new_tok, self.prefix_buf.len()));
+                                self.focus_node = rec.borrow().as_tagged();
+                                self.focus_iter_token = NODE_ITER_INVALID
+                            },
                         }
-
-                        return true
                     }
+
+                    return true
                 }
 
                 (new_tok, key_bytes, child_node, _value) = self.focus_node.next_items(new_tok);
@@ -1340,6 +1337,9 @@ pub(crate) mod read_zipper_core {
             //De-regularize the zipper
             debug_assert!(self.is_regularized());
             self.deregularize();
+            if self.focus_iter_token == NODE_ITER_INVALID {
+                self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+            }
             self.k_path_internal(k, base_idx)
         }
     }
@@ -1511,6 +1511,8 @@ pub(crate) mod read_zipper_core {
         #[inline]
         fn k_path_internal(&mut self, k: usize, base_idx: usize) -> bool {
             loop {
+                //If any of these trip, the caller is probably misusing the API and likely didn't call
+                // `descend_first_k_path` before calling `to_next_k_path`
                 debug_assert!(self.prefix_buf.len() <= base_idx+k);
                 debug_assert!(self.prefix_buf.len() >= base_idx);
                 debug_assert!(self.focus_iter_token != NODE_ITER_INVALID);
@@ -2753,6 +2755,114 @@ mod tests {
         assert_eq!(zipper.path(), &[3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194, 1, 46]);
         assert_eq!(zipper.to_next_k_path(2), false);
         assert_eq!(zipper.path(), &[3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194]);
+    }
+
+    /// This tests the k_path methods in the context of using them recursively, to shake out
+    /// bugs caused by invalidating the iter token
+    #[test]
+    fn k_path_test6() {
+        let keys = [
+            [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75, 128, 131, 193, 49],
+            [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 84, 3, 193, 75, 192, 192, 3, 193, 75, 128, 131, 193, 49],
+        ];
+        let map: BytesTrieMap<()> = keys.iter().map(|k| (k, ())).collect();
+        let mut zipper = map.read_zipper();
+
+        fn test_loop<'a, Z: ZipperMoving + ZipperIteration<'a, ()>, AscendF: Fn(&mut Z, usize), DescendF: Fn(&mut Z, &[u8])>(zipper: &mut Z, descend_f: DescendF, ascend_f: AscendF) {
+            zipper.reset();
+
+            //L0 descent
+            descend_f(zipper, &[2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193]);
+            assert!(zipper.descend_first_k_path(1));
+            assert_eq!(zipper.path(), &[2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75]);
+
+            //L1 descent
+            descend_f(zipper, &[192, 3, 193, 84, 192, 3, 193]);
+            assert!(zipper.descend_first_k_path(1));
+            assert_eq!(zipper.path(), &[2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75]);
+
+            //L2 descent
+            descend_f(zipper, &[128, 131, 193]);
+            assert!(zipper.descend_first_k_path(1));
+            assert_eq!(zipper.path(), &[2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75, 128, 131, 193, 49]);
+
+            //L2 next and ascent
+            assert!(!zipper.to_next_k_path(1));
+            assert_eq!(zipper.path(), &[2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75, 128, 131, 193]);
+
+            ascend_f(zipper, 3);
+
+            //L1 next and ascent
+            assert!(!zipper.to_next_k_path(1));
+            assert_eq!(zipper.path(), &[2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193]);
+
+            ascend_f(zipper, 7);
+
+            //L0 next
+            assert!(zipper.to_next_k_path(1));
+            assert_eq!(zipper.path(), &[2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 84]);
+
+            ascend_f(zipper, 17);
+        }
+
+        //Try with a `descend_to` & `ascend`
+        test_loop(&mut zipper,
+            |zipper, path| assert!(zipper.descend_to(path)),
+            |zipper, steps| assert!(zipper.ascend(steps)),
+        );
+
+        //Try with a `descend_to_byte` & `ascend_byte`
+        test_loop(&mut zipper,
+            |zipper, path| {
+                for byte in path {
+                    assert!(zipper.descend_to_byte(*byte));
+                }
+            },
+            |zipper, steps| {
+                for _ in 0..steps {
+                    assert!(zipper.ascend_byte())
+                }
+            },
+        );
+
+        //Try with a `descend_first_byte` & `ascend_byte`
+        test_loop(&mut zipper,
+            |zipper, path| {
+                for _ in 0..path.len() {
+                    assert!(zipper.descend_first_byte());
+                }
+            },
+            |zipper, steps| {
+                for _ in 0..steps {
+                    assert!(zipper.ascend_byte())
+                }
+            },
+        );
+    }
+
+    /// This uses the k_path methods to descend and then re-ascend a trie, one step at a time.
+    #[test]
+    fn k_path_test7() {
+        let keys = [
+            [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75, 128, 131, 193, 49],
+            [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 84, 3, 193, 75, 192, 192, 3, 193, 75, 128, 131, 193, 49],
+        ];
+        let map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut zipper = map.read_zipper();
+
+        for i in 0..keys[0].len() {
+            assert_eq!(zipper.path(), &keys[0][..i]);
+            assert!(zipper.descend_first_k_path(1));
+        }
+        for i in (0..keys[0].len()).rev() {
+            assert_eq!(zipper.path(), &keys[0][..=i]);
+            if i != 17 {
+                assert!(!zipper.to_next_k_path(1));
+            } else {
+                assert!(zipper.to_next_k_path(1));
+                assert!(!zipper.to_next_k_path(1));
+            }
+        }
     }
 
     #[test]
