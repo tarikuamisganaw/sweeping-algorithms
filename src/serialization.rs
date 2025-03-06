@@ -2,7 +2,7 @@
 
 use std::{any::type_name, hash::Hasher, io::{BufRead, BufReader, BufWriter, Read, Seek, Write}, path::PathBuf};
 
-use crate::{morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{ZipperMoving, ZipperWriting}};
+use crate::{morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{Zipper, ZipperMoving, ZipperWriting}};
 use crate::TrieValue;
 extern crate alloc;
 use alloc::collections::BTreeMap;
@@ -84,9 +84,9 @@ pub const META_DATA_FILENAME                : &'static str = "meta.json";
 /// Filename of the zero compressesed data file at the `out_dir_path` formal parameter in [`write_trie`] 
 pub const ZERO_COMPRESSED_HEX_DATA_FILENAME : &'static str = "zero_compressed_hex.data";
 
-pub fn write_trie<V: TrieValue>(
+pub fn write_trie<C :Catamorphism<V> ,V: TrieValue>(
   memo            : impl AsRef<str>, 
-  trie            : BytesTrieMap<V>,
+  cata            : C,
   serialize_value : impl for<'read, 'encode> Fn(&'read V, &'encode mut Vec<u8>)->ValueSlice<'read, 'encode>,
   out_dir_path    : impl AsRef<std::path::Path>
 ) -> Result<SeOutputs,std::io::Error>
@@ -124,7 +124,7 @@ pub fn write_trie<V: TrieValue>(
   let ctx = &mut context;
 
   let Accumulator { max_len, val_count, paths_count, ..  } =
-  trie.into_cata_jumping_side_effect::<Result<Accumulator, std::io::Error>,_>(
+  cata.into_cata_jumping_side_effect::<Result<Accumulator, std::io::Error>,_>(
     |bytemask, accumulators, jump_length, maybe_val, origin_path| {
       core::debug_assert!(bytemask.iter().count() == accumulators.len());
       let acc0 = match accumulators { 
