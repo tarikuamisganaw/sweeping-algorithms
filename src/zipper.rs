@@ -1068,7 +1068,8 @@ pub(crate) mod read_zipper_core {
                         *self.prefix_buf.last_mut().unwrap() = key_bytes[node_key.len()-1];
                         self.focus_iter_token = new_tok;
 
-                        //Re-regularize the zipper before returning
+                        //If this operation landed us at the end of the path within the node, then we
+                        // should re-regularize the zipper before returning
                         if key_bytes.len() == 1 {
                             match child_node {
                                 None => {},
@@ -2864,14 +2865,24 @@ mod tests {
         let keys = [
             [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75, 128, 131, 193, 49],
             [2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 84, 3, 193, 75, 192, 192, 3, 193, 75, 128, 131, 193, 49],
+            [2, 197, 97, 120, 255, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 84, 3, 193, 75, 192, 192, 3, 193, 75, 128, 131, 193, 49],
         ];
         let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
         let mut rz = map.read_zipper();
 
-        rz.descend_to([2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75, 192, 3, 193, 84, 192, 3, 193, 75]);
-        assert_eq!(rz.to_next_sibling_byte(), false);
+        for i in 0..keys[0].len() {
+            rz.reset();
+            rz.descend_to(&keys[0][..i]);
+            if i != 18 && i != 5 {
+                assert_eq!(rz.to_next_sibling_byte(), false);
+            }
+        }
+
         rz.reset();
         rz.descend_to([2, 197, 97, 120, 105, 111, 109, 3, 193, 61, 4, 193, 97, 192, 192, 3, 193, 75]);
+        assert_eq!(rz.to_next_sibling_byte(), true);
+        rz.reset();
+        rz.descend_to([2, 197, 97, 120, 105]);
         assert_eq!(rz.to_next_sibling_byte(), true);
     }
 
