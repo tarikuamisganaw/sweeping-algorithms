@@ -2,7 +2,7 @@
 
 use std::{any::type_name, hash::Hasher, io::{BufRead, BufReader, BufWriter, Read, Seek, Write}, path::PathBuf};
 
-use crate::{morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{Zipper, ZipperMoving, ZipperWriting}};
+use crate::{morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{ZipperMoving, ZipperWriting}};
 use crate::TrieValue;
 extern crate alloc;
 use alloc::collections::BTreeMap;
@@ -25,10 +25,10 @@ macro_rules! hex { () => { b'A'..=b'F' | b'0'..=b'9'}; }
 
 //GOAT TODO to make this a nice public-facing API:
 // - We decided this format will be called the "topo_dag" format.  Change function names to reflect that
-// - Option to Replace the hashes in the output file with sequential indices, because the hashes have very high
-//  entropy, and compress poorly.  And they're big.  The advantage of keeping the hashes is it lets us extend
-//  the file piecemeal with new data.  So that's why we probably want the indices to be an option, and the hashes
-//  to be available in some situations.
+// - Separate the trie optimization functionality from the format encode functionality, and move trie optimization
+//  (aka Merkle Tree optimization) to a separate module that can run independently or called from serialization
+// - Figure out if / how we can get the overheads in the encoding in line with the path_serialization, and if
+//  we can't (or don't want to), then document why.
 // - Make a single file format that encapsulates both the metadata and the serialized data, using separate sections.
 // - We should specify a private header that includes a file version.  LP: You have no idea how much time I've
 //  lost from my life debugging code when it had loaded an incompatible version of a private file format.
@@ -36,8 +36,6 @@ macro_rules! hex { () => { b'A'..=b'F' | b'0'..=b'9'}; }
 // - Eliminate sub-file-names from the publicly exposed API.  e.g. `pub const RAW_HEX_DATA_FILENAME`, etc.
 // - Create separate entry points to encode it as either compressed or uncompressed.
 // - Abstract away filesystem calls, and implement in terms of std::io traits.  i.e. `std::io::Read`, `std::io::Write`, `std::io::Seek`
-// - Separate the trie optimization functionality from the format encode functionality, and move trie optimization
-//  to a separate module
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]

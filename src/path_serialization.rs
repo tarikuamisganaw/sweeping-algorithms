@@ -1,3 +1,4 @@
+
 // GOAT both functions should be tested on long paths (larger than chunk size)
 use libz_ng_sys::*;
 use crate::trie_map::BytesTrieMap;
@@ -10,7 +11,7 @@ use crate::zipper::{ZipperIteration, ZipperWriting};
 pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::io::Write>(mut rz: RZ, target: &mut W) -> std::io::Result<(usize, usize, usize)> {
   const CHUNK: usize = 4096; // not tuned yet
   let mut buffer = [0u8; CHUNK];
-  use std::io::Write;
+  #[allow(invalid_value)] //Squish the warning about a Null function ptr, because zlib uses a default allocator if the the ptr is NULL
   let mut strm: z_stream = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
   let mut ret = unsafe { zng_deflateInit(&mut strm, 7) };
   if ret != Z_OK { panic!("init failed") }
@@ -68,8 +69,7 @@ pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::i
 
 /// Deserialize bytes that were serialized by `serialize_paths` under path `k`
 /// Returns the source input, total deserialized bytes (uncompressed), and total number of path insert attempts
-pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read>(mut wz: WZ, mut source: R, v: V) -> std::io::Result<(usize, usize, usize)> {
-  use std::io::Read;
+pub fn deserialize_paths<V: TrieValue, WZ: ZipperWriting<V>, R: std::io::Read>(mut wz: WZ, mut source: R, v: V) -> std::io::Result<(usize, usize, usize)> {
   use libz_ng_sys::*;
   const IN: usize = 1024;
   const OUT: usize = 2048;
@@ -80,6 +80,7 @@ pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read>
   let mut lbuf_offset = 0;
   let mut finished_path = true;
   let mut total_paths = 0usize;
+  #[allow(invalid_value)] //Squish the warning about a Null function ptr, because zlib uses a default allocator if the the ptr is NULL
   let mut strm: z_stream = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
   let mut ret = unsafe { zng_inflateInit(&mut strm) };
   if ret != Z_OK { return Err(std::io::Error::new(std::io::ErrorKind::Other, "failed to init zlib-ng inflate")) }
@@ -95,7 +96,6 @@ pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read>
       strm.avail_out = OUT as _;
       strm.next_out = obuffer.as_mut_ptr();
       let mut pos = 0usize;
-      let mut end = 0usize;
 
       ret = unsafe { inflate(&mut strm, Z_NO_FLUSH) };
       if ret == Z_STREAM_ERROR { return Err(std::io::Error::new(std::io::ErrorKind::Other, "Z_STREAM_ERROR")) }
@@ -103,7 +103,7 @@ pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read>
         if ret == Z_STREAM_END { break 'reading }
         else { continue 'reading }
       }
-      end = OUT - strm.avail_out as usize;
+      let end = OUT - strm.avail_out as usize;
 
       'descending: loop {
         if finished_path {
@@ -155,7 +155,7 @@ mod test {
   fn path_serialize_deserialize() {
     let mut btm = BytesTrieMap::new();
     let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), ()); });
+    rs.iter().for_each(|r| { btm.insert(r.as_bytes(), ()); });
     let mut v = vec![];
     match serialize_paths(btm.read_zipper(), &mut v) {
       Ok((c, bw, pw)) => {
@@ -193,7 +193,7 @@ mod test {
       for i in 0..400 {
         rs.push(format!("{}{}{}{}", "0".repeat(zeros), i/100, (i/10)%10, i%10))
       }
-      rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), ()); });
+      rs.iter().for_each(|r| { btm.insert(r.as_bytes(), ()); });
 
       let mut v = vec![];
       match serialize_paths(btm.read_zipper(), &mut v) {
