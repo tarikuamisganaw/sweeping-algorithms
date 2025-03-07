@@ -1342,9 +1342,6 @@ pub(crate) mod read_zipper_core {
             //De-regularize the zipper
             debug_assert!(self.is_regularized());
             self.deregularize();
-            if self.focus_iter_token == NODE_ITER_INVALID {
-                self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
-            }
             self.k_path_internal(k, base_idx)
         }
     }
@@ -1516,11 +1513,24 @@ pub(crate) mod read_zipper_core {
         #[inline]
         fn k_path_internal(&mut self, k: usize, base_idx: usize) -> bool {
             loop {
-                //If any of these trip, the caller is probably misusing the API and likely didn't call
+                //If either of these trip, the caller is probably misusing the API and likely didn't call
                 // `descend_first_k_path` before calling `to_next_k_path`
                 debug_assert!(self.prefix_buf.len() <= base_idx+k);
                 debug_assert!(self.prefix_buf.len() >= base_idx);
-                debug_assert!(self.focus_iter_token != NODE_ITER_INVALID);
+
+                //Check to see if we need to reset the iter_token in the middle of the iteration.
+                // This shouldn't happen unless some other zipper methods invalidated the k_path iteration state,
+                // but that can happen and we should try our best to resume the iteration where we left it.
+                if self.focus_iter_token == NODE_ITER_INVALID {
+                    self.focus_iter_token = self.focus_node.iter_token_for_path(self.node_key());
+                    let (new_tok, key_bytes, _child_node, _value) = self.focus_node.next_items(self.focus_iter_token);
+                    let node_key = self.node_key();
+                    if key_bytes.len() >= node_key.len() {
+                        if &key_bytes[..node_key.len()] == node_key {
+                            self.focus_iter_token = new_tok;
+                        }
+                    }
+                }
 
                 if self.focus_iter_token == NODE_ITER_FINISHED {
                     //This branch means we need to ascend or we're finished with the iteration and will
