@@ -1493,7 +1493,7 @@ pub(crate) mod read_zipper_core {
         /// method puts the zipper in the state where the focus_node will be as close to the focus as
         /// possible while also ensuring `node_key().len() > 0` or the zipper is at the root.
         #[inline]
-        fn deregularize(&mut self) {
+        pub(crate) fn deregularize(&mut self) {
             if self.prefix_buf.len() == self.node_key_start() {
                 self.ascend_across_nodes();
             }
@@ -1701,7 +1701,7 @@ pub(crate) mod read_zipper_core {
         }
         /// Internal method returning the key within the focus node
         #[inline]
-        fn node_key(&self) -> &[u8] {
+        pub(crate) fn node_key(&self) -> &[u8] {
             let key_start = self.node_key_start();
             if self.prefix_buf.len() > 0 {
                 &self.prefix_buf[key_start..]

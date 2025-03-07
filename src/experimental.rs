@@ -92,6 +92,9 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
         }
     }
     /// Internal method to descend across the boundary between two factor zippers if the focus is on a value
+    ///
+    /// The ProductZipper's internal representation can be a bit tricky.  See the documentation on
+    /// `product_zipper_test4` for more discussion.
     #[inline]
     fn ensure_descend_next_factor(&mut self) {
         if self.z.is_value() && self.factor_paths.len() < self.secondaries.len() {
@@ -112,6 +115,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
             //See "WARNING" in ProductZipper creation methods
             assert_eq!(partial_path.len(), 0);
 
+            self.z.deregularize();
             self.z.push_node(secondary_root.as_tagged());
             self.factor_paths.push(self.path().len());
         }
@@ -258,7 +262,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ProductZipper<'_, '_, V> {
         self.z.path_exists()
     }
     fn value(&self) -> Option<&V> {
-        self.z.get_value()
+        self.get_value()
     }
     fn is_value(&self) -> bool {
         self.z.is_value()
@@ -304,6 +308,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ProductZipper<'_, '_
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::ByteMask;
     use crate::zipper::*;
     use crate::trie_map::BytesTrieMap;
     use crate::experimental::ProductZipper;
@@ -470,5 +475,42 @@ mod tests {
         // println!("{map_cnt} {collapse_cnt}");
         assert_eq!(map_cnt, 18);
         assert_eq!(collapse_cnt, 21);
+    }
+
+    /// Narrows in on some tricky behavior surrounding values at factor transitions.  The issue is that the
+    /// same path can be represented with more than one regularized form.  In the test below, the path:
+    /// `abcdefghijklmnopqrstuvwxyzbo` falls on the transition point (value) in the second factor, signaling
+    /// a step to the third factor.
+    ///
+    /// However, the regularization behavior means that the zipper's `focus_node` will be regularized to point
+    /// to the 'w' in "bow".  This doesn't actually represent the 'w', but rather represents "the node that
+    /// follows 'o', which just happens to be 'w'".  On ascent, however, the `focus_node` will be the base
+    /// of the third factor, e.g. the {'f', 'p'} node.
+    ///
+    /// These are both valid configurations for the zipper and the user-facing methods should behave the same
+    /// regardless of the config.
+    ///
+    /// NOTE: This logic is the same regardless of node type, but using `all_dense_nodes` will shake out any
+    /// problems more aggressively.
+    #[test]
+    fn product_zipper_test4() {
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+
+        p.descend_to("abcdefghijklmnopqrstuvwxyzbo");
+        assert_eq!(p.value(), Some(&()));
+        assert_eq!(p.child_count(), 2);
+        assert_eq!(p.child_mask(), ByteMask::from_iter([b'p', b'f']));
+
+        p.descend_first_byte();
+        p.ascend_byte();
+        assert_eq!(p.value(), Some(&()));
+        assert_eq!(p.child_count(), 2);
+        assert_eq!(p.child_mask(), ByteMask::from_iter([b'p', b'f']));
     }
 }
