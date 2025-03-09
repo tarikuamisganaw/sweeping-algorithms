@@ -894,23 +894,15 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         // backward from the last
         const FORWARD: bool = true;
 
-        // #iterations can be reduced by popcount(mask[i] & prefix)
+        if n >= self.values.len() {
+            return (None, None)
+        }
 
-        //Find the nth entry
-        let mut child = -1;
-        // this is not DRY but I lost the fight to the Rust compiler
-        let pair = if FORWARD { self.values.iter().enumerate().find(|_| {
-            child += 1; child == (n as i32)
-        }) } else { self.values.iter().rev().enumerate().find(|_| {
-            child += 1; child == (n as i32)
-        }) };
-
-        //Figure out which prefix corresponds to that entry
-        match pair {
-            None => { return (None, None) }
-            Some((item, cf)) => {
-                (self.item_idx_to_prefix::<FORWARD>(item), cf.rec().map(|cf| &*cf.borrow()))
-            }
+        if FORWARD {
+            (self.item_idx_to_prefix::<FORWARD>(n), self.values[n].rec().map(|cf| &*cf.borrow()))
+        } else {
+            let idx = self.values.len() - n - 1;
+            (self.item_idx_to_prefix::<FORWARD>(n), self.values[idx].rec().map(|cf| &*cf.borrow()))
         }
     }
 
