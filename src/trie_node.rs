@@ -405,6 +405,19 @@ impl<'a, V: Clone + Send + Sync> AbstractNodeRef<'a, V> {
     }
 }
 
+impl<'a, V> AbstractNodeRef<'a, V> {
+    pub fn ref_count(&self) -> Option<usize> {
+        use std::sync::Arc;
+        match self {
+            AbstractNodeRef::None => None,
+            AbstractNodeRef::BorrowedDyn(_node) => None,
+            AbstractNodeRef::BorrowedRc(rc) => Some(Arc::strong_count(rc.as_arc())),
+            AbstractNodeRef::BorrowedTiny(_tiny) => None,
+            AbstractNodeRef::OwnedRc(rc) => Some(Arc::strong_count(rc.as_arc())),
+        }
+    }
+}
+
 /// A reference to a node with a concrete type
 pub enum TaggedNodeRef<'a, V> {
     DenseByteNode(&'a DenseByteNode<V>),
