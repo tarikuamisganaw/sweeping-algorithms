@@ -9,7 +9,7 @@ This means `PathMap` structures are bigger in memory and zippers are more expens
 
 Older versions of the code had the concept of rooted and un-rooted zippers, but this was a perennial foot gun and only partially addressed the problem.  It became unworkable with the introduction of the ZipperHead API, and was ultimately removed.
 
-## Alternative
+## Alternative: Redoing the public API to rework value access
 
 As with many tradeoffs in software, making something simpler in one place often pushes the complexity elsewhere, and this situation is no exception.
 
@@ -26,3 +26,42 @@ This becomes tricky when the the [`ZipperHead`] assigns exclusive paths to zippe
 A simplification of that idea is that a given zipper is allowed to access one and only one specific byte below its root position.  This solves the problem, but leads to questions around the correct behavior of the `child_mask` API, and what should happen if the client attemps to modify an invalid path relative to the zipper's root.
 
 This still may be preferable to the currently-implemented design however, as it's a more faithful abstraction of the underlying structure and leads to a tighter fast-path
+
+## Alternative 2: Redo the abstract node interface to change CoFree assumption
+
+The node contract expressed throught the [`TrieNode`] trait dictates that a node never holds a value at its root.  Instead the current trait dictates that an associated value is owned by the parent.  However this mismatch is in tension with the external API.
+
+I think my preferred fix would be to change the trait methods to reflect the implications of values associated with node roots.
+
+For example, a ByteNode currently is defined (conceptually) as:
+```rust
+    pub struct ByteNode<V> {
+        mask: [u64; 4],
+        values: Vec<CoFree<V>>,
+    }
+    pub struct CoFree<V> {
+        rec: Option<TrieNodeODRc<V>>,
+        value: Option<V>
+    }
+```
+
+Under the new proposal, it'd be defined (conceptually) as:
+```rust
+    pub struct ByteNode<V> {
+        root: Option<V>,
+        mask: [u64; 4],
+        values: Vec<ValOrChild<V>>,
+    }
+    pub enum ValOrChild<V> {
+        Val(V),
+        Child(TrieNodeODRc<V>)
+    }
+```
+
+## Path Forward
+
+Either of these changes have the promise to greatly simplify the code and probably can reduce zipper movement overheads by a bit (guessing 10% or so since they don't really effect memory coherence or density and those are the big wins).
+
+I personally believe Alternative 2 is a better option, not least because I think the external API is actually ok as it is and avoiding big changes to that limits the disruption to the internals of PathMap.  However both options imply a massive amount of churn.
+
+Therefore, I think much more complete fuzz tests are a prerequisite to embarking on either change.
