@@ -30,6 +30,7 @@ divan = "0.1.14"
 rand = "0.8.5"
 serde = { version = "1.0.163", features = ["derive"]}
 csv = "1.1.6"
+num = "0.4.3"
 
 [[bench]]
 name = "superdense_keys"
@@ -53,4 +54,8 @@ harness = false
 
 [[bench]]
 name = "serde"
+harness = false
+
+[[bench]]
+name = "oeis"
 harness = false
