@@ -1,4 +1,4 @@
-
+use divan::__private::Arg;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -165,32 +165,14 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
     }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
         let k = k.as_ref();
-        let starting_path_len = self.path().len();
-        // Descend the full path; we might overshoot this factor
-        if self.z.descend_to(k) {
-            // We didn't overshoot, so we can return.
-            true
-        } else {
-            // Ascend up to the deepest value along this path, in the current factor
-            while !self.z.is_value() {
-                if !self.z.ascend_until() {
-                    break
-                }
-            }
-
-            // Even though we had to backtrack, we must still be at or below where we started
-            debug_assert!(self.path().len() >= starting_path_len);
-
-            // Construct the part of the path yet-to-be descended
-            let remaining_path_start = self.path().len() - starting_path_len;
-            let remaining_path = &k[remaining_path_start..];
-
+        let descended = self.z.descend_to_existing(k);
+        if descended != k.len() {
             // Add the next factor, if there is one
             self.ensure_descend_next_factor();
 
-            //Recursively re-descend within this factor
-            self.z.descend_to(remaining_path)
+            self.z.descend_to(&k[descended..]);
         }
+        self.path_exists()
     }
     fn descend_to_byte(&mut self, k: u8) -> bool {
         self.descend_to(&[k])
@@ -512,5 +494,34 @@ mod tests {
         assert_eq!(p.value(), Some(&()));
         assert_eq!(p.child_count(), 2);
         assert_eq!(p.child_mask(), ByteMask::from_iter([b'p', b'f']));
+    }
+
+    #[test]
+    fn product_zipper_test5() {
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+
+        {
+            let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+            assert!(p.descend_to("abcdefghijklmnopqrstuvwxyzbowfo"));
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfo");
+            assert!(p.descend_first_byte());
+            // E1
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfoo");
+        }
+        {
+            let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+            p.descend_to("abcdefghijklmnopqrstuvwxyzbowf");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowf");
+            // E2
+            assert!(p.is_value());
+            assert!(p.descend_to("oo")); // E2.5
+            // E3
+            assert!(p.is_value());
+        }
     }
 }

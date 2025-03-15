@@ -111,6 +111,19 @@ pub trait ZipperMoving: ZipperMovingPriv {
     /// zipper's location will be updated, regardless of whether or not the path exists within the tree.
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool;
 
+    fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
+        let k = k.as_ref();
+        let mut i = 0;
+        while i < k.len() {
+            if !self.descend_to_byte(k[i]) {
+                self.ascend_byte();
+                return i
+            }
+            i += 1
+        }
+        i
+    }
+
     /// Moves the zipper one byte deeper into the trie.  Identical in effect to [descend_to](Self::descend_to)
     /// with a 1-byte key argument
     fn descend_to_byte(&mut self, k: u8) -> bool;
@@ -2504,6 +2517,29 @@ mod tests {
         zipper.to_next_val();
         assert_eq!(zipper.path().len(), 0);
     }
+
+    #[test]
+    fn descend_to_existing() {
+        let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        let btm: BytesTrieMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+
+        {
+            let mut rz = btm.read_zipper();
+            assert_eq!(3, rz.descend_to_existing("bowling"));
+            assert_eq!("bow".as_bytes(), rz.path());
+        }
+        {
+            let mut rz = btm.read_zipper();
+            assert_eq!(3, rz.descend_to_existing("can"));
+            assert_eq!("can".as_bytes(), rz.path());
+        }
+        {
+            let mut rz = btm.read_zipper();
+            assert_eq!(0, rz.descend_to_existing(""));
+            assert_eq!("".as_bytes(), rz.path());
+        }
+    }
+
 
     #[test]
     fn k_path_test1() {
