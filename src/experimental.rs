@@ -1,4 +1,3 @@
-use divan::__private::Arg;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -91,6 +90,25 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
             self.source_zippers.push(Box::new(other_z));
         }
     }
+    #[inline]
+    fn has_next_factor(&mut self) -> bool {
+        self.factor_paths.len() < self.secondaries.len()
+    }
+    #[inline]
+    fn enroll_next_factor(&mut self) {
+        //If there is a `_secondary_root_val`, it lands at the same path as the value where the
+        // paths are joined.  And the value from the earlier zipper takes precedence
+        let (secondary_root, partial_path, _secondary_root_val) = self.secondaries[self.factor_paths.len()].borrow_raw_parts();
+
+        //TODO! Dealing with hidden root path in a secondary factor is very nasty.  I'm going to punt
+        // on handling this until we move this feature out of the experimental stage.
+        //See "WARNING" in ProductZipper creation methods
+        assert_eq!(partial_path.len(), 0);
+
+        self.z.deregularize();
+        self.z.push_node(secondary_root.as_tagged());
+        self.factor_paths.push(self.path().len());
+    }
     /// Internal method to descend across the boundary between two factor zippers if the focus is on a value
     ///
     /// The ProductZipper's internal representation can be a bit tricky.  See the documentation on
@@ -163,13 +181,20 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
         //GOAT!!!  I think val_count properly belongs in the morphisms module
         unimplemented!()
     }
-    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
+    fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
         let k = k.as_ref();
         let descended = self.z.descend_to_existing(k);
+        if descended != k.len() && self.has_next_factor() {
+            self.enroll_next_factor();
+            descended + self.descend_to_existing(&k[descended..])
+        } else {
+            descended
+        }
+    }
+    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
+        let k = k.as_ref();
+        let descended = self.descend_to_existing(k);
         if descended != k.len() {
-            // Add the next factor, if there is one
-            self.ensure_descend_next_factor();
-
             self.z.descend_to(&k[descended..]);
         }
         self.path_exists()
@@ -510,18 +535,33 @@ mod tests {
             assert!(p.descend_to("abcdefghijklmnopqrstuvwxyzbowfo"));
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfo");
             assert!(p.descend_first_byte());
-            // E1
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfoo");
         }
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
             p.descend_to("abcdefghijklmnopqrstuvwxyzbowf");
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowf");
-            // E2
             assert!(p.is_value());
-            assert!(p.descend_to("oo")); // E2.5
-            // E3
+            assert!(p.descend_to("oo"));
             assert!(p.is_value());
+        }
+        {
+            let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+            p.descend_to("abcdefghijklmnopqrstuvwxyzbowfo");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfo");
+            assert!(p.ascend_byte());
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowf");
+            assert!(p.ascend_byte());
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbow");
+            assert!(p.descend_to_byte(b'p'));
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowp");
+            assert!(p.descend_to_byte(b'h'));
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowph");
+            assert!(p.descend_to_byte(b'o'));
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowpho");
+            assert!(p.is_value());
+            assert!(p.ascend_until());
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbow");
         }
     }
 }
