@@ -184,7 +184,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
     fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
         let k = k.as_ref();
         let descended = self.z.descend_to_existing(k);
-        if descended != k.len() && self.has_next_factor() {
+        if descended != k.len() && self.has_next_factor() && self.is_value() {
             self.enroll_next_factor();
             descended + self.descend_to_existing(&k[descended..])
         } else {
@@ -196,8 +196,9 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
         let descended = self.descend_to_existing(k);
         if descended != k.len() {
             self.z.descend_to(&k[descended..]);
+            return false
         }
-        self.path_exists()
+        true
     }
     fn descend_to_byte(&mut self, k: u8) -> bool {
         self.descend_to(&[k])
@@ -562,6 +563,27 @@ mod tests {
             assert!(p.is_value());
             assert!(p.ascend_until());
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbow");
+            assert!(p.ascend(3));
+            assert_eq!(vec![b'A', b'a', b'b'], crate::utils::ByteMaskIter::new(p.child_mask()).collect::<Vec<_>>());
+            assert!(p.descend_to("ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
+            assert_eq!(vec![b'f', b'p'], crate::utils::ByteMaskIter::new(p.child_mask()).collect::<Vec<_>>())
+        }
+    }
+
+    #[test]
+    fn product_zipper_test6() {
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+
+        {
+            let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+            assert!(!p.descend_to("ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
+            println!("p {}", std::str::from_utf8(p.path()).unwrap());
+            assert!(!p.ascend(27));
         }
     }
 }
