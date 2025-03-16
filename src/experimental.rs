@@ -183,12 +183,19 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
     }
     fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
         let k = k.as_ref();
-        let descended = self.z.descend_to_existing(k);
-        if descended != k.len() && self.has_next_factor() && self.is_value() {
-            self.enroll_next_factor();
-            descended + self.descend_to_existing(&k[descended..])
+        if self.has_next_factor() {
+            if self.is_value() && self.factor_paths.last().map(|l| *l).unwrap_or(0) < self.path().len() {
+                self.enroll_next_factor();
+            }
+            let descended = self.z.descend_to_value(k);
+            debug_assert!(descended <= k.len());
+            if descended < k.len() && descended > 0 {
+                descended + self.descend_to_existing(&k[descended..])
+            } else {
+                descended
+            }
         } else {
-            descended
+            self.z.descend_to_existing(k)
         }
     }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
@@ -199,34 +206,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
             return false
         }
         true
-
-
-        // let starting_path_len = self.path().len();
-        // // Descend the full path; we might overshoot this factor
-        // if self.z.descend_to(k) {
-        //     // We didn't overshoot, so we can return.
-        //     true
-        // } else {
-        //     // Ascend up to the deepest value along this path, in the current factor
-        //     while !self.z.is_value() {
-        //         if !self.z.ascend_until() {
-        //             break
-        //         }
-        //     }
-
-        //     // Even though we had to backtrack, we must still be at or below where we started
-        //     debug_assert!(self.path().len() >= starting_path_len);
-
-        //     // Construct the part of the path yet-to-be descended
-        //     let remaining_path_start = self.path().len() - starting_path_len;
-        //     let remaining_path = &k[remaining_path_start..];
-
-        //     // Add the next factor, if there is one
-        //     self.ensure_descend_next_factor();
-
-        //     //Recursively re-descend within this factor
-        //     self.descend_to(remaining_path)
-        // }
     }
     fn descend_to_byte(&mut self, k: u8) -> bool {
         self.descend_to(&[k])
@@ -561,37 +540,37 @@ mod tests {
 
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
-            assert!(p.descend_to("abcdefghijklmnopqrstuvwxyzbowfo"));
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfo");
+            assert!(p.descend_to("abcdefghijklmnopqrstuvwxyzbofo"));
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbofo");
             assert!(p.descend_first_byte());
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfoo");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbofoo");
         }
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
-            p.descend_to("abcdefghijklmnopqrstuvwxyzbowf");
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowf");
+            p.descend_to("abcdefghijklmnopqrstuvwxyzbof");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbof");
             assert!(p.is_value());
             assert!(p.descend_to("oo"));
             assert!(p.is_value());
         }
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
-            p.descend_to("abcdefghijklmnopqrstuvwxyzbowfo");
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowfo");
+            p.descend_to("abcdefghijklmnopqrstuvwxyzbofo");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbofo");
             assert!(p.ascend_byte());
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowf");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbof");
             assert!(p.ascend_byte());
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbow");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbo");
             assert!(p.descend_to_byte(b'p'));
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowp");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbop");
             assert!(p.descend_to_byte(b'h'));
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowph");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzboph");
             assert!(p.descend_to_byte(b'o'));
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbowpho");
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbopho");
             assert!(p.is_value());
             assert!(p.ascend_until());
-            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbow");
-            assert!(p.ascend(3));
+            assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbo");
+            assert!(p.ascend(2));
             assert_eq!(vec![b'A', b'a', b'b'], crate::utils::ByteMaskIter::new(p.child_mask()).collect::<Vec<_>>());
             assert!(p.descend_to("ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
             assert_eq!(vec![b'f', b'p'], crate::utils::ByteMaskIter::new(p.child_mask()).collect::<Vec<_>>())
@@ -610,7 +589,7 @@ mod tests {
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
             assert!(!p.descend_to("ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
-            println!("p {}", std::str::from_utf8(p.path()).unwrap());
+            // println!("p {}", std::str::from_utf8(p.path()).unwrap());
             assert!(!p.ascend(27));
         }
     }
@@ -632,7 +611,6 @@ mod tests {
         for _ in 0..14 {
             p1.descend_first_byte();
         }
-        // println!("{}", String::from_utf8_lossy(p1.path()));
         assert_eq!(p1.path_exists(), true);
         assert_eq!(p1.path(), b"arrboclubhouse");
         assert_eq!(p1.value(), Some(&()));
@@ -642,24 +620,65 @@ mod tests {
         assert_eq!(p2.path_exists(), true);
         assert_eq!(p2.path(), b"arrboclubhouse");
         assert_eq!(p2.value(), Some(&()));
-        p2.reset();
 
-        // Potential bug(s)
-        // "arowbow" should't exist because the whole subtrie below "arr" should be the
-        // second factor
-        p2.descend_to(b"arrowbow");
-        assert_eq!(p2.path(), b"arrowbow");
-        assert_eq!(p2.path_exists(), false); //GOAT this misbehaves
+        // Validate that I can back up, and re-descend
+        {
+            p2.ascend(11);
+            assert_eq!(p2.path(), b"arr");
+            assert_eq!(p2.path_exists(), true);
+            assert_eq!(p2.value(), Some(&()));
 
-        // "arowbowclub" should't exist because we started in a trie that shoudldn't exist
-        p2.descend_to(b"club");
-        assert_eq!(p2.path(), b"arrowbowclub");
-        assert_eq!(p2.path_exists(), false); //GOAT this misbehaves
+            p2.descend_to(b"boclub");
+            assert_eq!(p2.path(), b"arrboclub");
+            assert_eq!(p2.path_exists(), true);
+            assert_eq!(p2.value(), Some(&()));
+        }
 
-        p2.ascend(9);
-        p2.descend_to(b"boclub");
-        assert_eq!(p2.path_exists(), true);
-        assert_eq!(p2.path(), b"arrboclub");
-        assert_eq!(p2.value(), Some(&()));
+        //Now descend to a non-existent path off of the first factor, and re-ascend to
+        // an existing path
+        {
+            p2.reset();
+            // "arowbow" should't exist because the whole subtrie below "arr" should be the
+            // second factor
+            p2.descend_to(b"arrowbow");
+            assert_eq!(p2.path(), b"arrowbow");
+            assert_eq!(p2.path_exists(), false);
+
+            // "arowbowclub" should't exist because we started in a trie that doesn't exist
+            p2.descend_to(b"club");
+            assert_eq!(p2.path(), b"arrowbowclub");
+            assert_eq!(p2.path_exists(), false);
+
+            p2.ascend(9);
+            assert_eq!(p2.path(), b"arr");
+            assert_eq!(p2.path_exists(), true);
+            assert_eq!(p2.value(), Some(&()));
+
+            p2.descend_to(b"boclub");
+            assert_eq!(p2.path(), b"arrboclub");
+            assert_eq!(p2.path_exists(), true);
+            assert_eq!(p2.value(), Some(&()));
+        }
+
+        //Now descend to a non-existent path off of the second factor, and re-ascend to
+        // get back to an existing path
+        {
+            p2.reset();
+            // "arrbowclub" should't exist because the whole subtrie below "arrbo" should be the
+            // third factor
+            p2.descend_to(b"arrbowclub");
+            assert_eq!(p2.path(), b"arrbowclub");
+            assert_eq!(p2.path_exists(), false);
+
+            p2.ascend(5);
+            assert_eq!(p2.path(), b"arrbo");
+            assert_eq!(p2.path_exists(), true);
+            assert_eq!(p2.value(), Some(&()));
+
+            p2.descend_to(b"club");
+            assert_eq!(p2.path(), b"arrboclub");
+            assert_eq!(p2.path_exists(), true);
+            assert_eq!(p2.value(), Some(&()));
+        }
     }
 }

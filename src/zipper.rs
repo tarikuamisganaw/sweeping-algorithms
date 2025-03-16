@@ -131,6 +131,32 @@ pub trait ZipperMoving: ZipperMovingPriv {
         i
     }
 
+    /// Moves the zipper deeper into the trie, following the path specified by `k`, relative to the current
+    /// zipper focus.  Descent stops if a value is encountered or if the path ceases to exist.
+    ///
+    /// Returns the number of bytes descended along the path.
+    ///
+    /// If the focus is already on a value, this method will descend to the *next* value along
+    /// the path.
+    //GOAT. this default implementation could certainly be optimized
+    fn descend_to_value<V, K: AsRef<[u8]>>(&mut self, k: K) -> usize
+        where Self: Zipper<V>
+    {
+        let k = k.as_ref();
+        let mut i = 0;
+        while i < k.len() {
+            if !self.descend_to_byte(k[i]) {
+                self.ascend_byte();
+                return i
+            }
+            i += 1;
+            if self.is_value() {
+                return i
+            }
+        }
+        i
+    }
+
     /// Moves the zipper one byte deeper into the trie.  Identical in effect to [descend_to](Self::descend_to)
     /// with a 1-byte key argument
     fn descend_to_byte(&mut self, k: u8) -> bool;
