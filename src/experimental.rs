@@ -681,4 +681,39 @@ mod tests {
             assert_eq!(p2.value(), Some(&()));
         }
     }
+
+    #[test]
+    fn product_zipper_test8() {
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arr".as_bytes(), "arrow".as_bytes(), "x".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bo".as_bytes(), "bow".as_bytes(), "bat".as_bytes(), "bit".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+
+        let new_pz = || ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
+
+        let mut moving_pz = new_pz();
+        let cata_pz = new_pz();
+        cata_pz.into_cata_side_effect(|_, _, _, path| {
+            // println!("{}", String::from_utf8_lossy(path))
+            let overlap = crate::line_list_node::find_prefix_overlap(path, moving_pz.path());
+            if overlap < moving_pz.path().len() {
+                moving_pz.ascend(moving_pz.path().len() - overlap);
+            }
+            if moving_pz.path().len() < path.len() {
+                assert!(moving_pz.descend_to(&path[moving_pz.path().len()..]));
+            }
+            assert_eq!(moving_pz.path(), path);
+
+            let mut fresh_pz = new_pz();
+            fresh_pz.descend_to(path);
+
+            assert_eq!(moving_pz.path(), fresh_pz.path());
+            assert_eq!(moving_pz.path_exists(), fresh_pz.path_exists());
+            assert_eq!(moving_pz.value(), fresh_pz.value());
+            assert_eq!(moving_pz.child_count(), fresh_pz.child_count());
+            assert_eq!(moving_pz.child_mask(), fresh_pz.child_mask());
+        })
+    }
 }
