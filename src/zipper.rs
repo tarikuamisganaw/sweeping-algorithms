@@ -111,6 +111,13 @@ pub trait ZipperMoving: ZipperMovingPriv {
     /// zipper's location will be updated, regardless of whether or not the path exists within the tree.
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool;
 
+    /// Moves the zipper deeper into the trie, following the path specified by `k`, relative to the current
+    /// zipper focus.  Descent stops at the point where the path does not exist
+    ///
+    /// Returns the number of bytes descended along the path.  The zipper's focus will always be on an
+    /// existing path after this method returns, unless the method was called with the focus on a
+    /// non-existent path.
+    //GOAT, LP: note.  this default implementation is highly suboptimal.  Check out the zipper.new-api.rs for a much more efficient implementation on ReadZipper
     fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
         let k = k.as_ref();
         let mut i = 0;

@@ -199,6 +199,34 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
             return false
         }
         true
+
+
+        // let starting_path_len = self.path().len();
+        // // Descend the full path; we might overshoot this factor
+        // if self.z.descend_to(k) {
+        //     // We didn't overshoot, so we can return.
+        //     true
+        // } else {
+        //     // Ascend up to the deepest value along this path, in the current factor
+        //     while !self.z.is_value() {
+        //         if !self.z.ascend_until() {
+        //             break
+        //         }
+        //     }
+
+        //     // Even though we had to backtrack, we must still be at or below where we started
+        //     debug_assert!(self.path().len() >= starting_path_len);
+
+        //     // Construct the part of the path yet-to-be descended
+        //     let remaining_path_start = self.path().len() - starting_path_len;
+        //     let remaining_path = &k[remaining_path_start..];
+
+        //     // Add the next factor, if there is one
+        //     self.ensure_descend_next_factor();
+
+        //     //Recursively re-descend within this factor
+        //     self.descend_to(remaining_path)
+        // }
     }
     fn descend_to_byte(&mut self, k: u8) -> bool {
         self.descend_to(&[k])
@@ -585,5 +613,53 @@ mod tests {
             println!("p {}", std::str::from_utf8(p.path()).unwrap());
             assert!(!p.ascend(27));
         }
+    }
+
+    /// Hits an additional bug where an intermediate value might be stepped over by one `descend_to`
+    /// but used as a marker to move to the product zipper by the other `descend...` methods 
+    #[test]
+    fn product_zipper_test7() {
+        let apaths = ["arr".as_bytes(), "arrow".as_bytes(), "arrowhead".as_bytes()];
+        let bpaths = ["bo".as_bytes(), "bow".as_bytes(), "bowie".as_bytes()];
+        let cpaths = ["cl".as_bytes(), "club".as_bytes(), "clubhouse".as_bytes()];
+        let a = BytesTrieMap::from_iter(apaths.iter().map(|x| (x, ())));
+        let b = BytesTrieMap::from_iter(bpaths.iter().map(|x| (x, ())));
+        let c = BytesTrieMap::from_iter(cpaths.iter().map(|x| (x, ())));
+        let mut p1 = ProductZipper::new(a.read_zipper(), [b.read_zipper(), c.read_zipper()]);
+        let mut p2 = ProductZipper::new(a.read_zipper(), [b.read_zipper(), c.read_zipper()]);
+
+        // Reference
+        for _ in 0..14 {
+            p1.descend_first_byte();
+        }
+        // println!("{}", String::from_utf8_lossy(p1.path()));
+        assert_eq!(p1.path_exists(), true);
+        assert_eq!(p1.path(), b"arrboclubhouse");
+        assert_eq!(p1.value(), Some(&()));
+
+        // Validate that I can do the same thing with descend_to()
+        p2.descend_to(b"arrboclubhouse");
+        assert_eq!(p2.path_exists(), true);
+        assert_eq!(p2.path(), b"arrboclubhouse");
+        assert_eq!(p2.value(), Some(&()));
+        p2.reset();
+
+        // Potential bug(s)
+        // "arowbow" should't exist because the whole subtrie below "arr" should be the
+        // second factor
+        p2.descend_to(b"arrowbow");
+        assert_eq!(p2.path(), b"arrowbow");
+        assert_eq!(p2.path_exists(), false); //GOAT this misbehaves
+
+        // "arowbowclub" should't exist because we started in a trie that shoudldn't exist
+        p2.descend_to(b"club");
+        assert_eq!(p2.path(), b"arrowbowclub");
+        assert_eq!(p2.path_exists(), false); //GOAT this misbehaves
+
+        p2.ascend(9);
+        p2.descend_to(b"boclub");
+        assert_eq!(p2.path_exists(), true);
+        assert_eq!(p2.path(), b"arrboclub");
+        assert_eq!(p2.value(), Some(&()));
     }
 }
