@@ -156,7 +156,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
     #[inline]
     fn fix_after_ascend(&mut self) {
         while let Some(factor_path_start) = self.factor_paths.last() {
-            if self.z.path().len() < *factor_path_start {
+            if self.z.path().len() <= *factor_path_start {
                 self.factor_paths.pop();
             } else {
                 break
@@ -696,7 +696,7 @@ mod tests {
         let mut moving_pz = new_pz();
         let cata_pz = new_pz();
         cata_pz.into_cata_side_effect(|_, _, _, path| {
-            // println!("{}", String::from_utf8_lossy(path))
+            // println!("{}", String::from_utf8_lossy(path));
             let overlap = crate::line_list_node::find_prefix_overlap(path, moving_pz.path());
             if overlap < moving_pz.path().len() {
                 moving_pz.ascend(moving_pz.path().len() - overlap);
