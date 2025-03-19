@@ -61,6 +61,8 @@
 //! operations produce structural sharing so the ordinary `factored` methods will likely be more efficient.
 //!
 
+use core::convert::Infallible;
+
 use reusing_vec::ReusingQueue;
 
 use crate::utils::*;
@@ -91,8 +93,21 @@ pub trait Catamorphism<V> {
     /// ## Behavior
     ///
     /// The focus position of the zipper will be ignored and it will be immediately reset to the root.
-    fn into_cata_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W;
+    fn into_cata_side_effect<W, AlgF>(self, mut alg_f: AlgF) -> W
+        where
+        AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W,
+        Self: Sized
+    {
+        self.into_cata_side_effect_fallible(|mask, children, val, path| -> Result<W, Infallible> {
+            Ok(alg_f(mask, children, val, path))
+        }).unwrap()
+    }
+
+    /// Allows the closure to return an error, stopping traversal immediately
+    ///
+    /// See [Catamorphism::into_cata_side_effect]
+    fn into_cata_side_effect_fallible<W, Err, AlgF>(self, alg_f: AlgF) -> Result<W, Err>
+        where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, Err>;
 
     /// Applies a "jumping" catamorphism to the trie
     ///
@@ -107,8 +122,21 @@ pub trait Catamorphism<V> {
     ///
     /// See [into_cata_side_effect](Catamorphism::into_cata_side_effect) for explanation of other arguments and
     /// behavior
-    fn into_cata_jumping_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W;
+    fn into_cata_jumping_side_effect<W, AlgF>(self, mut alg_f: AlgF) -> W
+        where
+        AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W,
+        Self: Sized
+    {
+        self.into_cata_jumping_side_effect_fallible(|mask, children, jumped_cnt, val, path| -> Result<W, Infallible> {
+            Ok(alg_f(mask, children, jumped_cnt, val, path))
+        }).unwrap()
+    }
+
+    /// Allows the closure to return an error, stopping traversal immediately
+    ///
+    /// See [Catamorphism::into_cata_jumping_side_effect]
+    fn into_cata_jumping_side_effect_fallible<W, Err, AlgF>(self, alg_f: AlgF) -> Result<W, Err>
+        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>;
 }
 
 /// A compatibility shim to provide a 3-function catamorphism API
@@ -228,44 +256,44 @@ impl SplitCataJumping {
 }
 
 impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath {
-    fn into_cata_side_effect<W, AlgF>(self, mut alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
+    fn into_cata_side_effect_fallible<W, Err, AlgF>(self, mut alg_f: AlgF) -> Result<W, Err>
+        where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, Err>
     {
-        cata_side_effect_body::<Self, V, W, _, false>(self, |mask, children, jump_len, val, path| {
+        cata_side_effect_body::<Self, V, W, Err, _, false>(self, |mask, children, jump_len, val, path| {
             debug_assert!(jump_len == 0);
             alg_f(mask, children, val, path)
         })
     }
-    fn into_cata_jumping_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W
+    fn into_cata_jumping_side_effect_fallible<W, Err, AlgF>(self, alg_f: AlgF) -> Result<W, Err>
+        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
     {
-        cata_side_effect_body::<Self, V, W, AlgF, true>(self, alg_f)
+        cata_side_effect_body::<Self, V, W, Err, AlgF, true>(self, alg_f)
     }
 }
 
 impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<V> {
-    fn into_cata_side_effect<W, AlgF>(self, mut alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
+    fn into_cata_side_effect_fallible<W, Err, AlgF>(self, mut alg_f: AlgF) -> Result<W, Err>
+        where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, Err>
     {
         let rz = self.into_read_zipper(&[]);
-        cata_side_effect_body::<ReadZipperOwned<V>, V, W, _, false>(rz, |mask, children, jump_len, val, path| {
+        cata_side_effect_body::<ReadZipperOwned<V>, V, W, Err, _, false>(rz, |mask, children, jump_len, val, path| {
             debug_assert!(jump_len == 0);
             alg_f(mask, children, val, path)
         })
     }
-    fn into_cata_jumping_side_effect<W, AlgF>(self, alg_f: AlgF) -> W
-        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W
+    fn into_cata_jumping_side_effect_fallible<W, Err, AlgF>(self, alg_f: AlgF) -> Result<W, Err>
+        where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
     {
         let rz = self.into_read_zipper(&[]);
-        cata_side_effect_body::<ReadZipperOwned<V>, V, W, AlgF, true>(rz, alg_f)
+        cata_side_effect_body::<ReadZipperOwned<V>, V, W, Err, AlgF, true>(rz, alg_f)
     }
 }
 
 #[inline]
-fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, mut alg_f: AlgF) -> W
+fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z: Z, mut alg_f: AlgF) -> Result<W, Err>
     where
     Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
-    AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W
+    AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     //`stack` holds a "frame" at each forking point above the zipper position.  No frames exist for values
     let mut stack = Vec::<StackFrame<W>>::with_capacity(12);
@@ -294,7 +322,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, m
         if is_leaf {
 
             //Ascend back to the last fork point from this leaf
-            let cur_w = ascend_to_fork::<Z, V, W, AlgF, JUMPING>(&mut z, &mut alg_f, None);
+            let cur_w = ascend_to_fork::<Z, V, W, Err, AlgF, JUMPING>(&mut z, &mut alg_f, None)?;
             stack[frame_idx].push_val(cur_w);
 
             //Keep ascending until we get to a branch that we haven't fully explored
@@ -306,16 +334,16 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, m
                     let stack_frame = &mut stack[0];
                     let val = z.value();
                     let w = if stack_frame.child_cnt > 1 || val.is_some() || !JUMPING {
-                        alg_f(&stack_frame.child_mask, &mut stack_frame.children, 0, val, z.origin_path().unwrap())
+                        alg_f(&stack_frame.child_mask, &mut stack_frame.children, 0, val, z.origin_path().unwrap())?
                     } else {
                         debug_assert_eq!(stack_frame.children.len(), 1);
                         stack_frame.children.pop().unwrap()
                     };
-                    return w
+                    return Ok(w)
                 } else {
 
                     //Ascend the rest of the way back up to the branch
-                    let cur_w = ascend_to_fork::<Z, V, W, AlgF, JUMPING>(&mut z, &mut alg_f, Some(&mut stack[frame_idx]));
+                    let cur_w = ascend_to_fork::<Z, V, W, Err, AlgF, JUMPING>(&mut z, &mut alg_f, Some(&mut stack[frame_idx]))?;
 
                     frame_idx -= 1;
 
@@ -346,12 +374,12 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(mut z: Z, m
 }
 
 #[inline(always)]
-fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z, 
+fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z, 
         alg_f: &mut AlgF, mut prior_frame: Option<&mut StackFrame<W>>
-) -> W
+) -> Result<W, Err>
     where
     Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
-    AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W,
+    AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     let mut w;
     let mut mask;
@@ -381,10 +409,10 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
                 old_path_len - z.origin_path().unwrap().len()
             };
 
-            w = alg_f(child_mask, children, jump_len, old_val, origin_path);
+            w = alg_f(child_mask, children, jump_len, old_val, origin_path)?;
 
             if z.child_count() != 1 || z.at_root() {
-                return w
+                return Ok(w)
             }
 
             w_array = [w];
@@ -402,13 +430,13 @@ fn ascend_to_fork<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(z: &mut Z,
             let origin_path = z.origin_path().unwrap();
             let byte = *origin_path.last().unwrap_or(&0);
             let val = z.value();
-            w = alg_f(child_mask, children, 0, val, origin_path);
+            w = alg_f(child_mask, children, 0, val, origin_path)?;
 
             let ascended = z.ascend_byte();
             debug_assert!(ascended);
 
             if z.child_count() != 1 || z.at_root() {
-                return w
+                return Ok(w)
             }
 
             w_array = [w];
