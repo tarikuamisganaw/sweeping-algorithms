@@ -33,6 +33,10 @@ mod zipper_tracking;
 /// Used to create multiple simultaneous zippers from the same parent
 mod zipper_head;
 
+/// Used for creating random paths, tries, and zipper movements
+#[cfg(feature = "fuzzer")]
+mod fuzzer;
+
 /// Features to inspect performance properties of trees, for optimizing
 #[cfg(feature = "counters")]
 pub mod counters;
