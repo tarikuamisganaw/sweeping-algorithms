@@ -140,9 +140,15 @@ pub trait Catamorphism<V> {
 
     /// Applies a catamorphism to the trie descending from the zipper's root, running the `alg_f` at every
     /// step (at every byte)
+    ///
     /// The arguments are the same as `into_cata_side_effect`, and this function will re-use
     /// previous calculations, if the mapping for the node was previously computed.
     /// This happens when the nodes are shared in different parts of the trie.
+    ///
+    /// XXX(igor): the last argument to AlgF (path) makes caching invalid
+    /// since the user can calculate values of W depending on path.
+    ///
+    /// We're leaving this for testing purposes, but we should not expose this outside.
     fn into_cata_cached<W, AlgF>(self, alg_f: AlgF) -> W
         where
             W: Clone,
@@ -328,7 +334,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
     z.prepare_buffers();
 
     //Push a stack frame for the root, and start on the first branch off the root
-    stack.push(StackFrame::new(z.child_count(), ByteMask::from(z.child_mask())));
+    stack.push(StackFrame::from(&z, !0));
     if !z.descend_first_byte() {
         //Empty trie is a special case
         return alg_f(&ByteMask::EMPTY, &mut [], 0, z.value(), z.origin_path().unwrap())
@@ -382,15 +388,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
             debug_assert!(descended);
         } else {
             //Push a new stack frame for this branch
-            frame_idx += 1;
-            let child_mask = ByteMask::from(z.child_mask());
-            let child_cnt = z.child_count();
-            if stack.len() <= frame_idx {
-                stack.push(StackFrame::new(child_cnt, child_mask));
-                debug_assert!(stack.len() > frame_idx);
-            } else {
-                stack[frame_idx].reset(child_cnt, child_mask);
-            }
+            Stack::push_state_raw(&mut stack, &mut frame_idx, &z, !0);
 
             //Descend the first child branch
             z.descend_first_byte();
@@ -470,50 +468,69 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
     }
 }
 
+pub type FocusAddr = usize;
+
+/// Get the address of zipper's focus node, if it points at the root of the node.
+/// When zipper is focused inside of the node, return `None`.
+#[inline]
+pub fn focus_addr<'a, V, Z>(zipper: &Z) -> Option<FocusAddr>
+    where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+{
+    let (node, key, _value) = zipper.borrow_raw_parts();
+    if !key.is_empty() {
+        return None
+    }
+    let addr = (node as *const dyn crate::trie_node::TrieNode<V>).addr();
+    Some(addr)
+    // FocusAddr(addr, key.into())
+}
+
 /// Internal structure to hold temporary info used inside morphism apply methods
 struct StackFrame<W> {
     child_mask: ByteMask,
-    mask_word_idx: usize,
     child_idx: usize,
     child_cnt: usize, //Could be derived from child_mask, but it's cheaper to store it
-    remaining_children_mask: u64,
     children: Vec<W>,
+    ascend_count: usize,
+    addr: Option<usize>,
 }
 
 impl<W> StackFrame<W> {
     /// Allocates a new StackFrame
-    fn new(child_cnt: usize, child_mask: ByteMask) -> Self {
-        debug_assert_eq!(child_cnt, child_mask.count_bits());
-        let mut frame = Self {
-            child_mask: <_>::default(),
+    fn from<'a, V, Z>(zipper: &Z, ascend_count: usize) -> Self
+        where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    {
+        let mut stack_frame = StackFrame {
+            child_mask: ByteMask::EMPTY,
+            child_cnt: 0,
+            children: Vec::new(),
             child_idx: 0,
-            child_cnt,
-            mask_word_idx: 0,
-            remaining_children_mask: 0,
-            children: Vec::with_capacity(child_cnt)
+            ascend_count: 0,
+            addr: None,
         };
-        frame.reset(child_cnt, child_mask);
-        frame
+        stack_frame.reset(zipper, ascend_count);
+        stack_frame
     }
+
     /// Resets a StackFrame to the state needed to iterate a new forking point
-    fn reset(&mut self, child_cnt: usize, child_mask: ByteMask) {
-        self.mask_word_idx = 0;
+    fn reset<'a, V, Z>(&mut self, zipper: &Z, ascend_count: usize)
+        where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    {
+        self.child_mask = ByteMask::from(zipper.child_mask());
+        self.child_cnt = self.child_mask.count_bits();
         self.child_idx = 0;
-        while child_mask.0[self.mask_word_idx] == 0 && self.mask_word_idx < 3 {
-            self.mask_word_idx += 1;
-        }
-        self.remaining_children_mask = child_mask.0[self.mask_word_idx];
-        self.child_mask = child_mask;
-        self.child_cnt = child_cnt;
         self.children.clear();
+        self.ascend_count = ascend_count;
+        if ascend_count != !0 {
+            self.addr = focus_addr(zipper);
+        }
     }
+
     fn push_val(&mut self, w: W) {
+        debug_assert!(self.child_idx < self.child_cnt,
+            "we're trying to push a value for a non-existent child");
         self.children.push(w);
         self.child_idx += 1;
-        debug_assert!(self.remaining_children_mask > 0); //If this assert trips, then it means we're trying to push a value for a non-existent child
-        let index = self.remaining_children_mask.trailing_zeros();
-        self.remaining_children_mask ^= 1u64 << index;
-        self.advance_word_idx();
     }
     //GOAT, unused for the time being.
     // fn push_none(&mut self) {
@@ -524,121 +541,62 @@ impl<W> StackFrame<W> {
     //     self.child_mask.0[self.mask_word_idx] ^= 1u64 << index;
     //     self.advance_word_idx();
     // }
-    fn advance_word_idx(&mut self) {
-        if self.remaining_children_mask == 0 {
-            if self.mask_word_idx < 3 {
-                self.mask_word_idx += 1;
-                while self.child_mask.0[self.mask_word_idx] == 0 && self.mask_word_idx < 3 {
-                    self.mask_word_idx += 1;
-                }
-                self.remaining_children_mask = self.child_mask.0[self.mask_word_idx];
-            }
-        }
-    }
 }
 
-mod cached_cata {
-    use crate::zipper::{
-        Zipper,
-        zipper_priv::{ZipperPriv, ZipperReadOnlyPriv},
-    };
+struct Stack<W> {
+    stack: Vec<StackFrame<W>>,
+    position: usize,
+}
 
-    /// Check whether the node at the current zipper focus needs caching
-    /// Ideally, would only return `true` in case two separate paths
-    /// point at the current node, in other words, if this node is a "reverse branch".
-    pub fn needs_cache<'a, V, Z>(_zipper: &Z) -> bool
-        where Z: Zipper<V> + ZipperPriv,
-    {
-        // let Some(ref_count) = zipper.get_focus().ref_count()
-        //     else { return false };
-        // ref_count > 2
-        // TODO(igorm): ref_count is not reliable, need to fix that
-        // cache all nodes for now
-        true
+impl<W> Stack<W> {
+    pub fn new() -> Self {
+        Self {
+            stack: Vec::with_capacity(12),
+            position: !0,
+        }
     }
-
-    pub type FocusAddr = usize;
-
-    /// Get the address of zipper's focus node, if it points at the root of the node.
-    /// When zipper is focused inside of the node, return `None`.
+    /// Return the reference to the top stack frame
     #[inline]
-    pub fn focus_addr<'a, V, Z>(zipper: &Z) -> Option<FocusAddr>
-        where V: 'a, Z: Zipper<V> + ZipperReadOnlyPriv<'a, V>,
+    pub fn last_mut(&mut self) -> Option<&mut StackFrame<W>> {
+        let idx = self.position;
+        self.stack.get_mut(idx)
+    }
+
+    /// Return the reference to the top stack frame
+    /// and decrease stack pointer. Doesn't free the stack frame.
+    #[inline]
+    pub fn pop_mut(&mut self) -> Option<&mut StackFrame<W>> {
+        if self.position == !0 {
+            return None;
+        }
+        let idx = self.position;
+        self.position = self.position.wrapping_sub(1);
+        self.stack.get_mut(idx)
+    }
+
+    /// Push stack state for current zipper position
+    ///
+    /// This function re-uses allocations for stack frames,
+    /// to avoid allocator thrashing.
+    pub fn push_state<'a, V: 'a, Z>(&mut self, z: &Z, ascend_count: usize)
+        where Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
     {
-        let (node, key, _value) = zipper.borrow_raw_parts();
-        if !key.is_empty() {
-            return None
-        }
-        let addr = (node as *const dyn crate::trie_node::TrieNode<V>).addr();
-        Some(addr)
-        // FocusAddr(addr, key.into())
+        Self::push_state_raw(&mut self.stack, &mut self.position, z, ascend_count);
     }
 
-    pub struct StackFrame<W> {
-        pub children: Vec<W>,
-        pub child_count: usize,
-        pub child_idx: usize,
-        pub ascend_count: usize,
-        pub addr: Option<usize>,
-    }
-    impl<W> StackFrame<W> {
-        fn from<'a, V, Z>(zipper: &Z, ascend_count: usize) -> Self
-            where V: 'a, Z: Zipper<V> + ZipperReadOnlyPriv<'a, V>,
-        {
-            StackFrame {
-                children: Vec::new(),
-                child_count: zipper.child_count(),
-                child_idx: 0,
-                ascend_count,
-                addr: focus_addr(zipper),
-            }
-        }
-        fn reset<'a, V, Z>(&mut self, zipper: &Z, ascend_count: usize)
-            where V: 'a, Z: Zipper<V> + ZipperReadOnlyPriv<'a, V>,
-        {
-            self.children.clear();
-            self.child_count = zipper.child_count();
-            self.child_idx = 0;
-            self.ascend_count = ascend_count;
-            self.addr = focus_addr(zipper);
-        }
-    }
-
-    pub struct Stack<W> {
-        stack: Vec<StackFrame<W>>,
-        position: usize,
-    }
-
-    impl<W> Stack<W> {
-        pub fn new() -> Self { Self { stack: Vec::new(), position: 0 } }
-        /// Return the reference to the top stack frame
-        #[inline]
-        pub fn last_mut(&mut self) -> Option<&mut StackFrame<W>> {
-            let idx = self.position.checked_sub(1)?;
-            self.stack.get_mut(idx)
-        }
-        /// Return the reference to the top stack frame
-        /// and decrease stack pointer. Doesn't free the stack frame.
-        #[inline]
-        pub fn pop_mut(&mut self) -> Option<&mut StackFrame<W>> {
-            self.position = self.position.checked_sub(1)?;
-            self.stack.get_mut(self.position)
-        }
-        /// Push stack state for current zipper position
-        /// This function re-uses allocations for stack frames,
-        /// to avoid allocator thrashing.
-        pub fn push_state<'a, V: 'a, Z>(
-            &mut self, zipper: &Z, ascend_count: usize)
-            where Z: Zipper<V> + ZipperReadOnlyPriv<'a, V>,
-        {
-            assert!(self.position <= self.stack.len(),
-                "stack invariant: position <= len");
-            if self.position == self.stack.len() {
-                self.stack.push(StackFrame::from(zipper, ascend_count));
-            } else {
-                self.stack[self.position].reset(zipper, ascend_count);
-            }
-            self.position += 1;
+    pub fn push_state_raw<'a, V: 'a, Z>(
+        stack: &mut Vec<StackFrame<W>>,
+        position: &mut usize,
+        zipper: &Z, ascend_count: usize)
+        where Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    {
+        *position = position.wrapping_add(1);
+        assert!(*position <= stack.len(),
+            "stack invariant: position <= len");
+        if *position == stack.len() {
+            stack.push(StackFrame::from(zipper, ascend_count));
+        } else {
+            stack[*position].reset(zipper, ascend_count);
         }
     }
 }
@@ -650,7 +608,6 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
     W: Clone, Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
     AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
 {
-    use cached_cata::*;
     use std::collections::HashMap;
 
     zipper.reset();
@@ -663,7 +620,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
         let frame_mut = stack.last_mut()
             .expect("into_cata stack is emptied before we returned to root");
         // This branch represents the body of the for loop.
-        if frame_mut.child_idx < frame_mut.child_count {
+        if frame_mut.child_idx < frame_mut.child_cnt {
             zipper.descend_indexed_branch(frame_mut.child_idx);
             frame_mut.child_idx += 1;
             // read and reuse value from cache
@@ -723,7 +680,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
         }
 
         // Remember the value at current location to cache, if needed
-        if needs_cache(&zipper) { if let Some(addr) = focus_addr(&zipper) {
+        if zipper.is_shared() { if let Some(addr) = focus_addr(&zipper) {
             cache.insert(addr, acc.clone());
         } }
         // Ascend zipper to parent
