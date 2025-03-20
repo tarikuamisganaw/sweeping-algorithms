@@ -200,6 +200,7 @@ impl<V> Drop for WriteZipperTracked<'_, '_, V> {
 impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperTracked<'_, '_, V>{
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn value(&self) -> Option<&V> { self.z.get_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
@@ -328,6 +329,7 @@ impl<V> Drop for WriteZipperUntracked<'_, '_, V> {
 impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperUntracked<'_, '_, V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn value(&self) -> Option<&V> { self.z.get_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
@@ -480,6 +482,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Clone for WriteZipperOwned<V> {
 impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperOwned<V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn value(&self) -> Option<&V> { self.z.get_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
@@ -657,6 +660,16 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperCore<'_, '_, V> {
             true
         }
     }
+    fn is_shared(&self) -> bool {
+        let key = self.key.node_key();
+        self.focus_stack.top().unwrap().node_get_child(key).map(|(key_len, focus_node)| {
+            if key_len == key.len() {
+                focus_node.refcount() > 1
+            } else {
+                false
+            }
+        }).unwrap_or(false)
+    }
     fn is_value(&self) -> bool {
         self.focus_stack.top().unwrap().node_contains_val(self.key.node_key())
     }
@@ -669,6 +682,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperCore<'_, '_, V> {
         }
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
+                let child_node = child_node.borrow();
                 if node_key.len() >= consumed_bytes {
                     child_node.count_branches(&node_key[consumed_bytes..])
                 } else {
@@ -686,6 +700,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for WriteZipperCore<'_, '_, V> {
         }
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
+                let child_node = child_node.borrow();
                 if node_key.len() >= consumed_bytes {
                     child_node.node_branches_mask(&node_key[consumed_bytes..])
                 } else {
@@ -858,6 +873,7 @@ impl<'a, 'k, V: Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
         } else {
             match self.focus_stack.top().unwrap().node_get_child(node_key) {
                 Some((consumed_bytes, child_node)) => {
+                    let child_node = child_node.borrow();
                     debug_assert_eq!(consumed_bytes, node_key.len());
                     Some(child_node)
                 },
@@ -2705,4 +2721,54 @@ mod tests {
         drop(rz);
     }
 
+    #[test]
+    fn write_zipper_is_shared_test() {
+        //GOAT: This test suffers from the same bug as the `write_zipper_is_shared_test`, but the bug doesn't
+        //appear to be the fault of the is_shared implementation.
+        let l0_keys = vec!["stem0", "stem1", "stem2", "strongbad", "strange", "steam", "steamboat", "stevador", "steeple"];
+        let l1_keys = vec!["A-mid0", "B-mid1", "C-mid2", "D-midlands", "D-middling", "D-middlemarch"];
+        let l2_keys = vec!["X-top0", "X-top1", "X-top2", "X-top3"];
+        let tests = [
+            ("st", false),
+            ("ste", false),
+            ("stem", false),
+            ("steam", false),
+            ("stem0", true),
+            ("stem0D", false),
+            ("stem0D-middling", true),
+            ("stem0D-middlingX-top", false),
+            ("stem0D-middlingX-top0", false),
+            ("stem0D-middlingX-top0Y", false),
+        ];
+
+        let top_map: BytesTrieMap<()> = l2_keys.iter().map(|v| (v, ())).collect();
+        let mut mid_map = BytesTrieMap::<()>::new();
+        let mut wz = mid_map.write_zipper();
+        for key in l1_keys.iter() {
+            wz.reset();
+            wz.descend_to(key);
+            wz.graft_map(top_map.clone());
+        }
+        drop(wz);
+
+        let mut map = BytesTrieMap::<()>::new();
+        let mut wz = map.write_zipper();
+        for key in l0_keys.iter() {
+            wz.reset();
+            wz.descend_to(key);
+            wz.graft_map(mid_map.clone());
+        }
+        drop(wz);
+
+        assert_eq!(map.val_count(), l0_keys.len() * l1_keys.len() * l2_keys.len());
+
+        let mut wz = map.write_zipper();
+        for (path, expected) in tests {
+            wz.reset();
+            wz.descend_to(path);
+            let is_shared = wz.is_shared();
+            // println!("{path} = {is_shared}");
+            assert_eq!(is_shared, expected);
+        }
+    }
 }

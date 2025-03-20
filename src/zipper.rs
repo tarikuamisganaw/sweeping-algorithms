@@ -44,6 +44,24 @@ pub trait Zipper<V>: zipper_priv::ZipperPriv<V=V> {
     /// Returns `true` if the zipper's focus is on a path within the trie, otherwise `false`
     fn path_exists(&self) -> bool;
 
+    /// Returns `true` if the zipper's focus is at a location that may be accessed via two or
+    /// more distinct paths
+    ///
+    /// DISCUSSION: the `shared` property applied only to a singular position and is not transitive
+    /// to descending locations in the trie.  In other words, if this function returns `true` for
+    /// a specific location, it may not return `true` for other paths descended from that location.
+    ///
+    /// WARNING: your code must never rely on the return value of `is_shared` for correctness; this
+    /// information should be used only for optimizations.  The `shared` property may be affected by
+    /// a number of internal behaviors that must not be relied upon.  For example, a previously shared
+    /// subtrie may be copied for thread isolation, or the internal trie representation might otherwise
+    /// change, and alter the shared property.
+    ///
+    /// GOAT: Make a graphic diagram to illustrate the `shared` property.  The graphic should have
+    /// multiple shared subtries accessible via distinct paths, and highlight which locations will be
+    /// considered `shared` from the perspective of this method.
+    fn is_shared(&self) -> bool;
+
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
     fn is_value(&self) -> bool;
 
@@ -323,7 +341,6 @@ pub trait ZipperAbsolutePath: ZipperMoving {
 
 pub(crate) mod zipper_priv {
     use crate::trie_node::*;
-
     use super::ReadZipperCore;
 
     pub trait ZipperPriv {
@@ -425,6 +442,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ReadZipperTracked<'_, '_, V>{
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn value(&self) -> Option<&V> { self.z.get_value() }
     fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
@@ -547,6 +565,7 @@ impl<V> Drop for ReadZipperUntracked<'_, '_, V> {
 impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ReadZipperUntracked<'_, '_, V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn value(&self) -> Option<&V> { self.z.get_value() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
@@ -719,6 +738,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
 impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ReadZipperOwned<V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn path_exists(&self) -> bool { self.z.path_exists() }
+    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn value(&self) -> Option<&V> { self.z.get_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
@@ -851,6 +871,19 @@ pub(crate) mod read_zipper_core {
                 true
             }
         }
+        fn is_shared(&self) -> bool {
+            let key = self.node_key();
+            if key.len() > 0 {
+                false
+            } else {
+                if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
+                    let (_key_len, focus_node) = parent.node_get_child(self.parent_key()).unwrap();
+                    focus_node.refcount() > 1
+                } else {
+                    false //root
+                }
+            }
+        }
         fn is_value(&self) -> bool {
             self.is_value_internal()
         }
@@ -944,6 +977,7 @@ pub(crate) mod read_zipper_core {
 
             //Step until we get to the end of the key or find a leaf node
             while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
+                let next_node = next_node.borrow();
                 key_start += consumed_byte_cnt;
                 self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, key_start));
                 self.focus_node = next_node.as_tagged();
@@ -964,6 +998,7 @@ pub(crate) mod read_zipper_core {
             self.prefix_buf.push(k);
             self.focus_iter_token = NODE_ITER_INVALID;
             if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+                let next_node = next_node.borrow();
                 self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
                 self.focus_node = next_node.as_tagged();
                 return true;
@@ -1221,7 +1256,7 @@ pub(crate) mod read_zipper_core {
                 match self.focus_node.node_get_child(node_key) {
                     Some((consumed_bytes, child_node)) => {
                         debug_assert_eq!(consumed_bytes, node_key.len());
-                        Some(child_node)
+                        Some(child_node.borrow())
                     },
                     None => None
                 }
@@ -1842,6 +1877,7 @@ pub(crate) fn node_along_path<'a, 'path, V>(root_node: &'a dyn TrieNode<V>, path
     //Step until we get to the end of the key or find a leaf node
     if key.len() > 0 {
         while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
+            let next_node = next_node.borrow();
             if consumed_byte_cnt < key.len() {
                 node = next_node;
                 key = &key[consumed_byte_cnt..];
@@ -3099,6 +3135,47 @@ mod tests {
             sanity_counter += 1;
         }
         assert_eq!(sanity_counter, 1);
+    }
+
+    #[test]
+    fn read_zipper_is_shared_test() {
+        //GOAT, this test passes with `vec!["stem0", "stem1"]` instead of all these others.
+        // There appears to be a bug in WriteZipper, where the zipper's internal mutable references are
+        // dropped without adjusting the refcounts, leading to the appearance of spurious sharing
+        let l0_keys = vec!["stem0", "stem1", "stem2", "strongbad", "strange", "steam", "steamboat", "stevador", "steeple"];
+        let l1_keys = vec!["A-mid0", "B-mid1", "C-mid2", "D-midlands", "D-middling", "D-middlemarch"];
+        let l2_keys = vec!["X-top0", "X-top1", "X-top2", "X-top3"];
+        let top_map: BytesTrieMap<()> = l2_keys.iter().map(|v| (v, ())).collect();
+
+        let mut mid_map = BytesTrieMap::<()>::new();
+        let mut wz = mid_map.write_zipper();
+        for key in l1_keys.iter() {
+            wz.reset();
+            wz.descend_to(key);
+            wz.graft_map(top_map.clone());
+        }
+        drop(wz);
+
+        let mut map = BytesTrieMap::<()>::new();
+        let mut wz = map.write_zipper();
+        for key in l0_keys.iter() {
+            wz.reset();
+            wz.descend_to(key);
+            wz.graft_map(mid_map.clone());
+        }
+        drop(wz);
+
+        assert_eq!(map.val_count(), l0_keys.len() * l1_keys.len() * l2_keys.len());
+
+        let mut rz = map.read_zipper();
+        let mut shared_cnt = 0;
+        while rz.to_next_step() {
+            if rz.is_shared() {
+                // println!("{}", String::from_utf8_lossy(rz.path()));
+                shared_cnt += 1;
+            }
+        }
+        assert_eq!(shared_cnt, l0_keys.len() + l0_keys.len() * l1_keys.len());
     }
 }
 

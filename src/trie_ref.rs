@@ -121,6 +121,9 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for TrieRef<'_, V> {
             false
         }
     }
+    fn is_shared(&self) -> bool {
+        false //We don't have enough info in the TrieRef to get back to the Rc header.  This may change in the future
+    }
     fn is_value(&self) -> bool {
         self.get_value().is_some()
     }
@@ -178,6 +181,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for TrieRef<'_, V> {
             } else {
                 match self.focus_node.node_get_child(node_key) {
                     Some((consumed_bytes, child_node)) => {
+                        let child_node = child_node.borrow();
                         debug_assert_eq!(consumed_bytes, node_key.len());
                         Some(child_node)
                     },
@@ -258,6 +262,7 @@ pub(crate) fn trie_ref_at_path<'a, 'paths, V>(mut node: &'a dyn TrieNode<V>, roo
         };
 
         if let Some((consumed_byte_cnt, next_node)) = node.node_get_child(next_node_path) {
+            let next_node = next_node.borrow();
             debug_assert!(consumed_byte_cnt >= node_key_len);
             node = next_node;
             path = &path[consumed_byte_cnt-node_key_len..];

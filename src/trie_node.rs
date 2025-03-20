@@ -35,7 +35,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
 
     /// Returns the child node that matches `key` along with the number of `key` characters matched.
     /// Returns `None` if no child node matches the key, even if there is a value with that prefix
-    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)>;
+    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &TrieNodeODRc<V>)>;
 
     //GOAT, Deprecated node_get_child_and_val_mut
     // /// Returns mutable pointers to both an onward child link as well as a value.
@@ -495,7 +495,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         }
     }
     #[inline(always)]
-    pub fn node_get_child(&self, key: &[u8]) -> Option<(usize, &'a dyn TrieNode<V>)> {
+    pub fn node_get_child(&self, key: &[u8]) -> Option<(usize, &'a TrieNodeODRc<V>)> {
         match self {
             Self::DenseByteNode(node) => node.node_get_child(key),
             Self::LineListNode(node) => node.node_get_child(key),

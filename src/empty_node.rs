@@ -15,7 +15,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
     fn node_contains_partial_key(&self, _key: &[u8]) -> bool {
         false
     }
-    fn node_get_child(&self, _key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
+    fn node_get_child(&self, _key: &[u8]) -> Option<(usize, &TrieNodeODRc<V>)> {
         None
     }
     //GOAT, Deprecated node_get_child_and_val_mut

@@ -276,6 +276,9 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ProductZipper<'_, '_, V> {
     fn path_exists(&self) -> bool {
         self.z.path_exists()
     }
+    fn is_shared(&self) -> bool {
+        self.z.is_shared()
+    }
     fn value(&self) -> Option<&V> {
         self.get_value()
     }

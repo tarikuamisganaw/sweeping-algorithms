@@ -630,10 +630,10 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         }
     }
     #[inline(always)]
-    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
+    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &TrieNodeODRc<V>)> {
         self.get(key[0]).and_then(|cf|
             cf.rec().map(|child_node| {
-                (1, &*child_node.borrow())
+                (1, child_node)
             })
         )
     }

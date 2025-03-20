@@ -125,13 +125,13 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
             false
         }
     }
-    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
+    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &TrieNodeODRc<V>)> {
         if self.is_used_child() {
             let node_key = self.key();
             let key_len = node_key.len();
             if key.len() >= key_len {
                 if node_key == &key[..key_len] {
-                    let child = unsafe{ &*self.payload.child }.borrow();
+                    let child = unsafe{ &*self.payload.child };
                     return Some((key_len, child))
                 }
             }

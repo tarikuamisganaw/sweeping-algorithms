@@ -1488,6 +1488,7 @@ fn merge_into_list_nodes<V: Clone + Send + Sync + Lattice>(target: &mut LineList
 
 fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V>)> {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
+        let next_node = next_node.borrow();
         if consumed_byte_cnt < key.len() {
             node = next_node;
             key = &key[consumed_byte_cnt..]
@@ -1507,6 +1508,7 @@ fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Op
 fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V>)>) {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         if consumed_byte_cnt < key.len() {
+            let next_node = next_node.borrow();
             node = next_node;
             key = &key[consumed_byte_cnt..]
         } else {
@@ -1532,13 +1534,13 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         false
     }
     #[inline(always)]
-    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
+    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &TrieNodeODRc<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
             let key_len = node_key_0.len();
             if key.len() >= key_len {
                 if node_key_0 == &key[..key_len] {
-                    let child = unsafe{ self.child_in_slot::<0>().borrow() };
+                    let child = unsafe{ self.child_in_slot::<0>() };
                     return Some((key_len, child))
                 }
             }
@@ -1548,7 +1550,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
             let key_len = node_key_1.len();
             if key.len() >= key_len {
                 if node_key_1 == &key[..key_len] {
-                    let child = unsafe{ self.child_in_slot::<1>().borrow() };
+                    let child = unsafe{ self.child_in_slot::<1>() };
                     return Some((key_len, child))
                 }
             }
@@ -2458,6 +2460,7 @@ mod tests {
         let mut child_node = node as &dyn TrieNode<V>;
         let mut levels = 0;
         while let Some((bytes_used, next_node)) = child_node.node_get_child(remaining_key) {
+            let next_node = next_node.borrow();
             remaining_key = &remaining_key[bytes_used..];
             child_node = next_node;
             levels += 1;
@@ -2511,6 +2514,7 @@ mod tests {
 
         assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
         let (bytes_used, child_node) = new_node.node_get_child("a".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("hello".as_bytes()), Some(&24));
     }
@@ -2523,6 +2527,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 9);
         assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("s billy".as_bytes()), Some(&24));
@@ -2571,6 +2576,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
@@ -2586,6 +2592,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
@@ -2601,12 +2608,15 @@ mod tests {
         let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
         if let TaggedNodeRef::DenseByteNode(_) = replacement_node.borrow().as_tagged() { } else { panic!("expected node would be a byte node"); }
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("pple".as_bytes()), Some(&1));
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("banana".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("anana".as_bytes()), Some(&2));
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("carrot".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("arrot".as_bytes()), Some(&3));
     }
