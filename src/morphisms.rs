@@ -137,6 +137,22 @@ pub trait Catamorphism<V> {
     /// See [Catamorphism::into_cata_jumping_side_effect]
     fn into_cata_jumping_side_effect_fallible<W, Err, AlgF>(self, alg_f: AlgF) -> Result<W, Err>
         where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>;
+
+    /// Applies a catamorphism to the trie descending from the zipper's root, running the `alg_f` at every
+    /// step (at every byte)
+    ///
+    /// The arguments are the same as `into_cata_side_effect`, and this function will re-use
+    /// previous calculations, if the mapping for the node was previously computed.
+    /// This happens when the nodes are shared in different parts of the trie.
+    ///
+    /// XXX(igor): the last argument to AlgF (path) makes caching invalid
+    /// since the user can calculate values of W depending on path.
+    ///
+    /// We're leaving this for testing purposes, but we should not expose this outside.
+    fn into_cata_cached<W, AlgF>(self, alg_f: AlgF) -> W
+        where
+            W: Clone,
+            AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W;
 }
 
 /// A compatibility shim to provide a 3-function catamorphism API
@@ -157,7 +173,7 @@ impl SplitCata {
         where
         MapF: FnMut(&V, &[u8]) -> W + 'a,
         CollapseF: FnMut(&V, W, &[u8]) -> W + 'a,
-        AlgF: FnMut(&ByteMask, &mut [W], &[u8]) -> W + 'a,
+        AlgF: Fn(&ByteMask, &mut [W], &[u8]) -> W + 'a,
     {
         move |mask, children, val, path| -> W {
             // println!("STEPPING path=\"{path:?}\", mask={mask:?}, children_cnt={}, val={}", children.len(), val.is_some());
@@ -269,6 +285,13 @@ impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper<V> + ZipperReadOnly<'a,
     {
         cata_side_effect_body::<Self, V, W, Err, AlgF, true>(self, alg_f)
     }
+    fn into_cata_cached<W, AlgF>(self, alg_f: AlgF) -> W
+        where
+            W: Clone,
+            AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
+    {
+        into_cata_cached_body::<Self, V, W, _, false>(self, alg_f)
+    }
 }
 
 impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<V> {
@@ -287,6 +310,14 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
         let rz = self.into_read_zipper(&[]);
         cata_side_effect_body::<ReadZipperOwned<V>, V, W, Err, AlgF, true>(rz, alg_f)
     }
+    fn into_cata_cached<W, AlgF>(self, alg_f: AlgF) -> W
+        where
+            W: Clone,
+            AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
+    {
+        let rz = self.into_read_zipper(&[]);
+        into_cata_cached_body::<ReadZipperOwned<V>, V, W, _, false>(rz, alg_f)
+    }
 }
 
 #[inline]
@@ -303,7 +334,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
     z.prepare_buffers();
 
     //Push a stack frame for the root, and start on the first branch off the root
-    stack.push(StackFrame::new(z.child_count(), ByteMask::from(z.child_mask())));
+    stack.push(StackFrame::from(&z, !0));
     if !z.descend_first_byte() {
         //Empty trie is a special case
         return alg_f(&ByteMask::EMPTY, &mut [], 0, z.value(), z.origin_path().unwrap())
@@ -357,15 +388,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
             debug_assert!(descended);
         } else {
             //Push a new stack frame for this branch
-            frame_idx += 1;
-            let child_mask = ByteMask::from(z.child_mask());
-            let child_cnt = z.child_count();
-            if stack.len() <= frame_idx {
-                stack.push(StackFrame::new(child_cnt, child_mask));
-                debug_assert!(stack.len() > frame_idx);
-            } else {
-                stack[frame_idx].reset(child_cnt, child_mask);
-            }
+            Stack::push_state_raw(&mut stack, &mut frame_idx, &z, !0);
 
             //Descend the first child branch
             z.descend_first_byte();
@@ -383,7 +406,6 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
 {
     let mut w;
     let mut mask;
-    let mut w_array: [W; 1];
     let (mut child_mask, mut children) = match &mut prior_frame {
         Some(prior_frame) => {
             (&prior_frame.child_mask, &mut prior_frame.children[..])
@@ -415,8 +437,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
                 return Ok(w)
             }
 
-            w_array = [w];
-            children = &mut w_array[..];
+            children = core::array::from_mut(&mut w);
 
             // SAFETY: We will never over-read the path buffer because we only get here after we ascended
             let byte = *unsafe{ z.origin_path_assert_len(old_path_len-jump_len) }.last().unwrap();
@@ -439,9 +460,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
                 return Ok(w)
             }
 
-            w_array = [w];
-            children = &mut w_array[..];
-
+            children = core::array::from_mut(&mut w);
             mask = ByteMask::EMPTY;
             mask.set_bit(byte);
             child_mask = &mask;
@@ -449,50 +468,77 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
     }
 }
 
+pub type FocusAddr = usize;
+
+/// Get the address of zipper's focus node, if it points at the root of the node.
+/// When zipper is focused inside of the node, return `None`.
+#[inline]
+pub fn focus_addr<'a, V, Z>(zipper: &Z) -> Option<FocusAddr>
+    where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+{
+    let (node, key, value) = zipper.borrow_raw_parts();
+    if !key.is_empty() || value.is_some() {
+        // TODO(igorm): Currently values associated with a nodes that can be shared
+        // are stored outside of the node. This means one focus address can
+        // correspond to two different points which have different values.
+        // Therefore, we can't cache nodes that have values themselves.
+        // Relevant discussion:
+        // https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2005555762
+        // https://github.com/Adam-Vandervorst/PathMap/blob/cleanup_to_release/pathmap-book/src/A.0001_map_root_values.md
+        // https://discord.com/channels/@me/1215835387432271922/1352463443541754068
+        return None
+    }
+    let addr = (node as *const dyn crate::trie_node::TrieNode<V>).addr();
+    Some(addr)
+    // FocusAddr(addr, key.into())
+}
+
 /// Internal structure to hold temporary info used inside morphism apply methods
 struct StackFrame<W> {
     child_mask: ByteMask,
-    mask_word_idx: usize,
     child_idx: usize,
     child_cnt: usize, //Could be derived from child_mask, but it's cheaper to store it
-    remaining_children_mask: u64,
     children: Vec<W>,
+    ascend_count: usize,
+    addr: Option<usize>,
 }
 
 impl<W> StackFrame<W> {
     /// Allocates a new StackFrame
-    fn new(child_cnt: usize, child_mask: ByteMask) -> Self {
-        debug_assert_eq!(child_cnt, child_mask.count_bits());
-        let mut frame = Self {
-            child_mask: <_>::default(),
+    fn from<'a, V, Z>(zipper: &Z, ascend_count: usize) -> Self
+        where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    {
+        let mut stack_frame = StackFrame {
+            child_mask: ByteMask::EMPTY,
+            child_cnt: 0,
+            children: Vec::new(),
             child_idx: 0,
-            child_cnt,
-            mask_word_idx: 0,
-            remaining_children_mask: 0,
-            children: Vec::with_capacity(child_cnt)
+            ascend_count: 0,
+            addr: None,
         };
-        frame.reset(child_cnt, child_mask);
-        frame
+        stack_frame.reset(zipper, ascend_count);
+        stack_frame
     }
+
     /// Resets a StackFrame to the state needed to iterate a new forking point
-    fn reset(&mut self, child_cnt: usize, child_mask: ByteMask) {
-        self.mask_word_idx = 0;
+    fn reset<'a, V, Z>(&mut self, zipper: &Z, ascend_count: usize)
+        where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    {
+        self.child_mask = ByteMask::from(zipper.child_mask());
+        self.child_cnt = self.child_mask.count_bits();
         self.child_idx = 0;
-        while child_mask.0[self.mask_word_idx] == 0 && self.mask_word_idx < 3 {
-            self.mask_word_idx += 1;
-        }
-        self.remaining_children_mask = child_mask.0[self.mask_word_idx];
-        self.child_mask = child_mask;
-        self.child_cnt = child_cnt;
         self.children.clear();
+        self.ascend_count = ascend_count;
+        if ascend_count != !0 {
+            self.addr = focus_addr(zipper);
+        }
     }
+
     fn push_val(&mut self, w: W) {
+        debug_assert!(self.child_idx < self.child_cnt,
+            "we're trying to push a value for a non-existent child");
         self.children.push(w);
         self.child_idx += 1;
-        debug_assert!(self.remaining_children_mask > 0); //If this assert trips, then it means we're trying to push a value for a non-existent child
-        let index = self.remaining_children_mask.trailing_zeros();
-        self.remaining_children_mask ^= 1u64 << index;
-        self.advance_word_idx();
     }
     //GOAT, unused for the time being.
     // fn push_none(&mut self) {
@@ -503,16 +549,155 @@ impl<W> StackFrame<W> {
     //     self.child_mask.0[self.mask_word_idx] ^= 1u64 << index;
     //     self.advance_word_idx();
     // }
-    fn advance_word_idx(&mut self) {
-        if self.remaining_children_mask == 0 {
-            if self.mask_word_idx < 3 {
-                self.mask_word_idx += 1;
-                while self.child_mask.0[self.mask_word_idx] == 0 && self.mask_word_idx < 3 {
-                    self.mask_word_idx += 1;
-                }
-                self.remaining_children_mask = self.child_mask.0[self.mask_word_idx];
-            }
+}
+
+struct Stack<W> {
+    stack: Vec<StackFrame<W>>,
+    position: usize,
+}
+
+impl<W> Stack<W> {
+    pub fn new() -> Self {
+        Self {
+            stack: Vec::with_capacity(12),
+            position: !0,
         }
+    }
+    /// Return the reference to the top stack frame
+    #[inline]
+    pub fn last_mut(&mut self) -> Option<&mut StackFrame<W>> {
+        let idx = self.position;
+        self.stack.get_mut(idx)
+    }
+
+    /// Return the reference to the top stack frame
+    /// and decrease stack pointer. Doesn't free the stack frame.
+    #[inline]
+    pub fn pop_mut(&mut self) -> Option<&mut StackFrame<W>> {
+        if self.position == !0 {
+            return None;
+        }
+        let idx = self.position;
+        self.position = self.position.wrapping_sub(1);
+        self.stack.get_mut(idx)
+    }
+
+    /// Push stack state for current zipper position
+    ///
+    /// This function re-uses allocations for stack frames,
+    /// to avoid allocator thrashing.
+    pub fn push_state<'a, V: 'a, Z>(&mut self, z: &Z, ascend_count: usize)
+        where Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    {
+        Self::push_state_raw(&mut self.stack, &mut self.position, z, ascend_count);
+    }
+
+    pub fn push_state_raw<'a, V: 'a, Z>(
+        stack: &mut Vec<StackFrame<W>>,
+        position: &mut usize,
+        zipper: &Z, ascend_count: usize)
+        where Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    {
+        *position = position.wrapping_add(1);
+        assert!(*position <= stack.len(),
+            "stack invariant: position <= len");
+        if *position == stack.len() {
+            stack.push(StackFrame::from(zipper, ascend_count));
+        } else {
+            stack[*position].reset(zipper, ascend_count);
+        }
+    }
+}
+
+fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
+    mut zipper: Z, alg_f: AlgF
+) -> W
+    where
+    W: Clone, Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
+{
+    use std::collections::HashMap;
+
+    zipper.reset();
+    zipper.prepare_buffers();
+
+    let mut stack = Stack::new();
+    let mut cache = HashMap::<FocusAddr, W>::new();
+    stack.push_state(&zipper, 0);
+    'outer: loop {
+        let frame_mut = stack.last_mut()
+            .expect("into_cata stack is emptied before we returned to root");
+        // This branch represents the body of the for loop.
+        if frame_mut.child_idx < frame_mut.child_cnt {
+            zipper.descend_indexed_branch(frame_mut.child_idx);
+            frame_mut.child_idx += 1;
+            // read and reuse value from cache
+            let cached = focus_addr(&zipper)
+                .and_then(|addr| cache.get(&addr));
+            if let Some(cache) = cached {
+                // f(Reuse(cache, &zipper.path));
+                // DO NOT modify the W from cache
+                frame_mut.children.push(cache.clone());
+                zipper.ascend_byte();
+                assert_eq!(frame_mut.addr, focus_addr(&zipper),
+                    "mismatch between stack frame and zipper head");
+            } else {
+                // Optimization: only push stack frames when we're at a branch,
+                // or at a leaf.  This will descend over 1-wide lines.
+                let mut ascend_count = 0;
+                let mut child_count = zipper.child_count();
+                '_descend: while child_count == 1 {
+                    zipper.descend_first_byte();
+                    child_count = zipper.child_count();
+                    ascend_count += 1;
+                }
+                stack.push_state(&zipper, ascend_count);
+            }
+            continue 'outer;
+        }
+
+        // This branch represents the rest of the function after the loop
+        let StackFrame { children, addr, ascend_count, .. } = stack.pop_mut()
+            .expect("we just checked that stack is not empty, pop must return Some");
+        assert_eq!(*addr, focus_addr(&zipper),
+            "mismatch between stack frame and zipper head");
+
+        // Optimization: ascend up the single width line however many times
+        // we have ascended.
+        let mut acc;
+        let mut children = &mut children[..];
+        let mut mask = ByteMask::from(zipper.child_mask());
+        '_ascend: for _ii in 0..*ascend_count {
+            let origin_path = zipper.origin_path().unwrap();
+            let byte = *origin_path.last().unwrap_or(&0);
+            acc = alg_f(&mask, children, zipper.value(), zipper.path());
+            children = core::array::from_mut(&mut acc);
+            assert!(!zipper.at_root(), "trying to ascend zipper at root");
+            zipper.ascend_byte();
+
+            mask = ByteMask::EMPTY;
+            mask.set_bit(byte);
+        }
+
+        // This cannot be in the loop, since we need to put W into cache
+        // right before we ascend to the parent.
+        let mask = ByteMask::from(zipper.child_mask());
+        acc = alg_f(&mask, children, zipper.value(), zipper.path());
+        if zipper.at_root() {
+            return acc;
+        }
+
+        // Remember the value at current location to cache, if needed
+        if zipper.is_shared() { if let Some(addr) = focus_addr(&zipper) {
+            cache.insert(addr, acc.clone());
+        } }
+        // Ascend zipper to parent
+        zipper.ascend_byte();
+        let frame_mut = stack.last_mut()
+            .expect("when we're not at root, expect parent stack");
+        frame_mut.children.push(acc);
+        assert_eq!(frame_mut.addr, focus_addr(&zipper),
+            "mismatch between stack frame and zipper head");
     }
 }
 
@@ -1288,6 +1473,78 @@ mod tests {
                 _ => panic!()
             }
         })
+    }
+
+    #[test]
+    fn cata_test_cached() {
+        let make_map = || {
+            // let btm: BytesTrieMap<u8> = BytesTrieMap::range::<false, u16>(0x0, 0x101, 0x1, 0);
+            // if true { return btm; }
+            // let keys = [vec![0, 128, 1], vec![0, 128, 1, 255, 2]];
+            // let btm: BytesTrieMap<u8> = keys.into_iter().enumerate()
+            //     .map(|(i, k)| (k, i as u8)).collect();
+            // if true { return btm; }
+            let mut map: BytesTrieMap<u8> = BytesTrieMap::from_iter([([0], 0)]);
+            for _level in 0..3 {
+                let prev_zipper = map.read_zipper();
+                let next_map = BytesTrieMap::new_from_ana(false, |quit, _val, children, _path| {
+                    if quit { return }
+                    for ii in 0..=2 {
+                        children.graft_at_byte(ii, &prev_zipper);
+                    }
+                });
+                drop(prev_zipper);
+                map = next_map;
+            }
+            map
+        };
+
+        use std::rc::Rc;
+        #[allow(dead_code)] // not accessing the fields, but using debug/eq
+        #[derive(Clone, Debug, PartialEq)]
+        struct Node<V> {
+            value: Option<V>,
+            children: Vec<Rc<Node<V>>>,
+        }
+        impl<V: Clone> Node<V> {
+            fn new(value: Option<&V>, children: &[Rc<Node<V>>]) -> Self {
+                Self { value: value.cloned(), children: children.to_vec() }
+            }
+        }
+
+        // fn visit<'a, V, Z>(z: &mut Z) -> Rc<Node<*const u8>>
+        //     where V: 'a, Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperMoving
+        // {
+        //     let value = focus_addr(z).map(|x| x as *const u8);
+        //     let mut children = Vec::new();
+        //     for ii in 0..z.child_count() {
+        //         z.descend_indexed_branch(ii);
+        //         if !z.is_value() {
+        //             children.push(visit(z));
+        //         }
+        //         z.ascend_byte();
+        //     }
+        //     Rc::new(Node { value, children })
+        // }
+        // println!("tree: {:#?}", visit(&mut make_map().read_zipper()));
+        use core::sync::atomic::{AtomicU64, Ordering::*};
+        let calls_cached = AtomicU64::new(0);
+        let tree_cached: Rc::<Node<u8>> = make_map().into_cata_cached(
+            |_bm, children, value, _path| {
+                calls_cached.fetch_add(1, Relaxed);
+                Rc::new(Node::new(value, children))
+            });
+        let calls_cached = calls_cached.load(Relaxed);
+
+        let mut calls_side = 0;
+        let tree_side: Rc::<Node<u8>> = make_map().into_cata_side_effect(
+            |_bm, children, value, _path| {
+                calls_side += 1;
+                Rc::new(Node::new(value, children))
+            });
+
+        assert_eq!(tree_side, tree_cached);
+        eprintln!("calls_cached: {calls_cached}\ncalls_side: {calls_side}");
     }
 
     /// Generate some basic tries using the [TrieBuilder::push_byte] API
