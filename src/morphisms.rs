@@ -476,8 +476,16 @@ pub type FocusAddr = usize;
 pub fn focus_addr<'a, V, Z>(zipper: &Z) -> Option<FocusAddr>
     where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
 {
-    let (node, key, _value) = zipper.borrow_raw_parts();
-    if !key.is_empty() {
+    let (node, key, value) = zipper.borrow_raw_parts();
+    if !key.is_empty() || value.is_some() {
+        // TODO(igorm): Currently values associated with a nodes that can be shared
+        // are stored outside of the node. This means one focus address can
+        // correspond to two different points which have different values.
+        // Therefore, we can't cache nodes that have values themselves.
+        // Relevant discussion:
+        // https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2005555762
+        // https://github.com/Adam-Vandervorst/PathMap/blob/cleanup_to_release/pathmap-book/src/A.0001_map_root_values.md
+        // https://discord.com/channels/@me/1215835387432271922/1352463443541754068
         return None
     }
     let addr = (node as *const dyn crate::trie_node::TrieNode<V>).addr();
