@@ -19,8 +19,8 @@ fn sparse_insert(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
     //Benchmark the insert operation
@@ -38,8 +38,8 @@ fn sparse_drop_bench(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
     //Benchmark the time taken to drop the map
@@ -57,8 +57,8 @@ fn sparse_get(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -77,8 +77,8 @@ fn sparse_val_count_bench(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -99,8 +99,8 @@ fn sparse_meet(bencher: Bencher, n: u64) {
 
     let mut rng = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n+o).into_iter().map(|_| {
-        let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+        let len = (rng.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
     }).collect();
 
     let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -120,8 +120,8 @@ fn sparse_meet_after_join(bencher: Bencher, n: u64) {
 
     let mut rng = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+        let len = (rng.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
     }).collect();
 
     let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -142,8 +142,8 @@ fn sparse_subtract_after_join(bencher: Bencher, n: u64) {
 
     let mut rng = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+        let len = (rng.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
     }).collect();
 
     let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -164,8 +164,8 @@ fn sparse_cursor(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
     let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
@@ -205,8 +205,8 @@ fn sparse_k_path_iter(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 15) + 5; //length between 5 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 15) + 5; //length between 5 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
     let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
@@ -227,8 +227,8 @@ fn sparse_zipper_cursor(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
     let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
@@ -247,8 +247,8 @@ fn sparse_iter(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
     let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
@@ -267,8 +267,8 @@ fn join_sparse(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..(n+o)).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
     let mut vnl = BytesTrieMap::new();
@@ -300,8 +300,8 @@ fn join_into_sparse(bencher: Bencher, n: u64) {
 
     let mut r = StdRng::seed_from_u64(1);
     let keys: Vec<Vec<u8>> = (0..(n+o)).into_iter().map(|_| {
-        let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-        (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
     //Benchmark the join_into operation

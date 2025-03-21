@@ -215,8 +215,8 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(1);
         let keys: Vec<Vec<u8>> = (0..N).into_iter().map(|_| {
-            let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-            (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+            let len = (rng.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+            (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
         }).collect();
 
         let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -394,8 +394,8 @@ mod tests {
 
         let mut rng = StdRng::seed_from_u64(1);
         let keys: Vec<Vec<u8>> = (0..N+o).into_iter().map(|_| {
-            let len = (rng.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
-            (0..len).into_iter().map(|_| rng.gen::<u8>()).collect()
+            let len = (rng.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+            (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
         }).collect();
 
         let mut l: BytesTrieMap<u64> = BytesTrieMap::new();

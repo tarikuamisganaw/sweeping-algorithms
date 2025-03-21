@@ -1,5 +1,4 @@
 use std::io::Read;
-use std::time::Instant;
 use std::usize;
 use pathmap::trie_map::BytesTrieMap;
 use pathmap::utils::ByteMaskIter;
