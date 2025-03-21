@@ -62,7 +62,6 @@
 //!
 
 use core::convert::Infallible;
-
 use reusing_vec::ReusingQueue;
 
 use crate::utils::*;
@@ -365,7 +364,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
                     let stack_frame = &mut stack[0];
                     let val = z.value();
                     let w = if stack_frame.child_cnt > 1 || val.is_some() || !JUMPING {
-                        alg_f(&stack_frame.child_mask, &mut stack_frame.children, 0, val, z.origin_path().unwrap())?
+                        alg_f(&ByteMask(z.child_mask()), &mut stack_frame.children, 0, val, z.origin_path().unwrap())?
                     } else {
                         debug_assert_eq!(stack_frame.children.len(), 1);
                         stack_frame.children.pop().unwrap()
@@ -384,7 +383,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
             }
 
             //Position to descend the next child branch
-            let descended = z.descend_indexed_branch(stack[frame_idx].child_idx);
+            let descended = z.descend_indexed_branch(stack[frame_idx].child_idx as usize);
             debug_assert!(descended);
         } else {
             //Push a new stack frame for this branch
@@ -408,7 +407,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
     let mut mask;
     let (mut child_mask, mut children) = match &mut prior_frame {
         Some(prior_frame) => {
-            (&prior_frame.child_mask, &mut prior_frame.children[..])
+            (&ByteMask(z.child_mask()), &mut prior_frame.children[..])
         },
         None => {
             (&ByteMask::EMPTY, &mut [][..])
@@ -495,9 +494,8 @@ pub fn focus_addr<'a, V, Z>(zipper: &Z) -> Option<FocusAddr>
 
 /// Internal structure to hold temporary info used inside morphism apply methods
 struct StackFrame<W> {
-    child_mask: ByteMask,
-    child_idx: usize,
-    child_cnt: usize, //Could be derived from child_mask, but it's cheaper to store it
+    child_idx: u16,
+    child_cnt: u16,
     children: Vec<W>,
     ascend_count: usize,
     addr: Option<usize>,
@@ -509,7 +507,6 @@ impl<W> StackFrame<W> {
         where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
     {
         let mut stack_frame = StackFrame {
-            child_mask: ByteMask::EMPTY,
             child_cnt: 0,
             children: Vec::new(),
             child_idx: 0,
@@ -524,8 +521,7 @@ impl<W> StackFrame<W> {
     fn reset<'a, V, Z>(&mut self, zipper: &Z, ascend_count: usize)
         where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
     {
-        self.child_mask = ByteMask::from(zipper.child_mask());
-        self.child_cnt = self.child_mask.count_bits();
+        self.child_cnt = zipper.child_count() as u16;
         self.child_idx = 0;
         self.children.clear();
         self.ascend_count = ascend_count;
@@ -616,7 +612,8 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
     W: Clone, Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
     AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
 {
-    use std::collections::HashMap;
+    use gxhash::HashMap;
+    use gxhash::HashMapExt;
 
     zipper.reset();
     zipper.prepare_buffers();
@@ -629,7 +626,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
             .expect("into_cata stack is emptied before we returned to root");
         // This branch represents the body of the for loop.
         if frame_mut.child_idx < frame_mut.child_cnt {
-            zipper.descend_indexed_branch(frame_mut.child_idx);
+            zipper.descend_indexed_branch(frame_mut.child_idx as usize);
             frame_mut.child_idx += 1;
             // read and reuse value from cache
             let cached = focus_addr(&zipper)

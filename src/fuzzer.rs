@@ -61,6 +61,15 @@ impl <X, DX : Distribution<X>, Y, DY : Distribution<Y>, Z, F : Fn(X, Y) -> Z> Di
   }
 }
 
+pub struct Choice2<X, DX : Distribution<X>, Y, DY : Distribution<Y>, DB : Distribution<bool>> { dx: DX, dy: DY, db: DB,
+  pd: PhantomData<(X, Y)> }
+impl <X, DX : Distribution<X>, Y, DY : Distribution<Y>, DB : Distribution<bool>> Distribution<Result<X, Y>> for Choice2<X, DX, Y, DY, DB> {
+  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Result<X, Y> {
+    if self.db.sample(rng) { Ok(self.dx.sample(rng)) }
+    else { Err(self.dy.sample(rng)) }
+  }
+}
+
 pub struct Dependent2<X, DX : Distribution<X>, Y, DY : Distribution<Y>, FDY : Fn(X) -> DY> { dx: DX, fdy: FDY,
   pd: PhantomData<(X, Y)> }
 impl <X, DX : Distribution<X>, Y, DY : Distribution<Y>, FDY : Fn(X) -> DY> Distribution<Y> for Dependent2<X, DX, Y, DY, FDY> {
@@ -198,14 +207,9 @@ impl <T : TrieValue, ByteD : Distribution<u8>, P : Fn(&ReadZipperUntracked<T>) -
     (rz.path().to_vec(), rz.get_value().unwrap().clone())
   }
 }
-fn unbiased_descend_first_policy<T : TrieValue>(source: BytesTrieMap<T>) -> DescendFirstTrieValue<T, Categorical<u8, Uniform<usize>>, impl Fn(&ReadZipperUntracked<T>) -> Categorical<u8, Uniform<usize>>> {
-  DescendFirstTrieValue {
-    source,
-    policy: |rz| {
-      let bm = ByteMask(rz.child_mask());
-      Categorical{ elements: bm.iter().collect(), ed: Uniform::try_from(0..bm.count_bits()).unwrap() }
-    }
-  }
+fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Categorical<u8, Uniform<usize>> {
+  let bm = ByteMask(rz.child_mask());
+  Categorical{ elements: bm.iter().collect(), ed: Uniform::try_from(0..bm.count_bits()).unwrap() }
 }
 
 pub struct FairTriePath<T : TrieValue> { source: BytesTrieMap<T> }
@@ -213,8 +217,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, Option<T>) {
     use crate::morphisms::Catamorphism;
     // it's much cheaper to draw many samples at once, but the current Distribution API is broken
-    // should use pointer cached cata
-    let size = Catamorphism::into_cata_side_effect(self.source.clone(), |_: &ByteMask, ws: &mut [usize], mv: Option<&T>, path: &[u8]| {
+    let size = Catamorphism::into_cata_cached(self.source.clone(), |_: &ByteMask, ws: &mut [usize], mv: Option<&T>, path: &[u8]| {
       ws.iter().sum::<usize>() + 1
     });
     let target = rng.random_range(0..size);
@@ -222,6 +225,31 @@ impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
     Catamorphism::into_cata_side_effect_fallible(self.source.clone(), |_: &ByteMask, _, mv: Option<&T>, path: &[u8]| {
       if i == target { Err((path.to_vec(), mv.cloned())) } else { i += 1; Ok(()) }
     }).unwrap_err()
+  }
+}
+
+pub struct DescendTriePath<T : TrieValue, S, SByteD : Distribution<Result<u8, S>>, P : Fn(&ReadZipperUntracked<T>) -> SByteD> { source: BytesTrieMap<T>, policy: P, ph: PhantomData<S> }
+impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>>, P : Fn(&ReadZipperUntracked<T>) -> SByteD> Distribution<(Vec<u8>, S)> for DescendTriePath<T, S, SByteD, P> {
+  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, S) {
+    let mut rz = self.source.read_zipper();
+    loop {
+      match (self.policy)(&rz).sample(rng) {
+        Ok(b) => { rz.descend_to_byte(b); }
+        Err(s) => { return (rz.path().to_vec(), s) }
+      }
+    }
+    unreachable!()
+  }
+}
+fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Choice2<u8, Categorical<u8, Uniform<usize>>, T, Degenerate<T>, Degenerate<bool>> {
+  let bm = ByteMask(rz.child_mask());
+  let options: Vec<u8> = bm.iter().collect();
+  let noptions = options.len();
+  Choice2 {
+    db: Degenerate{ element: noptions > 0 },
+    dx: Categorical{ elements: options, ed: Uniform::try_from(0..noptions).unwrap_or(unsafe { std::mem::MaybeUninit::uninit().assume_init() }) },
+    dy: Degenerate{ element: rz.get_value().cloned().unwrap_or(unsafe { std::mem::MaybeUninit::uninit().assume_init() }) },
+    pd: PhantomData::default()
   }
 }
 
@@ -273,13 +301,26 @@ mod tests {
   fn descend_first_trie_value() {
     const samples: usize = 100000;
     let mut rng = StdRng::from_seed([0; 32]);
-    let btm = BytesTrieMap::from_iter([("abc", 0), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
-    let stv = unbiased_descend_first_policy(btm);
+    let btm = BytesTrieMap::from_iter([("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
+    let stv = DescendFirstTrieValue{ source: btm, policy: unbiased_descend_first_policy };
     let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*samples));
     // println!("{:?}", hist.table());
     let achieved: Vec<(i32, i32)> = hist.table().into_iter().map(|(k, c)|
       (*k, ((c as f64)/((samples/10) as f64)).round() as i32)).collect();
     assert_eq!(&achieved[..], &[(3, 5), (2, 5), (5, 10), (4, 10), (0, 15), (1, 15)]);
+  }
+
+  #[test]
+  fn descend_last_trie_value() {
+    const samples: usize = 100000;
+    let mut rng = StdRng::from_seed([0; 32]);
+    let btm = BytesTrieMap::from_iter([("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
+    let stv = DescendTriePath{ source: btm, policy: unbiased_descend_last_policy, ph: Default::default() };
+    let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*samples));
+    // println!("{:?}", hist.table());
+    let achieved: Vec<(i32, i32)> = hist.table().into_iter().map(|(k, c)|
+        (*k, ((c as f64)/((samples/10) as f64)).round() as i32)).collect();
+    assert_eq!(&achieved[..], &[(3, 5), (2, 5), (5, 10), (4, 10), (10, 15), (1, 15)]);
   }
 
   #[test]
