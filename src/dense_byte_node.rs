@@ -4,6 +4,7 @@ use core::ptr;
 use std::collections::HashMap;
 
 use crate::ring::*;
+use crate::utils::ByteMask;
 
 //OPTIMIZATION QUESTION 2, a note on Rc vs. rclite: Rc's payload bloat is 16 bytes, while rclite's is much smaller <8 Bytes.
 // That's a big deal on a DenseByteNode because it pushes it from a single cache line onto two.
@@ -654,11 +655,113 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             (1, child_node_ptr)
         })
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     let mut pos = 0;
+    //     for (byte, cf) in self.mask.byte_mask_iter().zip(self.values.iter()) {
+    //         if cf.rec().is_some() {
+    //             match keys[pos..].binary_search(&&[byte][..]) {
+    //                 Ok(new_pos) => { pos = new_pos+1; },
+    //                 Err(_) => return false
+    //             };
+    //         }
+    //     }
+    //     true
+    // }
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         debug_assert!(key.len() == 1);
         let cf = self.get_mut(key[0]).unwrap();
         *cf.rec_mut().unwrap() = new_node;
         cf.rec_mut().unwrap().make_mut()
+    }
+    fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V>)]) -> bool {
+        //DISCUSSION: This function appears overly complicated primarily because it needs to track
+        // whether or not a both the val and the rec each cofree are requested, but we don't have a bitmask
+        // in advance that records vals and rec links separately.  Since we don't want nested loops, we leverage
+        // the fact that a rec must be requested before a val, to stash the val for the next trip through the
+        // loop.  The loop body therefore is an annoying state-machine.  But at least it's not that much code.
+
+        //Becomes true if only half of `(Some, Some)` CoFree is requested, without requesting the other half
+        // This flag never gets unset once it gets set
+        let mut unrequested_cofree_half = false;
+        //Temporary state that bridges across multiple requests into a `(Some, Some)` CoFree, by holding the
+        // val until it's requested, leveraging the fact that values are requested after rec links
+        let mut stashed_val: Option<&V> = None;
+        //Tracks whether the current CoFree's val has been taken.  So, `last_byte` toggles to `Some` and stays
+        // at `Some` until we move onto a different CF, while `stashed_val` toggles to `Some`, and toggles back
+        // as soon as the value is requested.
+        let mut last_byte: Option<u8> = None;
+        //Tracks which CoFrees have yet to be requested from the node
+        let mut requested_mask = ByteMask::from(self.mask);
+
+        debug_assert!(results.len() >= keys.len());
+        for ((key, expect_val), (result_key_len, payload_ref)) in keys.into_iter().zip(results.iter_mut()) {
+            if key.len() > 0 {
+                let byte = key[0];
+
+                //Check to see if we had a Val from the CoFree that we aren't going to request
+                match &last_byte {
+                    Some(prev_byte) => {
+                        if byte != *prev_byte {
+                            if stashed_val.is_some() {
+                                unrequested_cofree_half = true;
+                            }
+                            stashed_val = None;
+                            last_byte = None;
+                        }
+                    },
+                    None => {}
+                }
+
+                //Check to see if this trip through the loop is the request for the stashed val
+                match stashed_val {
+                    Some(val) => {
+                        if key.len() == 1 && *expect_val {
+                            *result_key_len = 1;
+                            *payload_ref = PayloadRef::Val(val);
+                            stashed_val = None;
+                            continue;
+                        }
+                    },
+                    None => {}
+                }
+
+                requested_mask.clear_bit(byte);
+                match self.get(byte) {
+                    Some(cf) => {
+                        //A key longer than 1 byte or an explicit request for a rec link can be answered with a Child
+                        if key.len() > 1 || !*expect_val {
+                            match cf.rec() {
+                                Some(rec) => {
+                                    *result_key_len = 1;
+                                    *payload_ref = PayloadRef::Child(rec);
+                                },
+                                None => {}
+                            }
+                        }
+                        match cf.val() {
+                            Some(val) => {
+                                //Answer an explicit request for this val, or stash the val for 
+                                if key.len() == 1 && *expect_val {
+                                    debug_assert!(stashed_val.is_none());
+                                    *result_key_len = 1;
+                                    *payload_ref = PayloadRef::Val(val);
+                                } else {
+                                    if last_byte.is_none() {
+                                        stashed_val = Some(val);
+                                        last_byte = Some(byte);
+                                    }
+                                }
+                            },
+                            None => {}
+                        }
+                    },
+                    None => {}
+                }
+            }
+        }
+
+        !unrequested_cofree_half && stashed_val.is_none() && requested_mask.is_empty_mask()
     }
     fn node_contains_val(&self, key: &[u8]) -> bool {
         if key.len() == 1 {
@@ -670,6 +773,19 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             false
         }
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     let mut pos = 0;
+    //     for (byte, cf) in self.mask.byte_mask_iter().zip(self.values.iter()) {
+    //         if cf.val().is_some() {
+    //             match keys[pos..].binary_search(&&[byte][..]) {
+    //                 Ok(new_pos) => { pos = new_pos+1; },
+    //                 Err(_) => return false
+    //             };
+    //         }
+    //     }
+    //     true
+    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         if key.len() == 1 {
             self.get(key[0]).and_then(|cf| cf.val() )

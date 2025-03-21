@@ -25,9 +25,10 @@ pub struct TinyRefNode<'a, V> {
     payload: &'a ValOrChildUnion<V>
 }
 
-impl<V> Debug for TinyRefNode<'_, V> {
+impl<V: Clone + Send + Sync> Debug for TinyRefNode<'_, V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TinyRefNode")
+        let converted = self.clone().into_full().unwrap();
+        write!(f, "TinyRefNode -> {converted:?}")
     }
 }
 
@@ -139,7 +140,44 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         None
     }
     fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> { unreachable!() }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     if !self.is_used_child() {
+    //         return true //TinyRefNode can only have one item, so if it doesn't contain a child, then there is no excess item
+    //     }
+    //     keys.binary_search(&self.key()).is_ok()
+    // }
     fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> { unreachable!() }
+    fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V>)]) -> bool {
+        //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
+        // node types.  But currently there is no path to call it.
+        // unreachable!();
+        if self.node_is_empty() {
+            return true
+        }
+        let mut requested_contained_item = false; // This node type only has one item
+        let self_key = self.key();
+        debug_assert!(results.len() >= keys.len());
+        for ((key, expect_val), (result_key_len, payload_ref)) in keys.into_iter().zip(results.into_iter()) {
+            if key.starts_with(self_key) {
+                let self_key_len = self_key.len();
+                if self.is_child_ptr() {
+                    if !*expect_val || self_key_len < key.len() {
+                        requested_contained_item = true;
+                        *result_key_len = self_key_len;
+                        *payload_ref = PayloadRef::Child(unsafe{ &*self.payload.child });
+                    }
+                } else {
+                    if *expect_val && self_key_len == key.len() {
+                        requested_contained_item = true;
+                        *result_key_len = self_key_len;
+                        *payload_ref = PayloadRef::Val(unsafe{ &**self.payload.val });
+                    }
+                }
+            }
+        }
+        requested_contained_item
+    }
     fn node_contains_val(&self, key: &[u8]) -> bool {
         if self.is_used_val() {
             let node_key = self.key();
@@ -149,6 +187,13 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         }
         false
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     if !self.is_used_val() {
+    //         return true //TinyRefNode can only have one item, so if it doesn't contain a val, then there is no excess item
+    //     }
+    //     keys.binary_search(&self.key()).is_ok()
+    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         if self.is_used_val() {
             let node_key = self.key();

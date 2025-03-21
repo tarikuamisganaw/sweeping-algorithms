@@ -25,12 +25,23 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
     fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         None
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_children_exclusive(&self, _keys: &[&[u8]]) -> bool {
+    //     true
+    // }
     fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         unreachable!() //Should not be called unless it's known that the node being replaced exists
+    }
+    fn node_get_payloads<'node, 'res>(&'node self, _keys: &[(&[u8], bool)], _results: &'res mut [(usize, PayloadRef<'node, V>)]) -> bool {
+        true
     }
     fn node_contains_val(&self, _key: &[u8]) -> bool {
         false
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_vals_exclusive(&self, _keys: &[&[u8]]) -> bool {
+    //     true
+    // }
     fn node_get_val(&self, _key: &[u8]) -> Option<&V> {
         None
     }

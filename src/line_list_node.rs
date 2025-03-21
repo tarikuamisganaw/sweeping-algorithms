@@ -1,3 +1,4 @@
+use core::hint::unreachable_unchecked;
 use core::mem::{ManuallyDrop, MaybeUninit};
 use std::collections::HashMap;
 
@@ -29,6 +30,10 @@ pub struct LineListNode<V> {
 // to stay within 1 cache line, or 78 to pack into two.
 //WARNING the length bits mean I will overflow if I go above 63
 const KEY_BYTES_CNT: usize = 14;
+
+const SLOT_0_USED_MASK: u16 = 1 << 15;
+const SLOT_1_USED_MASK: u16 = 1 << 14;
+const BOTH_SLOTS_USED_MASK: u16 = SLOT_0_USED_MASK | SLOT_1_USED_MASK;
 
 impl<V> Drop for LineListNode<V> {
     fn drop(&mut self) {
@@ -201,6 +206,17 @@ impl<V> LineListNode<V> {
             _ => unreachable!()
         }
     }
+    /// Returns the number of slots in the node that are in use
+    #[inline]
+    pub fn used_slot_count(&self) -> usize {
+        let masked = self.header & BOTH_SLOTS_USED_MASK;
+        match masked {
+            0 => 0,
+            SLOT_0_USED_MASK => 1,
+            BOTH_SLOTS_USED_MASK => 2,
+            _ => unreachable!() //Slot1 without Slot0 is invalid
+        }
+    }
     /// Extracts the flag and length bits assocated with slot_0
     #[inline]
     fn flags_and_len_0(&self) -> usize {
@@ -319,6 +335,15 @@ impl<V> LineListNode<V> {
             0 => &**self.val_or_child0.val,
             1 => &**self.val_or_child1.val,
             _ => unreachable!()
+        }
+    }
+    /// Returns a reference to a child or value in the specified slot.  This method is unsafe
+    /// because it doesn't check if the slot is occupied and can never return [PayloadRef::None]
+    #[inline]
+    unsafe fn payload_in_slot<const SLOT: usize>(&self) -> PayloadRef<V> {
+        match self.is_child_ptr::<SLOT>() {
+            true => PayloadRef::Child(unsafe{ self.child_in_slot::<SLOT>() }),
+            false => PayloadRef::Val(unsafe{ self.val_in_slot::<SLOT>() })
         }
     }
     fn contains_val(&self, key: &[u8]) -> bool {
@@ -921,79 +946,82 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
         TrieNodeODRc::new(replacement_node)
     }
 
-    /// Internal method to meet the contents of `SLOT` with the contents of the `other` node
-    #[inline]
-    fn meet_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> FatAlgebraicResult<ValOrChild<V>> where V: Clone + Lattice {
-        if self.is_used::<SLOT>() {
-            let path = unsafe{ self.key_unchecked::<SLOT>() };
-            if let Some((onward_key, onward_node)) = follow_path(other, path) {
-                if self.is_child_ptr::<SLOT>() {
-                    let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
-                    let (meet_result, other_node) = if onward_key.len() == 0 {
-                        //GOAT!!!!, if onward_node were a TrieNodeODRc, we would avoid having to make a deep copy here, and more importantly
-                        // breaking the sharing!!
-                        (self_onward_link.borrow().pmeet_dyn(onward_node), Some(onward_node.clone_self()))
-                    } else {
-                        match onward_node.get_node_at_key(onward_key).into_option() {
-                            Some(other_onward_node) => {
-                                (self_onward_link.borrow().pmeet_dyn(other_onward_node.borrow()), Some(other_onward_node))
-                            },
-                            None => {
-                                if other.node_is_empty() {
-                                    return FatAlgebraicResult::new(COUNTER_IDENT, None)
-                                } else {
-                                    return FatAlgebraicResult::new(0, None)
-                                }
-                            }
-                        }
-                    };
-                    match meet_result {
-                        AlgebraicResult::None => FatAlgebraicResult::none(),
-                        AlgebraicResult::Element(node) => FatAlgebraicResult::element(ValOrChild::Child(node)),
-                        AlgebraicResult::Identity(mask) => {
-                            if mask & SELF_IDENT > 0 {
-                                FatAlgebraicResult::new(mask, Some(ValOrChild::Child(self_onward_link.clone())))
-                            } else {
-                                debug_assert_eq!(mask, COUNTER_IDENT);
-                                debug_assert!(other_node.is_some());
-                                FatAlgebraicResult::new(mask, other_node.map(|node| ValOrChild::Child(node)))
-                            }
-                        }
-                    }
-                } else {
-                    let self_val = unsafe{ self.val_in_slot::<SLOT>() };
-                    if let Some(other_val) = onward_node.node_get_val(onward_key) {
-                        match self_val.pmeet(other_val) {
-                            AlgebraicResult::None => FatAlgebraicResult::none(),
-                            AlgebraicResult::Element(val) => FatAlgebraicResult::element(ValOrChild::Val(val)),
-                            AlgebraicResult::Identity(mask) => {
-                                if mask & SELF_IDENT > 0 {
-                                    FatAlgebraicResult::new(mask, Some(ValOrChild::Val(self_val.clone())))
-                                } else {
-                                    debug_assert_eq!(mask, COUNTER_IDENT);
-                                    FatAlgebraicResult::new(mask, Some(ValOrChild::Val(other_val.clone())))
-                                }
-                            }
-                        }
-                    } else {
-                        if other.node_is_empty() {
-                            FatAlgebraicResult::new(COUNTER_IDENT, None)
-                        } else {
-                            FatAlgebraicResult::new(0, None)
-                        }
-                    }
-                }
-            } else {
-                if other.node_is_empty() {
-                    FatAlgebraicResult::new(COUNTER_IDENT, None)
-                } else {
-                    FatAlgebraicResult::new(0, None)
-                }
-            }
-        } else {
-            FatAlgebraicResult::new(SELF_IDENT, None)
-        }
-    }
+    //GOAT Dead code, in favor of `pmeet_generic`  Currently it's not deleted because we may refer back to it
+    // but it's slated for deletion soon.
+    //
+    // /// Internal method to meet the contents of `SLOT` with the contents of the `other` node
+    // #[inline]
+    // fn meet_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> FatAlgebraicResult<ValOrChild<V>> where V: Clone + Lattice {
+    //     if self.is_used::<SLOT>() {
+    //         let path = unsafe{ self.key_unchecked::<SLOT>() };
+    //         if let Some((onward_key, onward_node)) = follow_path(other, path) {
+    //             if self.is_child_ptr::<SLOT>() {
+    //                 let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
+    //                 let (meet_result, other_node) = if onward_key.len() == 0 {
+    //                     //GOAT!!!!, if onward_node were a TrieNodeODRc, we would avoid having to make a deep copy here, and more importantly
+    //                     // breaking the sharing!!
+    //                     (self_onward_link.borrow().pmeet_dyn(onward_node), Some(onward_node.clone_self()))
+    //                 } else {
+    //                     match onward_node.get_node_at_key(onward_key).into_option() {
+    //                         Some(other_onward_node) => {
+    //                             (self_onward_link.borrow().pmeet_dyn(other_onward_node.borrow()), Some(other_onward_node))
+    //                         },
+    //                         None => {
+    //                             if other.node_is_empty() {
+    //                                 return FatAlgebraicResult::new(COUNTER_IDENT, None)
+    //                             } else {
+    //                                 return FatAlgebraicResult::new(0, None)
+    //                             }
+    //                         }
+    //                     }
+    //                 };
+    //                 match meet_result {
+    //                     AlgebraicResult::None => FatAlgebraicResult::none(),
+    //                     AlgebraicResult::Element(node) => FatAlgebraicResult::element(ValOrChild::Child(node)),
+    //                     AlgebraicResult::Identity(mask) => {
+    //                         if mask & SELF_IDENT > 0 {
+    //                             FatAlgebraicResult::new(mask, Some(ValOrChild::Child(self_onward_link.clone())))
+    //                         } else {
+    //                             debug_assert_eq!(mask, COUNTER_IDENT);
+    //                             debug_assert!(other_node.is_some());
+    //                             FatAlgebraicResult::new(mask, other_node.map(|node| ValOrChild::Child(node)))
+    //                         }
+    //                     }
+    //                 }
+    //             } else {
+    //                 let self_val = unsafe{ self.val_in_slot::<SLOT>() };
+    //                 if let Some(other_val) = onward_node.node_get_val(onward_key) {
+    //                     match self_val.pmeet(other_val) {
+    //                         AlgebraicResult::None => FatAlgebraicResult::none(),
+    //                         AlgebraicResult::Element(val) => FatAlgebraicResult::element(ValOrChild::Val(val)),
+    //                         AlgebraicResult::Identity(mask) => {
+    //                             if mask & SELF_IDENT > 0 {
+    //                                 FatAlgebraicResult::new(mask, Some(ValOrChild::Val(self_val.clone())))
+    //                             } else {
+    //                                 debug_assert_eq!(mask, COUNTER_IDENT);
+    //                                 FatAlgebraicResult::new(mask, Some(ValOrChild::Val(other_val.clone())))
+    //                             }
+    //                         }
+    //                     }
+    //                 } else {
+    //                     if other.node_is_empty() {
+    //                         FatAlgebraicResult::new(COUNTER_IDENT, None)
+    //                     } else {
+    //                         FatAlgebraicResult::new(0, None)
+    //                     }
+    //                 }
+    //             }
+    //         } else {
+    //             if other.node_is_empty() {
+    //                 FatAlgebraicResult::new(COUNTER_IDENT, None)
+    //             } else {
+    //                 FatAlgebraicResult::new(0, None)
+    //             }
+    //         }
+    //     } else {
+    //         FatAlgebraicResult::new(SELF_IDENT, None)
+    //     }
+    // }
 
     /// Internal method to subtract the contents of `SLOT` with the contents of the `other` node
     fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<ValOrChildUnion<V>> where V: Clone + DistributiveLattice {
@@ -1400,7 +1428,7 @@ fn merge_list_nodes<V: Clone + Send + Sync + Lattice>(a: &LineListNode<V>, b: &L
         }
     }
 
-    //Do we have two or fewer paths, that can fit into a new ListNode? 
+    //Do we have two or fewer paths, that can fit into a new ListNode?
     if entry_cnt <= 2 {
         let mut joined_node = LineListNode::new();
         let mut pair0: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
@@ -1588,15 +1616,100 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         self.get_child_mut(key)
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     let (key0, key1) = self.get_both_keys();
+    //     let mut pos = 0;
+    //     if self.is_used_child_0() {
+    //         pos = match keys.binary_search(&key0) {
+    //             Ok(pos) => pos,
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     if self.is_used_child_1() {
+    //         match &keys[pos+1..].binary_search(&key1) {
+    //             Ok(_) => {},
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     true
+    // }
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         let (consumed_bytes, child_node) = self.get_child_mut(key).unwrap();
         debug_assert!(consumed_bytes == key.len());
         *child_node = new_node;
         child_node.make_mut()
     }
+    fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V>)]) -> bool {
+        //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
+        // node types.  But currently there is no path to call it.
+        // unreachable!();
+        let mut slot_0_requested = !self.is_used::<0>();
+        let mut slot_1_requested = !self.is_used::<1>();
+        let (node_key_0, node_key_1) = self.get_both_keys();
+
+        debug_assert!(results.len() >= keys.len());
+        for ((key, expect_val), (result_key_len, payload_ref)) in keys.into_iter().zip(results.iter_mut()) {
+            if self.is_used::<0>() {
+                if key.starts_with(node_key_0) {
+                    let node_key_len = node_key_0.len();
+                    if self.is_child_ptr::<0>() {
+                        if !*expect_val || node_key_len < key.len() {
+                            slot_0_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Child(unsafe{ &*self.val_or_child0.child });
+                        }
+                    } else {
+                        if *expect_val && node_key_len == key.len() {
+                            slot_0_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Val(unsafe{ &**self.val_or_child0.val });
+                        }
+                    }
+                }
+            }
+            if self.is_used::<1>() {
+                if key.starts_with(node_key_1) {
+                    let node_key_len = node_key_1.len();
+                    if self.is_child_ptr::<1>() {
+                        if !*expect_val || node_key_len < key.len() {
+                            slot_1_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Child(unsafe{ &*self.val_or_child1.child });
+                        }
+                    } else {
+                        if *expect_val && node_key_len == key.len() {
+                            slot_1_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Val(unsafe{ &**self.val_or_child1.val });
+                        }
+                    }
+                }
+            }
+        }
+        slot_0_requested && slot_1_requested
+    }
     fn node_contains_val(&self, key: &[u8]) -> bool {
         self.contains_val(key)
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     let (key0, key1) = self.get_both_keys();
+    //     let mut pos = 0;
+    //     if self.is_used_value_0() {
+    //         pos = match keys.binary_search(&key0) {
+    //             Ok(pos) => pos,
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     if self.is_used_value_1() {
+    //         match keys[pos+1..].binary_search(&key1) {
+    //             Ok(_) => {},
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     true
+    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         self.get_val(key)
     }
@@ -1845,8 +1958,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         //Logic:  There are 6 possible results from this method:
         // 1. The `key` arg is zero-length, in which case this method should return the common prefix
-        //    (which is guaranteed to be one byte or less) if there is on, or otherwise return the 
-        //    result in slot0
+        //    if there is one (which is guaranteed to be one byte), or otherwise return the result in slot0
         // 2. The supplied key exactly matches key0 and key1.  In this case, the result is whichever of the
         //    two results is an onward node link. This case can only occur if the `key` arg length is 1.
         // 3. The supplied key exactly matches key0 and is a prefix of key1.  The result is the remaining
@@ -2370,13 +2482,35 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
 
     fn pmeet_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: Lattice {
         debug_assert!(validate_node(self));
-        let slot0_result = self.meet_slot_contents::<0>(other);
-        let slot1_result = self.meet_slot_contents::<1>(other);
-        slot0_result.merge_and_convert(slot1_result, |slot0_payload, slot1_payload| {
-            let slot0_payload = slot0_payload.map(|payload| payload.into());
-            let slot1_payload = slot1_payload.map(|payload| payload.into());
+
+        let mut self_payloads_buf: [(&[u8], PayloadRef<V>); 2] = [(&[], PayloadRef::None); 2];
+
+        let self_slot_count = self.used_slot_count();
+        let self_payloads = match self_slot_count {
+            0 => return AlgebraicResult::None,
+            1 => {
+                let key = unsafe{ self.key_unchecked::<0>() };
+                let payload = unsafe{ self.payload_in_slot::<0>() };
+                self_payloads_buf[0] = (key, payload);
+                &self_payloads_buf[..1]
+            },
+            2 => {
+                let (key0, key1) = self.get_both_keys();
+                let payload0 = unsafe{ self.payload_in_slot::<0>() };
+                let payload1 = unsafe{ self.payload_in_slot::<1>() };
+                self_payloads_buf[0] = (key0, payload0);
+                self_payloads_buf[1] = (key1, payload1);
+                &self_payloads_buf[..2]
+            },
+            _ => unsafe{ unreachable_unchecked() }
+        };
+
+        pmeet_generic::<2, V, _>(self_payloads, other, |payloads| {
+            debug_assert_eq!(payloads.len(), self_payloads.len());
+            let slot0_payload = payloads.get_mut(0).and_then(|p| core::mem::take(p)).map(|p| p.into());
+            let slot1_payload = payloads.get_mut(1).and_then(|p| core::mem::take(p)).map(|p| p.into());
             let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
-            AlgebraicResult::Element(TrieNodeODRc::new(new_node))
+            TrieNodeODRc::new(new_node)
         })
     }
     fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
@@ -2583,7 +2717,7 @@ mod tests {
         assert_eq!(new_node.node_get_val("slot1".as_bytes()), Some(&123));
     }
 
-    /// This test consumes slot_0, and tests that a common prefix is found when adding an entry to slot_1 
+    /// This test consumes slot_0, and tests that a common prefix is found when adding an entry to slot_1
     #[test]
     fn test_line_list_node_shared_prefixes_slot_1() {
 
@@ -2634,7 +2768,7 @@ mod tests {
         assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("banana".as_bytes()), Some(&1));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
@@ -2654,7 +2788,7 @@ mod tests {
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&42));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
@@ -2676,7 +2810,7 @@ mod tests {
         let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), join_list_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
@@ -2697,7 +2831,7 @@ mod tests {
         assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
@@ -2720,7 +2854,7 @@ mod tests {
         assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
@@ -2741,7 +2875,7 @@ mod tests {
         assert_eq!(joined_node.node_get_val("1".as_bytes()), Some(&1));
         assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
         assert!(!joined_node.node_is_empty());
@@ -2763,7 +2897,7 @@ mod tests {
         assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
         assert_eq!(joined_node.node_get_val("3".as_bytes()), Some(&3));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
         assert!(!joined_node.node_is_empty());
@@ -2795,7 +2929,7 @@ mod tests {
         let (remaining_key, child_node, _) = get_recursive("2b".as_bytes(), joined_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&2));
 
-        //re-run join, just to make sure the source maps didn't get modified 
+        //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(&b);
         let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
         assert!(!joined_node.node_is_empty());
@@ -2966,6 +3100,7 @@ mod tests {
 //GOAT, remove garbage lattice impls
 //
 //GOAT, rename BytesTrieMap to PathMap, consider other renames, marked by GOATs
+//GOAT Catamorphism names:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004745719
 //
 //GOAT, document how path existence can't be used to confirm the existence of a value, only the non-existence
 //  and document the meaning of path existence more generally.
@@ -3006,3 +3141,5 @@ mod tests {
 // * test write_zipper::tests::write_zipper_test_zipper_conversion ... ok
 
 //GOAT, replace the `[u64; 4]` types in the interface with the `ByteMask` type, and provide an "as_u64_slice" accessor for `ByteMask`
+
+//GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957

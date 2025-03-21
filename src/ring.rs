@@ -1,7 +1,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use crate::zipper::*;
 
 /// The result of an algebraic operation on elements in a partial lattice
 ///
@@ -187,6 +186,10 @@ impl<V> AlgebraicResult<V> {
     /// Merges two `AlgebraicResult`s into a combined `AlgebraicResult<U>`.  This method is useful to compose a
     /// result for an operation on whole type arguments, from the results of separate operations on each field
     /// of the arguments.
+    ///
+    /// NOTE: Take care when implementing the `meet` operation across heterogeneous items (e.g. abstracted sets),
+    /// because one set may be a superset of the other.  simply merging the `AlgebraicResult`s from individual
+    /// `meet` operations on the overlapping elements will lead to a false `Identity` result for one of the sets.
     ///
     /// ```
     /// use pathmap::ring::{Lattice, AlgebraicResult};
@@ -448,6 +451,36 @@ impl<V> FatAlgebraicResult<V> {
     pub(crate) fn new(identity_mask: u64, element: Option<V>) -> Self {
         Self {identity_mask, element}
     }
+    /// Converts an [AlgebraicResult] into a `FatAlgebraicResult`, assuming the source `result` was the
+    /// output of a binary operation (two arguments).
+    #[inline]
+    pub(crate) fn from_binary_op_result(result: AlgebraicResult<V>, a: &V, b: &V) -> Self
+        where V: Clone
+    {
+        match result {
+            AlgebraicResult::None => FatAlgebraicResult::none(),
+            AlgebraicResult::Element(v) => FatAlgebraicResult::element(v),
+            AlgebraicResult::Identity(mask) => {
+                debug_assert!(mask <= (SELF_IDENT | COUNTER_IDENT));
+                if mask & SELF_IDENT > 0 {
+                    FatAlgebraicResult::new(mask, Some(a.clone()))
+                } else {
+                    debug_assert_eq!(mask, COUNTER_IDENT);
+                    FatAlgebraicResult::new(mask, Some(b.clone()))
+                }
+            }
+        }
+    }
+    /// Maps a `FatAlgebraicResult<V>` to `FatAlgebraicResult<U>` by applying a function to a contained value
+    #[inline]
+    pub fn map<U, F>(self, f: F) -> FatAlgebraicResult<U>
+        where F: FnOnce(V) -> U,
+    {
+        FatAlgebraicResult::<U> {
+            identity_mask: self.identity_mask,
+            element: self.element.map(f)
+        }
+    }
     /// The result of an operation between non-none arguments that results in None
     #[inline(always)]
     pub(crate) fn none() -> Self {
@@ -458,20 +491,21 @@ impl<V> FatAlgebraicResult<V> {
     pub(crate) fn element(e: V) -> Self {
         Self {identity_mask: 0, element: Some(e)}
     }
-    /// Merges two `FatAlgebraicResult<V>`s into an `AlgebraicResult<U>`.  See [AlgebraicResult::merge]
-    #[inline]
-    pub fn merge_and_convert<U, F>(self, other: Self, merge_f: F) -> AlgebraicResult<U>
-        where F: FnOnce(Option<V>, Option<V>) -> AlgebraicResult<U>,
-    {
-        if self.element.is_none() && other.element.is_none() {
-            return AlgebraicResult::None
-        }
-        let combined_mask = self.identity_mask & other.identity_mask;
-        if combined_mask > 0 {
-            return AlgebraicResult::Identity(combined_mask)
-        }
-        merge_f(self.element, other.element)
-    }
+    //GOAT, currently unused although implemented and working
+    // /// Merges two `FatAlgebraicResult<V>`s into an `AlgebraicResult<U>`.  See [AlgebraicResult::merge]
+    // #[inline]
+    // pub fn merge_and_convert<U, F>(self, other: Self, merge_f: F) -> AlgebraicResult<U>
+    //     where F: FnOnce(Option<V>, Option<V>) -> AlgebraicResult<U>,
+    // {
+    //     if self.element.is_none() && other.element.is_none() {
+    //         return AlgebraicResult::None
+    //     }
+    //     let combined_mask = self.identity_mask & other.identity_mask;
+    //     if combined_mask > 0 {
+    //         return AlgebraicResult::Identity(combined_mask)
+    //     }
+    //     merge_f(self.element, other.element)
+    // }
     //GOAT, currently unused, but fully implemented and working
     // /// Intersects arg with the contents of self, and sets the arg_idx bit in the case of an identity result
     // pub fn meet(self, arg: &V, arg_idx: usize) -> Self where V: Lattice + Clone {
@@ -1436,3 +1470,20 @@ fn set_lattice_meet_test2() {
 // BitfieldLattice should be implemented on bool
 // Make monad types that can implement these traits on all prim types
 // Make a "convertable_to" trait across all prim types
+
+// GOAT, TEST TODO:  A fuzz test for some of the algebraic operations (join, meet, subtract) across all
+// different path configurations and operation orderings.
+
+// Envisioned Implementation:
+// 1. Create `set_a` of N values (e.g. integers 0..100) and assign a pseudorandom path to each element
+// 2. Create `set_b` of M values and assign a different pseudorandom path to each element
+// 3. Compose pseudorandom subsets of `set_a` and `set_b` and put them into HashSets
+// 4. Put corresponding concatenated paths (Cartesian product) into PathMaps.
+// 5. Select an operation to perform, and do the same operation to both the HashSets contining simple
+//   indices and to the PathMaps.  And validate the results match
+// 6. Loop back to 3, continuing to choose additional subsets to perform additional operations.
+
+// The reason behind the cartesian product (concatenated paths) is because the chances of getting overlap
+//  beyond the first couple bytes of a random path are very slim.  So the Cartesian product appraoch
+//  means we are likely to get large common prefixes followed by splits deep in the trie, which will
+//  exercise the code more thoroughly.

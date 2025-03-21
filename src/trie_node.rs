@@ -3,6 +3,7 @@ use core::mem::ManuallyDrop;
 use std::collections::HashMap;
 use dyn_clone::*;
 use local_or_heap::LocalOrHeap;
+use arrayvec::ArrayVec;
 
 use crate::dense_byte_node::*;
 use crate::empty_node::EmptyNode;
@@ -52,6 +53,18 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
 
+    //GOAT, we probably don't need this interface
+    // /// Returns `true` if the node does *NOT* contain any onward children at paths aside from the provided
+    // /// `keys`
+    // ///
+    // /// NOTE: It isn't necessary for the node to contain all `keys` provided, simply that it contains no
+    // /// additional onward links with other keys.
+    // ///
+    // /// The implementation may assume `keys` will be in sorted order
+    // ///
+    // /// See [TrieNode::node_contains_vals_exclusive] for the values counterpart.
+    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool;
+
     //GOAT, Probably can be removed
     /// Replaces a child-node at `key` with the node provided, returning a `&mut` reference to the newly
     /// added child node
@@ -63,11 +76,48 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     /// QUESTION: Does this method have a strong purpose, or can it be superseded by node_set_branch?
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V>;
 
+    /// Retrieves multiple values or child links from the node, associated with elements from `keys`,
+    /// and places them into the respective element in `results`
+    ///
+    /// The `bool` in `keys` indicates whether a value is expected at the requested key.  `true` will be
+    /// passed to indicate a **value**. (WARNING: This is different from the convention in some node types)
+    ///
+    /// If a node contains both an onward link and a value at the same key, the `bool` specifies which to
+    /// return; however, a node may be returned for a requested value, if the path to the node is a prefix
+    /// to the path to the requested value.  This is because the value may live within a child node.  On
+    /// the other hand, a value will only be returned if it is an exact match with the key provided.
+    ///
+    /// The `usize` in `results` functions the same way as the returned `usize` in [TrieNode::node_get_child],
+    /// to indicate the number of key bytes matched by the key contained within the node.
+    ///
+    /// The implementation may assume `keys` will be in sorted order, and `false` sorts before `true` if
+    /// both a value and a node at the same key are requested.
+    ///
+    /// Returns `true` if the requested `keys` completely enumerate the set of elements contained within
+    /// the node, or `false` if the node contains additional elements that were not requested
+    ///
+    /// If a result is not found for a given key, the implementation does not guarantee the corresponding
+    /// element in `results` will be set to [`PayloadRef::None`], therefore the caller should init `results`
+    /// to default values.
+    ///
+    /// Panics if `keys.len() > results.len()`
+    ///
+    /// NOTE: It perfectly fine for multiple keys to share a prefix, and sometimes that means multiple
+    /// results will be identical if the node represents only the prefix portion of the key.
+    fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V>)]) -> bool;
+
     /// Returns `true` if the node contains a value at the specified key, otherwise returns `false`
     ///
     /// NOTE: just as with [Self::node_get_val], this method will return `false` if key is longer than
     /// the exact key contained within this node
     fn node_contains_val(&self, key: &[u8]) -> bool;
+
+    //GOAT, we probably don't need this interface
+    // /// Returns `true` if the node does *NOT* contain any values at paths aside from the provided `keys`
+    // ///
+    // /// See [TrieNode::node_contains_children_exclusive] for a complete description of behavior and
+    // /// requirements.
+    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool;
 
     /// Returns the value that matches `key` if it contained within the node
     ///
@@ -284,6 +334,71 @@ pub const NODE_ITER_INVALID: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
 /// Special sentinel token value indicating iteration of a node has concluded
 pub const NODE_ITER_FINISHED: u128 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFE;
 
+/// Internal.  A pointer to an onward link or a value contained within a node
+pub enum PayloadRef<'a, V> {
+    None,
+    Val(&'a V),
+    Child(&'a TrieNodeODRc<V>),
+}
+
+// Deriving Clone puts an unnecessary bound on `V`
+impl<V> Clone for PayloadRef<'_, V> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::None => Self::None,
+            Self::Val(v) => Self::Val(v),
+            Self::Child(c) => Self::Child(c)
+        }
+    }
+}
+impl<V> Copy for PayloadRef<'_, V> {}
+
+impl<V> PartialEq for PayloadRef<'_, V> {
+    #[inline]
+    fn eq(&self, rhs: &Self) -> bool {
+        match (self, rhs) {
+            (Self::None, Self::None) => true,
+            (Self::Val(l_val), Self::Val(r_val)) => core::ptr::eq(*l_val, *r_val),
+            (Self::Child(l_link), Self::Child(r_link)) => core::ptr::eq(*l_link, *r_link),
+            _ => false
+        }
+    }
+}
+impl<V> Eq for PayloadRef<'_, V> {}
+
+impl<V> Default for PayloadRef<'_, V> {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl<V> PayloadRef<'_, V> {
+    pub fn is_none(&self) -> bool {
+        match self {
+            Self::None => true,
+            _ => false
+        }
+    }
+    pub fn is_val(&self) -> bool {
+        match self {
+            Self::Val(_) => true,
+            _ => false
+        }
+    }
+    pub fn child(&self) -> &TrieNodeODRc<V> {
+        match self {
+            Self::Child(child) => child,
+            _ => panic!()
+        }
+    }
+    pub fn val(&self) -> &V {
+        match self {
+            Self::Val(val) => val,
+            _ => panic!()
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) enum ValOrChild<V> {
     Val(V),
@@ -349,6 +464,166 @@ impl<V> ValOrChildUnion<V> {
     }
     pub unsafe fn into_child(self) -> TrieNodeODRc<V> {
         ManuallyDrop::into_inner(self.child)
+    }
+}
+
+/// An implementation of pmeet_dyn that should be correct for any two node types, Although it
+/// certainly won't be optimally efficient.
+///
+/// WARNING: just like [TrieNode::node_get_payloads], the keys in `self_payloads` must be in
+/// sorted order.
+pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, MergeF>(self_payloads: &[(&[u8], PayloadRef<V>)], other: &dyn TrieNode<V>, merge_f: MergeF) -> AlgebraicResult<TrieNodeODRc<V>>
+    where
+    MergeF: FnOnce(&mut [Option<ValOrChild<V>>]) -> TrieNodeODRc<V>,
+    V: Clone + Send + Sync + Lattice
+{
+    let mut request_keys = ArrayVec::<(&[u8], bool), MAX_PAYLOAD_CNT>::new();
+    //GOAT, we can remove the `Option<>` around the `FatAlgebraicResult`, once we are satisfied that
+    // we never fail to set a result, and we never attempt to set the same result more than once.
+    let mut element_results = ArrayVec::<Option<FatAlgebraicResult<ValOrChild<V>>>, MAX_PAYLOAD_CNT>::new();
+    for (self_key, self_payload) in self_payloads.iter() {
+        debug_assert!(!self_payload.is_none());
+        request_keys.push((self_key, self_payload.is_val()));
+        element_results.push(None);
+    }
+
+    let is_exhaustive = pmeet_generic_internal::<MAX_PAYLOAD_CNT, V>(self_payloads, &mut request_keys[..], &mut element_results[..], other);
+    let mut is_none = true;
+    let mut combined_mask = SELF_IDENT | COUNTER_IDENT;
+    let mut result_payloads = ArrayVec::<Option<ValOrChild<V>>, MAX_PAYLOAD_CNT>::new();
+    for result in element_results {
+        let result = result.unwrap();
+        combined_mask &= result.identity_mask;
+        is_none = is_none && result.element.is_none();
+        result_payloads.push(result.element);
+    }
+
+    if is_none {
+        return AlgebraicResult::None
+    }
+    if !is_exhaustive {
+        combined_mask &= !COUNTER_IDENT;
+    }
+    if combined_mask > 0 {
+        return AlgebraicResult::Identity(combined_mask)
+    }
+    AlgebraicResult::Element(merge_f(&mut result_payloads[..]))
+}
+
+/// Internal function to implement the recursive part of `pmeet_generic`
+pub(crate) fn pmeet_generic_internal<const MAX_PAYLOAD_CNT: usize, V>(self_payloads: &[(&[u8], PayloadRef<V>)], keys: &mut [(&[u8], bool)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V>>>], other_node: &dyn TrieNode<V>) -> bool
+    where V: Clone + Send + Sync + Lattice
+{
+    let mut request_results = ArrayVec::<(usize, PayloadRef<V>), MAX_PAYLOAD_CNT>::new();
+    for _ in 0..keys.len() {
+        request_results.push((0, PayloadRef::default()));
+    }
+
+    //If is_exhaustive gets set to `false`, then the pmeet method cannot return a `COUNTER_IDENTITY` result
+    let mut is_exhaustive = true;
+
+    //Get the payload results from the node
+    if !other_node.node_get_payloads(&keys[..], &mut request_results[..]) {
+        is_exhaustive = false;
+    }
+
+    //Divide the results into groups based on the returned node.  Because keys must be
+    // in sorted order, we can assume that query results returning the same node will
+    // be contiguous.
+    //NOTE: It's theoretically possible (although pretty unlikely) that a node will
+    // have multiple discontinuous internal paths leading to the same child node, however
+    // the TrieNodeODRc pointers will be different in that case, so this logic is still
+    // correct.
+    let mut cur_group: Option<(usize, &TrieNodeODRc<V>)> = None;
+    for (idx, (consumed_bytes, payload)) in request_results.iter().enumerate() {
+        if !payload.is_none() {
+            let is_val = keys[idx].1;
+            if *consumed_bytes < keys[idx].0.len() {
+                keys[idx].0 = &keys[idx].0[*consumed_bytes..];
+                debug_assert!(!payload.is_val());
+                let child = payload.child();
+
+                //Continue to grow range, or do the recursive call, depending on whether
+                // we have the same node as the previous time through the loop
+                if cur_group.is_some() {
+                    if (cur_group.as_ref().unwrap().1 as *const TrieNodeODRc<V>) != (child as *const TrieNodeODRc<V>) {
+                        pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, results);
+                        cur_group = Some((idx, child));
+                    }
+                } else {
+                    cur_group = Some((idx, child));
+                }
+            } else {
+                pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, results);
+
+                //We've arrived at a contained value or onward link that has a correspondence
+                // to one of the values or links in `self`
+                debug_assert_eq!(*consumed_bytes, keys[idx].0.len());
+                debug_assert_eq!(is_val, payload.is_val());
+                let result = match &self_payloads[idx].1 {
+                    PayloadRef::Child(self_link) => {
+                        let other_link = payload.child();
+                        let result = self_link.pmeet(other_link);
+                        FatAlgebraicResult::from_binary_op_result(result, self_link, other_link)
+                            .map(|child| ValOrChild::Child(child))
+                    },
+                    PayloadRef::Val(self_val) => {
+                        let other_val = payload.val();
+                        let result = (*self_val).pmeet(other_val);
+                        FatAlgebraicResult::from_binary_op_result(result, *self_val, other_val)
+                            .map(|val| ValOrChild::Val(val))
+                    },
+                    _ => unreachable!()
+                };
+                debug_assert!(results[idx].is_none());
+                results[idx] = Some(result);
+            }
+        } else {
+            pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, results);
+
+            let result = match &self_payloads[idx].1 {
+                PayloadRef::Child(self_link) => {
+                    match other_node.get_node_at_key(keys[idx].0).into_option() {
+                        Some(other_onward_node) => {
+                            let result = self_link.borrow().pmeet_dyn(other_onward_node.borrow());
+                            FatAlgebraicResult::from_binary_op_result(result, self_link, &other_onward_node)
+                                .map(|child| ValOrChild::Child(child))
+                        },
+                        None => {
+                            FatAlgebraicResult::new(COUNTER_IDENT, None)
+                        }
+                    }
+                },
+                PayloadRef::Val(_self_val) => {
+                    //If self_payload is a val and we didn't get a corresponding val, then this result is None
+                    FatAlgebraicResult::new(COUNTER_IDENT, None)
+                },
+                _ => unreachable!()
+            };
+            results[idx] = Some(result);
+        }
+    }
+    pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, keys.len(), self_payloads, keys, results);
+
+    is_exhaustive
+}
+
+/// Effectively part of `pmeet_generic_internal`, but factored out separately because it's called in
+/// several different places.  Resets the `cur_group` state and does a recursive call of `pmeet_generic_internal`
+#[inline]
+fn pmeet_generic_recursive_reset<const MAX_PAYLOAD_CNT: usize, V>(cur_group: &mut Option<(usize, &TrieNodeODRc<V>)>, is_exhaustive: &mut bool, idx: usize, self_payloads: &[(&[u8], PayloadRef<V>)], keys: &mut [(&[u8], bool)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V>>>])
+    where V: Clone + Send + Sync + Lattice
+{
+    match core::mem::take(cur_group) {
+        Some((group_start, next_node)) => {
+            let group_keys = &mut keys[group_start..idx];
+            let group_results = &mut results[group_start..idx];
+            let group_self_payloads = &self_payloads[group_start..idx];
+            if !pmeet_generic_internal::<MAX_PAYLOAD_CNT, V>(group_self_payloads, group_keys, group_results, next_node.borrow()) {
+                *is_exhaustive = false;
+            }
+        },
+        None => {}
     }
 }
 
