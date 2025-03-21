@@ -8,7 +8,7 @@ use gxhash::{HashMap, HashMapExt};
 use rand::distr::{Iter, Uniform};
 use crate::TrieValue;
 use crate::utils::{BitMask, ByteMask};
-use crate::zipper::{ReadZipperUntracked, Zipper, ZipperIteration, ZipperMoving, ZipperReadOnly};
+use crate::zipper::{ZipperWriting, ReadZipperUntracked, Zipper, ZipperIteration, ZipperMoving, ZipperReadOnly};
 
 
 #[derive(Debug)]
@@ -53,9 +53,24 @@ impl <T, D : Distribution<T>, P : Fn(&T) -> bool> Distribution<T> for Filtered<T
   }
 }
 
-pub struct Product2<X, DX : Distribution<X>, Y, DY : Distribution<Y>, Z, F : Fn(X, Y) -> Z> { dx: DX, dy: DY, f: F,
+#[derive(Clone)]
+pub struct Collected<T, S, D : Distribution<T> + Clone, P : Fn(T) -> Option<S> + Clone> { d: D, pf: P, pd: PhantomData<(T, S)> }
+impl <T, S, D : Distribution<T> + Clone, P : Fn(T) -> Option<S> + Clone> Distribution<S> for Collected<T, S, D, P> {
+  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> S {
+    loop {
+      let t = self.d.sample(rng);
+      match (self.pf)(t) {
+        None => {}
+        Some(s) => { return s }
+      }
+    }
+  }
+}
+
+#[derive(Clone)]
+pub struct Product2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, Z, F : Fn(X, Y) -> Z + Clone> { dx: DX, dy: DY, f: F,
   pd: PhantomData<(X, Y, Z)> }
-impl <X, DX : Distribution<X>, Y, DY : Distribution<Y>, Z, F : Fn(X, Y) -> Z> Distribution<Z> for Product2<X, DX, Y, DY, Z, F> {
+impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, Z, F : Fn(X, Y) -> Z + Clone> Distribution<Z> for Product2<X, DX, Y, DY, Z, F> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Z {
     (self.f)(self.dx.sample(rng), self.dy.sample(rng))
   }
@@ -212,6 +227,7 @@ fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> 
   Categorical{ elements: bm.iter().collect(), ed: Uniform::try_from(0..bm.count_bits()).unwrap() }
 }
 
+#[derive(Clone)]
 pub struct FairTriePath<T : TrieValue> { source: BytesTrieMap<T> }
 impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, Option<T>) {
@@ -258,8 +274,9 @@ fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> C
 mod tests {
   use rand::rngs::StdRng;
   use rand::SeedableRng;
-  use rand_distr::Uniform;
+  use rand_distr::{Triangular, Uniform};
   use crate::fuzzer::*;
+  use crate::ring::Lattice;
   use crate::zipper::Zipper;
 
   #[test]
@@ -333,6 +350,54 @@ mod tests {
     let achieved: Vec<usize> = hist.table().into_iter().map(|(k, c)|
       ((c as f64)/((samples/100) as f64)).round() as usize).collect();
     achieved.into_iter().for_each(|c| assert_eq!(c, 100));
+  }
+
+  #[test]
+  fn resample_trie() {
+    const samples: usize = 10;
+    let mut rng = StdRng::from_seed([0; 32]);
+    let mut btm = BytesTrieMap::new();
+    let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz",
+      "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+    let lengths = Triangular::new(1f32, 5., 1.5).unwrap();
+    let submaps = Collected {
+      d: Product2 {
+        dx: FairTriePath { source: btm.clone() },
+        dy: lengths,
+        f: |(path, v), l| if v.is_none() && path.len() == l.round() as usize { Some(path) } else { None }, pd: PhantomData::default() },
+      pf: |mp| mp.map(|p| btm.read_zipper_at_path(p).make_map().unwrap()), pd: PhantomData::default()};
+
+    // println!("{:?}", submap.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>())
+    assert_eq!(submaps.clone().sample_iter(rng.clone()).map(|x| x.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), *v)).collect::<Vec<_>>()).take(4).collect::<Vec<_>>(), vec![
+      vec![("otsford".to_string(), 0), ("ottabad".to_string(), 1)],
+      vec![("bbotsford".to_string(), 0), ("bbottabad".to_string(), 1), ("bcoude".to_string(), 2), ("bdul Hakim".to_string(), 3), ("bdulino".to_string(), 4), ("bdullahnagar".to_string(), 5), ("bdurahmoni Jomi".to_string(), 6), ("bejorral".to_string(), 7), ("belardo Luz".to_string(), 8)],
+      vec![("'i".to_string(), 17), ("an".to_string(), 9), ("ane".to_string(), 10), ("anus".to_string(), 11), ("ulus".to_string(), 12)],
+      vec![("oude".to_string(), 2)]]);
+
+    let resampled = Concentrated {
+      dx: Product2{ dx: FairTriePath{ source: btm.clone() }, dy: submaps, f: |(p, _), sm| {
+        let mut r = BytesTrieMap::new();
+        r.write_zipper_at_path(&p[..]).graft_map(sm);
+        r
+      }, pd: PhantomData::default() },
+      z: (BytesTrieMap::new(), 0),
+      fa: |(a, c), sm| {
+        a.join_into(sm);
+        *c += 1;
+        if *c == samples { Some(std::mem::take(a)) } else { None }
+      }, pd: PhantomData::default()
+    };
+
+    let resampled10 = resampled.sample(&mut rng);
+    assert_eq!(["Abbotsahmoni Jomi", "Abbottabens", "Abbottaber", "Abbottabicon", "Abbottabicundus",
+                "Abdul Hakimm'i", "Abdul Hakimman", "Abdul Hakimmane", "Abdul Hakimmanus",
+                "Abdul Hakimmulus", "Abdurahens", "Abduraher", "Abdurahicon", "Abdurahicundus",
+                 "Abdurahmoni Jom'i", "Abdurahmoni Joman", "Abdurahmoni Jomane",
+                 "Abdurahmoni Jomanus", "Abdurahmoni Jomulus", "Abdurahmoni jorral",
+                 "Abdurahmoni lardo Luz", "Abdurahmoniens", "Abdurahmonier", "Abdurahmoniicon",
+                 "Abdurahmoniicundus", "Abdurahmonoude", "Abelus", "romuoude"][..],
+               resampled10.iter().map(|(p, _)| String::from_utf8(p).unwrap()).collect::<Vec<_>>());
   }
 
   #[test]
