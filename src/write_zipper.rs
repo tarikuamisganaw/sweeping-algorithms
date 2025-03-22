@@ -2286,7 +2286,7 @@ mod tests {
     }
 
     #[test]
-    fn write_zipper_drop_head_long_key_test() {
+    fn write_zipper_drop_head_long_key_test1() {
 
         //A single long key
         let key = b"12345678901234567890123456789012345678901234567890";
@@ -2377,6 +2377,26 @@ mod tests {
 
         wz.drop_head(3);
         assert_eq!(wz.val_count(), 6);
+    }
+
+    #[test]
+    fn write_zipper_drop_head_test4() {
+        let paths = [
+            vec![0, 1, 0, 1, 2, 1, 6, 1, 8, 1, 12, 1, 16],
+            vec![0, 1, 1, 1, 0, 2, 16, 224, 3, 0, 240, 0],
+            vec![0, 1, 1, 1, 0, 3, 2, 255, 208, 4, 0, 255],
+            vec![0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+            vec![0, 1, 1, 1, 2, 1, 4, 1, 12, 1, 40, 1, 116],
+            vec![0, 1, 2, 1, 0, 1, 0, 2, 0, 128, 1, 0, 2, 1],
+            vec![0, 1, 2, 1, 10, 1, 11, 1, 100, 2, 3, 233, 2],
+            vec![0, 1, 20, 1, 21, 1, 22, 1, 23, 1, 24, 1, 25],
+        ];
+        let mut map: BytesTrieMap<()> = paths.iter().map(|k| (k, ())).collect();
+
+        let mut wz = map.write_zipper();
+        wz.descend_to([0, 1]);
+        wz.drop_head(1);
+        assert_eq!(wz.val_count(), 8);
     }
 
     #[test]
