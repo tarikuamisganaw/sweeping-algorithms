@@ -448,7 +448,7 @@ pub(crate) struct FatAlgebraicResult<V> {
 
 impl<V> FatAlgebraicResult<V> {
     #[inline(always)]
-    pub(crate) fn new(identity_mask: u64, element: Option<V>) -> Self {
+    pub(crate) const fn new(identity_mask: u64, element: Option<V>) -> Self {
         Self {identity_mask, element}
     }
     /// Converts an [AlgebraicResult] into a `FatAlgebraicResult`, assuming the source `result` was the
@@ -483,7 +483,7 @@ impl<V> FatAlgebraicResult<V> {
     }
     /// The result of an operation between non-none arguments that results in None
     #[inline(always)]
-    pub(crate) fn none() -> Self {
+    pub(crate) const fn none() -> Self {
         Self {identity_mask: 0, element: None}
     }
     /// The result of an operation that generated a brand new result

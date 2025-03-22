@@ -372,7 +372,7 @@ impl<V> Default for PayloadRef<'_, V> {
     }
 }
 
-impl<V> PayloadRef<'_, V> {
+impl<'a, V> PayloadRef<'a, V> {
     pub fn is_none(&self) -> bool {
         match self {
             Self::None => true,
@@ -385,13 +385,13 @@ impl<V> PayloadRef<'_, V> {
             _ => false
         }
     }
-    pub fn child(&self) -> &TrieNodeODRc<V> {
+    pub fn child(&self) -> &'a TrieNodeODRc<V> {
         match self {
             Self::Child(child) => child,
             _ => panic!()
         }
     }
-    pub fn val(&self) -> &V {
+    pub fn val(&self) -> &'a V {
         match self {
             Self::Val(val) => val,
             _ => panic!()
@@ -481,13 +481,15 @@ pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, MergeF>(self_payloa
     //GOAT, we can remove the `Option<>` around the `FatAlgebraicResult`, once we are satisfied that
     // we never fail to set a result, and we never attempt to set the same result more than once.
     let mut element_results = ArrayVec::<Option<FatAlgebraicResult<ValOrChild<V>>>, MAX_PAYLOAD_CNT>::new();
+    let mut request_results = ArrayVec::<(usize, PayloadRef<V>), MAX_PAYLOAD_CNT>::new();
     for (self_key, self_payload) in self_payloads.iter() {
         debug_assert!(!self_payload.is_none());
         request_keys.push((self_key, self_payload.is_val()));
         element_results.push(None);
+        request_results.push((0, PayloadRef::default()));
     }
 
-    let is_exhaustive = pmeet_generic_internal::<MAX_PAYLOAD_CNT, V>(self_payloads, &mut request_keys[..], &mut element_results[..], other);
+    let is_exhaustive = pmeet_generic_internal::<MAX_PAYLOAD_CNT, V>(self_payloads, &mut request_keys[..], &mut request_results[..], &mut element_results[..], other);
     let mut is_none = true;
     let mut combined_mask = SELF_IDENT | COUNTER_IDENT;
     let mut result_payloads = ArrayVec::<Option<ValOrChild<V>>, MAX_PAYLOAD_CNT>::new();
@@ -511,19 +513,14 @@ pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, MergeF>(self_payloa
 }
 
 /// Internal function to implement the recursive part of `pmeet_generic`
-pub(crate) fn pmeet_generic_internal<const MAX_PAYLOAD_CNT: usize, V>(self_payloads: &[(&[u8], PayloadRef<V>)], keys: &mut [(&[u8], bool)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V>>>], other_node: &dyn TrieNode<V>) -> bool
+pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V>(self_payloads: &[(&[u8], PayloadRef<V>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V>)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V>>>], other_node: &'trie dyn TrieNode<V>) -> bool
     where V: Clone + Send + Sync + Lattice
 {
-    let mut request_results = ArrayVec::<(usize, PayloadRef<V>), MAX_PAYLOAD_CNT>::new();
-    for _ in 0..keys.len() {
-        request_results.push((0, PayloadRef::default()));
-    }
-
     //If is_exhaustive gets set to `false`, then the pmeet method cannot return a `COUNTER_IDENTITY` result
     let mut is_exhaustive = true;
 
     //Get the payload results from the node
-    if !other_node.node_get_payloads(&keys[..], &mut request_results[..]) {
+    if !other_node.node_get_payloads(&keys[..], request_results) {
         is_exhaustive = false;
     }
 
@@ -535,11 +532,12 @@ pub(crate) fn pmeet_generic_internal<const MAX_PAYLOAD_CNT: usize, V>(self_paylo
     // the TrieNodeODRc pointers will be different in that case, so this logic is still
     // correct.
     let mut cur_group: Option<(usize, &TrieNodeODRc<V>)> = None;
-    for (idx, (consumed_bytes, payload)) in request_results.iter().enumerate() {
+    for idx in 0..keys.len() {
+        let (consumed_bytes, payload) = core::mem::take(request_results.get_mut(idx).unwrap());
         if !payload.is_none() {
             let is_val = keys[idx].1;
-            if *consumed_bytes < keys[idx].0.len() {
-                keys[idx].0 = &keys[idx].0[*consumed_bytes..];
+            if consumed_bytes < keys[idx].0.len() {
+                keys[idx].0 = &keys[idx].0[consumed_bytes..];
                 debug_assert!(!payload.is_val());
                 let child = payload.child();
 
@@ -547,18 +545,18 @@ pub(crate) fn pmeet_generic_internal<const MAX_PAYLOAD_CNT: usize, V>(self_paylo
                 // we have the same node as the previous time through the loop
                 if cur_group.is_some() {
                     if (cur_group.as_ref().unwrap().1 as *const TrieNodeODRc<V>) != (child as *const TrieNodeODRc<V>) {
-                        pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, results);
+                        pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, request_results, results);
                         cur_group = Some((idx, child));
                     }
                 } else {
                     cur_group = Some((idx, child));
                 }
             } else {
-                pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, results);
+                pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, request_results, results);
 
                 //We've arrived at a contained value or onward link that has a correspondence
                 // to one of the values or links in `self`
-                debug_assert_eq!(*consumed_bytes, keys[idx].0.len());
+                debug_assert_eq!(consumed_bytes, keys[idx].0.len());
                 debug_assert_eq!(is_val, payload.is_val());
                 let result = match &self_payloads[idx].1 {
                     PayloadRef::Child(self_link) => {
@@ -575,11 +573,14 @@ pub(crate) fn pmeet_generic_internal<const MAX_PAYLOAD_CNT: usize, V>(self_paylo
                     },
                     _ => unreachable!()
                 };
+                //GOAT, use the commented-out asserts when we get rid of the option wrapping the FatAlgebraicResult
                 debug_assert!(results[idx].is_none());
+                // debug_assert!(results[idx].element.is_none());
+                // debug_assert_eq!(results[idx].mask, 0);
                 results[idx] = Some(result);
             }
         } else {
-            pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, results);
+            pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, request_results, results);
 
             let result = match &self_payloads[idx].1 {
                 PayloadRef::Child(self_link) => {
@@ -603,7 +604,7 @@ pub(crate) fn pmeet_generic_internal<const MAX_PAYLOAD_CNT: usize, V>(self_paylo
             results[idx] = Some(result);
         }
     }
-    pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, keys.len(), self_payloads, keys, results);
+    pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V>(&mut cur_group, &mut is_exhaustive, keys.len(), self_payloads, keys, request_results, results);
 
     is_exhaustive
 }
@@ -611,7 +612,7 @@ pub(crate) fn pmeet_generic_internal<const MAX_PAYLOAD_CNT: usize, V>(self_paylo
 /// Effectively part of `pmeet_generic_internal`, but factored out separately because it's called in
 /// several different places.  Resets the `cur_group` state and does a recursive call of `pmeet_generic_internal`
 #[inline]
-fn pmeet_generic_recursive_reset<const MAX_PAYLOAD_CNT: usize, V>(cur_group: &mut Option<(usize, &TrieNodeODRc<V>)>, is_exhaustive: &mut bool, idx: usize, self_payloads: &[(&[u8], PayloadRef<V>)], keys: &mut [(&[u8], bool)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V>>>])
+fn pmeet_generic_recursive_reset<'trie, const MAX_PAYLOAD_CNT: usize, V>(cur_group: &mut Option<(usize, &'trie TrieNodeODRc<V>)>, is_exhaustive: &mut bool, idx: usize, self_payloads: &[(&[u8], PayloadRef<V>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V>)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V>>>])
     where V: Clone + Send + Sync + Lattice
 {
     match core::mem::take(cur_group) {
@@ -619,7 +620,7 @@ fn pmeet_generic_recursive_reset<const MAX_PAYLOAD_CNT: usize, V>(cur_group: &mu
             let group_keys = &mut keys[group_start..idx];
             let group_results = &mut results[group_start..idx];
             let group_self_payloads = &self_payloads[group_start..idx];
-            if !pmeet_generic_internal::<MAX_PAYLOAD_CNT, V>(group_self_payloads, group_keys, group_results, next_node.borrow()) {
+            if !pmeet_generic_internal::<MAX_PAYLOAD_CNT, V>(group_self_payloads, group_keys, request_results, group_results, next_node.borrow()) {
                 *is_exhaustive = false;
             }
         },
