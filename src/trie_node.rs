@@ -472,6 +472,13 @@ impl<V> ValOrChildUnion<V> {
 ///
 /// WARNING: just like [TrieNode::node_get_payloads], the keys in `self_payloads` must be in
 /// sorted order.
+//
+//GOAT: I have confirmed that this function behaves no more conservatively than the function it replaces.
+// In other words, I have confirmed that, in tests where the old function was behaving correctly, this
+// function returns *identical* results.  Furthermore those same tests are the ones where the 20% slowdown
+// was observed.  Therefore the issue is simply the higher overheads of this function.
+//
+//The next port of call for optimization is probably to remove the recursion
 pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, MergeF>(self_payloads: &[(&[u8], PayloadRef<V>)], other: &dyn TrieNode<V>, merge_f: MergeF) -> AlgebraicResult<TrieNodeODRc<V>>
     where
     MergeF: FnOnce(&mut [Option<ValOrChild<V>>]) -> TrieNodeODRc<V>,
