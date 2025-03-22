@@ -43,13 +43,22 @@ impl <T : std::cmp::Eq + std::hash::Hash> Histogram<T> {
   }
 }
 
-pub struct Filtered<T, D : Distribution<T>, P : Fn(&T) -> bool> { d: D, p: P, pd: PhantomData<T> }
-impl <T, D : Distribution<T>, P : Fn(&T) -> bool> Distribution<T> for Filtered<T, D, P> {
+#[derive(Clone)]
+pub struct Filtered<T, D : Distribution<T> + Clone, P : Fn(&T) -> bool> { d: D, p: P, pd: PhantomData<T> }
+impl <T, D : Distribution<T> + Clone, P : Fn(&T) -> bool> Distribution<T> for Filtered<T, D, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
     loop {
       let s = self.d.sample(rng);
       if (self.p)(&s) { return s }
     }
+  }
+}
+
+#[derive(Clone)]
+pub struct Mapped<T, S, D : Distribution<T> + Clone, F : Fn(T) -> S + Clone> { d: D, f: F, pd: PhantomData<(T, S)> }
+impl <T, S, D : Distribution<T> + Clone, F : Fn(T) -> S + Clone> Distribution<S> for Mapped<T, S, D, F> {
+  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> S {
+    (self.f)(self.d.sample(rng))
   }
 }
 
@@ -76,26 +85,29 @@ impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, Z, F : F
   }
 }
 
-pub struct Choice2<X, DX : Distribution<X>, Y, DY : Distribution<Y>, DB : Distribution<bool>> { dx: DX, dy: DY, db: DB,
+#[derive(Clone)]
+pub struct Choice2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, DB : Distribution<bool> + Clone> { dx: DX, dy: DY, db: DB,
   pd: PhantomData<(X, Y)> }
-impl <X, DX : Distribution<X>, Y, DY : Distribution<Y>, DB : Distribution<bool>> Distribution<Result<X, Y>> for Choice2<X, DX, Y, DY, DB> {
+impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, DB : Distribution<bool> + Clone> Distribution<Result<X, Y>> for Choice2<X, DX, Y, DY, DB> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Result<X, Y> {
     if self.db.sample(rng) { Ok(self.dx.sample(rng)) }
     else { Err(self.dy.sample(rng)) }
   }
 }
 
-pub struct Dependent2<X, DX : Distribution<X>, Y, DY : Distribution<Y>, FDY : Fn(X) -> DY> { dx: DX, fdy: FDY,
+#[derive(Clone)]
+pub struct Dependent2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, FDY : Fn(X) -> DY + Clone> { dx: DX, fdy: FDY,
   pd: PhantomData<(X, Y)> }
-impl <X, DX : Distribution<X>, Y, DY : Distribution<Y>, FDY : Fn(X) -> DY> Distribution<Y> for Dependent2<X, DX, Y, DY, FDY> {
+impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, FDY : Fn(X) -> DY + Clone> Distribution<Y> for Dependent2<X, DX, Y, DY, FDY> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Y {
     (self.fdy)(self.dx.sample(rng)).sample(rng)
   }
 }
 
-pub struct Concentrated<X, DX : Distribution<X>, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> { dx: DX, z: A, fa: FA,
+#[derive(Clone)]
+pub struct Concentrated<X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> { dx: DX, z: A, fa: FA,
   pd: PhantomData<(X, Y)> }
-impl <X, DX : Distribution<X>, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> Distribution<Y> for Concentrated<X, DX, A, Y, FA> {
+impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> Distribution<Y> for Concentrated<X, DX, A, Y, FA> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Y {
     let mut a = self.z.clone();
     loop {
@@ -107,9 +119,10 @@ impl <X, DX : Distribution<X>, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> Di
   }
 }
 
-pub struct Diluted<X, DX : Distribution<X>, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -> Option<Y>> { dx: DX, fa: FA, fay: FAY,
+#[derive(Clone)]
+pub struct Diluted<X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -> Option<Y>> { dx: DX, fa: FA, fay: FAY,
   pd: PhantomData<(X, A, Y)> }
-impl <X, DX : Distribution<X>, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -> Option<Y>> Distribution<Y> for Diluted<X, DX, A, Y, FA, FAY> {
+impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -> Option<Y>> Distribution<Y> for Diluted<X, DX, A, Y, FA, FAY> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Y {
     let mut a = (self.fa)(self.dx.sample(rng));
     (self.fay)(&mut a).expect("fay returns at least once per fa call")
@@ -120,6 +133,7 @@ impl <X, DX : Distribution<X>, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -
   }
 }
 
+#[derive(Clone)]
 pub struct Degenerate<T : Clone> { element: T }
 impl <T : Clone> Distribution<T> for Degenerate<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
@@ -127,13 +141,14 @@ impl <T : Clone> Distribution<T> for Degenerate<T> {
   }
 }
 
-pub struct Categorical<T : Clone, ElemD : Distribution<usize>> { elements: Vec<T>, ed: ElemD }
-impl <T : Clone, ElemD : Distribution<usize>> Distribution<T> for Categorical<T, ElemD> {
+#[derive(Clone)]
+pub struct Categorical<T : Clone, ElemD : Distribution<usize> + Clone> { elements: Vec<T>, ed: ElemD }
+impl <T : Clone, ElemD : Distribution<usize> + Clone> Distribution<T> for Categorical<T, ElemD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
     self.elements[self.ed.sample(rng)].clone()
   }
 }
-pub fn ratios<T : Clone>(ep: impl IntoIterator<Item=(T, usize)>) -> Categorical<T, rand::distr::Map<Uniform<usize>, impl Fn(usize) -> usize, usize, usize>> {
+pub fn ratios<T : Clone>(ep: impl IntoIterator<Item=(T, usize)>) -> Categorical<T, Mapped<usize, usize, Uniform<usize>, impl Fn(usize) -> usize + Clone>> {
   let mut elements = vec![];
   let mut cdf = vec![];
   let mut sum = 0;
@@ -146,13 +161,14 @@ pub fn ratios<T : Clone>(ep: impl IntoIterator<Item=(T, usize)>) -> Categorical<
   Categorical {
     elements,
     // it's much cheaper to draw many samples at once, but the current Distribution API is broken
-    ed: us.map(move |x| { match cdf.binary_search(&x) {
+    ed: Mapped{ d: us, f: move |x| { match cdf.binary_search(&x) {
       Ok(i) => { i }
       Err(i) => { i - 1 }
-    }})
+    }}, pd: PhantomData::default() }
   }
 }
 
+#[derive(Clone)]
 pub struct Repeated<ByteD : Distribution<u8>> { length: usize, bd: ByteD }
 impl <ByteD : Distribution<u8>> Distribution<Vec<u8>> for Repeated<ByteD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Vec<u8> {
@@ -160,8 +176,9 @@ impl <ByteD : Distribution<u8>> Distribution<Vec<u8>> for Repeated<ByteD> {
   }
 }
 
-pub struct Sentinel<MByteD : Distribution<Option<u8>>> { mbd: MByteD }
-impl <MByteD : Distribution<Option<u8>>> Distribution<Vec<u8>> for Sentinel<MByteD> {
+#[derive(Clone)]
+pub struct Sentinel<MByteD : Distribution<Option<u8>> + Clone> { mbd: MByteD }
+impl <MByteD : Distribution<Option<u8>> + Clone> Distribution<Vec<u8>> for Sentinel<MByteD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Vec<u8> {
     let mut v = vec![];
     while let Some(e) = self.mbd.sample(rng) {
@@ -171,8 +188,9 @@ impl <MByteD : Distribution<Option<u8>>> Distribution<Vec<u8>> for Sentinel<MByt
   }
 }
 
-pub struct UniformTrie<T : TrieValue, PathD : Distribution<Vec<u8>>, ValueD : Distribution<T>> { size: usize, pd: PathD, vd: ValueD, ph: PhantomData<T> }
-impl <T : TrieValue, PathD : Distribution<Vec<u8>>, ValueD : Distribution<T>> Distribution<BytesTrieMap<T>> for UniformTrie<T, PathD, ValueD> {
+#[derive(Clone)]
+pub struct UniformTrie<T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> { size: usize, pd: PathD, vd: ValueD, ph: PhantomData<T> }
+impl <T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> Distribution<BytesTrieMap<T>> for UniformTrie<T, PathD, ValueD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BytesTrieMap<T> {
     let mut btm = BytesTrieMap::new();
     for i in 0..self.size {
@@ -195,6 +213,7 @@ impl <T, SproutD : Fn(T) -> Distribution<&BytesTrieMap<T>>> Distribution<BytesTr
   }
 }*/
 
+#[derive(Clone)]
 pub struct FairTrieValue<T : TrieValue> { source: BytesTrieMap<T> }
 impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, T) {
@@ -211,8 +230,9 @@ impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
   }
 }
 
-pub struct DescendFirstTrieValue<T : TrieValue, ByteD : Distribution<u8>, P : Fn(&ReadZipperUntracked<T>) -> ByteD> { source: BytesTrieMap<T>, policy: P }
-impl <T : TrieValue, ByteD : Distribution<u8>, P : Fn(&ReadZipperUntracked<T>) -> ByteD> Distribution<(Vec<u8>, T)> for DescendFirstTrieValue<T, ByteD, P> {
+#[derive(Clone)]
+pub struct DescendFirstTrieValue<T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> { source: BytesTrieMap<T>, policy: P }
+impl <T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> Distribution<(Vec<u8>, T)> for DescendFirstTrieValue<T, ByteD, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, T) {
     let mut rz = self.source.read_zipper();
     while !rz.is_value() {
@@ -244,8 +264,9 @@ impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
   }
 }
 
-pub struct DescendTriePath<T : TrieValue, S, SByteD : Distribution<Result<u8, S>>, P : Fn(&ReadZipperUntracked<T>) -> SByteD> { source: BytesTrieMap<T>, policy: P, ph: PhantomData<S> }
-impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>>, P : Fn(&ReadZipperUntracked<T>) -> SByteD> Distribution<(Vec<u8>, S)> for DescendTriePath<T, S, SByteD, P> {
+#[derive(Clone)]
+pub struct DescendTriePath<T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> { source: BytesTrieMap<T>, policy: P, ph: PhantomData<S> }
+impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> Distribution<(Vec<u8>, S)> for DescendTriePath<T, S, SByteD, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, S) {
     let mut rz = self.source.read_zipper();
     loop {
@@ -272,6 +293,7 @@ fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> C
 
 #[cfg(test)]
 mod tests {
+  use std::hint::black_box;
   use rand::rngs::StdRng;
   use rand::SeedableRng;
   use rand_distr::{Triangular, Uniform};
@@ -293,8 +315,8 @@ mod tests {
   #[test]
   fn variable_length() {
     let mut rng = StdRng::from_seed([0; 32]);
-    let path_fuzzer = Filtered{ d: Sentinel { mbd: Categorical { elements: "abcd\0".as_bytes().to_vec(),
-      ed: Uniform::try_from(0..5).unwrap() }.map(|x| if x == b'\0' { None } else { Some(x) }) }, p: |x| !x.is_empty(), pd: PhantomData::default() };
+    let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
+      ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default() } }, p: |x| !x.is_empty(), pd: PhantomData::default() };
     let trie_fuzzer = UniformTrie { size: 10, pd: path_fuzzer, vd: Degenerate{ element: () }, ph: PhantomData::default() };
     let trie = trie_fuzzer.sample(&mut rng);
     // println!("{:?}", trie.iter().map(|(p, _)| String::from_utf8(p).unwrap()).collect::<Vec<_>>());
@@ -393,11 +415,29 @@ mod tests {
     assert_eq!(["Abbotsahmoni Jomi", "Abbottabens", "Abbottaber", "Abbottabicon", "Abbottabicundus",
                 "Abdul Hakimm'i", "Abdul Hakimman", "Abdul Hakimmane", "Abdul Hakimmanus",
                 "Abdul Hakimmulus", "Abdurahens", "Abduraher", "Abdurahicon", "Abdurahicundus",
-                 "Abdurahmoni Jom'i", "Abdurahmoni Joman", "Abdurahmoni Jomane",
-                 "Abdurahmoni Jomanus", "Abdurahmoni Jomulus", "Abdurahmoni jorral",
-                 "Abdurahmoni lardo Luz", "Abdurahmoniens", "Abdurahmonier", "Abdurahmoniicon",
-                 "Abdurahmoniicundus", "Abdurahmonoude", "Abelus", "romuoude"][..],
+                "Abdurahmoni Jom'i", "Abdurahmoni Joman", "Abdurahmoni Jomane",
+                "Abdurahmoni Jomanus", "Abdurahmoni Jomulus", "Abdurahmoni jorral",
+                "Abdurahmoni lardo Luz", "Abdurahmoniens", "Abdurahmonier", "Abdurahmoniicon",
+                "Abdurahmoniicundus", "Abdurahmonoude", "Abelus", "romuoude"][..],
                resampled10.iter().map(|(p, _)| String::from_utf8(p).unwrap()).collect::<Vec<_>>());
+  }
+
+  #[test]
+  fn remove_bug_reproduction() {
+    const ntries: usize = 20;
+    const npaths: usize = 20;
+    const nremoves: usize = 20;
+    let rng = StdRng::from_seed([0; 32]);
+    let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
+      ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default()} }, p: |x| !x.is_empty(), pd: PhantomData::default() };
+    let trie_fuzzer = UniformTrie { size: npaths, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
+
+    trie_fuzzer.sample_iter(rng.clone()).take(ntries).for_each(|mut trie| {
+      path_fuzzer.clone().sample_iter(rng.clone()).take(nremoves).for_each(|path| {
+        trie.remove(path);
+      });
+      black_box(trie);
+    })
   }
 
   #[test]
