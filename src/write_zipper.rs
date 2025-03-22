@@ -1985,7 +1985,7 @@ mod tests {
     }
 
     #[test]
-    fn write_zipper_join_into_test() {
+    fn write_zipper_join_into_test1() {
         let keys = ["a:arrow", "a:bow", "a:cannon", "a:roman", "a:romane", "a:romanus", "a:romulus", "a:rubens", "a:ruber", "a:rubicon", "a:rubicundus", "a:rom'i",
             "b:road", "b:rod", "b:roll", "b:roof", "b:room", "b:root", "b:rough", "b:round"];
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
@@ -2389,7 +2389,7 @@ mod tests {
             vec![0, 1, 1, 1, 2, 1, 4, 1, 12, 1, 40, 1, 116],
             vec![0, 1, 2, 1, 0, 1, 0, 2, 0, 128, 1, 0, 2, 1],
             vec![0, 1, 2, 1, 10, 1, 11, 1, 100, 2, 3, 233, 2],
-            vec![0, 1, 20, 1, 21, 1, 22, 1, 23, 1, 24, 1, 25],
+            vec![0, 1, 3, 1, 21, 1, 22, 1, 23, 1, 24, 1, 25],
         ];
         let mut map: BytesTrieMap<()> = paths.iter().map(|k| (k, ())).collect();
 

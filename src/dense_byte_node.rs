@@ -1723,7 +1723,14 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         let (other_rec, other_val) = other.into_both();
         let rec_status = match self.rec_mut() {
             Some(self_rec) => match other_rec {
-                Some(other_rec) => self_rec.make_mut().join_into_dyn(other_rec).0,
+                Some(other_rec) => {
+                    let (status, result) = self_rec.make_mut().join_into_dyn(other_rec);
+                    match result {
+                        Ok(()) => {},
+                        Err(replacement_node) => {*self_rec = replacement_node},
+                    }
+                    status
+                },
                 None => AlgebraicStatus::Identity,
             },
             None => match other_rec {
