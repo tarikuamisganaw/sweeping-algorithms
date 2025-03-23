@@ -788,6 +788,13 @@ mod tests {
     }
 
     #[test]
+    fn map_remove_test2() {
+        let mut btm = BytesTrieMap::from_iter([("abbb", ()), ("b", ()), ("bba", ())].iter().map(|(p, v)| (p.as_bytes(), v)));
+        btm.remove("abbb".as_bytes());
+        btm.remove("a".as_bytes());
+    }
+
+    #[test]
     fn map_update_test() {
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         let mut btm: BytesTrieMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();

@@ -61,7 +61,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Default for ByteNode<Cf> {
     }
 }
 
-impl<V: Clone, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
+impl<V, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
@@ -164,17 +164,20 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
 
     #[inline]
     pub fn remove_val(&mut self, k: u8) -> Option<V> {
-        let ix = self.left(k) as usize;
-        debug_assert!(self.mask.test_bit(k));
+        if self.mask.test_bit(k) {
+            let ix = self.left(k) as usize;
 
-        let cf = unsafe { self.values.get_unchecked_mut(ix) };
-        let result = cf.take_val();
+            let cf = unsafe { self.values.get_unchecked_mut(ix) };
+            let result = cf.take_val();
 
-        if !cf.has_rec() {
-            self.mask.clear_bit(k);
-            self.values.remove(ix);
+            if !cf.has_rec() {
+                self.mask.clear_bit(k);
+                self.values.remove(ix);
+            }
+            result
+        } else {
+            None
         }
-        result
     }
 
     /// Similar in behavior to [set_val], but will join v with the existing value instead of replacing it
