@@ -5,13 +5,28 @@ use crate::trie_map::BytesTrieMap;
 use crate::TrieValue;
 use crate::zipper::{ZipperIteration, ZipperWriting};
 
-pub fn serialize_paths_<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::io::Write>(mut rz: RZ, target: &mut W) -> std::io::Result<(usize, usize, usize)> {
+#[cfg_attr(rustfmt, rustfmt::skip)]
+#[derive(Debug, Clone)]
+pub struct SerializationStats {
+  pub bytes_out  : usize, 
+  pub bytes_in   : usize, 
+  pub path_count : usize
+}
+#[cfg_attr(rustfmt, rustfmt::skip)]
+#[derive(Debug, Clone, Copy)]
+pub struct DeserializationStats {
+  pub bytes_in   : usize, 
+  pub bytes_out  : usize, 
+  pub path_count : usize
+}
+
+pub fn serialize_paths_<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::io::Write>(rz: RZ, target: &mut W) -> std::io::Result<SerializationStats> {
   serialize_paths(rz, target, |_, _, _| {})
 }
 /// Serialize all paths in under path `k`
 /// Warning: the size of the individual path serialization can be double exponential in the size of the BytesTrieMap
 /// Returns the target output, total serialized bytes (uncompressed), and total number of paths
-pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::io::Write, F: FnMut(usize, &[u8], &V) -> ()>(mut rz: RZ, target: &mut W, mut fv: F) -> std::io::Result<(usize, usize, usize)> {
+pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::io::Write, F: FnMut(usize, &[u8], &V) -> ()>(mut rz: RZ, target: &mut W, mut fv: F) -> std::io::Result<SerializationStats> {
   const CHUNK: usize = 4096; // not tuned yet
   let mut buffer = [0u8; CHUNK];
   #[allow(invalid_value)] //Squish the warning about a Null function ptr, because zlib uses a default allocator if the the ptr is NULL
@@ -19,7 +34,7 @@ pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::i
   let mut ret = unsafe { zng_deflateInit(&mut strm, 7) };
   if ret != Z_OK { panic!("init failed") }
 
-  let mut total_paths = 0;
+  let mut total_paths : usize = 0;
   while let Some(v) = rz.to_next_val() {
     let p = rz.path();
     fv(total_paths, p, v);
@@ -68,16 +83,20 @@ pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::i
   ret = unsafe { deflateEnd(&mut strm) };
   assert_eq!(ret, Z_OK);
 
-  Ok((strm.total_out, strm.total_in, total_paths))
+  Ok(SerializationStats {
+    bytes_out  : strm.total_out, 
+    bytes_in   : strm.total_in,
+    path_count : total_paths
+  })
 }
 
-pub fn deserialize_paths_<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read>(mut wz: WZ, mut source: R, v: V) -> std::io::Result<(usize, usize, usize)> {
+pub fn deserialize_paths_<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read>(wz: WZ, source: R, v: V) -> std::io::Result<DeserializationStats> {
   deserialize_paths(wz, source, |_, _| v.clone())
 }
 
 /// Deserialize bytes that were serialized by `serialize_paths` under path `k`
 /// Returns the source input, total deserialized bytes (uncompressed), and total number of path insert attempts
-pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read, F: Fn(usize, &[u8]) -> V>(mut wz: WZ, mut source: R, fv: F) -> std::io::Result<(usize, usize, usize)> {
+pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read, F: Fn(usize, &[u8]) -> V>(mut wz: WZ, mut source: R, fv: F) -> std::io::Result<DeserializationStats> {
   use libz_ng_sys::*;
   const IN: usize = 1024;
   const OUT: usize = 2048;
@@ -87,7 +106,7 @@ pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read,
   let mut lbuf = [0u8; 4];
   let mut lbuf_offset = 0;
   let mut finished_path = true;
-  let mut total_paths = 0usize;
+  let mut total_paths : usize = 0usize;
   #[allow(invalid_value)] //Squish the warning about a Null function ptr, because zlib uses a default allocator if the the ptr is NULL
   let mut strm: z_stream = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
   let mut ret = unsafe { zng_inflateInit(&mut strm) };
@@ -152,7 +171,12 @@ pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read,
 
   unsafe { inflateEnd(&mut strm) };
 
-  Ok((strm.total_in, strm.total_out, total_paths))
+  
+  Ok(DeserializationStats {
+    bytes_in   : strm.total_in,
+    bytes_out  : strm.total_out, 
+    path_count : total_paths
+  })
 }
 
 #[cfg(test)]
@@ -167,13 +191,13 @@ mod test {
     rs.iter().for_each(|r| { btm.insert(r.as_bytes(), ()); });
     let mut v = vec![];
     match serialize_paths_(btm.read_zipper(), &mut v) {
-      Ok((c, bw, pw)) => {
+      Ok(SerializationStats { bytes_out : c, bytes_in : bw, path_count : pw}) => {
         println!("ser {} {} {}", c, bw, pw);
         println!("vlen {}", v.len());
 
         let mut restored_btm = BytesTrieMap::new();
         match deserialize_paths_(restored_btm.write_zipper(), v.as_slice(), ()) {
-          Ok((c, bw, pw)) => {
+          Ok(DeserializationStats { bytes_in : c, bytes_out : bw, path_count : pw}) => {
             println!("de {} {} {}", c, bw, pw);
 
             let mut lrz = restored_btm.read_zipper();
@@ -206,13 +230,13 @@ mod test {
 
       let mut v = vec![];
       match serialize_paths_(btm.read_zipper(), &mut v) {
-        Ok((c, bw, pw)) => {
+        Ok(SerializationStats { bytes_out : c, bytes_in : bw, path_count : pw}) => {
           println!("ser {} {} {}", c, bw, pw);
           println!("vlen {}", v.len());
 
           let mut restored_btm = BytesTrieMap::new();
           match deserialize_paths_(restored_btm.write_zipper(), v.as_slice(), ()) {
-            Ok((c, bw, pw)) => {
+          Ok(DeserializationStats { bytes_in : c, bytes_out : bw, path_count : pw}) => {
               println!("de {} {} {}", c, bw, pw);
 
               let mut lrz = restored_btm.read_zipper();
@@ -241,14 +265,14 @@ mod test {
     let mut values = vec![];
     let mut v = vec![];
     match serialize_paths(btm.read_zipper(), &mut v,
-                          |c, p, value| { assert_eq!(values.len(), c); values.push(*value) }) {
-      Ok((c, bw, pw)) => {
+                          |c, _p, value| { assert_eq!(values.len(), c); values.push(*value) }) {
+      Ok(SerializationStats { bytes_out : c, bytes_in : bw, path_count : pw}) => {
         println!("ser {} {} {}", c, bw, pw);
         println!("vlen {}", v.len());
 
         let mut restored_btm = BytesTrieMap::new();
-        match deserialize_paths(restored_btm.write_zipper(), v.as_slice(), |c, p| values[c]) {
-          Ok((c, bw, pw)) => {
+        match deserialize_paths(restored_btm.write_zipper(), v.as_slice(), |c, _p| values[c]) {
+          Ok(DeserializationStats { bytes_in : c, bytes_out : bw, path_count : pw}) => {
             println!("de {} {} {}", c, bw, pw);
 
             let mut lrz = restored_btm.read_zipper();

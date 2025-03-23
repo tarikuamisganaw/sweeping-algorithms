@@ -17,7 +17,7 @@ fn big_logic_serialize_paths(bencher: Bencher) {
   bencher.bench_local(|| {
     let rz = map.read_zipper();
     unsafe { out_buffer.set_len(0) }
-    let (_total_in, _total_out, total_paths) =
+    let pathmap::path_serialization::SerializationStats { path_count : total_paths , .. }=
       serialize_paths_(rz, &mut out_buffer).expect("serialization error");
     assert_eq!(total_paths, 91692);
   });
@@ -35,7 +35,7 @@ fn big_logic_deserialize_paths(bencher: Bencher) {
   file.read_to_end(&mut in_buffer).unwrap();
   bencher.bench_local(|| {
     let wz = map.write_zipper();
-    let (_total_in, _total_out, total_paths) =
+    let pathmap::path_serialization::DeserializationStats { path_count : total_paths , .. }=
       deserialize_paths_(wz, &in_buffer[..], ()).expect("deserialization error");
     assert_eq!(total_paths, 91692);
   });
