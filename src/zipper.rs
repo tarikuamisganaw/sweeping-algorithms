@@ -102,8 +102,11 @@ pub trait ZipperAccess<V>: zipper_priv::ZipperPriv<V=V> {
     /// for "no" is keeping compatibility with [ZipperWriting::graft_map] and keeping an analogous API
     /// to [ZipperWriting::take_map].  Changing `ZipperWriting::graft_map` probably entails a corresponding
     /// change to [ZipperWriting::graft] also, to keep API consistency.
+    /// Adam: It may not make conceptual sense, as was clear in the original cata definition; the subtrie
+    /// can be interpreted as living below a value. This also argues for not having a value at the empty path,
+    /// a change I'd also welcome. As for performance, graft is probably the most called zipper method.
     ///
-    /// Personally I think it might make sense for all of the entry points to change behavior.
+    /// Luke: Personally I think it might make sense for all of the entry points to change behavior.
     /// Perhaps the biggest argument against the change is that it effectively doubles the cost of
     /// graft.  This is related to a similar question on [ZipperWriting::join_map]
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>>;

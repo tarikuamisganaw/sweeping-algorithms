@@ -109,7 +109,8 @@ pub trait ZipperWriting<V>: WriteZipperPriv<V> {
 //  to preserve the property of being the inverse of drop_head.
     /// Inserts `prefix` in front of every downstream path at the focus
     ///
-    /// This method does not affect a value at the focus, nor does it move the zipper's focus.
+    /// This method does not affect a value at the focus, nor does it move the zipper's focus. Returns false
+    /// when at a none-existent place in the trie.
     ///
     /// NOTE: This is the inverse of [Self::drop_head], although it cannot perfectly undo `drop_head` because
     /// `drop_head` loses information about the prior nested structure.  However, `drop_head` will undo this
@@ -142,6 +143,7 @@ pub trait ZipperWriting<V>: WriteZipperPriv<V> {
     /// Populates the "stem" paths in `self` with the corresponding subtries in `read_zipper`
     ///
     /// NOTE: Any stem path without a corresponding path in `read_zipper` will be removed from `self`.
+    /// Returns false if the focus was at a non-existent path in the trie.
     ///
     /// GOAT, I feel like `restricting` might not be a very evocative name here.  The way I think of this
     /// operation is as a bunch of "stems" in the WriteZipper, that get their downstream contents populated

@@ -3,6 +3,8 @@ use crate::trie_node::*;
 use crate::zipper::*;
 use zipper_priv::*;
 use crate::ring::{AlgebraicStatus, DistributiveLattice, Lattice};
+use crate::TrieValue;
+use crate::write_zipper::write_zipper_priv::WriteZipperPriv;
 
 /// A [Zipper] type that moves through a Cartesian product space created by extending each value at the
 /// end of a path in a primary space with the root of a secondardary space, and doing it recursively for
@@ -411,6 +413,41 @@ impl ZipperMoving for FullZipper {
     fn to_prev_sibling_byte(&mut self) -> bool { self.to_sibling(false) }
 }
 
+// Doesn't seem as lawful as the above, still maybe useful for testing
+struct NullZipper {}
+
+impl<V: TrieValue> WriteZipperPriv<V> for NullZipper {
+    fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> {
+        None
+    }
+}
+
+impl <V : TrieValue> ZipperWriting<V> for NullZipper {
+    type ZipperHead<'z> = ZipperHead<'z, 'static, V> where Self: 'z;
+
+    fn get_value_mut(&mut self) -> Option<&mut V> { None }
+    fn get_value_or_insert(&mut self, default: V) -> &mut V { Box::leak(Box::new(default)) }
+    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { Box::leak(Box::new(func())) }
+    fn set_value(&mut self, val: V) -> Option<V> { None }
+    fn remove_value(&mut self) -> Option<V> { None }
+    fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { todo!() }
+    fn graft<Z: ZipperAccess<V>>(&mut self, read_zipper: &Z) {}
+    fn graft_map(&mut self, map: BytesTrieMap<V>) {}
+    fn join<Z: ZipperAccess<V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn join_into<Z: ZipperAccess<V> + ZipperWriting<V>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { false }
+    fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { false }
+    fn remove_prefix(&mut self, n: usize) -> bool { false }
+    fn meet<Z: ZipperAccess<V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn meet_2<'z, ZA: ZipperAccess<V>, ZB: ZipperAccess<V>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn subtract<Z: ZipperAccess<V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: DistributiveLattice { AlgebraicStatus::Element }
+    fn restrict<Z: ZipperAccess<V>>(&mut self, read_zipper: &Z) -> AlgebraicStatus { AlgebraicStatus::Element }
+    fn restricting<Z: ZipperAccess<V>>(&mut self, read_zipper: &Z) -> bool { false }
+    fn remove_branches(&mut self) -> bool { false }
+    fn take_map(&mut self) -> Option<BytesTrieMap<V>> { None }
+    fn remove_unmasked_branches(&mut self, mask: [u64; 4]) {}
+}
 
 #[cfg(test)]
 mod tests {
