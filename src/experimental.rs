@@ -271,16 +271,12 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> zipper_priv::ZipperReadOn
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ProductZipper<'_, '_, V> {
-    type ReadZipperT<'a> = () where Self: 'a;
+impl<V: Clone + Send + Sync + Unpin> Zipper for ProductZipper<'_, '_, V> {
     fn path_exists(&self) -> bool {
         self.z.path_exists()
     }
     fn is_shared(&self) -> bool {
         self.z.is_shared()
-    }
-    fn value(&self) -> Option<&V> {
-        self.get_value()
     }
     fn is_value(&self) -> bool {
         self.z.is_value()
@@ -298,6 +294,13 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ProductZipper<'_, '_, V> {
         } else {
             self.z.child_mask()
         }
+    }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for ProductZipper<'_, '_, V> {
+    type ReadZipperT<'a> = () where Self: 'a;
+    fn value(&self) -> Option<&V> {
+        self.get_value()
     }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         panic!("This won't do what you want it to do.");

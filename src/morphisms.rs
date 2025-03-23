@@ -67,7 +67,6 @@ use reusing_vec::ReusingQueue;
 use crate::utils::*;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::TrieNodeODRc;
-use crate::write_zipper::write_zipper_priv::WriteZipperPriv;
 use crate::zipper;
 use crate::zipper::*;
 
@@ -170,7 +169,7 @@ pub trait Catamorphism<V> {
 pub struct SplitCata;
 
 impl SplitCata {
-    pub fn new<'a, V, W, MapF, CollapseF, AlgF>(mut map_f: MapF, mut collapse_f: CollapseF, mut alg_f: AlgF) -> impl FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W + 'a
+    pub fn new<'a, V, W, MapF, CollapseF, AlgF>(mut map_f: MapF, mut collapse_f: CollapseF, alg_f: AlgF) -> impl FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W + 'a
         where
         MapF: FnMut(&V, &[u8]) -> W + 'a,
         CollapseF: FnMut(&V, W, &[u8]) -> W + 'a,
@@ -272,7 +271,7 @@ impl SplitCataJumping {
     }
 }
 
-impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath {
+impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnly<'a, V> + ZipperAbsolutePath {
     fn into_cata_side_effect_fallible<W, Err, AlgF>(self, mut alg_f: AlgF) -> Result<W, Err>
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, Err>
     {
@@ -324,7 +323,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
 #[inline]
 fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z: Z, mut alg_f: AlgF) -> Result<W, Err>
     where
-    Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     //`stack` holds a "frame" at each forking point above the zipper position.  No frames exist for values
@@ -402,7 +401,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
         alg_f: &mut AlgF, mut prior_frame: Option<&mut StackFrame<W>>
 ) -> Result<W, Err>
     where
-    Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     let mut w;
@@ -475,7 +474,7 @@ pub type FocusAddr = usize;
 /// When zipper is focused inside of the node, return `None`.
 #[inline]
 pub fn focus_addr<'a, V, Z>(zipper: &Z) -> Option<FocusAddr>
-    where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    where V: 'a, Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
 {
     let (node, key, value) = zipper.borrow_raw_parts();
     if !key.is_empty() || value.is_some() {
@@ -506,7 +505,7 @@ struct StackFrame<W> {
 impl<W> StackFrame<W> {
     /// Allocates a new StackFrame
     fn from<'a, V, Z>(zipper: &Z, ascend_count: usize) -> Self
-        where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+        where V: 'a, Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
     {
         let mut stack_frame = StackFrame {
             child_cnt: 0,
@@ -521,7 +520,7 @@ impl<W> StackFrame<W> {
 
     /// Resets a StackFrame to the state needed to iterate a new forking point
     fn reset<'a, V, Z>(&mut self, zipper: &Z, ascend_count: usize)
-        where V: 'a, Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+        where V: 'a, Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
     {
         self.child_cnt = zipper.child_count() as u16;
         self.child_idx = 0;
@@ -585,7 +584,7 @@ impl<W> Stack<W> {
     /// This function re-uses allocations for stack frames,
     /// to avoid allocator thrashing.
     pub fn push_state<'a, V: 'a, Z>(&mut self, z: &Z, ascend_count: usize)
-        where Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+        where Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
     {
         Self::push_state_raw(&mut self.stack, &mut self.position, z, ascend_count);
     }
@@ -594,7 +593,7 @@ impl<W> Stack<W> {
         stack: &mut Vec<StackFrame<W>>,
         position: &mut usize,
         zipper: &Z, ascend_count: usize)
-        where Z: Zipper<V> + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+        where Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
     {
         *position = position.wrapping_add(1);
         assert!(*position <= stack.len(),
@@ -631,7 +630,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
     mut zipper: Z, alg_f: AlgF
 ) -> W
     where
-    W: Clone, Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    W: Clone, Z: Zipper + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
     AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W
 {
     use gxhash::HashMap;
@@ -1034,7 +1033,7 @@ impl<V: Clone + Send + Sync, W: Default> TrieBuilder<V, W> {
     ///
     /// WARNING: This method is incompatible with [Self::set_child_mask] and must follow the same
     /// rules as [Self::push_byte]
-    pub fn graft_at_byte<Z: Zipper<V>>(&mut self, byte: u8, read_zipper: &Z) {
+    pub fn graft_at_byte<Z: ZipperAccess<V>>(&mut self, byte: u8, read_zipper: &Z) {
         let mask_word = (byte / 64) as usize;
         if mask_word < self.cur_mask_word {
             panic!("children must be pushed in sorted order")

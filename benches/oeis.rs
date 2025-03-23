@@ -2,13 +2,13 @@ use std::io::Read;
 use std::usize;
 use pathmap::trie_map::BytesTrieMap;
 use pathmap::utils::ByteMaskIter;
-use pathmap::zipper::{Zipper, ZipperMoving, ZipperWriting, ZipperCreation};
+use pathmap::zipper::{Zipper, ZipperAccess, ZipperMoving, ZipperWriting, ZipperCreation};
 use num::BigInt;
 use divan::{Divan, Bencher, black_box};
 
 const MAX_OFFSET: u8 = 10;
 
-fn drop_symbol_head_byte<Z: ZipperWriting<usize> + Zipper<usize> + ZipperMoving>(loc: &mut Z) {
+fn drop_symbol_head_byte<Z: ZipperWriting<usize> + Zipper + ZipperMoving>(loc: &mut Z) {
   let m = loc.child_mask();
   let mut it = ByteMaskIter::new(m);
 

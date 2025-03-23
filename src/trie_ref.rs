@@ -107,8 +107,7 @@ impl<'a, V> TrieRef<'a, V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Zipper<V> for TrieRef<'_, V> {
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+impl<V: Clone + Send + Sync + Unpin> Zipper for TrieRef<'_, V> {
     fn path_exists(&self) -> bool {
         if self.is_valid() {
             let key = self.node_key();
@@ -127,9 +126,6 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for TrieRef<'_, V> {
     fn is_value(&self) -> bool {
         self.get_value().is_some()
     }
-    fn value(&self) -> Option<&V> {
-        self.get_value()
-    }
     fn child_count(&self) -> usize {
         if self.is_valid() {
             self.focus_node.count_branches(self.node_key())
@@ -143,6 +139,13 @@ impl<V: Clone + Send + Sync + Unpin> Zipper<V> for TrieRef<'_, V> {
         } else {
             [0u64; 4]
         }
+    }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for TrieRef<'_, V> {
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+    fn value(&self) -> Option<&V> {
+        self.get_value()
     }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), None, self.get_value());

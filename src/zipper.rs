@@ -37,10 +37,7 @@ pub use crate::zipper_head::*;
 use crate::zipper_tracking::*;
 
 /// The most fundamantal interface for a zipper, compatible with all zipper types
-pub trait Zipper<V>: zipper_priv::ZipperPriv<V=V> {
-    /// The read-zipper type returned from [fork_read_zipper](Zipper::fork_read_zipper)
-    type ReadZipperT<'a> where Self: 'a;
-
+pub trait Zipper {
     /// Returns `true` if the zipper's focus is on a path within the trie, otherwise `false`
     fn path_exists(&self) -> bool;
 
@@ -65,12 +62,6 @@ pub trait Zipper<V>: zipper_priv::ZipperPriv<V=V> {
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
     fn is_value(&self) -> bool;
 
-    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
-    ///
-    /// If you have a zipper type that implements [ZipperReadOnly] then [ZipperReadOnly::get_value]
-    /// will provide a longer-lived reference to the value.
-    fn value(&self) -> Option<&V>;
-
     /// Returns the number of child branches from the focus node
     ///
     /// Returns 0 if the focus is on a leaf
@@ -80,6 +71,18 @@ pub trait Zipper<V>: zipper_priv::ZipperPriv<V=V> {
     ///
     /// Returns an empty mask if the focus is on a leaf or non-existent path
     fn child_mask(&self) -> [u64; 4];
+}
+
+/// Methods for accessing trie values and whole subtries
+pub trait ZipperAccess<V>: zipper_priv::ZipperPriv<V=V> {
+    /// The read-zipper type returned from [fork_read_zipper](Zipper::fork_read_zipper)
+    type ReadZipperT<'a> where Self: 'a;
+
+    /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
+    ///
+    /// If you have a zipper type that implements [ZipperReadOnly] then [ZipperReadOnly::get_value]
+    /// will provide a longer-lived reference to the value.
+    fn value(&self) -> Option<&V>;
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     ///
@@ -107,7 +110,7 @@ pub trait Zipper<V>: zipper_priv::ZipperPriv<V=V> {
 }
 
 /// An interface to enable moving a zipper around the trie and inspecting paths
-pub trait ZipperMoving: ZipperMovingPriv {
+pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
     fn at_root(&self) -> bool;
 
@@ -157,9 +160,7 @@ pub trait ZipperMoving: ZipperMovingPriv {
     /// If the focus is already on a value, this method will descend to the *next* value along
     /// the path.
     //GOAT. this default implementation could certainly be optimized
-    fn descend_to_value<V, K: AsRef<[u8]>>(&mut self, k: K) -> usize
-        where Self: Zipper<V>
-    {
+    fn descend_to_value<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
         let k = k.as_ref();
         let mut i = 0;
         while i < k.len() {
@@ -275,7 +276,7 @@ pub trait ZipperMoving: ZipperMovingPriv {
 /// a lifetime that may outlive the zipper
 ///
 /// This trait will never be implemented on the same type as [ZipperWriting]
-pub trait ZipperReadOnly<'a, V>: ZipperReadOnlyPriv<'a, V> {
+pub trait ZipperReadOnly<'a, V>: ZipperAccess<V> + ZipperReadOnlyPriv<'a, V> {
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     fn get_value(&self) -> Option<&'a V>;
 
@@ -438,14 +439,17 @@ impl<V> Drop for ReadZipperTracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ReadZipperTracked<'_, '_, V>{
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
-    fn value(&self) -> Option<&V> { self.z.get_value() }
+impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperTracked<'_, '_, V>{
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for ReadZipperTracked<'_, '_, V>{
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+    fn value(&self) -> Option<&V> { self.z.get_value() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -562,14 +566,17 @@ impl<V> Drop for ReadZipperUntracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ReadZipperUntracked<'_, '_, V> {
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperUntracked<'_, '_, V> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_shared(&self) -> bool { self.z.is_shared() }
-    fn value(&self) -> Option<&V> { self.z.get_value() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for ReadZipperUntracked<'_, '_, V> {
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+    fn value(&self) -> Option<&V> { self.z.get_value() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -735,14 +742,17 @@ impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ReadZipperOwned<V> {
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperOwned<V> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
-    fn value(&self) -> Option<&V> { self.z.get_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for ReadZipperOwned<V> {
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+    fn value(&self) -> Option<&V> { self.z.get_value() }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -861,8 +871,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync + Unpin> Zipper<V> for ReadZipperCore<'_, '_, V> {
-        type ReadZipperT<'a> = ReadZipperCore<'a, 'a, V> where Self: 'a;
+    impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperCore<'_, '_, V> {
         fn path_exists(&self) -> bool {
             let key = self.node_key();
             if key.len() > 0 {
@@ -887,7 +896,6 @@ pub(crate) mod read_zipper_core {
         fn is_value(&self) -> bool {
             self.is_value_internal()
         }
-        fn value(&self) -> Option<&V> { self.get_value() }
         fn child_count(&self) -> usize {
             debug_assert!(self.is_regularized());
             self.focus_node.count_branches(self.node_key())
@@ -896,6 +904,11 @@ pub(crate) mod read_zipper_core {
             debug_assert!(self.is_regularized());
             self.focus_node.node_branches_mask(self.node_key())
         }
+    }
+
+    impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for ReadZipperCore<'_, '_, V> {
+        type ReadZipperT<'a> = ReadZipperCore<'a, 'a, V> where Self: 'a;
+        fn value(&self) -> Option<&V> { self.get_value() }
         fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
             let new_root_val = self.get_value();
             let (new_root_path, new_root_key_offset) = match &self.root_key_offset {
@@ -908,7 +921,6 @@ pub(crate) mod read_zipper_core {
             };
             Self::ReadZipperT::new_with_node_and_path_internal(self.focus_node.clone(), new_root_path, new_root_key_offset, new_root_val)
         }
-
         fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
             #[cfg(not(feature = "graft_root_vals"))]
             let root_val = None;
@@ -2233,7 +2245,7 @@ mod tests {
         let mut zipper = btm.read_zipper();
 
         //descends a single specific byte using `descend_indexed_branch`. Just for testing. A real user would use `descend_towards`
-        fn descend_byte<Z: Zipper<usize> + ZipperMoving>(zipper: &mut Z, byte: u8) {
+        fn descend_byte<Z: Zipper + ZipperMoving>(zipper: &mut Z, byte: u8) {
             for i in 0..zipper.child_count() {
                 assert_eq!(zipper.descend_indexed_branch(i), true);
                 if *zipper.path().last().unwrap() == byte {
