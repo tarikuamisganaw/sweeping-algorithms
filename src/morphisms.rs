@@ -67,6 +67,8 @@ use reusing_vec::ReusingQueue;
 use crate::utils::*;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::TrieNodeODRc;
+use crate::write_zipper::write_zipper_priv::WriteZipperPriv;
+use crate::zipper;
 use crate::zipper::*;
 
 /// Provides methods to perform a catamorphism on types that can reference or contain a trie
@@ -603,6 +605,26 @@ impl<W> Stack<W> {
             stack[*position].reset(zipper, ascend_count);
         }
     }
+}
+
+pub(crate) fn new_map_from_ana_jumping<'a, V, WZ : ZipperWriting<V> + zipper::ZipperMoving, W, CoAlgF, I>(wz: &mut WZ, w: W, mut coalg_f: CoAlgF)
+where
+    V: 'static + Clone + Send + Sync + Unpin,
+    W: Default,
+    I: IntoIterator<Item=W>,
+    CoAlgF: Copy + FnMut(W, &[u8]) -> (&'a [u8], ByteMask, I, Option<V>) {
+
+    let (prefix, bm, ws, mv) = coalg_f(w, wz.path());
+    let prefix_len = prefix.len();
+
+    wz.descend_to(&prefix[..]);
+    if let Some(v) = mv { wz.set_value(v); }
+    for (b, w) in bm.iter().zip(ws) {
+        wz.descend_to_byte(b);
+        new_map_from_ana_jumping(wz, w, coalg_f);
+        wz.ascend_byte();
+    }
+    wz.ascend(prefix_len);
 }
 
 fn into_cata_cached_body<'a, Z, V: 'a, W, AlgF, const JUMPING: bool>(
@@ -1288,6 +1310,61 @@ mod tests {
                     ('i', Jump("c".into(), Alg([
                         ('o', Jump("n".into(), Value(10).into())),
                         ('u', Jump("ndus".into(), Value(11).into()))].into()).into()))].into()).into()))].into()))].into()).into()));
+    }
+
+    #[test]
+    fn cata_test4_single() {
+        #[derive(Debug, PartialEq)]
+        struct Trie<V> {
+            prefix: String,
+            value: Option<V>,
+            children: Vec<(char, Trie<V>)>
+        }
+
+        let mut btm = BytesTrieMap::new();
+        let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
+        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+
+        let s: Option<Trie<usize>> = btm.read_zipper().into_cata_jumping_side_effect(|bm, ws: &mut [Option<Trie<usize>>], jump, mv, path| {
+            Some(Trie{
+                prefix: String::from_utf8(path[path.len()-jump..].to_vec()).unwrap(),
+                value: mv.cloned(),
+                children: bm.iter().zip(ws).map(|(b, t)| (b as char, std::mem::take(t).unwrap())).collect()
+            })
+        });
+
+        assert_eq!(s, Some(Trie { prefix: "".into(), value: None, children: [
+            ('a', Trie { prefix: "rr".into(), value: Some(0), children: [
+                ('o', Trie { prefix: "w".into(), value: Some(1), children: [].into() })].into() }),
+            ('b', Trie { prefix: "ow".into(), value: Some(2), children: [].into() }),
+            ('c', Trie { prefix: "annon".into(), value: Some(3), children: [].into() }),
+            ('r', Trie { prefix: "".into(), value: None, children: [
+                ('o', Trie { prefix: "m".into(), value: None, children: [
+                    ('\'', Trie { prefix: "i".into(), value: Some(12), children: [].into() }),
+                    ('a', Trie { prefix: "n".into(), value: Some(4), children: [
+                        ('e', Trie { prefix: "".into(), value: Some(5), children: [].into() }),
+                        ('u', Trie { prefix: "s".into(), value: Some(6), children: [].into() })].into() }),
+                    ('u', Trie { prefix: "lus".into(), value: Some(7), children: [].into() })].into() }),
+                ('u', Trie { prefix: "b".into(), value: None, children: [
+                    ('e', Trie { prefix: "".into(), value: None, children: [
+                        ('n', Trie { prefix: "s".into(), value: Some(8), children: [].into() }),
+                        ('r', Trie { prefix: "".into(), value: Some(9), children: [].into() })].into() }),
+                    ('i', Trie { prefix: "c".into(), value: None, children: [
+                        ('o', Trie { prefix: "n".into(), value: Some(10), children: [].into() }),
+                        ('u', Trie { prefix: "ndus".into(), value: Some(11), children: [].into() })].into() })].into() })].into() })].into() }));
+
+        let keys = [vec![b'a', b'b', b'c'], vec![b'a', b'b', b'c', b'x', b'y']];
+        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+
+        let s: Option<Trie<usize>> = btm.read_zipper().into_cata_jumping_side_effect(|bm, ws: &mut [Option<Trie<usize>>], jump, mv, path| {
+            Some(Trie{
+                prefix: String::from_utf8(path[path.len()-jump..].to_vec()).unwrap(),
+                value: mv.cloned(),
+                children: bm.iter().zip(ws).map(|(b, t)| (b as char, std::mem::take(t).unwrap())).collect()
+            })
+        });
+
+        println!("{:?}", s);
     }
 
     /// Tests going from a map directly to a catamorphism

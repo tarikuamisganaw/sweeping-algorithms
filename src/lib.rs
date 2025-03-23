@@ -43,6 +43,7 @@ pub mod counters;
 
 pub mod serialization;
 pub mod path_serialization;
+pub mod tree_serialization;
 
 mod trie_node;
 mod write_zipper;

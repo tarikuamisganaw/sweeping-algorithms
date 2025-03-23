@@ -1,7 +1,7 @@
 use core::cell::UnsafeCell;
-
+use std::ptr::slice_from_raw_parts;
 use num_traits::{PrimInt, zero};
-use crate::morphisms::{new_map_from_ana, TrieBuilder};
+use crate::morphisms::{new_map_from_ana, Catamorphism, TrieBuilder};
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, Lattice, LatticeRef, DistributiveLattice, DistributiveLatticeRef, Quantale};
@@ -403,6 +403,20 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         match self.root() {
             Some(root) => val_count_below_root(root.borrow()),
             None => 0
+        }
+    }
+
+    const INVIS_HASH: u128 = 0b00001110010011001111100111000110011110101111001101110110011100001011010011010011001000100111101000001100011111110100001000000111;
+    /// Hash the logical `BytesTrieMap` and all its values with the provided hash function (which can return INVIS_HASH to ignore values).
+    pub fn hash<VHash : Fn(&V) -> u128>(&self, vhash: VHash) -> u128 {
+        unsafe {
+        self.read_zipper().into_cata_cached(|bm, hs, mv, _| {
+            let mut state = [0u8; 48];
+            state[0..16].clone_from_slice(gxhash::gxhash128(slice_from_raw_parts(bm.0.as_ptr() as *const u8, 32).as_ref().unwrap(), 0b0100110001110010000010011111010011100011010000101101111001100110i64).to_le_bytes().as_slice());
+            state[16..32].clone_from_slice(gxhash::gxhash128(slice_from_raw_parts(hs.as_ptr() as *const u8, 16*hs.len()).as_ref().unwrap(), 0b0111010001001011011011011111010110111011111101100110101100010000i64).to_le_bytes().as_slice());
+            state[32..].clone_from_slice(mv.map(|v| vhash(v)).unwrap_or(Self::INVIS_HASH).to_le_bytes().as_slice());
+            gxhash::gxhash128(state.as_slice(), 0b0100001010101101111110010110100110000010011000100100100111110111i64)
+        })
         }
     }
 
