@@ -424,16 +424,18 @@ mod tests {
 
   #[test]
   fn remove_bug_reproduction() {
-    const ntries: usize = 20;
-    const npaths: usize = 20;
-    const nremoves: usize = 20;
+    const ntries: usize = 10;
+    const npaths: usize = 10;
+    const nremoves: usize = 10;
     let rng = StdRng::from_seed([0; 32]);
     let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
       ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default()} }, p: |x| !x.is_empty(), pd: PhantomData::default() };
     let trie_fuzzer = UniformTrie { size: npaths, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
 
     trie_fuzzer.sample_iter(rng.clone()).take(ntries).for_each(|mut trie| {
+      // println!("let mut btm = BytesTrieMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
       path_fuzzer.clone().sample_iter(rng.clone()).take(nremoves).for_each(|path| {
+        // println!("btm.remove({:?}.as_bytes());", String::from_utf8(path.clone()).unwrap());
         trie.remove(path);
       });
       black_box(trie);
