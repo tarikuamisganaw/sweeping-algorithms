@@ -2,6 +2,7 @@ use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
 use zipper_priv::*;
+use crate::ring::{AlgebraicStatus, DistributiveLattice, Lattice};
 
 /// A [Zipper] type that moves through a Cartesian product space created by extending each value at the
 /// end of a path in a primary space with the root of a secondardary space, and doing it recursively for
@@ -326,6 +327,90 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ProductZipper<'_, '_
     fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
     fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
 }
+
+struct FullZipper {
+    path: Vec<u8>
+}
+
+impl Zipper for FullZipper {
+    fn path_exists(&self) -> bool { true }
+    fn is_shared(&self) -> bool { true }
+    fn is_value(&self) -> bool { true }
+    fn child_count(&self) -> usize { 256 }
+    fn child_mask(&self) -> [u64; 4] { [!0u64, !0u64, !0u64, !0u64] }
+}
+
+impl ZipperMovingPriv for FullZipper {
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
+        assert!(len <= self.path.capacity());
+        unsafe{ core::slice::from_raw_parts(self.path.as_ptr(), len) }
+    }
+
+    fn prepare_buffers(&mut self) {
+        self.path.reserve(EXPECTED_PATH_LEN)
+    }
+}
+
+impl ZipperMoving for FullZipper {
+    fn at_root(&self) -> bool { self.path.len() == 0 }
+    fn reset(&mut self) { self.path.clear() }
+    fn path(&self) -> &[u8] { &self.path[..] }
+    fn val_count(&self) -> usize { usize::MAX/2 } // usize::MAX is a dangerous default for overflow
+    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
+        self.path.extend_from_slice(k.as_ref());
+        true
+    }
+    fn descend_to_byte(&mut self, k: u8) -> bool {
+        self.path.push(k);
+        true
+    }
+    fn descend_indexed_branch(&mut self, idx: usize) -> bool {
+        assert!(idx < 256);
+        self.path.push(idx as u8);
+        true
+    }
+    fn descend_first_byte(&mut self) -> bool {
+        self.path.push(0);
+        true
+    }
+    fn descend_until(&mut self) -> bool {
+        self.path.push(0); // not sure?
+        true
+    }
+    fn ascend(&mut self, steps: usize) -> bool {
+        if steps > self.path.len() {
+            self.path.clear();
+            false
+        } else {
+            self.path.truncate(self.path.len() - steps);
+            true
+        }
+    }
+    fn ascend_byte(&mut self) -> bool {
+        self.path.pop().is_some()
+    }
+    fn ascend_until(&mut self) -> bool {
+        self.path.pop().is_some() // not sure?
+    }
+    fn ascend_until_branch(&mut self) -> bool {
+        self.path.pop().is_some() // not sure? What's the difference with the previous?
+    }
+    fn to_sibling(&mut self, next: bool) -> bool {
+        if self.path.is_empty() { return false } // right?
+        if next {
+            let last = self.path.last_mut().unwrap();
+            if *last != 255 { *last = *last + 1; true }
+            else { false }
+        } else {
+            let first = self.path.first_mut().unwrap();
+            if *first != 0 { *first = *first - 1; true }
+            else { false }
+        }
+    }
+    fn to_next_sibling_byte(&mut self) -> bool { self.to_sibling(true) }
+    fn to_prev_sibling_byte(&mut self) -> bool { self.to_sibling(false) }
+}
+
 
 #[cfg(test)]
 mod tests {

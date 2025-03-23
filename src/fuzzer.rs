@@ -299,7 +299,7 @@ mod tests {
   use rand_distr::{Triangular, Uniform};
   use crate::fuzzer::*;
   use crate::ring::Lattice;
-  use crate::zipper::Zipper;
+  use crate::zipper::ZipperAccess;
 
   #[test]
   fn fixed_length() {
