@@ -5,14 +5,12 @@ use crate::trie_map::BytesTrieMap;
 use crate::TrieValue;
 use crate::zipper::{ZipperIteration, ZipperWriting};
 
-#[cfg_attr(rustfmt, rustfmt::skip)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SerializationStats {
   pub bytes_out  : usize, 
   pub bytes_in   : usize, 
   pub path_count : usize
 }
-#[cfg_attr(rustfmt, rustfmt::skip)]
 #[derive(Debug, Clone, Copy)]
 pub struct DeserializationStats {
   pub bytes_in   : usize, 
