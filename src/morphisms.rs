@@ -1269,6 +1269,28 @@ mod tests {
     use crate::utils::BitMask;
     use super::*;
 
+    fn check_all_catas<'a, W, V, Z, AlgF, AlgFP, Assert>(
+        zipper: Z, mut f_side: AlgF, f_pure: AlgFP, mut assert: Assert)
+        where
+            Z: Clone + Catamorphism<V>, W: Clone,
+            AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W,
+            AlgFP: Fn(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W,
+            Assert: FnMut(W, &str),
+    {
+        let output = zipper.clone().into_cata_side_effect(
+            |bm, ch, v, path| f_side(bm, ch, 0, v, path));
+        assert(output, "into_cata_side_effect");
+        let output = zipper.clone().into_cata_jumping_side_effect(
+            |bm, ch, jmp, v, path| f_side(bm, ch, jmp, v, path));
+        assert(output, "into_cata_jumping_side_effect");
+        let output = zipper.clone().into_cata_cached(
+            |bm, ch, v, path| f_pure(bm, ch, 0, v, path));
+        assert(output, "into_cata_cached");
+        let output = zipper.clone().into_cata_jumping_cached(
+            |bm, ch, jmp, v, path| f_pure(bm, ch, jmp, v, path));
+        assert(output, "into_cata_jumping_cached");
+    }
+
     #[test]
     fn cata_test1() {
         let tests = [
@@ -1288,7 +1310,7 @@ mod tests {
             let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
             let zip = map.read_zipper();
 
-            let alg = |_child_mask: &ByteMask, children: &mut [u32], val: Option<&()>, path: &[u8]| {
+            let alg = |_child_mask: &ByteMask, children: &mut [u32], _jump_len: usize, val: Option<&()>, path: &[u8]| {
                 let this_digit = if val.is_some() {
                     (*path.last().unwrap() as char).to_digit(10).unwrap()
                 } else {
@@ -1298,18 +1320,8 @@ mod tests {
                 sum_of_branches + this_digit
             };
 
-            //Test both the jumping and non-jumping versions, since they ought to do the same thing
-            let sum = zip.clone().into_cata_side_effect(|child_mask: &ByteMask, children: &mut [u32], val: Option<&()>, path: &[u8]| {
-                // println!("STEPPING path=\"{}\", mask={child_mask:?}, children={children:?}, val={}", String::from_utf8_lossy(path), val.is_some(), );
-                alg(child_mask, children, val, path)
-            });
-            assert_eq!(sum, expected_sum);
-
-            let sum = zip.into_cata_jumping_side_effect(|child_mask: &ByteMask, children: &mut [u32], _jump_len: usize, val: Option<&()>, path: &[u8]| {
-                // println!("JUMPING  path=\"{}\", mask={child_mask:?}, children={children:?}, jump_len={_jump_len}, val={}", String::from_utf8_lossy(path), val.is_some(), );
-                alg(child_mask, children, val, path)
-            });
-            assert_eq!(sum, expected_sum);
+            //Test all combinations of (jumping,cached)
+            check_all_catas(zip, alg, alg, |sum, _| assert_eq!(sum, expected_sum));
         }
     }
 
@@ -1330,17 +1342,10 @@ mod tests {
                 1 //leaf node
             }
         }
-        let cnt = btm.read_zipper().into_cata_side_effect(|_mask, children, val, _path| {
-            // println!("STEPPING path=\"{}\", mask={_mask:?}, children={children:?}, val={val:?}", String::from_utf8_lossy(_path));
+        let alg = |_mask: &ByteMask, children: &mut [usize], _jmp: usize, val: Option<&usize>, _path: &[u8]| {
             leaf_cnt(children, val)
-        });
-        assert_eq!(cnt, 11);
-
-        let cnt = btm.read_zipper().into_cata_jumping_side_effect(|_mask, children, _stem, val, _path| {
-            // println!("JUMPING  path=\"{}\", mask={_mask:?}, children={children:?}, stem={}, val={val:?}", String::from_utf8_lossy(_path), String::from_utf8_lossy(_stem));
-            leaf_cnt(children, val)
-        });
-        assert_eq!(cnt, 11);
+        };
+        check_all_catas(btm.read_zipper(), alg, alg, |cnt, _| assert_eq!(cnt, 11));
 
         // Finds the longest path in the trie
         fn longest_path(children: &mut[Vec<u8>], path: &[u8]) -> Vec<u8> {
@@ -1350,17 +1355,11 @@ mod tests {
                 children.iter_mut().max_by_key(|p| p.len()).map_or(vec![], std::mem::take)
             }
         }
-        let longest = btm.read_zipper().into_cata_side_effect(|_mask, children: &mut[Vec<u8>], _val, path| {
-            // println!("STEPPING path=\"{}\", mask={_mask:?}, children={children:?}, val={_val:?}", String::from_utf8_lossy(path));
+        let alg = |_mask: &ByteMask, children: &mut [Vec<u8>], _jmp: usize, _val: Option<&usize>, path: &[u8]| {
             longest_path(children, path)
-        });
-        assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
-
-        let longest = btm.read_zipper().into_cata_jumping_side_effect(|_mask, children: &mut[Vec<u8>], _stem, _val, path| {
-            // println!("JUMPING  path=\"{}\", mask={_mask:?}, children={children:?}, stem={}, val={_val:?}", String::from_utf8_lossy(path), String::from_utf8_lossy(_stem));
-            longest_path(children, path)
-        });
-        assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus");
+        };
+        check_all_catas(btm.read_zipper(), alg, alg, |longest, _|
+            assert_eq!(std::str::from_utf8(longest.as_slice()).unwrap(), "rubicundus"));
 
         // Finds all values that are positioned at branch points (where children.len() > 0)
         fn vals_at_branches(children: &mut [Vec<usize>], val: Option<&usize>) -> Vec<usize> {
@@ -1377,17 +1376,11 @@ mod tests {
                 vec![]
             }
         }
-        let at_truncated = btm.read_zipper().into_cata_side_effect(|_mask, children: &mut[Vec<usize>], val, _path| {
-            // println!("STEPPING path=\"{}\", mask={_mask:?}, children={children:?}, val={val:?}", String::from_utf8_lossy(_path));
+        let alg = |_mask: &ByteMask, children: &mut [Vec<usize>], _jmp: usize, val: Option<&usize>, _path: &[u8]| {
             vals_at_branches(children, val)
-        });
-        assert_eq!(at_truncated, vec![3]);
-
-        let at_truncated = btm.read_zipper().into_cata_jumping_side_effect(|_mask, children: &mut[Vec<usize>], _stem, val, _path| {
-            // println!("JUMPING  path=\"{}\", mask={_mask:?}, children={children:?}, stem={}, val={val:?}", String::from_utf8_lossy(_path), String::from_utf8_lossy(_stem));
-            vals_at_branches(children, val)
-        });
-        assert_eq!(at_truncated, vec![3]);
+        };
+        check_all_catas(btm.read_zipper(), alg, alg, |at_truncated, _|
+            assert_eq!(at_truncated, vec![3]));
     }
 
     #[test]
