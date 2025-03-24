@@ -28,6 +28,11 @@ pub mod utils;
 pub mod experimental;
 
 /// Track outstanding zippers to be sure they don't conflict
+#[cfg(feature = "zipper_tracking")]
+pub mod zipper_tracking;
+
+/// Track outstanding zippers to be sure they don't conflict
+#[cfg(not(feature = "zipper_tracking"))]
 mod zipper_tracking;
 
 /// Used to create multiple simultaneous zippers from the same parent
