@@ -2414,6 +2414,25 @@ mod tests {
     }
 
     #[test]
+    fn write_zipper_drop_head_test5() {
+        let paths = [
+            vec![193, 191, 193, 193, 191],
+            vec![193, 191, 193, 194, 12, 28],
+            vec![193, 191, 193, 194, 18, 9],
+            vec![193, 191, 194, 193, 191],
+            vec![193, 191, 194, 194, 12, 28],
+            vec![193, 191, 194, 194, 15, 47],
+            vec![193, 191, 194, 194, 18, 9],
+        ];
+        let mut map: BytesTrieMap<()> = paths.iter().map(|k| (k, ())).collect();
+
+        let mut wz = map.write_zipper();
+        wz.descend_to([193, 191]);
+        wz.drop_head(1);
+        assert_eq!(wz.val_count(), 4);
+    }
+
+    #[test]
     fn write_zipper_insert_prefix_test() {
         let keys = [
             "123:Bob:Fido",
