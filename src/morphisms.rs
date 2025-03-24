@@ -149,10 +149,25 @@ pub trait Catamorphism<V> {
     /// since the user can calculate values of W depending on path.
     ///
     /// We're leaving this for testing purposes, but we should not expose this outside.
-    fn into_cata_cached<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
+    fn into_cata_cached<W, AlgF>(self, alg_f: AlgF) -> W
+        where
+            W: Clone,
+            AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> W,
+        Self: Sized
+    {
+        self.into_cata_cached_fallible(|mask, children, val, path| -> Result<W, Infallible> {
+            Ok(alg_f(mask, children, val, path))
+        }).unwrap()
+    }
+
+    /// Allows the closure to return an error, stopping traversal immediately
+    ///
+    /// See [Catamorphism::into_cata_cached]
+    fn into_cata_cached_fallible<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
         where
             W: Clone,
             AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, E>;
+
     /// Applies a "jumping" catamorphism to the trie
     ///
     /// A "jumping" catamorphism is a form of catamorphism where the `alg_f` "jumps over" (isn't called for)
@@ -166,7 +181,21 @@ pub trait Catamorphism<V> {
     /// since the user can calculate values of W depending on path.
     ///
     /// We're leaving this for testing purposes, but we should not expose this outside.
-    fn into_cata_jumping_cached<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
+    fn into_cata_jumping_cached<W, AlgF>(self, alg_f: AlgF) -> W
+        where
+            W: Clone,
+            AlgF: Fn(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> W,
+        Self: Sized
+    {
+        self.into_cata_jumping_cached_fallible(|mask, children, jumped_cnt, val, path| -> Result<W, Infallible> {
+            Ok(alg_f(mask, children, jumped_cnt, val, path))
+        }).unwrap()
+    }
+
+    /// Allows the closure to return an error, stopping traversal immediately
+    ///
+    /// See [Catamorphism::into_cata_jumping_cached]
+    fn into_cata_jumping_cached_fallible<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
         where
             W: Clone,
             AlgF: Fn(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>;
@@ -302,7 +331,7 @@ impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnly<'a, V>
     {
         cata_side_effect_body::<Self, V, W, Err, AlgF, true>(self, alg_f)
     }
-    fn into_cata_cached<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
+    fn into_cata_cached_fallible<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
         where
             W: Clone,
             AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, E>
@@ -312,7 +341,7 @@ impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnly<'a, V>
             alg_f(mask, children, val, path)
         })
     }
-    fn into_cata_jumping_cached<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
+    fn into_cata_jumping_cached_fallible<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
         where
             W: Clone,
             AlgF: Fn(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>
@@ -337,7 +366,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
         let rz = self.into_read_zipper(&[]);
         cata_side_effect_body::<ReadZipperOwned<V>, V, W, Err, AlgF, true>(rz, alg_f)
     }
-    fn into_cata_cached<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
+    fn into_cata_cached_fallible<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
         where
             W: Clone,
             AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, E>
@@ -350,7 +379,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
             }
         )
     }
-    fn into_cata_jumping_cached<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
+    fn into_cata_jumping_cached_fallible<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
         where
             W: Clone,
             AlgF: Fn(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>
@@ -1738,11 +1767,11 @@ mod tests {
         // println!("tree: {:#?}", visit(&mut make_map().read_zipper()));
         use core::sync::atomic::{AtomicU64, Ordering::*};
         let calls_cached = AtomicU64::new(0);
-        let tree_cached: Rc::<Node<u8>> = make_map().into_cata_cached::<_, (), _>(
+        let tree_cached: Rc::<Node<u8>> = make_map().into_cata_cached(
             |_bm, children, value, _path| {
                 calls_cached.fetch_add(1, Relaxed);
-                Ok(Rc::new(Node::new(value, children)))
-            }).unwrap();
+                Rc::new(Node::new(value, children))
+            });
         let calls_cached = calls_cached.load(Relaxed);
 
         let mut calls_side = 0;
