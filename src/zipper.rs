@@ -455,6 +455,18 @@ impl<Z> ZipperMoving for &mut Z where Z: ZipperMoving + Zipper {
     fn to_prev_sibling_byte(&mut self) -> bool { (**self).to_prev_sibling_byte() }
 }
 
+impl<Z> ZipperAbsolutePath for &mut Z where Z: ZipperAbsolutePath {
+    fn origin_path(&self) -> Option<&[u8]> { (**self).origin_path() }
+    fn root_prefix_path(&self) -> Option<&[u8]> { (**self).root_prefix_path() }
+}
+
+impl<'a, V, Z> ZipperIteration<'a, V> for &mut Z where Z: ZipperIteration<'a, V> {
+    fn to_next_val(&mut self) -> Option<&'a V> { (**self).to_next_val() }
+    fn to_next_step(&mut self) -> bool { (**self).to_next_step() }
+    fn descend_first_k_path(&mut self, k: usize) -> bool { (**self).descend_first_k_path(k) }
+    fn to_next_k_path(&mut self, k: usize) -> bool { (**self).to_next_k_path(k) }
+}
+
 impl<V, Z> ZipperAccess<V> for &mut Z where Z: ZipperAccess<V> {
     type ReadZipperT<'a> = Z::ReadZipperT<'a> where Self: 'a;
     fn value(&self) -> Option<&V> { (**self).value() }
