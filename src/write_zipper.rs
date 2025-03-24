@@ -184,6 +184,36 @@ pub(crate) mod write_zipper_priv {
 }
 use write_zipper_priv::*;
 
+impl<V, Z> ZipperWriting<V> for &mut Z where Z: ZipperWriting<V> {
+    type ZipperHead<'z> = Z::ZipperHead<'z> where Self: 'z;
+    fn get_value_mut(&mut self) -> Option<&mut V> { (**self).get_value_mut() }
+    fn get_value_or_insert(&mut self, default: V) -> &mut V { (**self).get_value_or_insert(default) }
+    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { (**self).get_value_or_insert_with(func) }
+    fn set_value(&mut self, val: V) -> Option<V> { (**self).set_value(val) }
+    fn remove_value(&mut self) -> Option<V> { (**self).remove_value() }
+    fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { (**self).zipper_head() }
+    fn graft<RZ: ZipperAccess<V>>(&mut self, read_zipper: &RZ) { (**self).graft(read_zipper) }
+    fn graft_map(&mut self, map: BytesTrieMap<V>) { (**self).graft_map(map) }
+    fn join<RZ: ZipperAccess<V>>(&mut self, read_zipper: &RZ) -> AlgebraicStatus where V: Lattice { (**self).join(read_zipper) }
+    fn join_map(&mut self, map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { (**self).join_map(map) }
+    fn join_into<RZ: ZipperAccess<V> + ZipperWriting<V>>(&mut self, src_zipper: &mut RZ) -> AlgebraicStatus where V: Lattice { (**self).join_into(src_zipper) }
+    fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { (**self).drop_head(byte_cnt) }
+    fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { (**self).insert_prefix(prefix) }
+    fn remove_prefix(&mut self, n: usize) -> bool { (**self).remove_prefix(n) }
+    fn meet<RZ: ZipperAccess<V>>(&mut self, read_zipper: &RZ) -> AlgebraicStatus where V: Lattice { (**self).meet(read_zipper) }
+    fn meet_2<RZA: ZipperAccess<V>, RZB: ZipperAccess<V>>(&mut self, rz_a: &RZA, rz_b: &RZB) -> AlgebraicStatus where V: Lattice { (**self).meet_2(rz_a, rz_b) }
+    fn subtract<RZ: ZipperAccess<V>>(&mut self, read_zipper: &RZ) -> AlgebraicStatus where V: DistributiveLattice { (**self).subtract(read_zipper) }
+    fn restrict<RZ: ZipperAccess<V>>(&mut self, read_zipper: &RZ) -> AlgebraicStatus { (**self).restrict(read_zipper) }
+    fn restricting<RZ: ZipperAccess<V>>(&mut self, read_zipper: &RZ) -> bool { (**self).restricting(read_zipper) }
+    fn remove_branches(&mut self) -> bool { (**self).remove_branches() }
+    fn take_map(&mut self) -> Option<BytesTrieMap<V>> { (**self).take_map() }
+    fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { (**self).remove_unmasked_branches(mask) }
+}
+
+impl<V, Z> WriteZipperPriv<V> for &mut Z where Z: WriteZipperPriv<V> {
+    fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> { (**self).take_focus() }
+}
+
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 // WriteZipperTracked
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -926,13 +956,13 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     /// Internal method to borrow the node at the zipper's focus, splitting the node if necessary
     pub(crate) fn splitting_borrow_focus(&mut self) -> (&dyn TrieNode<V>, Option<&V>) {
         let self_ptr: *mut Self = self;
-        let node = match self.try_borrow_focus() {
+        let node = match (*self).try_borrow_focus() {
             Some(root) => root,
             None => {
                 //SAFETY: This is another "We need Polonius" case.  We're finished with the borrow if we get here.
                 let self_ref = unsafe{ &mut *self_ptr };
                 self_ref.split_at_focus();
-                self.try_borrow_focus().unwrap()
+                (*self).try_borrow_focus().unwrap()
             },
         };
         let val = self.get_value();

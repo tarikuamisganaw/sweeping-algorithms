@@ -426,6 +426,63 @@ pub(crate) mod zipper_priv {
 }
 use zipper_priv::*;
 
+impl<Z> Zipper for &mut Z where Z: Zipper {
+    fn path_exists(&self) -> bool { (**self).path_exists() }
+    fn is_shared(&self) -> bool { (**self).is_shared() }
+    fn is_value(&self) -> bool { (**self).is_value() }
+    fn child_count(&self) -> usize { (**self).child_count() }
+    fn child_mask(&self) -> [u64; 4] { (**self).child_mask() }
+}
+
+impl<Z> ZipperMoving for &mut Z where Z: ZipperMoving + Zipper {
+    fn at_root(&self) -> bool { (**self).at_root() }
+    fn reset(&mut self) { (**self).reset() }
+    fn path(&self) -> &[u8] { (**self).path() }
+    fn val_count(&self) -> usize { (**self).val_count() }
+    fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { (**self).descend_to(k) }
+    fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize { (**self).descend_to_existing(k) }
+    fn descend_to_value<K: AsRef<[u8]>>(&mut self, k: K) -> usize { (**self).descend_to_value(k) }
+    fn descend_to_byte(&mut self, k: u8) -> bool { (**self).descend_to_byte(k) }
+    fn descend_indexed_branch(&mut self, idx: usize) -> bool { (**self).descend_indexed_branch(idx) }
+    fn descend_first_byte(&mut self) -> bool { (**self).descend_first_byte() }
+    fn descend_until(&mut self) -> bool { (**self).descend_until() }
+    fn ascend(&mut self, steps: usize) -> bool { (**self).ascend(steps) }
+    fn ascend_byte(&mut self) -> bool { (**self).ascend_byte() }
+    fn ascend_until(&mut self) -> bool { (**self).ascend_until() }
+    fn ascend_until_branch(&mut self) -> bool { (**self).ascend_until_branch() }
+    fn to_sibling(&mut self, next: bool) -> bool { (**self).to_sibling(next) }
+    fn to_next_sibling_byte(&mut self) -> bool { (**self).to_next_sibling_byte() }
+    fn to_prev_sibling_byte(&mut self) -> bool { (**self).to_prev_sibling_byte() }
+}
+
+impl<V, Z> ZipperAccess<V> for &mut Z where Z: ZipperAccess<V> {
+    type ReadZipperT<'a> = Z::ReadZipperT<'a> where Self: 'a;
+    fn value(&self) -> Option<&V> { (**self).value() }
+    fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> { (**self).fork_read_zipper() }
+    fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { (**self).make_map() }
+}
+
+impl<'a, V, Z> ZipperReadOnly<'a, V> for &mut Z where Z: ZipperReadOnly<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperAccess<V> {
+    fn get_value(&self) -> Option<&'a V> { (**self).get_value() }
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { (**self).trie_ref_at_path(path) }
+}
+
+impl<V, Z> ZipperPriv for &mut Z where Z: ZipperPriv<V=V> {
+    type V = V;
+    fn get_focus(&self) -> AbstractNodeRef<Self::V> { (**self).get_focus() }
+    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { (**self).try_borrow_focus() }
+}
+
+impl<Z> ZipperMovingPriv for &mut Z where Z: ZipperMovingPriv {
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { (**self).origin_path_assert_len(len) }
+    fn prepare_buffers(&mut self) { (**self).prepare_buffers() }
+}
+
+impl<'a, V, Z> ZipperReadOnlyPriv<'a, V> for &mut Z where Z: ZipperReadOnlyPriv<'a, V> {
+    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { (**self).borrow_raw_parts() }
+    fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> { (**self).take_core() }
+}
+
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 // ReadZipperTracked
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
