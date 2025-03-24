@@ -410,13 +410,13 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     /// Hash the logical `BytesTrieMap` and all its values with the provided hash function (which can return INVIS_HASH to ignore values).
     pub fn hash<VHash : Fn(&V) -> u128>(&self, vhash: VHash) -> u128 {
         unsafe {
-        self.read_zipper().into_cata_cached(|bm, hs, mv, _| {
+        self.read_zipper().into_cata_cached::<_, (), _>(|bm, hs, mv, _| {
             let mut state = [0u8; 48];
             state[0..16].clone_from_slice(gxhash::gxhash128(slice_from_raw_parts(bm.0.as_ptr() as *const u8, 32).as_ref().unwrap(), 0b0100110001110010000010011111010011100011010000101101111001100110i64).to_le_bytes().as_slice());
             state[16..32].clone_from_slice(gxhash::gxhash128(slice_from_raw_parts(hs.as_ptr() as *const u8, 16*hs.len()).as_ref().unwrap(), 0b0111010001001011011011011111010110111011111101100110101100010000i64).to_le_bytes().as_slice());
             state[32..].clone_from_slice(mv.map(|v| vhash(v)).unwrap_or(Self::INVIS_HASH).to_le_bytes().as_slice());
-            gxhash::gxhash128(state.as_slice(), 0b0100001010101101111110010110100110000010011000100100100111110111i64)
-        })
+            Ok(gxhash::gxhash128(state.as_slice(), 0b0100001010101101111110010110100110000010011000100100100111110111i64))
+        }).unwrap()
         }
     }
 
