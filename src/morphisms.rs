@@ -364,8 +364,9 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
                     //See if we need to run the aggregate function on the root before returning
                     let stack_frame = &mut stack[0];
                     let val = z.value();
+                    let child_mask = ByteMask::from(z.child_mask());
                     let w = if stack_frame.child_cnt > 1 || val.is_some() || !JUMPING {
-                        alg_f(&ByteMask(z.child_mask()), &mut stack_frame.children, 0, val, z.origin_path().unwrap())?
+                        alg_f(&child_mask, &mut stack_frame.children, 0, val, z.origin_path().unwrap())?
                     } else {
                         debug_assert_eq!(stack_frame.children.len(), 1);
                         stack_frame.children.pop().unwrap()
@@ -405,14 +406,10 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     let mut w;
-    let mut mask;
-    let (mut child_mask, mut children) = match &mut prior_frame {
-        Some(prior_frame) => {
-            (&ByteMask(z.child_mask()), &mut prior_frame.children[..])
-        },
-        None => {
-            (&ByteMask::EMPTY, &mut [][..])
-        }
+    let mut child_mask = ByteMask::from(z.child_mask());
+    let mut children = match &mut prior_frame {
+        Some(prior_frame) => &mut prior_frame.children[..],
+        None => &mut [][..],
     };
 
     if JUMPING {
@@ -431,7 +428,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
                 old_path_len - z.origin_path().unwrap().len()
             };
 
-            w = alg_f(child_mask, children, jump_len, old_val, origin_path)?;
+            w = alg_f(&child_mask, children, jump_len, old_val, origin_path)?;
 
             if z.child_count() != 1 || z.at_root() {
                 return Ok(w)
@@ -441,9 +438,8 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
 
             // SAFETY: We will never over-read the path buffer because we only get here after we ascended
             let byte = *unsafe{ z.origin_path_assert_len(old_path_len-jump_len) }.last().unwrap();
-            mask = ByteMask::EMPTY;
-            mask.set_bit(byte);
-            child_mask = &mask;
+            child_mask = ByteMask::EMPTY;
+            child_mask.set_bit(byte);
         }
     } else {
         //This loop runs at each byte step as we ascend
@@ -451,7 +447,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
             let origin_path = z.origin_path().unwrap();
             let byte = *origin_path.last().unwrap_or(&0);
             let val = z.value();
-            w = alg_f(child_mask, children, 0, val, origin_path)?;
+            w = alg_f(&child_mask, children, 0, val, origin_path)?;
 
             let ascended = z.ascend_byte();
             debug_assert!(ascended);
@@ -461,9 +457,8 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
             }
 
             children = core::array::from_mut(&mut w);
-            mask = ByteMask::EMPTY;
-            mask.set_bit(byte);
-            child_mask = &mask;
+            child_mask = ByteMask::EMPTY;
+            child_mask.set_bit(byte);
         }
     }
 }
