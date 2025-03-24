@@ -2463,8 +2463,12 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         let merged_payload = match merge_guts::<V, 0, 1>(overlap+1, new_key0, &temp_node, new_key1, &temp_node) {
             AlgebraicResult::Element((_shared_key, merged_payload)) => merged_payload,
             AlgebraicResult::Identity(mask) => {
-                debug_assert!(mask & SELF_IDENT > 0);
-                temp_node.clone_payload::<0>().unwrap()
+                if mask & SELF_IDENT > 0 {
+                    temp_node.clone_payload::<0>().unwrap()
+                } else {
+                    debug_assert_eq!(mask, COUNTER_IDENT);
+                    temp_node.clone_payload::<1>().unwrap()
+                }
             },
             AlgebraicResult::None => unreachable!() //`merge_guts` shouldn't return AlgebraicResult::None because that should have been caught by an earlier case
         };
