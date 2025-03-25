@@ -112,11 +112,11 @@ impl Conflict {
             } else if current_path.is_empty() {
                 return None;
             } else {
-                let head = current_path[0];
-                if !zipper.descend_to_byte(head) {
-                    return None;
+                let steps = zipper.descend_to_value(current_path);
+                if steps == 0 {
+                    return None
                 }
-                current_path = &current_path[1..];
+                current_path = &current_path[steps..];
             }
         }
     }
