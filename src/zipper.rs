@@ -2041,7 +2041,7 @@ pub(crate) mod read_zipper_core {
             self.prefix_buf.truncate(new_len);
         }
         /// Push a new node-path pair onto the zipper.  This is used in the internal implementation of
-        /// the [crate::experimental::ProductZipper]
+        /// the [crate::zipper::ProductZipper]
         pub(crate) fn push_node(&mut self, node: TaggedNodeRef<'a, V>) {
             self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
             self.focus_node = node;
