@@ -142,7 +142,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for TrieRef<'_, V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for TrieRef<'_, V> {
+impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for TrieRef<'_, V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn value(&self) -> Option<&V> {
         self.get_value()
@@ -151,6 +151,9 @@ impl<V: Clone + Send + Sync + Unpin> ZipperAccess<V> for TrieRef<'_, V> {
         let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), None, self.get_value());
         Self::ReadZipperT::new_forked_with_inner_zipper(core_z)
     }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperSubtries<V> for TrieRef<'_, V> {
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
@@ -197,7 +200,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for TrieRef<'_, V> {
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for TrieRef<'a, V> {
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for TrieRef<'a, V> {
     #[inline]
     fn get_value(&self) -> Option<&'a V> {
         if self.is_valid() {
@@ -214,6 +217,9 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for TrieRef<'a, V
             None
         }
     }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for TrieRef<'a, V> {
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> {
         if self.is_valid() {
             let path = path.as_ref();
@@ -229,12 +235,20 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnly<'a, V> for TrieRef<'a, V
     }
 }
 
+impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for TrieRef<'_, V> { }
+
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for TrieRef<'a, V> {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
         (self.focus_node.borrow(), self.node_key(), self.root_val())
     }
     fn take_core(&mut self) -> Option<read_zipper_core::ReadZipperCore<'a, 'static, V>> {
         None
+    }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for TrieRef<'_, V> {
+    fn shared_addr(&self) -> Option<FocusAddr> {
+        read_zipper_core::read_zipper_shared_addr(self)
     }
 }
 

@@ -317,7 +317,7 @@ impl SplitCataJumping {
     }
 }
 
-impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnly<'a, V> + ZipperAbsolutePath {
+impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperConcrete + ZipperAbsolutePath {
     fn into_cata_side_effect_fallible<W, Err, AlgF>(self, mut alg_f: AlgF) -> Result<W, Err>
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, Err>,
     {
@@ -392,7 +392,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
 #[inline]
 fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z: Z, mut alg_f: AlgF) -> Result<W, Err>
     where
-    Z: Zipper + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperAbsolutePath,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     //`stack` holds a "frame" at each forking point above the zipper position.  No frames exist for values
@@ -469,7 +469,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
         alg_f: &mut AlgF, children: &mut [W]
 ) -> Result<W, Err>
     where
-    Z: Zipper + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperAbsolutePath,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     let mut w;
@@ -526,31 +526,6 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
     }
 }
 
-pub type FocusAddr = usize;
-
-/// Get the address of zipper's focus node, if it points at the root of the node.
-/// When zipper is focused inside of the node, return `None`.
-#[inline]
-pub fn shared_addr<'a, V, Z>(zipper: &Z) -> Option<FocusAddr>
-    where V: 'a, Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
-{
-    let (node, key, value) = zipper.borrow_raw_parts();
-    if !zipper.is_shared() || !key.is_empty() || value.is_some() {
-        // TODO(igorm): Currently values associated with a nodes that can be shared
-        // are stored outside of the node. This means one focus address can
-        // correspond to two different points which have different values.
-        // Therefore, we can't cache nodes that have values themselves.
-        // Relevant discussion:
-        // https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2005555762
-        // https://github.com/Adam-Vandervorst/PathMap/blob/cleanup_to_release/pathmap-book/src/A.0001_map_root_values.md
-        // https://discord.com/channels/@me/1215835387432271922/1352463443541754068
-        return None
-    }
-    let addr = (node as *const dyn crate::trie_node::TrieNode<V>).addr();
-    Some(addr)
-    // FocusAddr(addr, key.into())
-}
-
 /// Internal structure to hold temporary info used inside morphism apply methods
 struct StackFrame<W> {
     child_idx: u16,
@@ -561,8 +536,8 @@ struct StackFrame<W> {
 
 impl<W> StackFrame<W> {
     /// Allocates a new StackFrame
-    fn from<'a, V, Z>(zipper: &Z) -> Self
-        where V: 'a, Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    fn from<Z>(zipper: &Z) -> Self
+        where Z: Zipper,
     {
         let mut stack_frame = StackFrame {
             child_cnt: 0,
@@ -575,8 +550,8 @@ impl<W> StackFrame<W> {
     }
 
     /// Resets a StackFrame to the state needed to iterate a new forking point
-    fn reset<'a, V, Z>(&mut self, zipper: &Z)
-        where V: 'a, Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    fn reset<Z>(&mut self, zipper: &Z)
+        where Z: Zipper,
     {
         self.child_cnt = zipper.child_count() as u16;
         self.child_idx = 0;
@@ -635,17 +610,17 @@ impl<W> Stack<W> {
     ///
     /// This function re-uses allocations for stack frames,
     /// to avoid allocator thrashing.
-    pub fn push_state<'a, V: 'a, Z>(&mut self, z: &Z)
-        where Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+    pub fn push_state<Z>(&mut self, z: &Z)
+        where Z: Zipper,
     {
         Self::push_state_raw(&mut self.stack, &mut self.position, z);
     }
 
-    pub fn push_state_raw<'a, V: 'a, Z>(
+    pub fn push_state_raw<Z>(
         stack: &mut Vec<StackFrame<W>>,
         position: &mut usize,
         zipper: &Z)
-        where Z: Zipper + zipper_priv::ZipperReadOnlyPriv<'a, V>,
+        where Z: Zipper,
     {
         *position = position.wrapping_add(1);
         assert!(*position <= stack.len(),
@@ -678,6 +653,8 @@ where
     }
     wz.ascend(prefix_len);
 }
+
+use crate::zipper::zipper_priv::FocusAddr;
 
 /// A trait to dictate if and how the value should be cached.
 ///
@@ -739,7 +716,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
 ) -> Result<W, E>
     where
     Cache: CacheStrategy<W>,
-    Z: Zipper+ ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperConcrete + ZipperAbsolutePath,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>
 {
     use gxhash::HashMapExt;
@@ -757,7 +734,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
         if frame_mut.child_idx < frame_mut.child_cnt {
             zipper.descend_indexed_branch(frame_mut.child_idx as usize);
             frame_mut.child_idx += 1;
-            frame_mut.child_addr = shared_addr(&zipper);
+            frame_mut.child_addr = zipper.shared_addr();
 
             // Read and reuse value from cache, if exists
             if let Some(cache) = Cache::get(&cache, frame_mut.child_addr) {
@@ -1198,7 +1175,7 @@ impl<V: Clone + Send + Sync, W: Default> TrieBuilder<V, W> {
     ///
     /// WARNING: This method is incompatible with [Self::set_child_mask] and must follow the same
     /// rules as [Self::push_byte]
-    pub fn graft_at_byte<Z: ZipperAccess<V>>(&mut self, byte: u8, read_zipper: &Z) {
+    pub fn graft_at_byte<Z: ZipperSubtries<V>>(&mut self, byte: u8, read_zipper: &Z) {
         let mask_word = (byte / 64) as usize;
         if mask_word < self.cur_mask_word {
             panic!("children must be pushed in sorted order")

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use crate::trie_map::BytesTrieMap;
-use crate::zipper::{Zipper, ZipperAccess, ZipperMoving, ZipperReadOnly, ZipperWriting};
+use crate::zipper::{Zipper, ZipperValues, ZipperMoving, ZipperReadOnlyValues, ZipperWriting};
 use crate::zipper::ReadZipperUntracked;
 use crate::zipper::ZipperAbsolutePath;
 use crate::zipper::ZipperIteration;
@@ -46,8 +46,8 @@ mod tracking_internal {
 }
 use tracking_internal::TrackingMode;
 
-/// Tracks the root path of each zipper, to check for violations against all other outstanding zipper paths.
-/// See [ZipperHead::write_zipper_at_exclusive_path_unchecked].
+/// Object that accompanies a zipper and tracks its path, to check for violations against all other
+/// outstanding zipper paths.  See [ZipperCreation::write_zipper_at_exclusive_path](crate::zipper::ZipperCreation::write_zipper_at_exclusive_path).
 pub struct ZipperTracker<M: TrackingMode> {
     all_paths: SharedTrackerPaths,
     this_path: Vec<u8>,

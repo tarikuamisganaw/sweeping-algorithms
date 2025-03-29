@@ -8,7 +8,7 @@ use gxhash::{HashMap, HashMapExt};
 use rand::distr::{Iter, Uniform};
 use crate::TrieValue;
 use crate::utils::{BitMask, ByteMask};
-use crate::zipper::{ZipperWriting, ReadZipperUntracked, Zipper, ZipperIteration, ZipperMoving, ZipperReadOnly};
+use crate::zipper::{ZipperWriting, ReadZipperUntracked, Zipper, ZipperIteration, ZipperMoving, ZipperReadOnlyValues};
 
 
 #[derive(Debug)]
@@ -299,7 +299,7 @@ mod tests {
   use rand_distr::{Triangular, Uniform};
   use crate::fuzzer::*;
   use crate::ring::Lattice;
-  use crate::zipper::ZipperAccess;
+  use crate::zipper::ZipperSubtries;
 
   #[test]
   fn fixed_length() {

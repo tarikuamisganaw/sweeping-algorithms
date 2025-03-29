@@ -2,7 +2,7 @@ use std::io::Read;
 use std::usize;
 use pathmap::trie_map::BytesTrieMap;
 use pathmap::utils::ByteMaskIter;
-use pathmap::zipper::{Zipper, ZipperAccess, ZipperMoving, ZipperWriting, ZipperCreation};
+use pathmap::zipper::{Zipper, ZipperValues, ZipperMoving, ZipperWriting, ZipperCreation};
 use num::BigInt;
 use divan::{Divan, Bencher, black_box};
 
