@@ -23,6 +23,21 @@ impl ByteMask {
     pub fn iter(&self) -> ByteMaskIter {
         self.byte_mask_iter()
     }
+    pub fn or(&self, other: &Self) -> Self {
+        ByteMask([self.0[0] | other.0[0], self.0[1] | other.0[1], self.0[2] | other.0[2], self.0[3] | other.0[3]])
+    }
+    pub fn and(&self, other: &Self) -> Self {
+        ByteMask([self.0[0] & other.0[0], self.0[1] & other.0[1], self.0[2] & other.0[2], self.0[3] & other.0[3]])
+    }
+    pub fn xor(&self, other: &Self) -> Self {
+        ByteMask([self.0[0] ^ other.0[0], self.0[1] ^ other.0[1], self.0[2] ^ other.0[2], self.0[3] ^ other.0[3]])
+    }
+    pub fn nand(&self, other: &Self) -> Self {
+        ByteMask([self.0[0] & !other.0[0], self.0[1] & !other.0[1], self.0[2] & !other.0[2], self.0[3] & !other.0[3]])
+    }
+    pub fn not(&self) -> Self {
+        ByteMask([!self.0[0], !self.0[1], !self.0[2], !self.0[3]])
+    }
 }
 
 impl core::fmt::Debug for ByteMask {
