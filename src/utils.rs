@@ -23,21 +23,21 @@ impl ByteMask {
     pub fn iter(&self) -> ByteMaskIter {
         self.byte_mask_iter()
     }
-    pub fn or(&self, other: &Self) -> Self {
-        ByteMask([self.0[0] | other.0[0], self.0[1] | other.0[1], self.0[2] | other.0[2], self.0[3] | other.0[3]])
-    }
-    pub fn and(&self, other: &Self) -> Self {
-        ByteMask([self.0[0] & other.0[0], self.0[1] & other.0[1], self.0[2] & other.0[2], self.0[3] & other.0[3]])
-    }
-    pub fn xor(&self, other: &Self) -> Self {
-        ByteMask([self.0[0] ^ other.0[0], self.0[1] ^ other.0[1], self.0[2] ^ other.0[2], self.0[3] ^ other.0[3]])
-    }
-    pub fn nand(&self, other: &Self) -> Self {
-        ByteMask([self.0[0] & !other.0[0], self.0[1] & !other.0[1], self.0[2] & !other.0[2], self.0[3] & !other.0[3]])
-    }
-    pub fn not(&self) -> Self {
-        ByteMask([!self.0[0], !self.0[1], !self.0[2], !self.0[3]])
-    }
+    // pub fn or(&self, other: &Self) -> Self {
+    //     ByteMask([self.0[0] | other.0[0], self.0[1] | other.0[1], self.0[2] | other.0[2], self.0[3] | other.0[3]])
+    // }
+    // pub fn and(&self, other: &Self) -> Self {
+    //     ByteMask([self.0[0] & other.0[0], self.0[1] & other.0[1], self.0[2] & other.0[2], self.0[3] & other.0[3]])
+    // }
+    // pub fn xor(&self, other: &Self) -> Self {
+    //     ByteMask([self.0[0] ^ other.0[0], self.0[1] ^ other.0[1], self.0[2] ^ other.0[2], self.0[3] ^ other.0[3]])
+    // }
+    // pub fn nand(&self, other: &Self) -> Self {
+    //     ByteMask([self.0[0] & !other.0[0], self.0[1] & !other.0[1], self.0[2] & !other.0[2], self.0[3] & !other.0[3]])
+    // }
+    // pub fn not(&self) -> Self {
+    //     ByteMask([!self.0[0], !self.0[1], !self.0[2], !self.0[3]])
+    // }
 }
 
 impl core::fmt::Debug for ByteMask {
@@ -59,6 +59,16 @@ impl BitMask for ByteMask {
     fn clear_bit(&mut self, k: u8) { self.0.clear_bit(k) }
     #[inline]
     fn make_empty(&mut self) {self.0.make_empty() }
+    #[inline]
+    fn or(&self, other: &Self) -> Self where Self: Sized { Self(self.0.or(&other.0)) }
+    #[inline]
+    fn and(&self, other: &Self) -> Self where Self: Sized { Self(self.0.and(&other.0)) }
+    #[inline]
+    fn xor(&self, other: &Self) -> Self where Self: Sized { Self(self.0.xor(&other.0)) }
+    #[inline]
+    fn nand(&self, other: &Self) -> Self where Self: Sized { Self(self.0.nand(&other.0)) }
+    #[inline]
+    fn not(&self) -> Self where Self: Sized { Self(self.0.not()) }
 }
 
 impl From<u8> for ByteMask {
@@ -159,6 +169,21 @@ pub trait BitMask {
 
     /// Clears all bits in the mask, restoring it to an empty mask
     fn make_empty(&mut self);
+
+    /// Returns the bitwise `or` of the two masks
+    fn or(&self, other: &Self) -> Self where Self: Sized;
+
+    /// Returns the bitwise `and` of the two masks
+    fn and(&self, other: &Self) -> Self where Self: Sized;
+
+    /// Returns the bitwise `xor` of the two masks
+    fn xor(&self, other: &Self) -> Self where Self: Sized;
+
+    /// Returns the bitwise `nand` of the two masks
+    fn nand(&self, other: &Self) -> Self where Self: Sized;
+
+    /// Returns the bitwise `not` of the mask
+    fn not(&self) -> Self where Self: Sized;
 }
 
 impl BitMask for [u64; 4] {
@@ -190,6 +215,27 @@ impl BitMask for [u64; 4] {
     #[inline]
     fn make_empty(&mut self) {
         *self = [0; 4];
+    }
+    #[inline]
+    fn or(&self, other: &Self) -> Self where Self: Sized {
+        [self[0] | other[0], self[1] | other[1], self[2] | other[2], self[3] | other[3]]
+    }
+    #[inline]
+    fn and(&self, other: &Self) -> Self where Self: Sized {
+        [self[0] & other[0], self[1] & other[1], self[2] & other[2], self[3] & other[3]]
+    }
+    #[inline]
+    fn xor(&self, other: &Self) -> Self where Self: Sized {
+        [self[0] ^ other[0], self[1] ^ other[1], self[2] ^ other[2], self[3] ^ other[3]]
+    }
+    #[inline]
+    //GOAT: I don't think this logic is right.  But perhaps I misunderstand the purpose of this method and perhaps I'm being an idiot.
+    fn nand(&self, other: &Self) -> Self where Self: Sized {
+        [self[0] & !other[0], self[1] & !other[1], self[2] & !other[2], self[3] & !other[3]]
+    }
+    #[inline]
+    fn not(&self) -> Self where Self: Sized {
+        [!self[0], !self[1], !self[2], !self[3]]
     }
 }
 
