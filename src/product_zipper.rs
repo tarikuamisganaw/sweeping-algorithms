@@ -279,7 +279,9 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ProductZipper<'_, '_, V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ProductZipper<'_, '_, V> { }
+impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ProductZipper<'_, '_, V> {
+    fn is_shared(&self) -> bool { self.z.is_shared() }
+}
 
 impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for ProductZipper<'_, '_, V> {
     fn shared_addr(&self) -> Option<FocusAddr> { self.z.shared_addr() }

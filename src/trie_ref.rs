@@ -217,9 +217,6 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for TrieRef
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for TrieRef<'a, V> {
-    fn is_shared(&self) -> bool {
-        self.is_shared_priv()
-    }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> {
         if self.is_valid() {
             let path = path.as_ref();
@@ -235,12 +232,13 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for TrieR
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for TrieRef<'_, V> { }
-
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for TrieRef<'a, V> {
-    fn is_shared_priv(&self) -> bool {
+impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for TrieRef<'_, V> {
+    fn is_shared(&self) -> bool {
         false //We don't have enough info in the TrieRef to get back to the Rc header.  This may change in the future
     }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for TrieRef<'a, V> {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
         (self.focus_node.borrow(), self.node_key(), self.root_val())
     }

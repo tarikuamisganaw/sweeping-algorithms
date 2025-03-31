@@ -275,24 +275,6 @@ pub trait ZipperReadOnlyValues<'a, V>: ZipperValues<V> {
 ///
 /// This trait will never be implemented on the same type as [ZipperWriting]
 pub trait ZipperReadOnlySubtries<'a, V>: ZipperSubtries<V> + ZipperReadOnlyPriv<'a, V> {
-    /// Returns `true` if the zipper's focus is at a location that may be accessed via two or
-    /// more distinct paths
-    ///
-    /// DISCUSSION: the `shared` property applied only to a singular position and is not transitive
-    /// to descending locations in the trie.  In other words, if this function returns `true` for
-    /// a specific location, it may not return `true` for other paths descended from that location.
-    ///
-    /// WARNING: your code must never rely on the return value of `is_shared` for correctness; this
-    /// information should be used only for optimizations.  The `shared` property may be affected by
-    /// a number of internal behaviors that must not be relied upon.  For example, a previously shared
-    /// subtrie may be copied for thread isolation, or the internal trie representation might otherwise
-    /// change, and alter the shared property.
-    ///
-    /// GOAT: Make a graphic diagram to illustrate the `shared` property.  The graphic should have
-    /// multiple shared subtries accessible via distinct paths, and highlight which locations will be
-    /// considered `shared` from the perspective of this method.
-    fn is_shared(&self) -> bool;
-
     /// Returns a [TrieRef] for the specified path, relative to the current focus
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V>;
 }
@@ -353,12 +335,30 @@ pub trait ZipperAbsolutePath: ZipperMoving {
     fn root_prefix_path(&self) -> Option<&[u8]>;
 }
 
-/// A marker trait implemented on zippers that traverse in-memory trie structures, as opposed
-/// to virtual spaces or abstract projections.
+/// Implemented on zippers that traverse in-memory trie structures, as opposed to virtual
+/// spaces or abstract projections.
 ///
 /// Sometimes `ZipperConcrete` is implemented on projection zippers, such as [ProductZipper],
 /// because it is composed of concrete tries
-pub trait ZipperConcrete: zipper_priv::ZipperConcretePriv {}
+pub trait ZipperConcrete: zipper_priv::ZipperConcretePriv {
+    /// Returns `true` if the zipper's focus is at a location that may be accessed via two or
+    /// more distinct paths
+    ///
+    /// DISCUSSION: the `shared` property applied only to a singular position and is not transitive
+    /// to descending locations in the trie.  In other words, if this function returns `true` for
+    /// a specific location, it may not return `true` for other paths descended from that location.
+    ///
+    /// WARNING: your code must never rely on the return value of `is_shared` for correctness; this
+    /// information should be used only for optimizations.  The `shared` property may be affected by
+    /// a number of internal behaviors that must not be relied upon.  For example, a previously shared
+    /// subtrie may be copied for thread isolation, or the internal trie representation might otherwise
+    /// change, and alter the shared property.
+    ///
+    /// GOAT: Make a graphic diagram to illustrate the `shared` property.  The graphic should have
+    /// multiple shared subtries accessible via distinct paths, and highlight which locations will be
+    /// considered `shared` from the perspective of this method.
+    fn is_shared(&self) -> bool;
+}
 
 pub(crate) mod zipper_priv {
     use super::*;
@@ -419,10 +419,6 @@ pub(crate) mod zipper_priv {
     }
 
     pub trait ZipperReadOnlyPriv<'a, V> {
-        /// Implements [ZipperReadOnlySubtries::is_shared], for types that shouldn't implement
-        /// [ZipperReadOnlySubtries], e.g. [ProductZipper]
-        fn is_shared_priv(&self) -> bool;
-
         /// Internal method returns the minimal components that compose the zipper, which are:
         ///
         /// `(focus_node, node_key, focus_val)`
@@ -509,11 +505,12 @@ impl<'a, V, Z> ZipperReadOnlyValues<'a, V> for &mut Z where Z: ZipperReadOnlyVal
 }
 
 impl<'a, V, Z> ZipperReadOnlySubtries<'a, V> for &mut Z where Z: ZipperReadOnlySubtries<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperSubtries<V> {
-    fn is_shared(&self) -> bool { (**self).is_shared() }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { (**self).trie_ref_at_path(path) }
 }
 
-impl<Z> ZipperConcrete for &mut Z where Z: ZipperConcrete, Self: ZipperConcretePriv { }
+impl<Z> ZipperConcrete for &mut Z where Z: ZipperConcrete, Self: ZipperConcretePriv {
+    fn is_shared(&self) -> bool { (**self).is_shared() }
+}
 
 impl<V, Z> ZipperPriv for &mut Z where Z: ZipperPriv<V=V> {
     type V = V;
@@ -527,7 +524,6 @@ impl<Z> ZipperMovingPriv for &mut Z where Z: ZipperMovingPriv {
 }
 
 impl<'a, V, Z> ZipperReadOnlyPriv<'a, V> for &mut Z where Z: ZipperReadOnlyPriv<'a, V> {
-    fn is_shared_priv(&self) -> bool { (**self).is_shared_priv() }
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { (**self).borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> { (**self).take_core() }
 }
@@ -598,14 +594,14 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for ReadZip
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for ReadZipperTracked<'a, '_, V> {
-    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperTracked<'_, '_, V> { }
+impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperTracked<'_, '_, V> {
+    fn is_shared(&self) -> bool { self.z.is_shared() }
+}
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperTracked<'a, '_, V> {
-    fn is_shared_priv(&self) -> bool { self.z.is_shared_priv() }
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
         let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], None, None);
@@ -739,14 +735,14 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for ReadZip
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for ReadZipperUntracked<'a, '_, V> {
-    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperUntracked<'_, '_, V> { }
+impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperUntracked<'_, '_, V> {
+    fn is_shared(&self) -> bool { self.z.is_shared() }
+}
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperUntracked<'a, '_, V>{
-    fn is_shared_priv(&self) -> bool { self.z.is_shared_priv() }
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
         let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], None, None);
@@ -929,14 +925,14 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for ReadZip
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for ReadZipperOwned<V> where Self: 'a {
-    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { self.z.trie_ref_at_path(path) }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperOwned<V> { }
+impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperOwned<V> {
+    fn is_shared(&self) -> bool { self.z.is_shared() }
+}
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperOwned<V> where Self: 'a {
-    fn is_shared_priv(&self) -> bool { self.z.is_shared_priv() }
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
         let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], None, None);
@@ -1461,10 +1457,6 @@ pub(crate) mod read_zipper_core {
     }
 
     impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for ReadZipperCore<'a, '_, V> {
-        #[inline]
-        fn is_shared(&self) -> bool {
-            self.is_shared_priv()
-        }
         fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> {
             let path = path.as_ref();
             trie_ref_at_path(self.focus_node.borrow(), self.root_val, self.node_key(), path)
@@ -1472,20 +1464,6 @@ pub(crate) mod read_zipper_core {
     }
 
     impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperCore<'a, '_, V> {
-        #[inline]
-        fn is_shared_priv(&self) -> bool {
-            let key = self.node_key();
-            if key.len() > 0 {
-                false
-            } else {
-                if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
-                    let (_key_len, focus_node) = parent.node_get_child(self.parent_key()).unwrap();
-                    focus_node.refcount() > 1
-                } else {
-                    false //root
-                }
-            }
-        }
         fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
             let focus_node = self.focus_node.borrow();
             let node_key = self.node_key();
@@ -1500,7 +1478,22 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperCore<'_, '_, V> { }
+    impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperCore<'_, '_, V> {
+        #[inline]
+        fn is_shared(&self) -> bool {
+            let key = self.node_key();
+            if key.len() > 0 {
+                false
+            } else {
+                if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
+                    let (_key_len, focus_node) = parent.node_get_child(self.parent_key()).unwrap();
+                    focus_node.refcount() > 1
+                } else {
+                    false //root
+                }
+            }
+        }
+    }
 
     impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for ReadZipperCore<'_, '_, V> {
         #[inline]
@@ -1510,9 +1503,9 @@ pub(crate) mod read_zipper_core {
     }
 
     #[inline]
-    pub(crate) fn read_zipper_shared_addr<'a, V: 'a, Z: Zipper + ZipperReadOnlyPriv<'a, V>>(zipper: &Z) -> Option<FocusAddr> {
+    pub(crate) fn read_zipper_shared_addr<'a, V: 'a, Z: Zipper + ZipperReadOnlyPriv<'a, V> + ZipperConcrete>(zipper: &Z) -> Option<FocusAddr> {
         let (node, key, value) = zipper.borrow_raw_parts();
-        if !zipper.is_shared_priv() || !key.is_empty() || value.is_some() {
+        if !zipper.is_shared() || !key.is_empty() || value.is_some() {
             // TODO(igorm): Currently values associated with a nodes that can be shared
             // are stored outside of the node. This means one focus address can
             // correspond to two different points which have different values.
