@@ -3338,11 +3338,8 @@ mod tests {
     }
 
     #[test]
-    fn read_zipper_is_shared_test() {
-        //GOAT, this test passes with `vec!["stem0", "stem1"]` instead of all these others.
-        // There appears to be a bug in WriteZipper, where the zipper's internal mutable references are
-        // dropped without adjusting the refcounts, leading to the appearance of spurious sharing
-        let l0_keys = vec!["stem0", "stem1", "stem2", "strongbad", "strange", "steam", "steamboat", "stevador", "steeple"];
+    fn read_zipper_is_shared_test1() {
+        let l0_keys = vec!["stem0", "stem1", "stem2", "strongbad", "strange", "steam", "stevador", "steeple"];
         let l1_keys = vec!["A-mid0", "B-mid1", "C-mid2", "D-midlands", "D-middling", "D-middlemarch"];
         let l2_keys = vec!["X-top0", "X-top1", "X-top2", "X-top3"];
         let top_map: BytesTrieMap<()> = l2_keys.iter().map(|v| (v, ())).collect();
@@ -3376,6 +3373,47 @@ mod tests {
             }
         }
         assert_eq!(shared_cnt, l0_keys.len() + l0_keys.len() * l1_keys.len());
+    }
+
+    /// This behavior is a bit counter-intuitive, but it is correct.
+    /// The following happens:
+    /// 1. The top_map ["X0", "X1", "X2"] is grafted at "steam" creating ["steamX0",
+    ///   "steamX1", steamX2].  At this point, the base of ["X0", "X1", "X2"]
+    ///   is shared, because it is shared with the top_map.
+    /// 2. The write zipper descends to "steamboat", and modifies it making it unique.
+    ///   So the path "steam" now has 2 children, 'X' and 'b', so it's unique
+    /// 3. In the process of making the "steam" path writable, and thus unique, the
+    ///   "X" in ["X0", "X1", "X2"] becomes the new share point.  So there are 3 share
+    ///   points in the trie:
+    ///   - "steamX" - Shared twice in the `map` and also one level deep within `top_map`
+    ///   - "steamboat" - Sharing the root node of `top_map`
+    ///   - "steamboatX" - Sharing the same nodes as "steamX", etc.
+    #[test]
+    fn read_zipper_is_shared_test2() {
+        let l0_keys = vec!["steam", "steamboat"];
+        let l1_keys = vec!["X0", "X1", "X2"];
+        let top_map: BytesTrieMap<()> = l1_keys.iter().map(|v| (v, ())).collect();
+
+        let mut map = BytesTrieMap::<()>::new();
+        let mut wz = map.write_zipper();
+        for key in l0_keys.iter() {
+            wz.reset();
+            wz.descend_to(key);
+            wz.graft_map(top_map.clone());
+        }
+        drop(wz);
+
+        assert_eq!(map.val_count(), l0_keys.len() * l1_keys.len());
+
+        let mut rz = map.read_zipper();
+        let mut shared_cnt = 0;
+        while rz.to_next_step() {
+            if rz.is_shared() {
+                // println!("{}", String::from_utf8_lossy(rz.path()));
+                shared_cnt += 1;
+            }
+        }
+        assert_eq!(shared_cnt, 3);
     }
 }
 
