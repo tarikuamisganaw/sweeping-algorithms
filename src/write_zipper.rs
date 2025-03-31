@@ -231,7 +231,6 @@ impl<V> Drop for WriteZipperTracked<'_, '_, V> {
 
 impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperTracked<'_, '_, V>{
     fn path_exists(&self) -> bool { self.z.path_exists() }
-    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
@@ -366,7 +365,6 @@ impl<V> Drop for WriteZipperUntracked<'_, '_, V> {
 
 impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperUntracked<'_, '_, V> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
-    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
@@ -525,7 +523,6 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Clone for WriteZipperOwned<V> {
 
 impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperOwned<V> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
-    fn is_shared(&self) -> bool { self.z.is_shared() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
@@ -708,16 +705,6 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperCore<'_, '_, V> {
         } else {
             true
         }
-    }
-    fn is_shared(&self) -> bool {
-        let key = self.key.node_key();
-        self.focus_stack.top().unwrap().node_get_child(key).map(|(key_len, focus_node)| {
-            if key_len == key.len() {
-                focus_node.refcount() > 1
-            } else {
-                false
-            }
-        }).unwrap_or(false)
     }
     fn is_value(&self) -> bool {
         self.focus_stack.top().unwrap().node_contains_val(self.key.node_key())
@@ -2814,56 +2801,5 @@ mod tests {
         assert_eq!(wz.join(&rz), AlgebraicStatus::Identity);
         drop(wz);
         drop(rz);
-    }
-
-    #[test]
-    fn write_zipper_is_shared_test() {
-        //GOAT: This test suffers from the same bug as the `write_zipper_is_shared_test`, but the bug doesn't
-        //appear to be the fault of the is_shared implementation.
-        let l0_keys = vec!["stem0", "stem1", "stem2", "strongbad", "strange", "steam", "steamboat", "stevador", "steeple"];
-        let l1_keys = vec!["A-mid0", "B-mid1", "C-mid2", "D-midlands", "D-middling", "D-middlemarch"];
-        let l2_keys = vec!["X-top0", "X-top1", "X-top2", "X-top3"];
-        let tests = [
-            ("st", false),
-            ("ste", false),
-            ("stem", false),
-            ("steam", false),
-            ("stem0", true),
-            ("stem0D", false),
-            ("stem0D-middling", true),
-            ("stem0D-middlingX-top", false),
-            ("stem0D-middlingX-top0", false),
-            ("stem0D-middlingX-top0Y", false),
-        ];
-
-        let top_map: BytesTrieMap<()> = l2_keys.iter().map(|v| (v, ())).collect();
-        let mut mid_map = BytesTrieMap::<()>::new();
-        let mut wz = mid_map.write_zipper();
-        for key in l1_keys.iter() {
-            wz.reset();
-            wz.descend_to(key);
-            wz.graft_map(top_map.clone());
-        }
-        drop(wz);
-
-        let mut map = BytesTrieMap::<()>::new();
-        let mut wz = map.write_zipper();
-        for key in l0_keys.iter() {
-            wz.reset();
-            wz.descend_to(key);
-            wz.graft_map(mid_map.clone());
-        }
-        drop(wz);
-
-        assert_eq!(map.val_count(), l0_keys.len() * l1_keys.len() * l2_keys.len());
-
-        let mut wz = map.write_zipper();
-        for (path, expected) in tests {
-            wz.reset();
-            wz.descend_to(path);
-            let is_shared = wz.is_shared();
-            // println!("{path} = {is_shared}");
-            assert_eq!(is_shared, expected);
-        }
     }
 }

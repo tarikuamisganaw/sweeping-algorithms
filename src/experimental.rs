@@ -12,7 +12,6 @@ struct FullZipper {
 
 impl Zipper for FullZipper {
     fn path_exists(&self) -> bool { true }
-    fn is_shared(&self) -> bool { true }
     fn is_value(&self) -> bool { true }
     fn child_count(&self) -> usize { 256 }
     fn child_mask(&self) -> [u64; 4] { [!0u64, !0u64, !0u64, !0u64] }
