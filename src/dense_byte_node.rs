@@ -51,7 +51,7 @@ pub type CellByteNode<V> = ByteNode<CellCoFree<V>>;
 
 #[derive(Clone)]
 pub struct ByteNode<Cf> {
-    pub mask: [u64; 4],
+    pub mask: ByteMask,
     values: Vec<Cf>,
 }
 
@@ -78,14 +78,14 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     pub fn new() -> Self {
         Self {
-            mask: [0u64; 4],
+            mask: ByteMask::EMPTY,
             values: <_>::default()
         }
     }
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            mask: [0u64; 4],
+            mask: ByteMask::EMPTY,
             values: Vec::with_capacity(capacity),
         }
     }
@@ -98,14 +98,14 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
         if pos == 0 { return 0 }
         let mut c = 0u8;
         let m = !0u64 >> (63 - ((pos - 1) & 0b00111111));
-        if pos > 0b01000000 { c += self.mask[0].count_ones() as u8; }
-        else { return c + (self.mask[0] & m).count_ones() as u8 }
-        if pos > 0b10000000 { c += self.mask[1].count_ones() as u8; }
-        else { return c + (self.mask[1] & m).count_ones() as u8 }
-        if pos > 0b11000000 { c += self.mask[2].count_ones() as u8; }
-        else { return c + (self.mask[2] & m).count_ones() as u8 }
+        if pos > 0b01000000 { c += self.mask.0[0].count_ones() as u8; }
+        else { return c + (self.mask.0[0] & m).count_ones() as u8 }
+        if pos > 0b10000000 { c += self.mask.0[1].count_ones() as u8; }
+        else { return c + (self.mask.0[1] & m).count_ones() as u8 }
+        if pos > 0b11000000 { c += self.mask.0[2].count_ones() as u8; }
+        else { return c + (self.mask.0[2] & m).count_ones() as u8 }
         // println!("{} {:b} {} {}", pos, self.mask[3], m.count_ones(), c);
-        return c + (self.mask[3] & m).count_ones() as u8;
+        return c + (self.mask.0[3] & m).count_ones() as u8;
     }
 
     /// Adds a new child at the specified key byte.  Replaces and returns an existing branch.
@@ -288,54 +288,6 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     fn is_empty(&self) -> bool {
         self.mask.is_empty_mask()
     }
-
-    /// Returns the number of set bits in the node's bitmask, which should equal `self.values.len()`
-    // #[inline]
-    // fn len(&self) -> usize {
-    //     self.mask.count_bits()
-    // }
-
-    /// Determines the nth prefix in the node, counting forwards or backwards
-    #[inline]
-    fn item_idx_to_prefix<const FORWARD: bool>(&self, idx: usize) -> Option<u8> {
-        let mut i = if FORWARD { 0 } else { 3 };
-        let mut m = self.mask[i];
-        let mut c = 0;
-        let mut c_ahead = m.count_ones() as usize;
-        loop {
-            if idx < c_ahead { break; }
-            if FORWARD { i += 1} else { i -= 1 };
-            if i > 3 { return None }
-            m = self.mask[i];
-            c = c_ahead;
-            c_ahead += m.count_ones() as usize;
-        }
-
-        let mut loc;
-        if !FORWARD {
-            loc = 63 - m.leading_zeros();
-            while c < idx {
-                m ^= 1u64 << loc;
-                loc = 63 - m.leading_zeros();
-                c += 1;
-            }
-        } else {
-            loc = m.trailing_zeros();
-            while c < idx {
-                m ^= 1u64 << loc;
-                loc = m.trailing_zeros();
-                c += 1;
-            }
-        }
-
-        let prefix = i << 6 | (loc as usize);
-        // println!("{:#066b}", self.focus.mask[i]);
-        // println!("{i} {loc} {prefix}");
-        debug_assert!(self.mask.test_bit(prefix as u8));
-
-        Some(prefix as u8)
-    }
-
     /// Iterates the entries in `self`, calling `func` for each entry
     /// The arguments to `func` are: `func(self, key_byte, n)`, where `n` is the number of times
     /// `func` has been called prior.  This corresponds to index of the `CoFree` in the `values` vec
@@ -343,7 +295,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     fn for_each_item<F: FnMut(&Self, u8, usize)>(&self, mut func: F) {
         let mut n = 0;
         for i in 0..4 {
-            let mut lm = self.mask[i];
+            let mut lm = self.mask.0[i];
             while lm != 0 {
                 let index = lm.trailing_zeros();
 
@@ -910,7 +862,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
     }
     #[inline(always)]
     fn new_iter_token(&self) -> u128 {
-        self.mask[0] as u128
+        self.mask.0[0] as u128
     }
     #[inline(always)]
     fn iter_token_for_path(&self, key: &[u8]) -> u128 {
@@ -922,7 +874,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             let bit_i = k & 0b00111111;
             debug_assert!(idx < 4);
             let mask: u64 = if bit_i+1 < 64 {
-                (0xFFFFFFFFFFFFFFFF << bit_i+1) & unsafe{ self.mask.get_unchecked(idx) }
+                (0xFFFFFFFFFFFFFFFF << bit_i+1) & unsafe{ self.mask.0.get_unchecked(idx) }
             } else {
                 0
             };
@@ -947,7 +899,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
             } else if i < 3 {
                 i += 1;
 
-                w = unsafe { *self.mask.get_unchecked(i as usize) };
+                w = unsafe { *self.mask.0.get_unchecked(i as usize) };
             } else {
                 return (NODE_ITER_FINISHED, &[], None, None)
             }
@@ -1018,10 +970,10 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         }
 
         if FORWARD {
-            (self.item_idx_to_prefix::<FORWARD>(n), self.values[n].rec().map(|cf| &*cf.borrow()))
+            (self.mask.indexed_bit::<FORWARD>(n), self.values[n].rec().map(|cf| &*cf.borrow()))
         } else {
             let idx = self.values.len() - n - 1;
-            (self.item_idx_to_prefix::<FORWARD>(n), self.values[idx].rec().map(|cf| &*cf.borrow()))
+            (self.mask.indexed_bit::<FORWARD>(n), self.values[idx].rec().map(|cf| &*cf.borrow()))
         }
     }
 
@@ -1030,11 +982,11 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         debug_assert!(self.values.len() > 0);
 
         let cf = unsafe{ self.values.get_unchecked(0) };
-        let prefix = self.item_idx_to_prefix::<true>(0).unwrap() as usize;
+        let prefix = self.mask.indexed_bit::<true>(0).unwrap() as usize;
         (Some(&ALL_BYTES[prefix..=prefix]), cf.rec().map(|cf| &*cf.borrow()))
     }
 
-    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask) {
         debug_assert!(key.len() == 0);
         // in the future we can use `drain_filter`, but that's experimental
         let mut lead = 0;
@@ -1044,10 +996,10 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
 
         unsafe {
             for i in 0..4 {
-                let mut lm = self.mask[i];
+                let mut lm = self.mask.0[i];
                 while lm != 0 {
                     let index = lm.trailing_zeros();
-                    if ((1u64 << index) & mask[i]) != 0 {
+                    if ((1u64 << index) & mask.0[i]) != 0 {
                         if differs { ptr::copy_nonoverlapping(mvalues.add(c), mvalues.add(lead), 1); }
                         lead += 1;
                     } else {
@@ -1061,17 +1013,17 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
 
             self.values.set_len(lead);
         }
-        self.mask = [self.mask[0] & mask[0], self.mask[1] & mask[1], self.mask[2] & mask[2], self.mask[3] & mask[3]];
+        self.mask &= mask;
     }
 
     #[inline(always)]
-    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
+    fn node_branches_mask(&self, key: &[u8]) -> ByteMask {
         match key.len() {
             0 => self.mask,
             _ => {
                 //There are two ways we could get a length >= 1 key passed in. 1. The entry is a lone value (no children in the CF) or 2. The entry doesn't exist.  Either way, there are no onward child paths
                 debug_assert!(self.get(key[0]).and_then(|cf| cf.rec()).is_none());
-                [0; 4]
+                ByteMask::EMPTY
             },
         }
     }
@@ -1116,14 +1068,14 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         let bit_i = k & 0b00111111;
         // println!("k {k}");
 
-        let mut n = bit_sibling(bit_i, self.mask[mask_i], !next);
+        let mut n = bit_sibling(bit_i, self.mask.0[mask_i], !next);
         // println!("{} {bit_i} {mask_i}", n == bit_i);
         if n == bit_i { // outside of word
             loop {
                 if next { mask_i += 1 } else { mask_i -= 1 };
                 if !(mask_i < 4) { return (None, None) }
-                if self.mask[mask_i] == 0 { continue }
-                n = self.mask[mask_i].trailing_zeros() as u8; break;
+                if self.mask.0[mask_i] == 0 { continue }
+                n = self.mask.0[mask_i].trailing_zeros() as u8; break;
             }
         }
 
@@ -1891,19 +1843,13 @@ impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> CfShared<OtherCf> for Cf {
 
 impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroLattice<ByteNode<OtherCf>> for ByteNode<Cf> {
     fn pjoin(&self, other: &ByteNode<OtherCf>) -> AlgebraicResult<Self> {
-        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
-            self.mask[1] | other.mask[1],
-            self.mask[2] | other.mask[2],
-            self.mask[3] | other.mask[3]];
-        let mm: [u64; 4] = [self.mask[0] & other.mask[0],
-            self.mask[1] & other.mask[1],
-            self.mask[2] & other.mask[2],
-            self.mask[3] & other.mask[3]];
+        let jm: ByteMask = self.mask | other.mask; //joined mask
+        let mm: ByteMask = self.mask & other.mask; //meet mask
 
-        let mut is_identity = (self.mask[0] == jm[0]) && (self.mask[1] == jm[1]) && (self.mask[2] == jm[2]) && (self.mask[3] == jm[3]);
-        let mut is_counter_identity = (other.mask[0] == jm[0]) && (other.mask[1] == jm[1]) && (other.mask[2] == jm[2]) && (other.mask[3] == jm[3]);
+        let mut is_identity = self.mask == jm;
+        let mut is_counter_identity = other.mask == jm;
 
-        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+        let jmc = [jm.0[0].count_ones(), jm.0[1].count_ones(), jm.0[2].count_ones(), jm.0[3].count_ones()];
 
         let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v: Vec<Cf> = Vec::with_capacity(len);
@@ -1914,12 +1860,12 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         let mut c = 0;
 
         for i in 0..4 {
-            let mut lm = jm[i];
+            let mut lm = jm.0[i];
             while lm != 0 {
                 // this body runs at most 256 times, in the case there is 100% overlap between full nodes
                 let index = lm.trailing_zeros();
                 // println!("{}", index);
-                if ((1u64 << index) & mm[i]) != 0 {
+                if ((1u64 << index) & mm.0[i]) != 0 {
                     //This runs for cofrees that exist in both nodes
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
@@ -1950,7 +1896,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
                     // println!("pushing lv rv j {:?} {:?} {:?}", lv, rv, jv);
                     l += 1;
                     r += 1;
-                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                } else if ((1u64 << index) & self.mask.0[i]) != 0 {
                     // This runs for CoFrees that exist in only the left node
                     is_counter_identity = false;
                     let lv = unsafe { self.values.get_unchecked(l) };
@@ -1986,18 +1932,12 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     }
 
     fn join_into(&mut self, mut other: ByteNode<OtherCf>) -> AlgebraicStatus {
-        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
-            self.mask[1] | other.mask[1],
-            self.mask[2] | other.mask[2],
-            self.mask[3] | other.mask[3]];
-        let mm: [u64; 4] = [self.mask[0] & other.mask[0],
-            self.mask[1] & other.mask[1],
-            self.mask[2] & other.mask[2],
-            self.mask[3] & other.mask[3]];
+        let jm: ByteMask = self.mask | other.mask;
+        let mm: ByteMask = self.mask & other.mask;
 
-        let mut is_identity = (self.mask[0] == jm[0]) && (self.mask[1] == jm[1]) && (self.mask[2] == jm[2]) && (self.mask[3] == jm[3]);
+        let mut is_identity = self.mask == jm;
 
-        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+        let jmc = [jm.0[0].count_ones(), jm.0[1].count_ones(), jm.0[2].count_ones(), jm.0[3].count_ones()];
 
         let l = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v = Vec::with_capacity(l);
@@ -2008,12 +1948,12 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         let mut c = 0;
 
         for i in 0..4 {
-            let mut lm = jm[i];
+            let mut lm = jm.0[i];
             while lm != 0 {
                 // this body runs at most 256 times, in the case there is 100% overlap between full nodes
                 let index = lm.trailing_zeros();
                 // println!("{}", index);
-                if ((1u64 << index) & mm[i]) != 0 {
+                if ((1u64 << index) & mm.0[i]) != 0 {
                     let mut lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
                     let rv = unsafe { std::ptr::read(other.values.get_unchecked_mut(r)) };
                     match lv.join_into(rv) {
@@ -2024,7 +1964,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
                     unsafe { new_v.get_unchecked_mut(c).write(lv) };
                     l += 1;
                     r += 1;
-                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                } else if ((1u64 << index) & self.mask.0[i]) != 0 {
                     let lv = unsafe { std::ptr::read(self.values.get_unchecked_mut(l)) };
                     unsafe { new_v.get_unchecked_mut(c).write(lv) };
                     l += 1;
@@ -2058,19 +1998,13 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         // TODO this technically doesn't need to calculate and iterate over jm
         // iterating over mm and calculating m such that the following suffices
         // c_{self,other} += popcnt(m & {self,other})
-        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
-            self.mask[1] | other.mask[1],
-            self.mask[2] | other.mask[2],
-            self.mask[3] | other.mask[3]];
-        let mut mm: [u64; 4] = [self.mask[0] & other.mask[0],
-            self.mask[1] & other.mask[1],
-            self.mask[2] & other.mask[2],
-            self.mask[3] & other.mask[3]];
+        let jm: ByteMask = self.mask | other.mask;
+        let mut mm: ByteMask = self.mask & other.mask;
 
-        let mut is_identity = (self.mask[0] == mm[0]) && (self.mask[1] == mm[1]) && (self.mask[2] == mm[2]) && (self.mask[3] == mm[3]);
-        let mut is_counter_identity = (other.mask[0] == mm[0]) && (other.mask[1] == mm[1]) && (other.mask[2] == mm[2]) && (other.mask[3] == mm[3]);
+        let mut is_identity = self.mask == mm;
+        let mut is_counter_identity = other.mask == mm;
 
-        let mmc = [mm[0].count_ones(), mm[1].count_ones(), mm[2].count_ones(), mm[3].count_ones()];
+        let mmc = [mm.0[0].count_ones(), mm.0[1].count_ones(), mm.0[2].count_ones(), mm.0[3].count_ones()];
 
         let len = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
         let mut v = Vec::with_capacity(len);
@@ -2081,11 +2015,11 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         let mut c = 0;
 
         for i in 0..4 {
-            let mut lm = jm[i];
+            let mut lm = jm.0[i];
             while lm != 0 {
                 let index = lm.trailing_zeros();
 
-                if ((1u64 << index) & mm[i]) != 0 {
+                if ((1u64 << index) & mm.0[i]) != 0 {
                     //This runs for cofrees that exist in both nodes
 
                     let lv = unsafe { self.values.get_unchecked(l) };
@@ -2094,7 +2028,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
                         AlgebraicResult::None => {
                             is_counter_identity = false;
                             is_identity = false;
-                            mm[i] ^= 1u64 << index;
+                            mm.0[i] ^= 1u64 << index;
                         },
                         AlgebraicResult::Identity(mask) => {
                             debug_assert!((mask & SELF_IDENT > 0) || (mask & COUNTER_IDENT > 0));
@@ -2121,7 +2055,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
                     }
                     l += 1;
                     r += 1;
-                } else if ((1u64 << index) & self.mask[i]) != 0 {
+                } else if ((1u64 << index) & self.mask.0[i]) != 0 {
                     l += 1;
                 } else {
                     r += 1;
@@ -2146,15 +2080,12 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     }
 
     fn join_all(xs: &[&Self]) -> Self {
-        let mut jm: [u64; 4] = [0, 0, 0, 0];
+        let mut jm: ByteMask = ByteMask::EMPTY;
         for x in xs.iter() {
-            jm[0] |= x.mask[0];
-            jm[1] |= x.mask[1];
-            jm[2] |= x.mask[2];
-            jm[3] |= x.mask[3];
+            jm |= x.mask;
         }
 
-        let jmc = [jm[0].count_ones(), jm[1].count_ones(), jm[2].count_ones(), jm[3].count_ones()];
+        let jmc = [jm.0[0].count_ones(), jm.0[1].count_ones(), jm.0[2].count_ones(), jm.0[3].count_ones()];
 
         let len = (jmc[0] + jmc[1] + jmc[2] + jmc[3]) as usize;
         let mut v = Vec::with_capacity(len);
@@ -2163,7 +2094,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         let mut c = 0;
 
         for i in 0..4 {
-            let mut lm = jm[i];
+            let mut lm = jm.0[i];
             while lm != 0 {
                 // this body runs at most 256 times, in the case there is 100% overlap between full nodes
                 let index = lm.trailing_zeros();
@@ -2201,11 +2132,11 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
         let mut btn = self.clone();
 
         for i in 0..4 {
-            let mut lm = self.mask[i];
+            let mut lm = self.mask.0[i];
             while lm != 0 {
                 let index = lm.trailing_zeros();
 
-                if ((1u64 << index) & other.mask[i]) != 0 {
+                if ((1u64 << index) & other.mask.0[i]) != 0 {
                     let lv = unsafe { self.get_unchecked(64*(i as u8) + (index as u8)) };
                     let rv = unsafe { other.get_unchecked(64*(i as u8) + (index as u8)) };
                     match HeteroDistributiveLattice::psubtract(lv, rv) {
@@ -2249,16 +2180,10 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
         // TODO this technically doesn't need to calculate and iterate over jm
         // iterating over mm and calculating m such that the following suffices
         // c_{self,other} += popcnt(m & {self,other})
-        let jm: [u64; 4] = [self.mask[0] | other.mask[0],
-            self.mask[1] | other.mask[1],
-            self.mask[2] | other.mask[2],
-            self.mask[3] | other.mask[3]];
-        let mut mm: [u64; 4] = [self.mask[0] & other.mask[0],
-            self.mask[1] & other.mask[1],
-            self.mask[2] & other.mask[2],
-            self.mask[3] & other.mask[3]];
+        let jm: ByteMask = self.mask | other.mask;
+        let mut mm: ByteMask = self.mask & other.mask;
 
-        let mmc = [mm[0].count_ones(), mm[1].count_ones(), mm[2].count_ones(), mm[3].count_ones()];
+        let mmc = [mm.0[0].count_ones(), mm.0[1].count_ones(), mm.0[2].count_ones(), mm.0[3].count_ones()];
 
         let len = (mmc[0] + mmc[1] + mmc[2] + mmc[3]) as usize;
         let mut v = Vec::with_capacity(len);
@@ -2269,11 +2194,11 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
         let mut c = 0;
 
         for i in 0..4 {
-            let mut lm = jm[i];
+            let mut lm = jm.0[i];
             while lm != 0 {
                 let index = lm.trailing_zeros();
 
-                if ((1u64 << index) & mm[i]) != 0 {
+                if ((1u64 << index) & mm.0[i]) != 0 {
                     let lv = unsafe { self.values.get_unchecked(l) };
                     let rv = unsafe { other.values.get_unchecked(r) };
                     // println!("dense prestrict {}", index as usize + i*64);
@@ -2281,7 +2206,7 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
                     match lv.prestrict(rv) {
                         AlgebraicResult::None => {
                             is_identity = false;
-                            mm[i] ^= 1u64 << index;
+                            mm.0[i] ^= 1u64 << index;
                         }
                         AlgebraicResult::Identity(mask) => {
                             debug_assert_eq!(mask, SELF_IDENT); //restrict is non-commutative
@@ -2298,7 +2223,7 @@ impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
                     r += 1;
                 } else {
                     is_identity = false;
-                    if ((1u64 << index) & self.mask[i]) != 0 {
+                    if ((1u64 << index) & self.mask.0[i]) != 0 {
                         l += 1;
                     } else {
                         r += 1;

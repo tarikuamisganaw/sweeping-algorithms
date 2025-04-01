@@ -1,4 +1,5 @@
 
+use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::zipper::*;
 use zipper_priv::*;
@@ -270,7 +271,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ProductZipper<'_, '_, V> {
             self.z.child_count()
         }
     }
-    fn child_mask(&self) -> [u64; 4] {
+    fn child_mask(&self) -> ByteMask {
         if self.should_use_next_factor() {
             self.secondaries[self.factor_paths.len()].child_mask()
         } else {
@@ -553,9 +554,9 @@ mod tests {
             assert!(p.ascend_until());
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbo");
             assert!(p.ascend(2));
-            assert_eq!(vec![b'A', b'a', b'b'], crate::utils::ByteMaskIter::new(p.child_mask()).collect::<Vec<_>>());
+            assert_eq!(vec![b'A', b'a', b'b'], p.child_mask().iter().collect::<Vec<_>>());
             assert!(p.descend_to("ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
-            assert_eq!(vec![b'f', b'p'], crate::utils::ByteMaskIter::new(p.child_mask()).collect::<Vec<_>>())
+            assert_eq!(vec![b'f', b'p'], p.child_mask().iter().collect::<Vec<_>>())
         }
     }
 

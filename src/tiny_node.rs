@@ -11,6 +11,7 @@ use core::mem::MaybeUninit;
 use core::fmt::{Debug, Formatter};
 use std::collections::HashMap;
 
+use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::ring::*;
 
@@ -217,7 +218,7 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
         Err(TrieNodeODRc::new(replacement_node))
     }
     fn node_remove_all_branches(&mut self, _key: &[u8]) -> bool { unreachable!() }
-    fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) { unreachable!() }
+    fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: ByteMask) { unreachable!() }
     fn node_is_empty(&self) -> bool {
         self.header & (1 << 7) == 0
     }
@@ -250,7 +251,7 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
     fn count_branches(&self, _key: &[u8]) -> usize {
         panic!();
     }
-    fn node_branches_mask(&self, _key: &[u8]) -> [u64; 4] {
+    fn node_branches_mask(&self, _key: &[u8]) -> ByteMask {
         panic!();
     }
     fn is_leaf(&self, _key: &[u8]) -> bool {

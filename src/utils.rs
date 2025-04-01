@@ -3,6 +3,7 @@ use crate::ring::*;
 
 /// A 256-bit type containing a bit for every possible value in a byte
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct ByteMask(pub [u64; 4]);
 
 impl ByteMask {
@@ -22,6 +23,45 @@ impl ByteMask {
     #[inline]
     pub fn iter(&self) -> ByteMaskIter {
         self.byte_mask_iter()
+    }
+    /// Returns the byte corresponding to the `nth` set bit in the mask, counting forwards or backwards
+    pub fn indexed_bit<const FORWARD: bool>(&self, idx: usize) -> Option<u8> {
+        let mut i = if FORWARD { 0 } else { 3 };
+        let mut m = self.0[i];
+        let mut c = 0;
+        let mut c_ahead = m.count_ones() as usize;
+        loop {
+            if idx < c_ahead { break; }
+            if FORWARD { i += 1} else { i -= 1 };
+            if i > 3 { return None }
+            m = self.0[i];
+            c = c_ahead;
+            c_ahead += m.count_ones() as usize;
+        }
+
+        let mut loc;
+        if !FORWARD {
+            loc = 63 - m.leading_zeros();
+            while c < idx {
+                m ^= 1u64 << loc;
+                loc = 63 - m.leading_zeros();
+                c += 1;
+            }
+        } else {
+            loc = m.trailing_zeros();
+            while c < idx {
+                m ^= 1u64 << loc;
+                loc = m.trailing_zeros();
+                c += 1;
+            }
+        }
+
+        let byte = i << 6 | (loc as usize);
+        // println!("{:#066b}", self.focus.mask[i]);
+        // println!("{i} {loc} {byte}");
+        debug_assert!(self.test_bit(byte as u8));
+
+        Some(byte as u8)
     }
 }
 
@@ -54,6 +94,18 @@ impl BitMask for ByteMask {
     fn andn(&self, other: &Self) -> Self where Self: Sized { Self(self.0.andn(&other.0)) }
     #[inline]
     fn not(&self) -> Self where Self: Sized { Self(self.0.not()) }
+}
+
+impl core::borrow::Borrow<[u64; 4]> for ByteMask {
+    fn borrow(&self) -> &[u64; 4] {
+        &self.0
+    }
+}
+
+impl AsRef<[u64; 4]> for ByteMask {
+    fn as_ref(&self) -> &[u64; 4] {
+        &self.0
+    }
 }
 
 impl From<u8> for ByteMask {
@@ -108,6 +160,32 @@ impl PartialEq<[u64; 4]> for ByteMask {
     #[inline]
     fn eq(&self, other: &[u64; 4]) -> bool {
         self.0 == *other
+    }
+}
+
+impl core::ops::BitOr for ByteMask {
+    type Output = Self;
+    fn bitor(self, other: Self) -> Self {
+        self.or(&other)
+    }
+}
+
+impl core::ops::BitOrAssign for ByteMask {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = self.or(&other)
+    }
+}
+
+impl core::ops::BitAnd for ByteMask {
+    type Output = Self;
+    fn bitand(self, other: Self) -> Self {
+        self.and(&other)
+    }
+}
+
+impl core::ops::BitAndAssign for ByteMask {
+    fn bitand_assign(&mut self, other: Self) {
+        *self = self.and(&other)
     }
 }
 

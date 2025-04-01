@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::dense_byte_node::CellByteNode;
+use crate::utils::ByteMask;
 
 pub(crate) static EMPTY_NODE: EmptyNode = EmptyNode;
 
@@ -92,7 +93,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
     fn node_remove_all_branches(&mut self, _key: &[u8]) -> bool {
         false
     }
-    fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: [u64; 4]) {}
+    fn node_remove_unmasked_branches(&mut self, _key: &[u8], _mask: ByteMask) {}
     fn node_is_empty(&self) -> bool { true }
     fn new_iter_token(&self) -> u128 {
         0
@@ -122,8 +123,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
     fn count_branches(&self, _key: &[u8]) -> usize {
         0
     }
-    fn node_branches_mask(&self, _key: &[u8]) -> [u64; 4] {
-        [0; 4]
+    fn node_branches_mask(&self, _key: &[u8]) -> ByteMask {
+        ByteMask::EMPTY
     }
     fn is_leaf(&self, _key: &[u8]) -> bool {
         true

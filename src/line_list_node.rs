@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use local_or_heap::LocalOrHeap;
 
-use crate::utils::BitMask;
+use crate::utils::{BitMask, ByteMask};
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
@@ -1757,7 +1757,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         remove_0 || remove_1
     }
 
-    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask) {
         let key_len = key.len();
         let (key0, key1) = self.get_both_keys();
         let mut remove_0 = false;
@@ -2078,7 +2078,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     }
 
     #[inline(always)]
-    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
+    fn node_branches_mask(&self, key: &[u8]) -> ByteMask {
         let (key0, key1) = self.get_both_keys();
         let mut m = [0u64; 4];
 
@@ -2090,7 +2090,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
             let k = key1[key.len()];
             m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
         }
-        m
+        m.into()
     }
 
     fn is_leaf(&self, key: &[u8]) -> bool {
@@ -3143,7 +3143,5 @@ mod tests {
 // * test write_zipper::tests::write_zipper_insert_prefix_test ... ok
 // * test write_zipper::tests::write_zipper_remove_prefix_test ... ok
 // * test write_zipper::tests::write_zipper_test_zipper_conversion ... ok
-
-//GOAT, replace the `[u64; 4]` types in the interface with the `ByteMask` type, and provide an "as_u64_slice" accessor for `ByteMask`
 
 //GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957

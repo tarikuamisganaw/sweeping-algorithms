@@ -2011,7 +2011,7 @@ mod tests {
         let trie_ref = btm.trie_ref_at_path([]);
         let counted = BytesTrieMap::new_from_ana(trie_ref, |trie_ref, _v, builder, loc| {
 
-            let iter = crate::utils::ByteMaskIter::new(trie_ref.child_mask());
+            let iter = trie_ref.child_mask().iter();
             for b in iter {
                 if alphabetic.test_bit(b) {
                     let new_trie_ref = trie_ref.trie_ref_at_path([b]);

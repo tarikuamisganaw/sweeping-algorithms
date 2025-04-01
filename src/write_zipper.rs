@@ -2,6 +2,7 @@
 use mutcursor::MutCursorRootedVec;
 use maybe_dangling::MaybeDangling;
 
+use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
 use crate::empty_node::EmptyNode;
@@ -172,7 +173,7 @@ pub trait ZipperWriting<V>: WriteZipperPriv<V> {
     ///
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
     /// [Zipper::path_exists] returning `false`, where it previously returned `true`
-    fn remove_unmasked_branches(&mut self, mask: [u64; 4]);
+    fn remove_unmasked_branches(&mut self, mask: ByteMask);
 }
 
 pub(crate) mod write_zipper_priv {
@@ -207,7 +208,7 @@ impl<V, Z> ZipperWriting<V> for &mut Z where Z: ZipperWriting<V> {
     fn restricting<RZ: ZipperSubtries<V>>(&mut self, read_zipper: &RZ) -> bool { (**self).restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { (**self).remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { (**self).take_map() }
-    fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { (**self).remove_unmasked_branches(mask) }
+    fn remove_unmasked_branches(&mut self, mask: ByteMask) { (**self).remove_unmasked_branches(mask) }
 }
 
 impl<V, Z> WriteZipperPriv<V> for &mut Z where Z: WriteZipperPriv<V> {
@@ -233,7 +234,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperTracked<'_, '_, V>{
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
-    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for WriteZipperTracked<'_, '_, V>{
@@ -337,7 +338,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperWriting<V> for WriteZipperTracked
     fn restricting<Z: ZipperSubtries<V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
-    fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
+    fn remove_unmasked_branches(&mut self, mask: ByteMask) { self.z.remove_unmasked_branches(mask) }
 }
 
 impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperTracked<'_, '_, V> {
@@ -367,7 +368,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperUntracked<'_, '_, V> 
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
-    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for WriteZipperUntracked<'_, '_, V> {
@@ -487,7 +488,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperWriting<V> for WriteZipperUntrack
     fn restricting<Z: ZipperSubtries<V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
-    fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
+    fn remove_unmasked_branches(&mut self, mask: ByteMask) { self.z.remove_unmasked_branches(mask) }
 }
 
 impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperUntracked<'_, '_, V> {
@@ -525,7 +526,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperOwned<V> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
-    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for WriteZipperOwned<V> {
@@ -638,7 +639,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperWriting<V> for WriteZipperOwned<V> {
     fn restricting<Z: ZipperSubtries<V>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { self.z.take_map() }
-    fn remove_unmasked_branches(&mut self, mask: [u64; 4]) { self.z.remove_unmasked_branches(mask) }
+    fn remove_unmasked_branches(&mut self, mask: ByteMask) { self.z.remove_unmasked_branches(mask) }
 }
 
 impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperOwned<V> {
@@ -727,7 +728,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperCore<'_, '_, V> {
             None => focus_node.count_branches(node_key)
         }
     }
-    fn child_mask(&self) -> [u64; 4] {
+    fn child_mask(&self) -> ByteMask {
         let focus_node = self.focus_stack.top().unwrap();
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
@@ -739,7 +740,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for WriteZipperCore<'_, '_, V> {
                 if node_key.len() >= consumed_bytes {
                     child_node.node_branches_mask(&node_key[consumed_bytes..])
                 } else {
-                    [0; 4]
+                    ByteMask::EMPTY
                 }
             },
             None => focus_node.node_branches_mask(node_key)
@@ -1510,7 +1511,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
         }
     }
     /// See [WriteZipper::remove_unmasked_branches]
-    pub fn remove_unmasked_branches(&mut self, mask: [u64; 4]) {
+    pub fn remove_unmasked_branches(&mut self, mask: ByteMask) {
         let focus_node = self.focus_stack.top_mut().unwrap();
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
@@ -2568,7 +2569,7 @@ mod tests {
 
         let mut m = [0, 0, 0, 0];
         for b in "abc".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.remove_unmasked_branches(m);
+        wr.remove_unmasked_branches(m.into());
         drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
@@ -2595,11 +2596,11 @@ mod tests {
 
         let mut m = [0, 0, 0, 0];
         for b in "dco".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.remove_unmasked_branches(m);
+        wr.remove_unmasked_branches(m.into());
         m = [0, 0, 0, 0];
         wr.descend_to("d".as_bytes());
         for b in "o".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.remove_unmasked_branches(m);
+        wr.remove_unmasked_branches(m.into());
         drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
@@ -2624,7 +2625,7 @@ mod tests {
 
         m = [0, 0, 0, 0];
         for b in "b".bytes() { m[((b & 0b11000000) >> 6) as usize] |= 1u64 << (b & 0b00111111); }
-        wr.remove_unmasked_branches(m);
+        wr.remove_unmasked_branches(m.into());
         drop(wr);
 
         let result = map.iter().map(|(k, _v)| String::from_utf8_lossy(&k).to_string()).collect::<Vec<_>>();
@@ -2640,7 +2641,7 @@ mod tests {
         let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wr = map.write_zipper();
-        wr.remove_unmasked_branches([0xFF, !(1<<(b'M'-64)), 0xFF, 0xFF]);
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'M'-64)), 0xFF, 0xFF].into());
         //McKinley didn't make it
         wr.descend_to("McKinley");
         assert_eq!(wr.value(), None);
@@ -2648,7 +2649,7 @@ mod tests {
         wr.reset();
         wr.descend_to("Roos");
         assert_eq!(wr.path_exists(), true);
-        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF]);
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF].into());
         //Missed Roosevelt
         wr.descend_to("evelt");
         assert_eq!(wr.value(), Some(&2));
@@ -2656,7 +2657,7 @@ mod tests {
         wr.reset();
         wr.descend_to("Garf");
         assert_eq!(wr.path_exists(), true);
-        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF]);
+        wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF].into());
         wr.descend_to("ield");
         //Garfield was removed
         assert_eq!(wr.value(), None);

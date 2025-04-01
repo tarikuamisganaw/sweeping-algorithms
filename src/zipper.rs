@@ -27,6 +27,7 @@
 
 use maybe_dangling::MaybeDangling;
 
+use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
 
@@ -53,7 +54,7 @@ pub trait Zipper {
     /// Returns 256-bit mask indicating which children exist from the branch at the zipper's focus
     ///
     /// Returns an empty mask if the focus is on a leaf or non-existent path
-    fn child_mask(&self) -> [u64; 4];
+    fn child_mask(&self) -> ByteMask;
 }
 
 /// Methods for zippers with a known value type
@@ -454,7 +455,7 @@ impl<Z> Zipper for &mut Z where Z: Zipper {
     fn path_exists(&self) -> bool { (**self).path_exists() }
     fn is_value(&self) -> bool { (**self).is_value() }
     fn child_count(&self) -> usize { (**self).child_count() }
-    fn child_mask(&self) -> [u64; 4] { (**self).child_mask() }
+    fn child_mask(&self) -> ByteMask { (**self).child_mask() }
 }
 
 impl<Z> ZipperMoving for &mut Z where Z: ZipperMoving + Zipper {
@@ -553,7 +554,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperTracked<'_, '_, V>{
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
-    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ReadZipperTracked<'_, '_, V>{
@@ -694,7 +695,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperUntracked<'_, '_, V> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
-    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ReadZipperUntracked<'_, '_, V> {
@@ -884,7 +885,7 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperOwned<V> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
     fn is_value(&self) -> bool { self.z.is_value() }
     fn child_count(&self) -> usize { self.z.child_count() }
-    fn child_mask(&self) -> [u64; 4] { self.z.child_mask() }
+    fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ReadZipperOwned<V> {
@@ -1039,7 +1040,7 @@ pub(crate) mod read_zipper_core {
             debug_assert!(self.is_regularized());
             self.focus_node.count_branches(self.node_key())
         }
-        fn child_mask(&self) -> [u64; 4] {
+        fn child_mask(&self) -> ByteMask {
             debug_assert!(self.is_regularized());
             self.focus_node.node_branches_mask(self.node_key())
         }
@@ -3280,9 +3281,9 @@ mod tests {
         assert_eq!(r0.descend_to_byte(0), true);
         let mut r1 = r0.fork_read_zipper();
         assert_eq!(r1.to_next_sibling_byte(), false);
-        assert_eq!(r1.child_mask()[0], (1<<3) | (1<<4) | (1<<5));
+        assert_eq!(r1.child_mask().0[0], (1<<3) | (1<<4) | (1<<5));
         assert_eq!(r1.descend_to_byte(3), true);
-        assert_eq!(r1.child_mask()[0], 0);
+        assert_eq!(r1.child_mask().0[0], 0);
         assert_eq!(r1.to_next_sibling_byte(), true);
         assert_eq!(r1.origin_path().unwrap(), &[0, 4]);
         assert_eq!(r1.path(), &[4]);

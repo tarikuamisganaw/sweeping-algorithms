@@ -78,7 +78,7 @@ impl <'a, V> ByteTrieNodeIter<'a, V> {
     fn new(btn: &'a DenseByteNode<V>) -> Self {
         Self {
             i: 0,
-            w: btn.mask[0],
+            w: btn.mask.0[0],
             btn: btn
         }
     }
@@ -96,7 +96,7 @@ impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
                 return Some((index, unsafe{ self.btn.get_unchecked(index) } ))
             } else if self.i < 3 {
                 self.i += 1;
-                self.w = unsafe { *self.btn.mask.get_unchecked(self.i as usize) };
+                self.w = unsafe { *self.btn.mask.0.get_unchecked(self.i as usize) };
             } else {
                 return None
             }

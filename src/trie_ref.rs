@@ -2,6 +2,7 @@
 use core::slice;
 use std::mem::MaybeUninit;
 
+use crate::utils::ByteMask;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -130,11 +131,11 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for TrieRef<'_, V> {
             0
         }
     }
-    fn child_mask(&self) -> [u64; 4] {
+    fn child_mask(&self) -> ByteMask {
         if self.is_valid() {
             self.focus_node.node_branches_mask(self.node_key())
         } else {
-            [0u64; 4]
+            ByteMask::EMPTY
         }
     }
 }

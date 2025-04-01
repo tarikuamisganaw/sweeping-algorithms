@@ -5,6 +5,7 @@ use dyn_clone::*;
 use local_or_heap::LocalOrHeap;
 use arrayvec::ArrayVec;
 
+use crate::utils::ByteMask;
 use crate::dense_byte_node::*;
 use crate::empty_node::EmptyNode;
 use crate::ring::*;
@@ -169,7 +170,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     ///
     /// WARNING: This method may leave the node empty.  If eager pruning of branches is desired then the
     /// node should subsequently be checked to see if it is empty
-    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]);
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
 
     /// Returns `true` if the node contains no children nor values, otherwise false
     fn node_is_empty(&self) -> bool;
@@ -238,7 +239,7 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     fn count_branches(&self, key: &[u8]) -> usize;
 
     /// Returns 256-bit mask, indicating which children exist from the branch specified by `key`
-    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4];
+    fn node_branches_mask(&self, key: &[u8]) -> ByteMask;
 
     /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
     /// descend further, otherwise returns `false`
@@ -829,7 +830,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
 
     // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
 
-    // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]);
+    // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
 
     // fn node_is_empty(&self) -> bool;
 
@@ -912,7 +913,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
         }
     }
     #[inline(always)]
-    pub fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
+    pub fn node_branches_mask(&self, key: &[u8]) -> ByteMask {
         match self {
             Self::DenseByteNode(node) => node.node_branches_mask(key),
             Self::LineListNode(node) => node.node_branches_mask(key),

@@ -1,3 +1,4 @@
+use crate::utils::ByteMask;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -14,7 +15,7 @@ impl Zipper for FullZipper {
     fn path_exists(&self) -> bool { true }
     fn is_value(&self) -> bool { true }
     fn child_count(&self) -> usize { 256 }
-    fn child_mask(&self) -> [u64; 4] { [!0u64, !0u64, !0u64, !0u64] }
+    fn child_mask(&self) -> ByteMask { [!0u64, !0u64, !0u64, !0u64].into() }
 }
 
 impl ZipperMovingPriv for FullZipper {
@@ -121,5 +122,5 @@ impl <V : TrieValue> ZipperWriting<V> for NullZipper {
     fn restricting<Z: ZipperSubtries<V>>(&mut self, _read_zipper: &Z) -> bool { false }
     fn remove_branches(&mut self) -> bool { false }
     fn take_map(&mut self) -> Option<BytesTrieMap<V>> { None }
-    fn remove_unmasked_branches(&mut self, _mask: [u64; 4]) {}
+    fn remove_unmasked_branches(&mut self, _mask: ByteMask) {}
 }
