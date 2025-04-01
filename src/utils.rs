@@ -23,21 +23,6 @@ impl ByteMask {
     pub fn iter(&self) -> ByteMaskIter {
         self.byte_mask_iter()
     }
-    // pub fn or(&self, other: &Self) -> Self {
-    //     ByteMask([self.0[0] | other.0[0], self.0[1] | other.0[1], self.0[2] | other.0[2], self.0[3] | other.0[3]])
-    // }
-    // pub fn and(&self, other: &Self) -> Self {
-    //     ByteMask([self.0[0] & other.0[0], self.0[1] & other.0[1], self.0[2] & other.0[2], self.0[3] & other.0[3]])
-    // }
-    // pub fn xor(&self, other: &Self) -> Self {
-    //     ByteMask([self.0[0] ^ other.0[0], self.0[1] ^ other.0[1], self.0[2] ^ other.0[2], self.0[3] ^ other.0[3]])
-    // }
-    // pub fn nand(&self, other: &Self) -> Self {
-    //     ByteMask([self.0[0] & !other.0[0], self.0[1] & !other.0[1], self.0[2] & !other.0[2], self.0[3] & !other.0[3]])
-    // }
-    // pub fn not(&self) -> Self {
-    //     ByteMask([!self.0[0], !self.0[1], !self.0[2], !self.0[3]])
-    // }
 }
 
 impl core::fmt::Debug for ByteMask {
@@ -66,7 +51,7 @@ impl BitMask for ByteMask {
     #[inline]
     fn xor(&self, other: &Self) -> Self where Self: Sized { Self(self.0.xor(&other.0)) }
     #[inline]
-    fn nand(&self, other: &Self) -> Self where Self: Sized { Self(self.0.nand(&other.0)) }
+    fn andn(&self, other: &Self) -> Self where Self: Sized { Self(self.0.andn(&other.0)) }
     #[inline]
     fn not(&self) -> Self where Self: Sized { Self(self.0.not()) }
 }
@@ -171,16 +156,40 @@ pub trait BitMask {
     fn make_empty(&mut self);
 
     /// Returns the bitwise `or` of the two masks
+    ///
+    /// |        |`other=0`|`other=1`
+    /// |--------|---------|---------
+    /// |`self=0`|    0    |    1
+    /// |`self=1`|    1    |    1
+    ///
     fn or(&self, other: &Self) -> Self where Self: Sized;
 
     /// Returns the bitwise `and` of the two masks
+    ///
+    /// |        |`other=0`|`other=1`
+    /// |--------|---------|---------
+    /// |`self=0`|    0    |    0
+    /// |`self=1`|    0    |    1
+    ///
     fn and(&self, other: &Self) -> Self where Self: Sized;
 
     /// Returns the bitwise `xor` of the two masks
+    ///
+    /// |        |`other=0`|`other=1`
+    /// |--------|---------|---------
+    /// |`self=0`|    0    |    1
+    /// |`self=1`|    1    |    0
+    ///
     fn xor(&self, other: &Self) -> Self where Self: Sized;
 
-    /// Returns the bitwise `nand` of the two masks
-    fn nand(&self, other: &Self) -> Self where Self: Sized;
+    /// Returns the bitwise `andn` (sometimes called the conditional) of the two masks
+    ///
+    /// |        |`other=0`|`other=1`
+    /// |--------|---------|---------
+    /// |`self=0`|    0    |    0
+    /// |`self=1`|    1    |    0
+    ///
+    fn andn(&self, other: &Self) -> Self where Self: Sized;
 
     /// Returns the bitwise `not` of the mask
     fn not(&self) -> Self where Self: Sized;
@@ -229,8 +238,7 @@ impl BitMask for [u64; 4] {
         [self[0] ^ other[0], self[1] ^ other[1], self[2] ^ other[2], self[3] ^ other[3]]
     }
     #[inline]
-    //GOAT: I don't think this logic is right.  But perhaps I misunderstand the purpose of this method and perhaps I'm being an idiot.
-    fn nand(&self, other: &Self) -> Self where Self: Sized {
+    fn andn(&self, other: &Self) -> Self where Self: Sized {
         [self[0] & !other[0], self[1] & !other[1], self[2] & !other[2], self[3] & !other[3]]
     }
     #[inline]
