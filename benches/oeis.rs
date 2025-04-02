@@ -1,7 +1,6 @@
 use std::io::Read;
 use std::usize;
 use pathmap::trie_map::BytesTrieMap;
-use pathmap::utils::ByteMaskIter;
 use pathmap::zipper::{Zipper, ZipperValues, ZipperMoving, ZipperWriting, ZipperCreation};
 use num::BigInt;
 use divan::{Divan, Bencher, black_box};
@@ -9,8 +8,7 @@ use divan::{Divan, Bencher, black_box};
 const MAX_OFFSET: u8 = 10;
 
 fn drop_symbol_head_byte<Z: ZipperWriting<usize> + Zipper + ZipperMoving>(loc: &mut Z) {
-  let m = loc.child_mask();
-  let mut it = ByteMaskIter::new(m);
+  let mut it = loc.child_mask().iter();
 
   let p = loc.path().to_vec();
   while let Some(b) = it.next() {
