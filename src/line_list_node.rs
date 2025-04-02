@@ -1131,7 +1131,7 @@ pub(crate) fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     loop {
         if cnt == a.len() {break}
         if cnt == b.len() {break}
-        if a[cnt] != b[cnt] {break}
+        if unsafe{ a.get_unchecked(cnt) != b.get_unchecked(cnt) } {break}
         cnt += 1;
     }
     cnt
