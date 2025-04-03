@@ -165,12 +165,22 @@ impl PartialEq<[u64; 4]> for ByteMask {
 
 impl core::ops::BitOr for ByteMask {
     type Output = Self;
+    #[inline]
     fn bitor(self, other: Self) -> Self {
         self.or(&other)
     }
 }
 
+impl core::ops::BitOr for &ByteMask {
+    type Output = ByteMask;
+    #[inline]
+    fn bitor(self, other: Self) -> ByteMask {
+        self.or(other)
+    }
+}
+
 impl core::ops::BitOrAssign for ByteMask {
+    #[inline]
     fn bitor_assign(&mut self, other: Self) {
         *self = self.or(&other)
     }
@@ -178,12 +188,22 @@ impl core::ops::BitOrAssign for ByteMask {
 
 impl core::ops::BitAnd for ByteMask {
     type Output = Self;
+    #[inline]
     fn bitand(self, other: Self) -> Self {
         self.and(&other)
     }
 }
 
+impl core::ops::BitAnd for &ByteMask {
+    type Output = ByteMask;
+    #[inline]
+    fn bitand(self, other: Self) -> ByteMask {
+        self.and(other)
+    }
+}
+
 impl core::ops::BitAndAssign for ByteMask {
+    #[inline]
     fn bitand_assign(&mut self, other: Self) {
         *self = self.and(&other)
     }
