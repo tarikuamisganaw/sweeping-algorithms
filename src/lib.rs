@@ -27,6 +27,10 @@ pub mod utils;
 /// Extensions to the API that may or may not become permanant
 pub mod experimental;
 
+/// Compact representation of the trie
+#[cfg(feature = "arena_compact")]
+pub mod arena_compact;
+
 /// Track outstanding zippers to be sure they don't conflict
 #[cfg(feature = "zipper_tracking")]
 pub mod zipper_tracking;

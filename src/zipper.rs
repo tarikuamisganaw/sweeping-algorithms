@@ -450,6 +450,7 @@ pub(crate) mod zipper_priv {
     }
 }
 use zipper_priv::*;
+pub use zipper_priv::{ZipperMovingPriv, ZipperConcretePriv};
 
 impl<Z> Zipper for &mut Z where Z: Zipper {
     fn path_exists(&self) -> bool { (**self).path_exists() }
