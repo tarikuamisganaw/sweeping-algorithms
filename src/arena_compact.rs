@@ -459,6 +459,35 @@ where Storage: AsRef<[u8]>
         }
         (node, node_id, next)
     }
+
+    pub fn get(&self, path: impl AsRef<[u8]>) -> Option<u64> {
+        let mut path = path.as_ref();
+        let mut cur_node = self.get_root().0;
+        loop {
+            match cur_node {
+                Node::Line(line) => {
+                    let lpath = self.get_line(line.path);
+                    if !path.starts_with(lpath) {
+                        return None;
+                    }
+                    path = &path[lpath.len()..];
+                    if path.is_empty() && line.value.is_some() {
+                        return line.value;
+                    }
+                    cur_node = self.get_node(line.child?).0;
+                }
+                Node::Branch(node) => {
+                    if path.is_empty() {
+                        return node.value;
+                    }
+                    let first_child = node.first_child?;
+                    let idx = node.bytemask.index_of(path[0])?;
+                    cur_node = self.nth_node(first_child, idx).0;
+                    path = &path[1..];
+                }
+            }
+        }
+    }
 }
 
 impl<Storage> ArenaCompactTree<Storage>
@@ -1453,7 +1482,7 @@ mod tests {
     use super::{ArenaCompactTree};
     use crate::{
         morphisms::Catamorphism,
-        zipper::{ZipperValues, ZipperIteration, ZipperMoving},
+        zipper::{ZipperIteration, ZipperMoving},
         trie_map::BytesTrieMap,
     };
 
@@ -1483,6 +1512,17 @@ mod tests {
             if act_val.is_none() {
                 break;
             }
+        }
+    }
+
+    #[test]
+    fn test_act_get() {
+        let path_vals = PATHS.iter().enumerate()
+            .map(|(idx, path)| (path, idx as u64));
+        let btm = BytesTrieMap::from_iter(path_vals.clone());
+        let act = ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| v);
+        for (path, idx) in path_vals {
+            assert_eq!(Some(idx), act.get(path));
         }
     }
 
