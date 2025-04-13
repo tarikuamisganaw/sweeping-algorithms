@@ -25,7 +25,10 @@ impl ZipperMovingPriv for FullZipper {
     }
 
     fn prepare_buffers(&mut self) {
-        self.path.reserve(EXPECTED_PATH_LEN)
+        self.reserve_buffers(EXPECTED_PATH_LEN, 0)
+    }
+    fn reserve_buffers(&mut self, path_len: usize, _stack_depth: usize) {
+        self.path.reserve(path_len)
     }
 }
 

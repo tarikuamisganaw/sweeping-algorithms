@@ -417,6 +417,11 @@ pub(crate) mod zipper_priv {
 
         /// Make sure the path buffer is allocated, to facilitate zipper movement
         fn prepare_buffers(&mut self);
+
+        /// Reserve buffer space within the zipper's path buffer and node stack
+        ///
+        /// This method will only grow the buffers and will never shrink them.
+        fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize);
     }
 
     pub trait ZipperReadOnlyPriv<'a, V> {
@@ -522,6 +527,7 @@ impl<V, Z> ZipperPriv for &mut Z where Z: ZipperPriv<V=V> {
 impl<Z> ZipperMovingPriv for &mut Z where Z: ZipperMovingPriv {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { (**self).origin_path_assert_len(len) }
     fn prepare_buffers(&mut self) { (**self).prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { (**self).reserve_buffers(path_len, stack_depth) }
 }
 
 impl<'a, V, Z> ZipperReadOnlyPriv<'a, V> for &mut Z where Z: ZipperReadOnlyPriv<'a, V> {
@@ -626,6 +632,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperTrack
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperTracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperTracked<'a, '_, V> {
@@ -767,6 +774,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperUntra
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperUntracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperUntracked<'a, '_, V> {
@@ -957,6 +965,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperOwned
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperOwned<V> {
@@ -1437,7 +1446,20 @@ pub(crate) mod read_zipper_core {
         #[inline(always)]
         fn prepare_buffers(&mut self) {
             if self.prefix_buf.capacity() == 0 {
-                self.prepare_buffers_guts()
+                self.reserve_buffers(EXPECTED_PATH_LEN, EXPECTED_DEPTH)
+            }
+        }
+        #[cold]
+        fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) {
+            if self.prefix_buf.capacity() < path_len {
+                let was_unallocated = self.prefix_buf.capacity() == 0;
+                self.prefix_buf = Vec::with_capacity(path_len);
+                if was_unallocated {
+                    self.prefix_buf.extend(unsafe{ self.origin_path.as_slice_unchecked() });
+                }
+            }
+            if self.ancestors.capacity() < stack_depth {
+                self.ancestors = Vec::with_capacity(stack_depth);
             }
         }
     }
@@ -1958,21 +1980,6 @@ pub(crate) mod read_zipper_core {
                 },
                 (None, _) => unreachable!()
             }
-        }
-
-        /// Internal method to ensure buffers to facilitate movement of zipper are allocated and initialized
-        #[inline(always)]
-        fn prepare_buffers(&mut self) {
-            if self.prefix_buf.capacity() == 0 {
-                self.prepare_buffers_guts()
-            }
-        }
-
-        #[cold]
-        fn prepare_buffers_guts(&mut self) {
-            self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
-            self.ancestors = Vec::with_capacity(EXPECTED_DEPTH);
-            self.prefix_buf.extend(unsafe{ self.origin_path.as_slice_unchecked() });
         }
 
         // //GOAT, Consider deleting.  I feel like this API isn't very useful and leads people away from the better-performing options

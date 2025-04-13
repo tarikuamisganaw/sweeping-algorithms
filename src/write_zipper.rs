@@ -279,6 +279,7 @@ impl<'a, 'path, V : Clone> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'p
 impl<'a, 'path, V : Clone> zipper_priv::ZipperMovingPriv for WriteZipperTracked<'a, 'path, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperTracked<'a, 'path, V> {
@@ -413,6 +414,7 @@ impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k,
 impl<'a, 'k, V : Clone> zipper_priv::ZipperMovingPriv for WriteZipperUntracked<'a, 'k, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
 impl <'a, 'k, V: Clone + Send + Sync + Unpin> WriteZipperUntracked<'a, 'k, V> {
@@ -571,6 +573,7 @@ impl<V: Clone> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
 impl<V: Clone> zipper_priv::ZipperMovingPriv for WriteZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
 impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
@@ -932,7 +935,7 @@ impl<'a, 'k, V: Clone> zipper_priv::ZipperMovingPriv for WriteZipperCore<'a, 'k,
         unimplemented!()
     }
     fn prepare_buffers(&mut self) { self.key.prepare_buffers() }
-
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.key.reserve_buffers(path_len, stack_depth) }
 }
 
 impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
@@ -1817,9 +1820,20 @@ impl<'k> KeyFields<'k> {
     #[inline]
     pub(crate) fn prepare_buffers(&mut self) {
         if self.prefix_buf.capacity() == 0 {
-            self.prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
-            self.prefix_idx = Vec::with_capacity(EXPECTED_DEPTH);
-            self.prefix_buf.extend(self.root_key.as_slice());
+            self.reserve_buffers(EXPECTED_PATH_LEN, EXPECTED_DEPTH)
+        }
+    }
+    #[cold]
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) {
+        if self.prefix_buf.capacity() < path_len {
+            let was_unallocated = self.prefix_buf.capacity() == 0;
+            self.prefix_buf = Vec::with_capacity(path_len);
+            if was_unallocated {
+                self.prefix_buf.extend(self.root_key.as_slice());
+            }
+        }
+        if self.prefix_idx.capacity() < stack_depth {
+            self.prefix_idx = Vec::with_capacity(stack_depth);
             self.root_key.make_len();
         }
     }
