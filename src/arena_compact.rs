@@ -385,7 +385,6 @@ where Storage: AsRef<[u8]>
     /// ```
     /// use pathmap::arena_compact::ArenaCompactTree;
     /// use pathmap::trie_map::BytesTrieMap;
-    /// let tree_path = "tmp_tree.tree";
     /// let items = ["ace", "acf", "adg", "adh", "bjk"];
     /// let btm = BytesTrieMap::from_iter(items.iter().map(|i| (i, ())));
     /// let tree1 = ArenaCompactTree::from_zipper(btm.read_zipper(), |_v| 0);
@@ -632,13 +631,19 @@ impl ArenaCompactTree<Mmap> {
     /// ```
     /// use pathmap::trie_map::BytesTrieMap;
     /// use pathmap::arena_compact::ArenaCompactTree;
-    /// let tree_path = "tmp_tree.tree";
+    /// use tempfile::NamedTempFile;
+    /// use std::io::Write;
+    /// # fn main() -> std::io::Result<()> {
+    /// let mut file = NamedTempFile::new()?;
     /// let items = ["ace", "acf", "adg", "adh", "bjk"];
     /// let btm = BytesTrieMap::from_iter(items.iter().map(|i| (i, ())));
     /// let tree1 = ArenaCompactTree::from_zipper(btm.read_zipper(), |_v| 0);
-    /// std::fs::write(tree_path, tree1.get_data()).expect("can't write data");
-    /// let tree2 = ArenaCompactTree::open(tree_path).expect("can't open tree");
+    /// file.write_all(tree1.get_data())?;
+    /// let tree_path = file.path();
+    /// let tree2 = ArenaCompactTree::open(tree_path)?;
     /// assert_eq!(tree1.get_data(), tree2.get_data());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let file = std::fs::File::open(&path)?;
@@ -1489,6 +1494,10 @@ mod tests {
     const PATHS: &[&str] = &[
         "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus",
         "rubens", "ruber", "rubicon", "rubicundus", "rom'i",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaac",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbaaaa",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbcccc",
     ];
 
     #[test]
