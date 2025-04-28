@@ -18,6 +18,11 @@ Ideally we can solve all of these issues at the same time and lay the ground wor
 * Support for multiple "node regions" in which nodes may be referenced and created. (More on node regions in its own section)
 * Refcounts stored centrally so reading or modifying them doesn't thrash the cache.
 
+**NOTE(igorm)**: Storing refcounts separately from the node itself requires storing an additional
+pointer (or an index at minimum) for each child.
+My prediction is that any savings from storing it separately will be offset by increasing node or child size by including this pointer. Additionally, it might be difficult to store a freelist of refcounts.
+We can experiment on this, not sure how it goes.
+
 ### Nice to Have, but Ok if it's not possible
 
 * Clean separation between node format code and resource management code.
@@ -33,6 +38,8 @@ Structures to own nodes and track dependencies.  A node region is a *logical* ob
 * It should also be possible to create new nodes in memory (not backed by a file) that reference nodes from a file. (For example a map that stores intermediate results)
 
 * It should be possible to copy nodes from memory to a file, and from a file to memory.
+
+**NOTE(igorm)**: what happens if we try to copy in-memory nodes that reference nodes on file?
 
 * It should be possible to work with multiple files at the same time, and potentially create in-memory structures that reference nodes in multiple files.
 
@@ -57,6 +64,45 @@ A node block would have:
 
 Internal links, linking nodes within the node block to other nodes within the same block, could take the form of internal links that don't need to bump the refcount, and can be heavily compressed (perhaps 8 bits would be enough to describe any value, external link, or internal node within a 4K block.
 
+**NOTE(igorm)**: there's an alternative that we can we pursue: use a custom allocator in each node region, which would be transparent over the API. i.e. allocate a specific node type.
+As for having pointers within blocks, I don't know a good strategy (and I don't know if it exists) to separate nodes into blocks, such that they're densely linked to each other.
+I'd have to find/make an algorithm to see if this is even possible.
+Intuitively, it seems the *optimal* distribution of nodes is NP-hard,
+greedy solutions are potentially many times worse, and maintaining the distribution of nodes while editing the tree/graph (specifically adding+removing nodes) is an unsolved problem.
+
 ### Open Questions
 
 * Do refcounts live with node blocks, or somewhere else?  If they live with node blocks, how do we make sure that circular references between blocks don't prevent deallocation?
+
+**NOTE(igorm)**: I think this is not possible to do (1) using purely reference counting (2) FAST (3) in generic case.
+The alternative is to have a garbage collector of some sort.
+
+Let's look at the following tree:
+
+```
+a - b - c
+  \ d - e
+```
+
+if you have references to `c,d`, `b,e`, and graft `d` onto `c`, then `b` onto `e`,
+this will create the following graph:
+
+```
+a - b - c
+ \    X
+  \ d - e
+```
+
+which has a circular path `abedc(b)`. It seems to me that detecting this loop is not possible without visiting all subtrees of `b` and `d` when they get grafted.
+
+### Proposal for action
+
+1) We need a set of benchmarks *and* metrics to optimize for.
+   Mork has a few benchmarks, and it would be nice to include some which measure deallocation.
+2) As for additional metrics, we could measure the memory per node/path.
+3) We can implement a set of cheap experiments:
+  - replace global allocator with never-freeing allocator
+  - replace `Arc` with `Asc`
+  - track allocated memory and created nodes, see the distribution
+  - record profiling information during benchmarks and see differences
+4) instead of having refcounting, we could have a GC of some sort.
