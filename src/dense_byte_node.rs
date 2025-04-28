@@ -577,6 +577,15 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
 impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
     where ByteNode<Cf>: TrieNodeDowncast<V>
 {
+    #[inline(always)]
+    fn node_key_overlap(&self, key: &[u8]) -> usize {
+        if self.mask.test_bit(key[0]) {
+            1
+        } else {
+            0
+        }
+    }
+    #[inline(always)]
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         debug_assert!(key.len() > 0);
         if key.len() == 1 {

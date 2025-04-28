@@ -1554,6 +1554,14 @@ fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u
 }
 
 impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
+    #[inline]
+    fn node_key_overlap(&self, key: &[u8]) -> usize {
+        let (key0, key1) = self.get_both_keys();
+        let overlap0 = find_prefix_overlap(key, key0);
+        let overlap1 = find_prefix_overlap(key, key1);
+        overlap0.max(overlap1)
+    }
+    #[inline]
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         let (key0, key1) = self.get_both_keys();
         if key0.starts_with(key) || key1.starts_with(key) {

@@ -128,7 +128,6 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     /// Returns the number of bytes descended along the path.  The zipper's focus will always be on an
     /// existing path after this method returns, unless the method was called with the focus on a
     /// non-existent path.
-    //GOAT, LP: note.  this default implementation is highly suboptimal.  Check out the zipper.new-api.rs for a much more efficient implementation on ReadZipper
     fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
         let k = k.as_ref();
         let mut i = 0;
@@ -583,6 +582,8 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperTracked<'_, '_, 
     fn path(&self) -> &[u8] { self.z.path() }
     fn val_count(&self) -> usize { self.z.val_count() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
+    fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize { self.z.descend_to_existing(k) }
+    fn descend_to_value<K: AsRef<[u8]>>(&mut self, k: K) -> usize { self.z.descend_to_value(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
@@ -725,6 +726,8 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperUntracked<'_, '_
     fn path(&self) -> &[u8] { self.z.path() }
     fn val_count(&self) -> usize { self.z.val_count() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
+    fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize { self.z.descend_to_existing(k) }
+    fn descend_to_value<K: AsRef<[u8]>>(&mut self, k: K) -> usize { self.z.descend_to_value(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
@@ -916,6 +919,8 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperOwned<V> {
     fn path(&self) -> &[u8] { self.z.path() }
     fn val_count(&self) -> usize { self.z.val_count() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
+    fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize { self.z.descend_to_existing(k) }
+    fn descend_to_value<K: AsRef<[u8]>>(&mut self, k: K) -> usize { self.z.descend_to_value(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
@@ -1135,24 +1140,12 @@ pub(crate) mod read_zipper_core {
             self.prepare_buffers();
             debug_assert!(self.is_regularized());
 
-            self.prefix_buf.extend(k);
-            let mut key_start = self.node_key_start();
-            let mut key = &self.prefix_buf[key_start..];
-
-            //Step until we get to the end of the key or find a leaf node
-            while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
-                let next_node = next_node.borrow();
-                key_start += consumed_byte_cnt;
-                self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, key_start));
-                self.focus_node = next_node.as_tagged();
-                self.focus_iter_token = NODE_ITER_INVALID;
-                if consumed_byte_cnt < key.len() {
-                    key = &key[consumed_byte_cnt..]
-                } else {
-                    return true;
-                };
+            let (borrowed_self, key) = self.descend_to_internal(k);
+            if key.len() == 0 {
+                true
+            } else {
+                borrowed_self.focus_node.node_contains_partial_key(key)
             }
-            self.focus_node.node_contains_partial_key(key)
         }
 
         fn descend_to_byte(&mut self, k: u8) -> bool {
@@ -1237,6 +1230,70 @@ pub(crate) mod read_zipper_core {
             }
             moved
         }
+
+        fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
+            let mut k = k.as_ref();
+            if k.len() == 0 {
+                return 0 //Zero-length path is a no-op
+            }
+            self.prepare_buffers();
+            debug_assert!(self.is_regularized());
+
+            let original_path_len = self.prefix_buf.len();
+            let mut key_start = self.node_key_start();
+
+            //Early out if we're on a non-existent path
+            if key_start < self.prefix_buf.len() && !self.focus_node.node_contains_partial_key(&self.prefix_buf[key_start..]) {
+                return 0
+            }
+
+            //Descend through all the existing nodes
+            //
+            //NOTE: One of the advantages of `descend_to_existing` vs ordinary `descend_to` is that it
+            // avoids copying the whole path argument into the path buffer unless that's actually needed.
+            // So this loop copies the path arg in chunks.  If we didn't care about this, we could just
+            // grow the path buffer in one call with `self.descend_to_internal(k)`, like `descend_to` does
+            const CHUNK_SIZE: usize = 32;
+            debug_assert!(CHUNK_SIZE >= MAX_NODE_KEY_BYTES);
+            while k.len() > 0 {
+                let (chunk, remaining) = if k.len() > CHUNK_SIZE {
+                    (&k[..CHUNK_SIZE], &k[CHUNK_SIZE..])
+                } else {
+                    (k, &[][..])
+                };
+                let _ = self.descend_to_internal(chunk);
+                let new_key_start = self.node_key_start();
+                if new_key_start == key_start {
+                    break;
+                }
+                key_start = new_key_start;
+                k = remaining;
+            }
+
+            //Now trim the buffer to the length of the last existing path within the node
+            let node_key = &self.prefix_buf[key_start..];
+            let overlap = if node_key.len() > 0 {
+                self.focus_node.node_key_overlap(node_key)
+            } else {
+                0
+            };
+            self.prefix_buf.truncate(key_start+overlap);
+
+            self.prefix_buf.len() - original_path_len
+        }
+
+        //GOAT, WIP.  I think `node_first_val_depth_along_key` needs to change in order to
+        // ignore values with a key length smaller than a specified length
+        // fn descend_to_value<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
+        //     let mut k = k.as_ref();
+        //     if k.len() == 0 {
+        //         return 0 //Zero-length path is a no-op
+        //     }
+        //     self.prepare_buffers();
+        //     debug_assert!(self.is_regularized());
+
+        //     self.focus_node.node_first_val_depth_along_key();
+        // }
 
         fn to_sibling(&mut self, next: bool) -> bool {
             self.prepare_buffers();
@@ -1811,6 +1868,44 @@ pub(crate) mod read_zipper_core {
             } else {
                 true
             }
+        }
+
+        /// Internal method to implement `descend_to` and similar methods, handling the movement
+        /// of the focus node, but not necessarily the whole method contract
+        ///
+        /// Returns the remaining `node_key`, after the node descent has gone as far as possible,
+        /// along with a re-borrow of `self` to work around the borrow checker
+        #[inline]
+        fn descend_to_internal(&mut self, k: &[u8]) -> (&Self, &[u8]) {
+            self.focus_iter_token = NODE_ITER_INVALID;
+            self.prefix_buf.extend(k);
+            let mut key_start = self.node_key_start();
+            let mut key = &self.prefix_buf[key_start..];
+
+            //GOAT... WIP.  planning to add a "CheckF: Fn(&dyn TrieNode<V>, &[u8])->Option<usize>"
+            // argument that can cause an early return, and be used to look for values as we descend
+            //
+            // //Run the check_f on the current focus node, before advancing to the next node
+            // match check_f(self.focus_node.borrow(), &self.prefix_buf[key_start..]) {
+            //     Some(byte_cnt) => {
+            //         return (self, &self.prefix_buf[key_start..byte_cnt])
+            //     },
+            //     None => {}
+            // }
+
+            //Step until we get to the end of the key or find a leaf node
+            while let Some((consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(key) {
+                let next_node = next_node.borrow();
+                key_start += consumed_byte_cnt;
+                self.ancestors.push((self.focus_node.clone(), NODE_ITER_INVALID, key_start));
+                self.focus_node = next_node.as_tagged();
+                if consumed_byte_cnt < key.len() {
+                    key = &key[consumed_byte_cnt..]
+                } else {
+                    return (self, &[]);
+                };
+            }
+            (self, key)
         }
 
         /// Internal method that implements both `k_path...` methods above
@@ -2796,7 +2891,7 @@ mod tests {
     }
 
     #[test]
-    fn descend_to_existing() {
+    fn descend_to_existing_test1() {
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         let btm: BytesTrieMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
@@ -2817,6 +2912,34 @@ mod tests {
         }
     }
 
+    /// Tests a really long path that doesn't exist, to exercise the chunk-descending code
+    #[test]
+    fn descend_to_existing_test2() {
+        let rs = ["arrow"];
+        let btm: BytesTrieMap<()> = rs.into_iter().map(|k| (k, ())).collect();
+
+        let mut rz = btm.read_zipper();
+        assert_eq!(5, rz.descend_to_existing("arrow0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+        assert_eq!(rz.path(), &b"arrow"[..]);
+        rz.reset();
+
+        assert_eq!(3, rz.descend_to_existing("arr0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
+        assert_eq!(rz.path(), &b"arr"[..]);
+    }
+
+    /// Tests calling the method when the focus is already on a non-existent path
+    #[test]
+    fn descend_to_existing_test3() {
+        let rs = ["arrow"];
+        let btm: BytesTrieMap<()> = rs.into_iter().map(|k| (k, ())).collect();
+
+        let mut rz = btm.read_zipper();
+        assert_eq!(false, rz.descend_to("arrow00000"));
+        assert_eq!(rz.path(), &b"arrow00000"[..]);
+
+        assert_eq!(0, rz.descend_to_existing("0000"));
+        assert_eq!(rz.path(), &b"arrow00000"[..]);
+    }
 
     #[test]
     fn k_path_test1() {

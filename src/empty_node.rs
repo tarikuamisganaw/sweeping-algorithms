@@ -13,6 +13,9 @@ pub(crate) static EMPTY_NODE: EmptyNode = EmptyNode;
 pub struct EmptyNode;
 
 impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
+    fn node_key_overlap(&self, _key: &[u8]) -> usize {
+        0
+    }
     fn node_contains_partial_key(&self, _key: &[u8]) -> bool {
         false
     }

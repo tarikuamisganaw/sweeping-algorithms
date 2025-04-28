@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use crate::utils::ByteMask;
 use crate::trie_node::*;
+use crate::line_list_node::find_prefix_overlap;
 use crate::ring::*;
 
 /// A borrowed reference to a payload with a key stored elsewhere, contained in 16 Bytes
@@ -120,6 +121,9 @@ impl<'a, V: Clone + Send + Sync> TinyRefNode<'a, V> {
 }
 
 impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
+    fn node_key_overlap(&self, key: &[u8]) -> usize {
+        find_prefix_overlap(self.key(), key)
+    }
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         if self.key().starts_with(key) {
             true
