@@ -22,6 +22,7 @@ Ideally we can solve all of these issues at the same time and lay the ground wor
 pointer (or an index at minimum) for each child.
 My prediction is that any savings from storing it separately will be offset by increasing node or child size by including this pointer. Additionally, it might be difficult to store a freelist of refcounts.
 We can experiment on this, not sure how it goes.
+**LP**: That's certainly not the design I intended to suggest.  A design where a node could point at any arbitrary refcount-storage object, and thus required a pointer, would indeed be very silly.  The design I had in mind would infer the location of the refcount from the node location or pointer.  For example, one idea is to store all refcounts in a section at the head of each NodeBlock.
 
 ### Nice to Have, but Ok if it's not possible
 
@@ -40,6 +41,11 @@ Structures to own nodes and track dependencies.  A node region is a *logical* ob
 * It should be possible to copy nodes from memory to a file, and from a file to memory.
 
 **NOTE(igorm)**: what happens if we try to copy in-memory nodes that reference nodes on file?
+**LP**: It depends on where we are copying them to (The destination region).  Before going through all the cases, I want to be clear on the distinction between copy (deep copy) and graft (create shallow reference).  I also want to establish that I see node region dependencies as being transitive.  i.e. if A depends on B, and B depends on C, then A also inherits a dependency on C.
+
+The algorithm must proceed recursively from the source node.  Each time a node that resides in a region that is part of the destination region's dependencies is encountered, a simple reference is enough.  However if the node resiges in a foreign region (not in the dest region's dependencies) then a deep copy is needed, to copy the node to the destination region.
+
+In the shallow graft-by-reference case, no recursive descent is needed.  When a deep copy occurs, each child node is visited and, depending on where it resides, it is either referenced or copied.
 
 * It should be possible to work with multiple files at the same time, and potentially create in-memory structures that reference nodes in multiple files.
 
@@ -70,6 +76,15 @@ I'd have to find/make an algorithm to see if this is even possible.
 Intuitively, it seems the *optimal* distribution of nodes is NP-hard,
 greedy solutions are potentially many times worse, and maintaining the distribution of nodes while editing the tree/graph (specifically adding+removing nodes) is an unsolved problem.
 
+> ...use a custom allocator in each node region.
+**LP**: I did several days worth of work on an ultimately abandoned a custom allocator at the beginning of this year.  I had 2 reasons for leaving it.  A. the rust allocator API isn't stable, and it's actually churning pretty rapidly.  For example the [allocator-api2](https://crates.io/crates/allocator-api2) crate is kinda bit rotten already.  But the bigger reason was B. I felt like the custom allocator approach only solved some of the problems / features outlined in this document, and avoiding the memory allocator paradigm altogether is probably where we want to get to to ultimately achieve all of the features.
+
+> I don't know a good strategy...
+**LP**: I'll diagram up what I have in mind and we can discuss where it might fail.  We don't need *optimal*, just good enough, and we have an existence proof in the system allocator (or jemalloc) that something workable is possible.  The other point is that usage patterns will play a big role in efficiency.  It will certainly be possible to fragment the node blocks badly.  Especially when we layer in the requirement for atomic updating and robustness against write failure.
+
+> maintaining the distribution of nodes while editing the tree/graph (specifically adding+removing nodes) is an unsolved problem
+**LP**: This will be partially ameliorated by in-memory regions.  This lets the implementation skip the writing of a lot of the intermediate work.  It is certainly still a problem that requires careful consideration.  I think there are a lot of good ideas in the design of [LMDB](https://en.wikipedia.org/wiki/Lightning_Memory-Mapped_Database)
+
 ### Open Questions
 
 * Do refcounts live with node blocks, or somewhere else?  If they live with node blocks, how do we make sure that circular references between blocks don't prevent deallocation?
@@ -94,6 +109,26 @@ a - b - c
 ```
 
 which has a circular path `abedc(b)`. It seems to me that detecting this loop is not possible without visiting all subtrees of `b` and `d` when they get grafted.
+
+**LP**: Circular references at the node level are illegal, so this is not a problem.  Without that behavior we could get infinite paths, and break our isolation guarantees, and a bunch of other horrible things.  So, if you performed those operations described above, here is what would happen...
+
+> graft `d` onto `c`
+This leads to:
+```
+a - b - c
+ \    /
+  \ d - e
+```
+> then `b` onto `e`
+Will cause a copy-on-write of `d` and `e`, leading to"
+```
+a - b - c - d - e
+ \   ^------<.
+  \ d' - e' -^
+```
+My fear of circular references was referring to circularity at the node-block level.  Although I think there is a credit scheme that can fix this too.  Although I haven't fully thought it through yet.
+
+**LP**: For resource management, we may well want something that looks more like a GC than straight reference counts.  However, we will still need the refcounts on the nodes (or at least an atomic `is_shared` field) because that is a critical part of the copy-on-write semantic used to maintain structural sharing in the trie.  Before writing off refcounts entirely, 
 
 ### Proposal for action
 
