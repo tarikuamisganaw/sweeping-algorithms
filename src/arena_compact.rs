@@ -1071,8 +1071,7 @@ where Storage: AsRef<[u8]>
                     if on_value && descended > 0 && node.value.is_some() {
                         return descended;
                     }
-                    let Some(idx) = node.bytemask.index_of(path[0])
-                        else { break 'descend };
+                    let idx = node.bytemask.index_of(path[0]) as usize;
                     let frame = self.stack.last_mut().unwrap();
                     let ((node, next_id), node_id) = if frame.next_id != INVALID_NODE && frame.child_index + 1 == idx {
                         // Optimization: if we know the exact next node, descend
