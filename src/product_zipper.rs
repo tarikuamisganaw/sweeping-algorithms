@@ -705,6 +705,16 @@ mod tests {
             assert_eq!(moving_pz.child_mask(), fresh_pz.child_mask());
         })
     }
+
+    crate::zipper::zipper_moving_tests::zipper_moving_tests!(product_zipper,
+        |keys: &[&[u8]]| {
+            let mut btm = BytesTrieMap::new();
+            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            btm
+        },
+        |btm: &mut BytesTrieMap<()>| -> _ {
+            ProductZipper::new::<_, TrieRef<()>, _>(btm.read_zipper(), [])
+    });
 }
 
 //POSSIBLE FUTURE DIRECTION:

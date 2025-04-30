@@ -2817,4 +2817,15 @@ mod tests {
         drop(wz);
         drop(rz);
     }
+
+    //GOAT.  Uncomment these tests when the write zipper moving methods get fully implemented
+    // crate::zipper::zipper_moving_tests::zipper_moving_tests!(write_zipper,
+    //     |keys: &[&[u8]]| {
+    //         let mut btm = BytesTrieMap::new();
+    //         keys.iter().for_each(|k| { btm.insert(k, ()); });
+    //         btm
+    //     },
+    //     |btm: &mut BytesTrieMap<()>| -> _ {
+    //         btm.write_zipper()
+    // });
 }

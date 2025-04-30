@@ -181,7 +181,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     }
 
     /// Creates a new read-only [Zipper], starting at the root of a `BytesTrieMap`
-    pub fn read_zipper(&self) -> ReadZipperUntracked<V> {
+    pub fn read_zipper<'a>(&'a self) -> ReadZipperUntracked<'a, 'static, V> {
         self.ensure_root();
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();
         #[cfg(debug_assertions)]

@@ -32,6 +32,7 @@ counters = [] # Enable features to inspect performance properties of tries.  Mai
 graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
 
 [dev-dependencies]
+paste = "1.0"
 divan = "0.1.14"
 serde = { version = "1.0.163", features = ["derive"]}
 csv = "1.1.6"
