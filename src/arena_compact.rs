@@ -480,7 +480,7 @@ where Storage: AsRef<[u8]>
                         return node.value;
                     }
                     let first_child = node.first_child?;
-                    let idx = node.bytemask.index_of(path[0])?;
+                    let idx = node.bytemask.index_of(path[0]) as usize;
                     cur_node = self.nth_node(first_child, idx).0;
                     path = &path[1..];
                 }
@@ -640,12 +640,12 @@ impl ArenaCompactTree<Mmap> {
     /// let tree1 = ArenaCompactTree::from_zipper(btm.read_zipper(), |_v| 0);
     /// file.write_all(tree1.get_data())?;
     /// let tree_path = file.path();
-    /// let tree2 = ArenaCompactTree::open(tree_path)?;
+    /// let tree2 = ArenaCompactTree::open_mmap(tree_path)?;
     /// assert_eq!(tree1.get_data(), tree2.get_data());
     /// # Ok(())
     /// # }
     /// ```
-    pub fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
+    pub fn open_mmap(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let file = std::fs::File::open(&path)?;
         let memmap = unsafe { Mmap::map(&file) }?;
         if &memmap[..MAGIC_LENGTH] != &COMPACT_TREE_MAGIC {
@@ -1577,7 +1577,7 @@ mod tests {
         let act = ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| v);
         let mut tmp = NamedTempFile::new()?;
         tmp.write_all(act.get_data())?;
-        let act_mmap = ArenaCompactTree::open(tmp.path())?;
+        let act_mmap = ArenaCompactTree::open_mmap(tmp.path())?;
 
         let btm_value = btm.read_zipper().into_cata_side_effect(|bm, ch, v, path| {
             let path = std::str::from_utf8(path).unwrap();
