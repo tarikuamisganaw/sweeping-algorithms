@@ -68,7 +68,7 @@ A node block would have:
 * A table of owned values
 * A table of external (links outside the node block) links
 
-Internal links, linking nodes within the node block to other nodes within the same block, could take the form of internal links that don't need to bump the refcount, and can be heavily compressed (perhaps 8 bits would be enough to describe any value, external link, or internal node within a 4K block.
+Internal links, linking nodes within the node block to other nodes within the same block, could take the form of simple indices, as there may be no need to bump the refcount, and can be heavily compressed; perhaps 8 bits would be enough to describe any value, external link, or internal node within a 4K block.
 
 **NOTE(igorm)**: there's an alternative that we can we pursue: use a custom allocator in each node region, which would be transparent over the API. i.e. allocate a specific node type.
 As for having pointers within blocks, I don't know a good strategy (and I don't know if it exists) to separate nodes into blocks, such that they're densely linked to each other.
@@ -137,7 +137,16 @@ My fear of circular references was referring to circularity at the node-block le
 2) As for additional metrics, we could measure the memory per node/path.
 3) We can implement a set of cheap experiments:
   - replace global allocator with never-freeing allocator
+    * What will we learn from this experiment?  Are you thinking you want to separate how much of the time spent in cleanup is time spent with refcount check-and-decrement, vs. how much is simply freeing the allocations?
+
+    Many of the more complex tests and benchmarks will `forget` the maps.  And it does result in instant "cleanup".  However if we implement a NodeBlock approach, we get both centralized refcounts and big contiguous allocations, so it will cut both costs.
   - replace `Arc` with `Asc`
+    * `Asc` is probably worth a test.  I did a prototype last year based on [triomphe](https://crates.io/crates/triomphe), and it actually got slower in spite of losing the weak counts, likely because of some of the pointer metadata not being available without the unstable APIs.
+
+    My main hesitation here was just that I felt like addressing all the issues holistically is going to ultimately be less work and lead to a simpler and better-factored system.  For example the `ODRc` is an `&dyn` ptr, but I think there are probably only 8 or 16 different node types we actually need to support, so I think we can probably find 3 or 4 bits out of the 64 to use as a tag.  What we definitely don't want to do is a double-indirection (i.e. `&TaggedNodeRef`), so moving away from `&dyn` should happen at the same time as moving to a different smart-pointer type.
   - track allocated memory and created nodes, see the distribution
+    * Right.  I'm imagining different `NodeBlock` formats will exist for different purposes.  We could even support native `NodeBlock` formats for some data file formats (not JSON because it doesn't contain lengths and offsets, but maybe [beve](https://github.com/beve-org/beve))
   - record profiling information during benchmarks and see differences
+    * 100% agreed.  The `counters` feature provides a bit of that.  It's pretty ad-hoc and gets dusted off for each experiment when we want to run it.  But I'm definitely open to creating more tools and a better framework for the tools we want.
 4) instead of having refcounting, we could have a GC of some sort.
+  * Yes.  This is an option we shouldn't discount.
