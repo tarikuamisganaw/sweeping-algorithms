@@ -516,11 +516,22 @@ where Storage: Write
         Ok(NodeId(node_id))
     }
 
+    fn push(&mut self, node: &Node) -> Result<NodeId, std::io::Error> {
+        let (node_id, _kind) = match node {
+            Node::Line(line) => (self.push_line(line), "line"),
+            Node::Branch(branch) => (self.push_node(branch), "bra"),
+        };
+        if DO_TRACE { eprintln!("push {node_id:?} node={node:?}"); }
+        // debug_assert_eq!(self.position, self.storage.len() as u64, "failed push {_kind}");
+        node_id
+    }
+
     fn finalize(&mut self) -> Result<(), std::io::Error> {
         // Invariant: There must always be a 9-byte slice at the end
         // This allows [ValueSlice] to always point at correct data,
         // And readers to always be able to read a varint.
-        self.storage.write_all(&[0; MAX_VARINT_SIZE - 1])
+        self.storage.write_all(&[0; MAX_VARINT_SIZE - 1])?;
+        self.storage.flush()
     }
 }
 /*
@@ -581,18 +592,12 @@ impl ArenaCompactTree<Vec<u8>> {
         build_arena_tree(zipper, map)
     }
 
-    fn push(&mut self, node: &Node) -> NodeId {
-        let (node_id, _kind) = match node {
-            Node::Line(line) => (self.push_line(line), "line"),
-            Node::Branch(branch) => (self.push_node(branch), "bra"),
-        };
-        if DO_TRACE { eprintln!("push {node_id:?} node={node:?}"); }
-        debug_assert_eq!(self.position, self.storage.len() as u64, "failed push {_kind}");
-        node_id.expect("writing to vec should never fail.")
+    fn push_v(&mut self, node: &Node) -> NodeId {
+        self.push(node).expect("push to vec doesn't fail")
     }
 
     fn set_root(&mut self, node: &Node) -> NodeId {
-        let node_id = self.push(node);
+        let node_id = self.push_v(node);
         let root_buf = &mut self.storage[MAGIC_LENGTH..][..U64_SIZE];
         root_buf.copy_from_slice(&node_id.0.to_le_bytes());
         node_id
@@ -647,6 +652,49 @@ impl ArenaCompactTree<Mmap> {
     /// ```
     pub fn open_mmap(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let file = std::fs::File::open(&path)?;
+        let memmap = unsafe { Mmap::map(&file) }?;
+        if &memmap[..MAGIC_LENGTH] != &COMPACT_TREE_MAGIC {
+            return Err(std::io::Error::other("Invalid file magic"));
+        }
+        Ok(Self {
+            position: memmap.as_ref().len() as u64,
+            storage: memmap,
+            line_map: Default::default(),
+            lines: Default::default(),
+            hasher: Default::default(),
+        })
+    }
+
+
+    /// ```
+    /// use pathmap::trie_map::BytesTrieMap;
+    /// use pathmap::arena_compact::ArenaCompactTree;
+    /// use tempfile::NamedTempFile;
+    /// use std::io::Write;
+    /// # fn main() -> std::io::Result<()> {
+    /// let mut file = NamedTempFile::new()?;
+    /// let tree_path = "test_tree.tree";
+    /// let items = ["ace", "acf", "adg", "adh", "bjk"];
+    /// let btm = BytesTrieMap::from_iter(items.iter().map(|i| (i, ())));
+    /// let tree1 = ArenaCompactTree::dump_from_zipper(
+    ///     btm.read_zipper(), |_v| 0, tree_path)?;
+    /// let tree2 = ArenaCompactTree::from_zipper(
+    ///     btm.read_zipper(), |_v| 0);
+    /// assert_eq!(tree1.get_data(), tree2.get_data());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn dump_from_zipper<V, Z, F, P>(
+        zipper: Z, map_val: F, path: P
+    ) -> Result<Self, std::io::Error>
+        where
+            V: Clone + Send + Sync + Unpin,
+            Z: Catamorphism<V>,
+            F: Fn(&V) -> u64,
+            P: AsRef<Path>
+    {
+        let arena = dump_arena_tree(zipper, map_val, path)?;
+        let file = arena.storage.buf_writer.into_inner()?;
         let memmap = unsafe { Mmap::map(&file) }?;
         if &memmap[..MAGIC_LENGTH] != &COMPACT_TREE_MAGIC {
             return Err(std::io::Error::other("Invalid file magic"));
@@ -727,7 +775,7 @@ fn build_arena_tree<V, Z, F>(zipper: Z, map_val: F) -> ArenaCompactTree<Vec<u8>>
     let root = zipper.into_cata_jumping_side_effect::<Node, _>(|bm, children, jump, v, path| {
         let mut first_child: Option<NodeId> = None;
         for child in children.iter() {
-            let id = arena.push(child);
+            let id = arena.push_v(child);
             first_child = first_child.or(Some(id));
         }
         let mut node = NodeBranch::empty();
@@ -744,7 +792,7 @@ fn build_arena_tree<V, Z, F>(zipper: Z, map_val: F) -> ArenaCompactTree<Vec<u8>>
         line.path = arena.add_path(&path[path.len() - jump..]);
 
         if !children.is_empty() {
-            first_child = Some(arena.push(&Node::Branch(node)));
+            first_child = Some(arena.push_v(&Node::Branch(node)));
         } else {
             line.value = v.map(map_val);
         }
@@ -755,6 +803,133 @@ fn build_arena_tree<V, Z, F>(zipper: Z, map_val: F) -> ArenaCompactTree<Vec<u8>>
     let _root_id = arena.set_root(&root);
     arena.finalize().unwrap();
     arena
+}
+
+use std::io::{BufWriter, Seek, SeekFrom};
+use std::fs::{File, OpenOptions};
+
+pub struct FileDumper {
+    buf_writer: BufWriter<File>,
+    line_buf: Vec<u8>,
+    line_map: HashMap::<u64, (usize, usize, LineId)>,
+}
+
+impl Write for FileDumper {
+    fn write(&mut self, data: &[u8]) -> Result<usize, std::io::Error> {
+        self.buf_writer.write(data)
+    }
+
+    fn flush(&mut self) -> Result<(), std::io::Error> {
+        self.buf_writer.flush()
+    }
+}
+
+/// BufWriter buffer size. The default of 8KiB is too small.
+const DUMPER_BUFFER_SIZE: usize = 4*1024*1024;
+impl ArenaCompactTree<FileDumper> {
+    fn open(path: impl AsRef<Path>) -> Result<Self, std::io::Error> {
+        let mut file = OpenOptions::new()
+            .read(true).write(true)
+            .create(true).truncate(true)
+            .open(path)?;
+        file.seek(SeekFrom::Start(0))?;
+        file.write_all(&COMPACT_TREE_MAGIC)?;
+        file.write_all(&[0; 8])?;
+        let position = file.stream_position()?;
+        let buf_writer = BufWriter::with_capacity(DUMPER_BUFFER_SIZE, file);
+        let storage = FileDumper {
+            buf_writer,
+            line_buf: Default::default(),
+            line_map: Default::default(),
+        };
+        let act = ArenaCompactTree {
+            storage,
+            position,
+            line_map: HashMap::new(),
+            hasher: GxHasher::default(),
+            lines: 0,
+        };
+        Ok(act)
+    }
+
+    fn set_root(&mut self, node: &Node) -> Result<NodeId, std::io::Error> {
+        let node_id = self.push(node)?;
+        self.storage.buf_writer.seek(SeekFrom::Start(8))?;
+        self.storage.write_all(&node_id.0.to_le_bytes())?;
+        self.storage.buf_writer.seek(SeekFrom::Start(self.position))?;
+        Ok(node_id)
+    }
+
+    fn add_path(
+        &mut self, path: impl AsRef<[u8]>
+    ) -> Result<LineId, std::io::Error> {
+        let path = path.as_ref();
+        let mut hasher = self.hasher.clone();
+        hasher.write(path);
+        let hash = hasher.finish();
+        if let Some(&(start, len, prev)) = self.storage.line_map.get(&hash) {
+            let buf = &self.storage.line_buf[start..start+len];
+            if buf == path {
+                return Ok(prev);
+            }
+        }
+        let line_id = LineId(self.position);
+        let line_start = self.storage.line_buf.len();
+        self.storage.line_buf.extend_from_slice(path);
+        self.position += push_varint_u64(
+            &mut self.storage, path.len() as u64
+        )? as u64;
+        self.storage.write_all(path)?;
+        self.position += path.len() as u64;
+        self.storage.line_map.insert(hash, (line_start, path.len(), line_id));
+        Ok(line_id)
+    }
+}
+
+fn dump_arena_tree<V, Z, F, P>(
+    zipper: Z, map_val: F, path: P
+) -> Result<ArenaCompactTree<FileDumper>, std::io::Error>
+    where
+        V: Clone + Send + Sync + Unpin,
+        Z: Catamorphism<V>,
+        F: Fn(&V) -> u64,
+        P: AsRef<Path>,
+{
+    // A bit of code duplication compared to build_arena_tree
+    let mut arena = ArenaCompactTree::<FileDumper>::open(path)?;
+    let map_val = &map_val;
+    let root = zipper.into_cata_jumping_side_effect_fallible::<Node, std::io::Error, _>(|bm, children, jump, v, path| {
+        let mut first_child: Option<NodeId> = None;
+        for child in children.iter() {
+            let id = arena.push(child)?;
+            first_child = first_child.or(Some(id));
+        }
+        let mut node = NodeBranch::empty();
+        node.bytemask = ByteMask::from(*bm);
+        if let Some(child) = first_child {
+            node.first_child = Some(child);
+        }
+        node.value = v.map(map_val);
+        if jump == 0 {
+            return Ok(Node::Branch(node));
+        }
+
+        let mut line = NodeLine::empty();
+        line.path = arena.add_path(&path[path.len() - jump..])?;
+
+        if !children.is_empty() {
+            first_child = Some(arena.push(&Node::Branch(node))?);
+        } else {
+            line.value = v.map(map_val);
+        }
+
+        line.child = first_child;
+        Ok(Node::Line(line))
+    })?;
+
+    let _root_id = arena.set_root(&root)?;
+    arena.finalize().unwrap();
+    Ok(arena)
 }
 
 /*
