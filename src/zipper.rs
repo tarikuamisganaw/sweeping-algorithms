@@ -1510,7 +1510,7 @@ pub(crate) mod read_zipper_core {
         fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) {
             if self.prefix_buf.capacity() < path_len {
                 let was_unallocated = self.prefix_buf.capacity() == 0;
-                self.prefix_buf = Vec::with_capacity(path_len);
+                self.prefix_buf.reserve(path_len.saturating_sub(self.prefix_buf.len()));
                 if was_unallocated {
                     self.prefix_buf.extend(unsafe{ self.origin_path.as_slice_unchecked() });
                 }
