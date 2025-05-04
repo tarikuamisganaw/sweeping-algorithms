@@ -1113,6 +1113,11 @@ where Storage: AsRef<[u8]>
         core::slice::from_raw_parts(self.path.as_ptr(), len)
     }
 
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) {
+        self.path.reserve(path_len.saturating_sub(self.path.len()));
+        self.stack.reserve(stack_depth.saturating_sub(self.stack.len()));
+    }
+
     fn prepare_buffers(&mut self) {
     }
 }
@@ -1158,7 +1163,7 @@ where Storage: AsRef<[u8]>
         if head & VALUE_FLAG == 0 {
             return None;
         }
-        let mut pos = 1;
+        let pos = 1;
         let slice_ref: &[u8; 9] = data[pos..pos+9].try_into().unwrap();
         Some(ValueSlice::from_ref(slice_ref))
     }
@@ -1574,22 +1579,6 @@ where Storage: AsRef<[u8]>
     fn to_prev_sibling_byte(&mut self) -> bool {
         self.to_sibling(false)
     }
-}
-
-impl<'tree, Storage> ZipperIteration<'tree, ValueSlice> for ACTZipper<'tree, Storage>
-where Storage: AsRef<[u8]>
-{
-    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
-    /// order
-    ///
-    /// Returns a reference to the value or `None` if the zipper has encountered the root.
-    fn to_next_val(&mut self) -> Option<&'tree ValueSlice> {
-        if !self.to_next_step() {
-            None
-        } else {
-            self.get_value()
-        }
-    }
 
     /// Advances the zipper to visit every existing path within the trie in a depth-first order
     ///
@@ -1625,6 +1614,22 @@ where Storage: AsRef<[u8]>
             }
         }
     }
+}
+
+impl<'tree, Storage> ZipperIteration<'tree, ValueSlice> for ACTZipper<'tree, Storage>
+where Storage: AsRef<[u8]>
+{
+    /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
+    /// order
+    ///
+    /// Returns a reference to the value or `None` if the zipper has encountered the root.
+    fn to_next_val(&mut self) -> Option<&'tree ValueSlice> {
+        if !self.to_next_step() {
+            None
+        } else {
+            self.get_value()
+        }
+    }
 
     /// Descends the zipper's focus `k`` bytes, following the first child at each branch, and continuing
     /// with depth-first exploration until a path that is `k` bytes from the focus has been found
@@ -1658,7 +1663,7 @@ where Storage: AsRef<[u8]>
 
 #[cfg(test)]
 mod tests {
-    use super::{ArenaCompactTree};
+    use super::ArenaCompactTree;
     use crate::{
         morphisms::Catamorphism,
         zipper::{ZipperIteration, ZipperMoving},
