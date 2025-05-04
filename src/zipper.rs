@@ -2344,6 +2344,12 @@ pub(crate) mod zipper_moving_tests {
                 }
 
                 #[test]
+                fn [<$z_name _zipper_with_root_path>]() {
+                    let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_WITH_ROOT_PATH_KEYS);
+                    crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, crate::zipper::zipper_moving_tests::ZIPPER_WITH_ROOT_PATH_PATH, crate::zipper::zipper_moving_tests::zipper_with_root_path)
+                }
+
+                #[test]
                 fn [<$z_name _zipper_indexed_bytes_test1>]() {
                     let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_INDEXED_BYTE_TEST1_KEYS);
                     crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, &[], crate::zipper::zipper_moving_tests::zipper_indexed_bytes_test1)
@@ -2515,6 +2521,55 @@ pub(crate) mod zipper_moving_tests {
         assert!(zipper.ascend(1));
         // ' < a < u
         // 39 105 117
+    }
+
+    pub const ZIPPER_WITH_ROOT_PATH_KEYS: &[&[u8]] = &[b"romane", b"romanus", b"romulus", b"rubens", b"ruber", b"rubicon", b"rubicundus", b"rom'i"];
+    pub const ZIPPER_WITH_ROOT_PATH_PATH: &[u8] = b"ro";
+
+    /// Tests creating a zipper at a specific key within a map
+    pub fn zipper_with_root_path<Z: ZipperMoving>(mut zipper: Z) {
+
+        //Test `descend_to` and `ascend_until`
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.child_count(), 1);
+        zipper.descend_to(b"m");
+        assert_eq!(zipper.path(), b"m");
+        assert_eq!(zipper.child_count(), 3);
+        zipper.descend_to(b"an");
+        assert_eq!(zipper.path(), b"man");
+        assert_eq!(zipper.child_count(), 2);
+        zipper.descend_to(b"e");
+        assert_eq!(zipper.path(), b"mane");
+        assert_eq!(zipper.child_count(), 0);
+        assert_eq!(zipper.ascend_until(), true);
+        zipper.descend_to(b"us");
+        assert_eq!(zipper.path(), b"manus");
+        assert_eq!(zipper.child_count(), 0);
+        assert_eq!(zipper.ascend_until(), true);
+        assert_eq!(zipper.path(), b"man");
+        assert_eq!(zipper.child_count(), 2);
+        assert_eq!(zipper.ascend_until(), true);
+        assert_eq!(zipper.path(), b"m");
+        assert_eq!(zipper.child_count(), 3);
+        assert_eq!(zipper.ascend_until(), true);
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.at_root(), true);
+        assert_eq!(zipper.ascend_until(), false);
+
+        //Test `ascend`
+        zipper.descend_to(b"manus");
+        assert_eq!(zipper.path(), b"manus");
+        assert_eq!(zipper.ascend(1), true);
+        assert_eq!(zipper.path(), b"manu");
+        assert_eq!(zipper.ascend(5), false);
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.at_root(), true);
+        zipper.descend_to(b"mane");
+        assert_eq!(zipper.path(), b"mane");
+        assert_eq!(zipper.ascend(3), true);
+        assert_eq!(zipper.path(), b"m");
+        assert_eq!(zipper.child_count(), 3);
     }
 
     // A wide shallow trie
@@ -3025,58 +3080,6 @@ mod tests {
         |btm: &mut BytesTrieMap<()>, path: &[u8]| -> ReadZipperOwned<()> {
             core::mem::take(btm).into_read_zipper(path)
     });
-
-    /// Tests creating a read zipper at a specific key within a map
-    #[test]
-    fn zipper_with_starting_key() {
-        let mut btm = BytesTrieMap::new();
-        let rs = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
-
-        //Test `descend_to` and `ascend_until`
-        let root_key = b"ro";
-        let mut zipper = ReadZipperCore::new_with_node_and_path(btm.root().unwrap().borrow(), root_key, Some(root_key.len()), None);
-        assert_eq!(zipper.path(), b"");
-        assert_eq!(zipper.child_count(), 1);
-        zipper.descend_to(b"m");
-        assert_eq!(zipper.path(), b"m");
-        assert_eq!(zipper.child_count(), 3);
-        zipper.descend_to(b"an");
-        assert_eq!(zipper.path(), b"man");
-        assert_eq!(zipper.child_count(), 2);
-        zipper.descend_to(b"e");
-        assert_eq!(zipper.path(), b"mane");
-        assert_eq!(zipper.child_count(), 0);
-        assert_eq!(zipper.ascend_until(), true);
-        zipper.descend_to(b"us");
-        assert_eq!(zipper.path(), b"manus");
-        assert_eq!(zipper.child_count(), 0);
-        assert_eq!(zipper.ascend_until(), true);
-        assert_eq!(zipper.path(), b"man");
-        assert_eq!(zipper.child_count(), 2);
-        assert_eq!(zipper.ascend_until(), true);
-        assert_eq!(zipper.path(), b"m");
-        assert_eq!(zipper.child_count(), 3);
-        assert_eq!(zipper.ascend_until(), true);
-        assert_eq!(zipper.path(), b"");
-        assert_eq!(zipper.child_count(), 1);
-        assert_eq!(zipper.at_root(), true);
-        assert_eq!(zipper.ascend_until(), false);
-
-        //Test `ascend`
-        zipper.descend_to(b"manus");
-        assert_eq!(zipper.path(), b"manus");
-        assert_eq!(zipper.ascend(1), true);
-        assert_eq!(zipper.path(), b"manu");
-        assert_eq!(zipper.ascend(5), false);
-        assert_eq!(zipper.path(), b"");
-        assert_eq!(zipper.at_root(), true);
-        zipper.descend_to(b"mane");
-        assert_eq!(zipper.path(), b"mane");
-        assert_eq!(zipper.ascend(3), true);
-        assert_eq!(zipper.path(), b"m");
-        assert_eq!(zipper.child_count(), 3);
-    }
 
     /// Tests the integrity of values accessed through [ZipperReadOnlyValues::get_value]
     #[test]
