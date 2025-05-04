@@ -1135,6 +1135,18 @@ impl ValueSlice {
     }
 }
 
+impl AsRef<()> for ValueSlice {
+    fn as_ref(&self) -> &() {
+        &()
+    }
+}
+
+impl AsRef<ValueSlice> for ValueSlice {
+    fn as_ref(&self) -> &ValueSlice {
+        self
+    }
+}
+
 impl core::fmt::Debug for ValueSlice {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> std::fmt::Result {
         let value = read_varint_u64(&self.0).0;
@@ -1339,7 +1351,7 @@ where Storage: AsRef<[u8]>
         if zipper.is_value() {
             count += 1;
         }
-        while zipper.to_next_val().is_some() {
+        while <ACTZipper<'_, Storage> as ZipperIteration<'_, ValueSlice>>::to_next_val(&mut zipper, ).is_some() {
             count += 1;
         }
         count
@@ -1616,18 +1628,18 @@ where Storage: AsRef<[u8]>
     }
 }
 
-impl<'tree, Storage> ZipperIteration<'tree, ValueSlice> for ACTZipper<'tree, Storage>
-where Storage: AsRef<[u8]>
+impl<'tree, V, Storage> ZipperIteration<'tree, V> for ACTZipper<'tree, Storage>
+where Storage: AsRef<[u8]>, ValueSlice: AsRef<V>
 {
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order
     ///
     /// Returns a reference to the value or `None` if the zipper has encountered the root.
-    fn to_next_val(&mut self) -> Option<&'tree ValueSlice> {
+    fn to_next_val(&mut self) -> Option<&'tree V> {
         if !self.to_next_step() {
             None
         } else {
-            self.get_value()
+            self.get_value().map(|v| v.as_ref())
         }
     }
 
@@ -1663,12 +1675,28 @@ where Storage: AsRef<[u8]>
 
 #[cfg(test)]
 mod tests {
-    use super::ArenaCompactTree;
+    use super::{ArenaCompactTree, ACTZipper};
     use crate::{
-        morphisms::Catamorphism,
-        zipper::{ZipperIteration, ZipperMoving},
-        trie_map::BytesTrieMap,
+        arena_compact::ValueSlice, morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{zipper_iteration_tests, zipper_moving_tests, ZipperIteration, ZipperMoving}
     };
+
+    zipper_moving_tests::zipper_moving_tests!(arena_compact_zipper,
+        |keys: &[&[u8]]| {
+            let btm = keys.into_iter().map(|k| (k, ())).collect::<BytesTrieMap<()>>();
+            ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| 0)
+        },
+        |trie: &mut ArenaCompactTree<Vec<u8>>, path: &[u8]| -> ACTZipper<'_, Vec<u8>> {
+            trie.read_zipper()
+    });
+
+    zipper_iteration_tests::zipper_iteration_tests!(arena_compact_zipper,
+        |keys: &[&[u8]]| {
+            let btm = keys.into_iter().map(|k| (k, ())).collect::<BytesTrieMap<()>>();
+            ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| 0)
+        },
+        |trie: &mut ArenaCompactTree<Vec<u8>>, path: &[u8]| -> ACTZipper<'_, Vec<u8>> {
+            trie.read_zipper()
+    });
 
     const PATHS: &[&str] = &[
         "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus",
@@ -1692,7 +1720,7 @@ mod tests {
 
         loop {
             let btm_val = btm_zipper.to_next_val().copied();
-            let act_val = act_zipper.to_next_val().map(|v| v.value());
+            let act_val = act_zipper.to_next_val().map(|v: &ValueSlice| v.value());
 
             assert_eq!(btm_zipper.path(), act_zipper.path());
             assert_eq!(btm_val, act_val);
