@@ -259,6 +259,25 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     /// where the index passed is 1 less than the index of the current focus position.
     fn to_prev_sibling_byte(&mut self) -> bool;
 
+    /// Advances the zipper to visit every existing path within the trie in a depth-first order
+    ///
+    /// Returns `true` if the position of the zipper has moved, or `false` if the zipper has returned
+    /// to the root
+    fn to_next_step(&mut self) -> bool {
+
+        //If we're at a leaf ascend until we're not and jump to the next sibling
+        if self.child_count() == 0 {
+            //We can stop ascending when we succeed in moving to a sibling
+            while !self.to_next_sibling_byte() {
+                if !self.ascend_byte() {
+                    return false;
+                }
+            }
+        } else {
+            return self.descend_first_byte()
+        }
+        true
+    }
 }
 
 /// An interface to access values through a [Zipper] that cannot modify the trie.  Allows
@@ -287,12 +306,6 @@ pub trait ZipperIteration<'a, V>: ZipperMoving {
     ///
     /// Returns a reference to the value or `None` if the zipper has encountered the root.
     fn to_next_val(&mut self) -> Option<&'a V>;
-
-    /// Advances the zipper to visit every existing path within the trie in a depth-first order
-    ///
-    /// Returns `true` if the position of the zipper has moved, or `false` if the zipper has returned
-    /// to the root
-    fn to_next_step(&mut self) -> bool;
 
     /// Descends the zipper's focus `k`` bytes, following the first child at each branch, and continuing
     /// with depth-first exploration until a path that is `k` bytes from the focus has been found
@@ -481,6 +494,7 @@ impl<Z> ZipperMoving for &mut Z where Z: ZipperMoving + Zipper {
     fn to_sibling(&mut self, next: bool) -> bool { (**self).to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { (**self).to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { (**self).to_prev_sibling_byte() }
+    fn to_next_step(&mut self) -> bool { (**self).to_next_step() }
 }
 
 impl<Z> ZipperAbsolutePath for &mut Z where Z: ZipperAbsolutePath {
@@ -490,7 +504,6 @@ impl<Z> ZipperAbsolutePath for &mut Z where Z: ZipperAbsolutePath {
 
 impl<'a, V, Z> ZipperIteration<'a, V> for &mut Z where Z: ZipperIteration<'a, V> {
     fn to_next_val(&mut self) -> Option<&'a V> { (**self).to_next_val() }
-    fn to_next_step(&mut self) -> bool { (**self).to_next_step() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { (**self).descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { (**self).to_next_k_path(k) }
 }
@@ -595,6 +608,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperTracked<'_, '_, 
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
     fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
+    fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for ReadZipperTracked<'a, '_, V> {
@@ -638,7 +652,6 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZippe
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperTracked<'a, '_, V> {
     fn to_next_val(&mut self) -> Option<&'a V> { self.z.to_next_val() }
-    fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
 }
@@ -739,6 +752,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperUntracked<'_, '_
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
     fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
+    fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for ReadZipperUntracked<'a, '_, V> {
@@ -782,7 +796,6 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZippe
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperUntracked<'a, '_, V> {
     fn to_next_val(&mut self) -> Option<&'a V> { self.z.to_next_val() }
-    fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
 }
@@ -932,6 +945,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperOwned<V> {
     fn ascend_byte(&mut self) -> bool { self.z.ascend_byte() }
     fn ascend_until(&mut self) -> bool { self.z.ascend_until() }
     fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
+    fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for ReadZipperOwned<V> where Self: 'a {
@@ -975,7 +989,6 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZippe
 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperOwned<V> {
     fn to_next_val(&mut self) -> Option<&'a V> { self.z.to_next_val() }
-    fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
 }
@@ -1669,21 +1682,6 @@ pub(crate) mod read_zipper_core {
                     }
                 }
             }
-        }
-        fn to_next_step(&mut self) -> bool {
-
-            //If we're at a leaf ascend until we're not and jump to the next sibling
-            if self.child_count() == 0 {
-                //We can stop ascending when we succeed in moving to a sibling
-                while !self.to_next_sibling_byte() {
-                    if !self.ascend_byte() {
-                        return false;
-                    }
-                }
-            } else {
-                return self.descend_first_byte()
-            }
-            true
         }
         fn descend_first_k_path(&mut self, k: usize) -> bool {
             self.prepare_buffers();
