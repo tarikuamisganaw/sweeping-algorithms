@@ -2326,6 +2326,7 @@ impl<'a> SliceOrLen<'a> {
     }
 }
 
+/// Implements tests that apply to all [ZipperMoving] types
 #[cfg(test)]
 pub(crate) mod zipper_moving_tests {
     use crate::trie_map::*;
@@ -2368,6 +2369,23 @@ pub(crate) mod zipper_moving_tests {
                     crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, crate::zipper::zipper_moving_tests::zipper_ascend_until_test2)
                 }
 
+                #[test]
+                fn [<$z_name _indexed_zipper_movement1>]() {
+                    let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_INDEXED_MOVEMENT_TEST1_KEYS);
+                    crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, crate::zipper::zipper_moving_tests::indexed_zipper_movement1)
+                }
+
+                #[test]
+                fn [<$z_name _zipper_value_locations>]() {
+                    let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_VALUE_LOCATIONS_TEST1_KEYS);
+                    crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, crate::zipper::zipper_moving_tests::zipper_value_locations)
+                }
+
+                #[test]
+                fn [<$z_name _zipper_child_mask_test1>]() {
+                    let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_CHILD_MASK_TEST1_KEYS);
+                    crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, crate::zipper::zipper_moving_tests::zipper_child_mask_test1)
+                }
             }
         }
     }
@@ -2547,6 +2565,83 @@ pub(crate) mod zipper_moving_tests {
         assert!(!zip.ascend_until());
     }
 
+    pub const ZIPPER_INDEXED_MOVEMENT_TEST1_KEYS: &[&[u8]] = &[b"arrow", b"bow", b"cannon", b"romane", b"romanus", b"romulus", b"rubens", b"ruber", b"rubicon", b"rubicundus", b"rom'i"];
+
+    pub fn indexed_zipper_movement1<Z: ZipperMoving>(mut zipper: Z) {
+        //descends a single specific byte using `descend_indexed_branch`. Just for testing. A real user would use `descend_towards`
+        fn descend_byte<Z: Zipper + ZipperMoving>(zipper: &mut Z, byte: u8) {
+            for i in 0..zipper.child_count() {
+                assert_eq!(zipper.descend_indexed_branch(i), true);
+                if *zipper.path().last().unwrap() == byte {
+                    break
+                } else {
+                    assert_eq!(zipper.ascend(1), true);
+                }
+            }
+        }
+
+        assert_eq!(zipper.path(), b"");
+        assert_eq!(zipper.child_count(), 4);
+        descend_byte(&mut zipper, b'r');
+        assert_eq!(zipper.path(), b"r");
+        assert_eq!(zipper.child_count(), 2);
+        assert_eq!(zipper.descend_until(), false);
+        descend_byte(&mut zipper, b'o');
+        assert_eq!(zipper.path(), b"ro");
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.descend_until(), true);
+        assert_eq!(zipper.path(), b"rom");
+        assert_eq!(zipper.child_count(), 3);
+
+        zipper.reset();
+        assert_eq!(zipper.descend_until(), false);
+        descend_byte(&mut zipper, b'a');
+        assert_eq!(zipper.path(), b"a");
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.descend_until(), true);
+        assert_eq!(zipper.path(), b"arrow");
+        assert_eq!(zipper.child_count(), 0);
+
+        assert_eq!(zipper.ascend(3), true);
+        assert_eq!(zipper.path(), b"ar");
+        assert_eq!(zipper.child_count(), 1);
+    }
+
+    pub const ZIPPER_VALUE_LOCATIONS_TEST1_KEYS: &[&[u8]] = &[b"arrow", b"bow", b"cannon", b"roman", b"romane", b"romanus", b"romulus", b"rubens", b"ruber", b"rubicon", b"rubicundus", b"rom'i"];
+
+    pub fn zipper_value_locations<Z: ZipperMoving>(mut zipper: Z) {
+
+        assert!(zipper.descend_to(b"ro"));
+        assert_eq!(zipper.is_value(), false);
+        zipper.descend_to(b"mulus");
+        assert_eq!(zipper.is_value(), true);
+
+        zipper.reset();
+        assert!(zipper.descend_to(b"roman"));
+        assert_eq!(zipper.is_value(), true);
+        zipper.descend_to(b"e");
+        assert_eq!(zipper.is_value(), true);
+        assert_eq!(zipper.ascend(1), true);
+        zipper.descend_to(b"u");
+        assert_eq!(zipper.is_value(), false);
+        zipper.descend_until();
+        assert_eq!(zipper.is_value(), true);
+    }
+
+    pub const ZIPPER_CHILD_MASK_TEST1_KEYS: &[&[u8]] = &[&[8, 194, 1, 45, 194, 1], &[34, 193]];
+
+    pub fn zipper_child_mask_test1<Z: ZipperMoving>(mut zipper: Z) {
+
+        assert_eq!(zipper.descend_to(&[8, 194, 1]), true);
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.child_mask(), [0x200000000000, 0, 0, 0]);
+
+        zipper.reset();
+        assert_eq!(zipper.descend_to(&[8, 194, 1, 45]), true);
+        assert_eq!(zipper.child_count(), 1);
+        assert_eq!(zipper.child_mask(), [0, 0, 0, 0x4]);
+    }
+
 }
 
 #[cfg(test)]
@@ -2562,6 +2657,16 @@ mod tests {
         },
         |btm: &mut BytesTrieMap<()>| -> ReadZipperUntracked<()> {
             btm.read_zipper()
+    });
+
+    super::zipper_moving_tests::zipper_moving_tests!(read_zipper_owned,
+        |keys: &[&[u8]]| {
+            let mut btm = BytesTrieMap::new();
+            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            btm
+        },
+        |btm: &mut BytesTrieMap<()>| -> ReadZipperOwned<()> {
+            core::mem::take(btm).into_read_zipper([])
     });
 
     /// Tests creating a read zipper at a specific key within a map
@@ -2616,53 +2721,7 @@ mod tests {
         assert_eq!(zipper.child_count(), 3);
     }
 
-    #[test]
-    fn indexed_zipper_movement() {
-        let mut btm = BytesTrieMap::new();
-        let rs = ["arrow", "bow", "cannon", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
-        let mut zipper = btm.read_zipper();
-
-        //descends a single specific byte using `descend_indexed_branch`. Just for testing. A real user would use `descend_towards`
-        fn descend_byte<Z: Zipper + ZipperMoving>(zipper: &mut Z, byte: u8) {
-            for i in 0..zipper.child_count() {
-                assert_eq!(zipper.descend_indexed_branch(i), true);
-                if *zipper.path().last().unwrap() == byte {
-                    break
-                } else {
-                    assert_eq!(zipper.ascend(1), true);
-                }
-            }
-        }
-
-        assert_eq!(zipper.path(), b"");
-        assert_eq!(zipper.child_count(), 4);
-        descend_byte(&mut zipper, b'r');
-        assert_eq!(zipper.path(), b"r");
-        assert_eq!(zipper.child_count(), 2);
-        assert_eq!(zipper.descend_until(), false);
-        descend_byte(&mut zipper, b'o');
-        assert_eq!(zipper.path(), b"ro");
-        assert_eq!(zipper.child_count(), 1);
-        assert_eq!(zipper.descend_until(), true);
-        assert_eq!(zipper.path(), b"rom");
-        assert_eq!(zipper.child_count(), 3);
-
-        zipper.reset();
-        assert_eq!(zipper.descend_until(), false);
-        descend_byte(&mut zipper, b'a');
-        assert_eq!(zipper.path(), b"a");
-        assert_eq!(zipper.child_count(), 1);
-        assert_eq!(zipper.descend_until(), true);
-        assert_eq!(zipper.path(), b"arrow");
-        assert_eq!(zipper.child_count(), 0);
-
-        assert_eq!(zipper.ascend(3), true);
-        assert_eq!(zipper.path(), b"ar");
-        assert_eq!(zipper.child_count(), 1);
-
-    }
-
+    /// Tests the integrity of values accessed through [ZipperReadOnlyValues::get_value]
     #[test]
     fn zipper_value_access() {
         let mut btm = BytesTrieMap::new();
@@ -2690,25 +2749,6 @@ mod tests {
         zipper.descend_until();
         assert_eq!(zipper.is_value(), true);
         assert_eq!(zipper.get_value(), Some(&"romanus"));
-    }
-
-    #[test]
-    fn zipper_child_mask_test() {
-        let keys = vec![
-            vec![8, 194, 1, 45, 194, 1],
-            vec![34, 193],
-        ];
-        let map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
-        let mut zipper = map.read_zipper();
-
-        assert_eq!(zipper.descend_to(&[8, 194, 1]), true);
-        assert_eq!(zipper.child_count(), 1);
-        assert_eq!(zipper.child_mask(), [0x200000000000, 0, 0, 0]);
-
-        zipper.reset();
-        assert_eq!(zipper.descend_to(&[8, 194, 1, 45]), true);
-        assert_eq!(zipper.child_count(), 1);
-        assert_eq!(zipper.child_mask(), [0, 0, 0, 0x4]);
     }
 
     #[test]
