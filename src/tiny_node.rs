@@ -11,9 +11,8 @@ use core::mem::MaybeUninit;
 use core::fmt::{Debug, Formatter};
 use std::collections::HashMap;
 
-use crate::utils::ByteMask;
+use crate::utils::{ByteMask, find_prefix_overlap};
 use crate::trie_node::*;
-use crate::line_list_node::find_prefix_overlap;
 use crate::ring::*;
 
 /// A borrowed reference to a payload with a key stored elsewhere, contained in 16 Bytes

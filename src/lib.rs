@@ -40,7 +40,7 @@ mod zipper_head;
 
 /// Used for creating random paths, tries, and zipper movements
 #[cfg(feature = "fuzzer")]
-mod fuzzer;
+pub mod fuzzer;
 
 /// Features to inspect performance properties of trees, for optimizing
 #[cfg(feature = "counters")]

@@ -478,3 +478,65 @@ fn bit_utils_test() {
     assert_eq!(mask.test_bit(b'n'), true);
     assert_eq!(mask.test_bit(b't'), false);
 }
+
+#[inline(always)]
+fn count_shared_bare(a: &[u8], b: &[u8]) -> usize {
+    let mut cnt = 0;
+    loop {
+        if cnt == a.len() {break}
+        if cnt == b.len() {break}
+        if unsafe{ a.get_unchecked(cnt) != b.get_unchecked(cnt) } {break}
+        cnt += 1;
+    }
+    cnt
+}
+
+const PAGE_SIZE: usize = 4096;
+
+#[inline(always)]
+unsafe fn same_page<'a, const VECTOR_SIZE: usize>(slice: &'a [u8]) -> bool {
+    let address = slice.as_ptr() as usize;
+    // Mask to keep only the last 12 bits
+    let offset_within_page = address & (PAGE_SIZE - 1);
+    // Check if the 16/32/64th byte from the current offset exceeds the page boundary
+    offset_within_page < PAGE_SIZE - VECTOR_SIZE
+}
+
+#[cfg(target_feature="avx2")]
+#[inline(always)]
+fn count_shared_avx2<'a, 'b>(p: &'a [u8], q: &'b [u8]) -> usize {
+    use core::arch::x86_64::*;
+    unsafe {
+        let pl = p.len();
+        let ql = q.len();
+        let max_shared = pl.min(ql);
+        if max_shared == 0 { return 0 }
+        if same_page::<32>(p) && same_page::<32>(q) {
+            let pv = _mm256_loadu_si256(p.as_ptr() as _);
+            let qv = _mm256_loadu_si256(q.as_ptr() as _);
+            let ev = _mm256_cmpeq_epi8(pv, qv);
+            let ne = !(_mm256_movemask_epi8(ev) as u32);
+            if ne == 0 && max_shared > 32 {
+                32 + count_shared_avx2(&p[32..], &q[32..])
+            } else {
+                (_tzcnt_u32(ne) as usize).min(max_shared)
+            }
+        } else {
+            count_shared_bare(p, q)
+        }
+    }
+}
+
+/// Returns the number of characters shared between two slices
+#[cfg(target_feature="avx2")]
+#[inline]
+pub(crate) fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+    count_shared_avx2(a, b)
+}
+
+/// Returns the number of characters shared between two slices
+#[cfg(not(target_feature="avx2"))]
+#[inline]
+pub(crate) fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+    count_shared_bare(a, b)
+}
