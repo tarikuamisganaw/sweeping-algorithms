@@ -169,10 +169,11 @@ pub fn ratios<T : Clone>(ep: impl IntoIterator<Item=(T, usize)>) -> Categorical<
 }
 
 #[derive(Clone)]
-pub struct Repeated<ByteD : Distribution<u8>> { length: usize, bd: ByteD }
-impl <ByteD : Distribution<u8>> Distribution<Vec<u8>> for Repeated<ByteD> {
-  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Vec<u8> {
-    Vec::from_iter(std::iter::repeat_with(|| self.bd.sample(rng)).take(self.length))
+pub struct Repeated<T, LengthD : Distribution<usize>, ItemD : Distribution<T>> { lengthd: LengthD, itemd: ItemD, pd: PhantomData<T> }
+impl <T, LengthD : Distribution<usize>, ItemD : Distribution<T>> Distribution<Vec<T>> for Repeated<T, LengthD, ItemD> {
+  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Vec<T> {
+    let l = self.lengthd.sample(rng);
+    Vec::from_iter(std::iter::repeat_with(|| self.itemd.sample(rng)).take(l))
   }
 }
 
@@ -243,7 +244,7 @@ impl <T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntrack
   }
 }
 fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Categorical<u8, Uniform<usize>> {
-  let bm = ByteMask(rz.child_mask());
+  let bm = rz.child_mask();
   Categorical{ elements: bm.iter().collect(), ed: Uniform::try_from(0..bm.count_bits()).unwrap() }
 }
 
@@ -279,7 +280,7 @@ impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&Re
   }
 }
 fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Choice2<u8, Categorical<u8, Uniform<usize>>, T, Degenerate<T>, Degenerate<bool>> {
-  let bm = ByteMask(rz.child_mask());
+  let bm = rz.child_mask();
   let options: Vec<u8> = bm.iter().collect();
   let noptions = options.len();
   Choice2 {
@@ -294,9 +295,10 @@ fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> C
 #[cfg(test)]
 mod tests {
   use std::hint::black_box;
+  use std::time::Instant;
   use rand::rngs::StdRng;
   use rand::SeedableRng;
-  use rand_distr::{Triangular, Uniform};
+  use rand_distr::{Exp, Normal, Triangular, Uniform};
   use crate::fuzzer::*;
   use crate::ring::Lattice;
   use crate::zipper::ZipperSubtries;
@@ -304,8 +306,8 @@ mod tests {
   #[test]
   fn fixed_length() {
     let mut rng = StdRng::from_seed([0; 32]);
-    let path_fuzzer = Repeated { length: 3, bd: Categorical { elements: "abcd".as_bytes().to_vec(),
-      ed: Uniform::try_from(0..4).unwrap() } };
+    let path_fuzzer = Repeated { lengthd: Degenerate{ element: 3 }, itemd: Categorical { elements: "abcd".as_bytes().to_vec(),
+      ed: Uniform::try_from(0..4).unwrap() }, pd: PhantomData::default() };
     let trie_fuzzer = UniformTrie { size: 10, pd: path_fuzzer, vd: Degenerate{ element: () }, ph: PhantomData::default() };
     let trie = trie_fuzzer.sample(&mut rng);
     let res = ["aaa", "aac", "bba", "bdd", "cbb", "cbd", "dab", "dac", "dca"];
