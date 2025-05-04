@@ -712,8 +712,8 @@ mod tests {
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>| -> _ {
-            ProductZipper::new::<_, TrieRef<()>, _>(btm.read_zipper(), [])
+        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> _ {
+            ProductZipper::new::<_, TrieRef<()>, _>(btm.read_zipper_at_path(path), [])
     });
 }
 
