@@ -33,7 +33,18 @@ pub trait TrieNode<V>: TrieNodeDowncast<V> + DynClone + core::fmt::Debug + Send 
     ///
     /// This method should never be called with a zero-length key.  If the `key` arg is longer than the
     /// keys contained within the node, this method should return `false`
-    fn node_contains_partial_key(&self, key: &[u8]) -> bool;
+    fn node_contains_partial_key(&self, key: &[u8]) -> bool {
+        self.node_key_overlap(key) == key.len()
+    }
+
+    /// Returns the number of bytes in `key` that overlap a key contained within the node, irrespective
+    /// of what the contained key specifies
+    ///
+    /// For example, this method should return `2` when called on a node that contains the key "telephone",
+    /// with the argument "test".
+    ///
+    /// This method should never be called with a zero-length key.
+    fn node_key_overlap(&self, key: &[u8]) -> usize;
 
     /// Returns the child node that matches `key` along with the number of `key` characters matched.
     /// Returns `None` if no child node matches the key, even if there is a value with that prefix
@@ -767,6 +778,18 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V>,
         }
     }
+    #[inline]
+    pub fn node_key_overlap(&self, key: &[u8]) -> usize {
+        match self {
+            Self::DenseByteNode(node) => node.node_key_overlap(key),
+            Self::LineListNode(node) => node.node_key_overlap(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.node_key_overlap(key),
+            Self::TinyRefNode(node) => node.node_key_overlap(key),
+            Self::CellByteNode(node) => node.node_key_overlap(key),
+            Self::EmptyNode => 0
+        }
+    }
     pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         match self {
             Self::DenseByteNode(node) => node.node_contains_partial_key(key),
@@ -876,7 +899,17 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
     // #[cfg(feature = "counters")]
     // fn item_count(&self) -> usize;
 
-    // fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize>;
+    pub fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize> {
+        match self {
+            Self::DenseByteNode(node) => node.node_first_val_depth_along_key(key),
+            Self::LineListNode(node) => node.node_first_val_depth_along_key(key),
+            #[cfg(feature = "bridge_nodes")]
+            Self::BridgeNode(node) => node.node_first_val_depth_along_key(key),
+            Self::TinyRefNode(node) => node.node_first_val_depth_along_key(key),
+            Self::CellByteNode(node) => node.node_first_val_depth_along_key(key),
+            Self::EmptyNode => None,
+        }
+    }
 
     pub fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&'a dyn TrieNode<V>>) {
         match self {

@@ -34,6 +34,7 @@ graft_root_vals = [] # Enables an experimental change in behavior that causes `g
 arena_compact = ["dep:memmap2"]
 
 [dev-dependencies]
+paste = "1.0"
 divan = "0.1.14"
 serde = { version = "1.0.163", features = ["derive"]}
 csv = "1.1.6"

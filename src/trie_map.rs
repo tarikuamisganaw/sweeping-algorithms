@@ -78,8 +78,15 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     }
 
     /// Creates a new empty map
+    #[inline]
     pub const fn new() -> Self {
         Self::new_with_root(None, None)
+    }
+
+    /// Creates a new single-element pathmap
+    #[inline]
+    pub fn single<P: AsRef<[u8]>>(path: P, val: V) -> Self {
+        Self::from((path, val))
     }
 
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
@@ -174,7 +181,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     }
 
     /// Creates a new read-only [Zipper], starting at the root of a `BytesTrieMap`
-    pub fn read_zipper(&self) -> ReadZipperUntracked<V> {
+    pub fn read_zipper<'a>(&'a self) -> ReadZipperUntracked<'a, 'static, V> {
         self.ensure_root();
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();
         #[cfg(debug_assertions)]
@@ -488,6 +495,14 @@ impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> FromIterator<(K, V)> for By
         for (key, val) in iter {
             map.insert(key, val);
         }
+        map
+    }
+}
+
+impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> From<(K, V)> for BytesTrieMap<V> {
+    fn from(pair: (K, V)) -> Self {
+        let mut map = Self::new();
+        map.insert(pair.0, pair.1);
         map
     }
 }

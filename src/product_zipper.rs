@@ -76,6 +76,11 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
             self.source_zippers.push(Box::new(other_z));
         }
     }
+    /// Reserves a path buffer of at least `len` bytes.  Will never shrink the path buffer
+    pub fn reserve_path_buffer(&mut self, reserve_len: usize) {
+        const AVG_BYTES_PER_NODE: usize = 8;
+        self.reserve_buffers(reserve_len, (reserve_len / AVG_BYTES_PER_NODE) + 1);
+    }
     #[inline]
     fn has_next_factor(&mut self) -> bool {
         self.factor_paths.len() < self.secondaries.len()
@@ -298,6 +303,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ProductZipper<'
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ProductZipper<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ProductZipper<'_, '_, V> {
@@ -699,6 +705,16 @@ mod tests {
             assert_eq!(moving_pz.child_mask(), fresh_pz.child_mask());
         })
     }
+
+    crate::zipper::zipper_moving_tests::zipper_moving_tests!(product_zipper,
+        |keys: &[&[u8]]| {
+            let mut btm = BytesTrieMap::new();
+            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            btm
+        },
+        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> _ {
+            ProductZipper::new::<_, TrieRef<()>, _>(btm.read_zipper_at_path(path), [])
+    });
 }
 
 //POSSIBLE FUTURE DIRECTION:

@@ -188,6 +188,8 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
     fn read_zipper_at_borrowed_path<'a, 'path>(&'a self, path: &'path[u8]) -> Result<ReadZipperTracked<'a, 'path, V>, Conflict> where 'trie: 'a {
         let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)?;
         self.with_inner_core_z(|z| {
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: I am effectively taking items bound by `z`'s lifetime and lifting them up to the `'trie`
             // lifetime.  We need to do this because the ZipperHead internally uses a WriteZipper, which must
@@ -200,6 +202,8 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
     }
     unsafe fn read_zipper_at_borrowed_path_unchecked<'a, 'path>(&'a self, path: &'path[u8]) -> ReadZipperUntracked<'a, 'path, V> where 'trie: 'a {
         self.with_inner_core_z(|z| {
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: The user is asserting that the paths won't conflict.
             // See identical code in `read_zipper_at_borrowed_path` for more discussion
@@ -222,6 +226,8 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
         let path = path.as_ref();
         let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)?;
         self.with_inner_core_z(|z| {
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: See identical code in `read_zipper_at_borrowed_path` for more discussion
             let root_node: &'trie dyn TrieNode<V> = unsafe{ core::mem::transmute(root_node) };
@@ -233,6 +239,8 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
     unsafe fn read_zipper_at_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> ReadZipperUntracked<'a, 'static, V> where 'trie: 'a {
         let path = path.as_ref();
         self.with_inner_core_z(|z| {
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: The user is asserting that the paths won't conflict.
             // See identical code in `read_zipper_at_borrowed_path` for more discussion
@@ -299,6 +307,10 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
 /// 4. The target path is the zipper focus
 fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin>(z: &'a mut WriteZipperCore<V>, path: &[u8]) -> (&'a mut TrieNodeODRc<V>, &'a mut Option<V>)
 {
+    //If we end up taking write zipper from the ZipperHead's root, we leave the focus_stack in an
+    // undescended root state, so we need to fix it.
+    z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+
     let node_key_start = z.key.node_key_start();
 
     //CASE 1
@@ -311,8 +323,6 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin>(z: &'a mut W
         let stack_root = z.focus_stack.root_mut().unwrap();
         make_cell_node(stack_root);
         let root_val = z.root_val.as_mut().unwrap();
-        //UGH!  Fixing this means we need a drop impl on the ZipperHead!!
-        // z.focus_stack.advance_from_root(|root| Some(root.make_mut()));
         return (stack_root, root_val)
     }
 
