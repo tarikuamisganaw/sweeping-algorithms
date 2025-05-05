@@ -101,14 +101,13 @@ use std::{io::Write, hash::Hasher};
 /// This tradeoff is in favor of interface simplicity and lower runtime cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeId(u64);
-pub const INVALID_NODE: NodeId = NodeId(!0);
 
 /// The identifier of line data (essentially, `&[u8]`)
 ///
 /// See documentation of [NodeId] for the note about safety
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LineId(u64);
-pub const INVALID_LINE: LineId = LineId(!0);
+const INVALID_LINE: LineId = LineId(!0);
 
 /// Maximum node size:
 /// 1 byte header + 9 byte first child + 9 byte value + 32 child mask
@@ -953,7 +952,7 @@ struct StackFrame {
     node_id: NodeId,
     child_count: usize,
     child_index: usize,
-    next_id: NodeId,
+    next_id: Option<NodeId>,
     node_depth: usize,
 }
 impl StackFrame {
@@ -962,7 +961,7 @@ impl StackFrame {
             node_id,
             child_count: node.child_count(),
             child_index: 0,
-            next_id: INVALID_NODE,
+            next_id: None,
             node_depth: 0,
         }
     }
@@ -976,6 +975,7 @@ where Storage: AsRef<[u8]>
     stack: Vec<StackFrame>,
     path: Vec<u8>,
     origin_depth: usize,
+    origin_node_depth: usize,
     pub invalid: usize,
 }
 
@@ -983,13 +983,17 @@ impl<'tree, Storage> Clone for  ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
     fn clone(&self) -> Self {
-        let Self { tree, cur_node, stack, path, origin_depth, invalid } = self;
+        let Self {
+            tree, cur_node, stack, path,
+            origin_depth, origin_node_depth, invalid
+        } = self;
         Self {
             tree,
             cur_node: cur_node.clone(),
             stack: stack.clone(),
             path: path.clone(),
             origin_depth: *origin_depth,
+            origin_node_depth: *origin_node_depth,
             invalid: *invalid,
         }
     }
@@ -1001,6 +1005,13 @@ where Storage: AsRef<[u8]>
     #[inline]
     pub fn read_zipper<'tree>(&'tree self) -> ACTZipper<'tree, Storage> {
         ACTZipper::from_tree(self)
+    }
+
+    #[inline]
+    pub fn read_zipper_at_path<'tree>(&'tree self, path: &[u8]) -> ACTZipper<'tree, Storage> {
+        let mut rz = ACTZipper::from_tree(self);
+        rz.descend_to(path);
+        rz.with_root_here()
     }
 }
 
@@ -1015,8 +1026,20 @@ where Storage: AsRef<[u8]>
             path: Vec::new(),
             invalid: 0,
             origin_depth: 0,
+            origin_node_depth: 0,
             stack: Vec::from([stack_frame]),
         }
+    }
+
+    fn with_root_here(mut self) -> Self {
+        self.origin_depth = self.path.len();
+        if self.stack.len() > 1 {
+            let last = self.stack.len() - 1;
+            self.stack.swap(0, last);
+            self.stack.truncate(1);
+        }
+        self.origin_node_depth = self.stack[0].node_depth;
+        self
     }
 }
 
@@ -1185,8 +1208,14 @@ where Storage: AsRef<[u8]>
         let mut moved = false;
         if self.invalid > 0 {
             moved = true;
-            self.path.truncate(self.path.len() - self.invalid);
-            self.invalid = 0;
+            let invalid_cut = (self.path.len() - self.origin_depth)
+                .min(self.invalid);
+            self.path.truncate(self.path.len() - invalid_cut);
+            self.invalid = self.invalid - invalid_cut;
+            if self.invalid > 0 {
+                return false;
+            }
+
             match &self.cur_node {
                 Node::Line(line) => {
                     if need_value && line.value.is_some() {
@@ -1202,7 +1231,8 @@ where Storage: AsRef<[u8]>
         }
         while let Some(top_frame) = self.stack.last_mut() {
             let mut nchildren = top_frame.child_count;
-            let mut this_steps = top_frame.node_depth;
+            let mut this_steps = top_frame.node_depth
+                .min(self.path.len() - self.origin_depth);
             top_frame.node_depth = 0;
             moved |= this_steps > 0;
             if self.stack.len() > 1 {
@@ -1221,7 +1251,7 @@ where Storage: AsRef<[u8]>
                 }
                 _ => false,
             };
-            if brk || self.path.is_empty() {
+            if brk || self.at_root() {
                 break;
             }
         }
@@ -1248,7 +1278,7 @@ where Storage: AsRef<[u8]>
                     frame.node_depth += common - line_child_hack;
                     self.path.extend_from_slice(&rest_path[..common]);
                     if on_value && descended > 0 && line.value.is_some() {
-                        return descended;
+                        break 'descend;
                     }
                     if common < rest_path.len() {
                         break 'descend;
@@ -1261,20 +1291,23 @@ where Storage: AsRef<[u8]>
                 }
                 Node::Branch(node) => {
                     if on_value && descended > 0 && node.value.is_some() {
-                        return descended;
+                        break 'descend;
+                    }
+                    if !node.bytemask.test_bit(path[0]) {
+                        break 'descend;
                     }
                     let idx = node.bytemask.index_of(path[0]) as usize;
                     let frame = self.stack.last_mut().unwrap();
-                    let ((node, next_id), node_id) = if frame.next_id != INVALID_NODE && frame.child_index + 1 == idx {
+                    let ((node, next_id), node_id) = if frame.next_id.is_some() && frame.child_index + 1 == idx {
                         // Optimization: if we know the exact next node, descend
-                        (self.tree.get_node(frame.next_id), frame.next_id)
+                        (self.tree.get_node(frame.next_id.unwrap()), frame.next_id.unwrap())
                     } else {
                         let (node, node_id, next_id) = self.tree
                             .nth_node(node.first_child.unwrap(), idx);
                         ((node, next_id), node_id)
                     };
                     frame.child_index = idx;
-                    frame.next_id = next_id;
+                    frame.next_id = Some(next_id);
                     self.stack.push(StackFrame::from(&node, node_id));
                     self.cur_node = node;
                     self.path.push(path[0]);
@@ -1284,7 +1317,7 @@ where Storage: AsRef<[u8]>
             }
         }
         descended
-    } 
+    }
 }
 
 impl<'tree, Storage> ZipperValues<ValueSlice> for ACTZipper<'tree, Storage>
@@ -1296,7 +1329,7 @@ where Storage: AsRef<[u8]>
     }
 
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        self.clone()
+        self.clone().with_root_here()
     }
 }
 
@@ -1333,13 +1366,19 @@ impl<'tree, Storage> ZipperMoving for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
     /// Returns `true` if the zipper cannot ascend further, otherwise returns `false`
-    fn at_root(&self) -> bool { self.path.len() == 0 }
+    fn at_root(&self) -> bool { self.path.len() <= self.origin_depth }
 
     /// Resets the zipper's focus back to the root
-    fn reset(&mut self) { *self = Self::from_tree(self.tree); }
+    fn reset(&mut self) {
+        // self.ascend(self.path.len() - self.origin_depth);
+        self.path.truncate(self.origin_depth);
+        self.cur_node = self.tree.get_node(self.stack[0].node_id).0;
+        self.stack.truncate(1);
+        self.stack[0].node_depth = self.origin_node_depth;
+    }
 
     /// Returns the path from the zipper's root to the current focus
-    fn path(&self) -> &[u8] { &self.path }
+    fn path(&self) -> &[u8] { &self.path[self.origin_depth..] }
 
     /// Returns the total number of values contained at and below the zipper's focus, including the focus itself
     ///
@@ -1419,7 +1458,7 @@ where Storage: AsRef<[u8]>
                 let top_frame = self.stack.last_mut().unwrap();
                 let path = self.tree.get_line(line.path);
                 let rest_path = &path[top_frame.node_depth..];
-                if idx != 0 {
+                if idx != 0 || rest_path.is_empty() {
                     return false;
                 }
                 self.path.push(rest_path[0]);
@@ -1437,8 +1476,8 @@ where Storage: AsRef<[u8]>
                 }
                 let byte = node.bytemask.indexed_bit::<true>(idx);
                 if let Some(byte) = byte {
-                    if top_frame.child_index + 1 == idx {
-                        child_id = Some(top_frame.next_id);
+                    if top_frame.next_id.is_some() && top_frame.child_index + 1 == idx {
+                        child_id = top_frame.next_id;
                     } else {
                         let first_child = node.first_child.unwrap();
                         child_id = Some(self.tree.nth_node(first_child, idx).1);
@@ -1451,7 +1490,7 @@ where Storage: AsRef<[u8]>
             let top_frame = self.stack.last_mut().unwrap();
             let (node, next_id) = self.tree.get_node(child_id);
             top_frame.child_index = idx;
-            top_frame.next_id = next_id;
+            top_frame.next_id = Some(next_id);
             self.stack.push(StackFrame::from(&node, child_id));
             self.cur_node = node;
         }
@@ -1470,9 +1509,9 @@ where Storage: AsRef<[u8]>
     /// moved otherwise returns `false`
     fn descend_until(&mut self) -> bool {
         self.trace_pos();
-        let start = self.path.len();
-        'descend: loop {
-            let mut child_id = None;
+        let mut descended = false;
+        'descend: while self.child_count() == 1 {
+            let child_id;
             match &self.cur_node {
                 Node::Line(line) => {
                     let top_frame = self.stack.last_mut().unwrap();
@@ -1481,10 +1520,9 @@ where Storage: AsRef<[u8]>
                     let line_child_hack = if line.child.is_some() { 1 } else { 0 };
                     top_frame.node_depth += rest_path.len() - line_child_hack;
                     self.path.extend_from_slice(rest_path);
-                    if let Some(line_child) = line.child {
-                        child_id = Some(line_child);
-                    }
+                    child_id = line.child;
                     if line.value.is_some() {
+                        descended = true;
                         break 'descend;
                     }
                 }
@@ -1495,11 +1533,12 @@ where Storage: AsRef<[u8]>
                     child_id = node.first_child;
                 }
             }
+            descended = true;
             if let Some(child_id) = child_id {
                 let top_frame = self.stack.last_mut().unwrap();
                 let (node, next_id) = self.tree.get_node(child_id);
                 top_frame.child_index = 0;
-                top_frame.next_id = next_id;
+                top_frame.next_id = Some(next_id);
                 let frame = StackFrame::from(&node, child_id);
                 let nchildren = frame.child_count;
                 self.stack.push(frame);
@@ -1511,7 +1550,7 @@ where Storage: AsRef<[u8]>
                 }
             }
         }
-        self.path.len() > start
+        descended
     }
 
     /// Ascends the zipper `steps` steps.  Returns `true` if the zipper sucessfully moved `steps`
@@ -1524,7 +1563,8 @@ where Storage: AsRef<[u8]>
         self.invalid -= invalid;
         steps -= invalid;
         while let Some(top_frame) = self.stack.last_mut() {
-            let mut this_steps = steps.min(top_frame.node_depth);
+            let rest_path = &self.path[self.origin_depth..];
+            let mut this_steps = steps.min(top_frame.node_depth).min(rest_path.len());
             top_frame.node_depth -= this_steps;
             steps -= this_steps;
             if top_frame.node_depth == 0 && self.stack.len() > 1 && steps > 0 {
@@ -1535,7 +1575,7 @@ where Storage: AsRef<[u8]>
                 steps -= 1;
             }
             self.path.truncate(self.path.len() - this_steps);
-            if self.path.is_empty() || steps == 0 {
+            if self.at_root() || steps == 0 {
                 return steps == 0 && this_steps > 0;
             }
         }
@@ -1592,40 +1632,8 @@ where Storage: AsRef<[u8]>
         self.to_sibling(false)
     }
 
-    /// Advances the zipper to visit every existing path within the trie in a depth-first order
-    ///
-    /// Returns `true` if the position of the zipper has moved to a value, or `false` if the zipper has returned
-    /// to the root
-    fn to_next_step(&mut self) -> bool {
-        if self.invalid > 0 {
-            // do not iterate on invalid paths
-            return false;
-        }
-        loop {
-            // first, attempt to descend to value
-            while self.descend_until() {
-                if self.is_value() {
-                    return true;
-                }
-            }
-            let mut frame_mut = self.stack.last_mut().unwrap();
-            // if we're at a leaf, ascend to nearest non-visited branch
-            while frame_mut.child_count <= frame_mut.child_index + 1 {
-                // if we're ascending at root, bail
-                if !self.ascend_until_branch() {
-                    return false;
-                }
-                frame_mut = self.stack.last_mut().unwrap();
-            }
-            let next_child = frame_mut.child_index + 1;
-            // descend into the next child
-            assert!(self.descend_indexed_branch(next_child));
-            // if we happen to land on a value, visit it
-            if self.is_value() {
-                return true;
-            }
-        }
-    }
+    // default
+    // fn to_next_step(&mut self) -> bool;
 }
 
 impl<'tree, V, Storage> ZipperIteration<'tree, V> for ACTZipper<'tree, Storage>
@@ -1636,11 +1644,12 @@ where Storage: AsRef<[u8]>, ValueSlice: AsRef<V>
     ///
     /// Returns a reference to the value or `None` if the zipper has encountered the root.
     fn to_next_val(&mut self) -> Option<&'tree V> {
-        if !self.to_next_step() {
-            None
-        } else {
-            self.get_value().map(|v| v.as_ref())
+        while self.to_next_step()  {
+            if let Some(val) = self.get_value() {
+                return Some(val).map(|v| v.as_ref());
+            }
         }
+        None
     }
 
     /// Descends the zipper's focus `k`` bytes, following the first child at each branch, and continuing
@@ -1653,8 +1662,14 @@ where Storage: AsRef<[u8]>, ValueSlice: AsRef<V>
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [to_next_k_path](ZipperIteration::to_next_k_path)
-    fn descend_first_k_path(&mut self, _k: usize) -> bool {
-        todo!()
+    fn descend_first_k_path(&mut self, k: usize) -> bool {
+        for ii in 0..k {
+            if !self.descend_first_byte() {
+                self.ascend(ii);
+                return false;
+            }
+        }
+        return true;
     }
 
     /// Moves the zipper's focus to the next location with the same path length as the current focus,
@@ -1668,8 +1683,36 @@ where Storage: AsRef<[u8]>, ValueSlice: AsRef<V>
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [descend_first_k_path](ZipperIteration::descend_first_k_path)
-    fn to_next_k_path(&mut self, _k: usize) -> bool {
-        todo!()
+    fn to_next_k_path(&mut self, k: usize) -> bool {
+        let mut depth = k;
+        'outer: loop {
+            while depth > 0 && self.child_count() <= 1 {
+                if !self.ascend(1) {
+                    break 'outer;
+                }
+                depth -= 1;
+            }
+            let stack = self.stack.last_mut().unwrap();
+            let idx = stack.child_index + 1;
+            if idx >= stack.child_count {
+                if depth == 0 || !self.ascend(1) {
+                    break 'outer;
+                }
+                depth -= 1;
+                continue 'outer;
+            }
+            assert!(self.descend_indexed_branch(idx));
+            depth += 1;
+            for _ii in 0..k - depth {
+                if !self.descend_first_byte() {
+                    continue 'outer;
+                }
+                depth += 1;
+            }
+            return true;
+        }
+        self.ascend(depth);
+        false
     }
 }
 
@@ -1683,20 +1726,22 @@ mod tests {
     zipper_moving_tests::zipper_moving_tests!(arena_compact_zipper,
         |keys: &[&[u8]]| {
             let btm = keys.into_iter().map(|k| (k, ())).collect::<BytesTrieMap<()>>();
-            ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| 0)
+            ArenaCompactTree::from_zipper(btm.read_zipper(), |&_v| 0)
         },
         |trie: &mut ArenaCompactTree<Vec<u8>>, path: &[u8]| -> ACTZipper<'_, Vec<u8>> {
-            trie.read_zipper()
-    });
+            trie.read_zipper_at_path(path)
+        }
+    );
 
     zipper_iteration_tests::zipper_iteration_tests!(arena_compact_zipper,
         |keys: &[&[u8]]| {
             let btm = keys.into_iter().map(|k| (k, ())).collect::<BytesTrieMap<()>>();
-            ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| 0)
+            ArenaCompactTree::from_zipper(btm.read_zipper(), |&_v| 0)
         },
         |trie: &mut ArenaCompactTree<Vec<u8>>, path: &[u8]| -> ACTZipper<'_, Vec<u8>> {
-            trie.read_zipper()
-    });
+            trie.read_zipper_at_path(path)
+        }
+    );
 
     const PATHS: &[&str] = &[
         "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus",
