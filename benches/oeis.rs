@@ -47,7 +47,7 @@ fn decode_seq(s: &[u8]) -> Vec<BigInt> {
 }
 
 fn load_sequences() -> Vec<Vec<u8>> {
-  let mut file = std::fs::File::open("/home/adam/Projects/PathMap/benches/oeis_stripped.txt")
+  let mut file = std::fs::File::open(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches").join("oeis_stripped.txt"))
     .expect("Should have been able to read the file");
   let mut s = String::new();
   file.read_to_string(&mut s).unwrap();
