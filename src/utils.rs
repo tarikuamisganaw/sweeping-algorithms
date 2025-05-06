@@ -24,6 +24,31 @@ impl ByteMask {
     pub fn iter(&self) -> ByteMaskIter {
         self.byte_mask_iter()
     }
+
+    /// Returns how many set bits precede the requested bit
+    pub fn index_of(&self, byte: u8) -> u8 {
+        if byte == 0 {
+            return 0;
+        }
+        let mut count = 0;
+        let mut active;
+        let mask = !0u64 >> (63 - ((byte - 1) & 0b00111111));
+        active = self.0[0];
+        'unroll: {
+            if byte <= 0x40 { break 'unroll }
+            count += active.count_ones();
+            active = self.0[1];
+            if byte <= 0x80 { break 'unroll }
+            count += active.count_ones();
+            active = self.0[2];
+            if byte <= 0xc0 { break 'unroll }
+            count += active.count_ones();
+            active = self.0[3];
+        }
+        count += (active & mask).count_ones();
+        count as u8
+    }
+
     /// Returns the byte corresponding to the `nth` set bit in the mask, counting forwards or backwards
     pub fn indexed_bit<const FORWARD: bool>(&self, idx: usize) -> Option<u8> {
         let mut i = if FORWARD { 0 } else { 3 };

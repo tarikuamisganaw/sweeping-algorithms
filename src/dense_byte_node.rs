@@ -93,26 +93,12 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     pub fn reserve_capacity(&mut self, additional: usize) {
         self.values.reserve(additional)
     }
-    #[inline]
-    fn left(&self, pos: u8) -> u8 {
-        if pos == 0 { return 0 }
-        let mut c = 0u8;
-        let m = !0u64 >> (63 - ((pos - 1) & 0b00111111));
-        if pos > 0b01000000 { c += self.mask.0[0].count_ones() as u8; }
-        else { return c + (self.mask.0[0] & m).count_ones() as u8 }
-        if pos > 0b10000000 { c += self.mask.0[1].count_ones() as u8; }
-        else { return c + (self.mask.0[1] & m).count_ones() as u8 }
-        if pos > 0b11000000 { c += self.mask.0[2].count_ones() as u8; }
-        else { return c + (self.mask.0[2] & m).count_ones() as u8 }
-        // println!("{} {:b} {} {}", pos, self.mask[3], m.count_ones(), c);
-        return c + (self.mask.0[3] & m).count_ones() as u8;
-    }
 
     /// Adds a new child at the specified key byte.  Replaces and returns an existing branch.
     /// Use [join_child_into] to join with the existing branch
     #[inline]
     pub fn set_child(&mut self, k: u8, node: TrieNodeODRc<V>) -> Option<TrieNodeODRc<V>> {
-        let ix = self.left(k) as usize;
+        let ix = self.mask.index_of(k) as usize;
         if self.mask.test_bit(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             cf.swap_rec(node)
@@ -128,7 +114,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     /// together
     #[inline]
     pub fn join_child_into(&mut self, k: u8, node: TrieNodeODRc<V>) -> AlgebraicStatus where V: Clone + Lattice {
-        let ix = self.left(k) as usize;
+        let ix = self.mask.index_of(k) as usize;
         if self.mask.test_bit(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             match cf.rec_mut() {
@@ -150,7 +136,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
 
     #[inline]
     pub fn set_val(&mut self, k: u8, val: V) -> Option<V> {
-        let ix = self.left(k) as usize;
+        let ix = self.mask.index_of(k) as usize;
         if self.mask.test_bit(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             cf.swap_val(val)
@@ -165,7 +151,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     pub fn remove_val(&mut self, k: u8) -> Option<V> {
         if self.mask.test_bit(k) {
-            let ix = self.left(k) as usize;
+            let ix = self.mask.index_of(k) as usize;
 
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             let result = cf.take_val();
@@ -183,7 +169,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     /// Similar in behavior to [set_val], but will join v with the existing value instead of replacing it
     #[inline]
     pub fn join_val_into(&mut self, k: u8, val: V) -> AlgebraicStatus where V: Lattice {
-        let ix = self.left(k) as usize;
+        let ix = self.mask.index_of(k) as usize;
         if self.mask.test_bit(k) {
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             match cf.val_mut() {
@@ -236,7 +222,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     fn remove(&mut self, k: u8) -> Option<Cf> {
         if self.mask.test_bit(k) {
-            let ix = self.left(k) as usize;
+            let ix = self.mask.index_of(k) as usize;
             let v = self.values.remove(ix);
             self.mask.clear_bit(k);
             return Some(v);
@@ -247,7 +233,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     fn get(&self, k: u8) -> Option<&Cf> {
         if self.mask.test_bit(k) {
-            let ix = self.left(k) as usize;
+            let ix = self.mask.index_of(k) as usize;
             // println!("pos ix {} {} {:b}", pos, ix, self.mask);
             unsafe { Some(self.values.get_unchecked(ix)) }
         } else {
@@ -258,7 +244,7 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     fn get_mut(&mut self, k: u8) -> Option<&mut Cf> {
         if self.mask.test_bit(k) {
-            let ix = self.left(k) as usize;
+            let ix = self.mask.index_of(k) as usize;
             unsafe { Some(self.values.get_unchecked_mut(ix)) }
         } else {
             None
@@ -272,14 +258,14 @@ impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
 
     #[inline]
     pub unsafe fn get_unchecked(&self, k: u8) -> &Cf {
-        let ix = self.left(k) as usize;
+        let ix = self.mask.index_of(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
         self.values.get_unchecked(ix)
     }
 
     #[inline]
     unsafe fn get_unchecked_mut(&mut self, k: u8) -> &mut Cf {
-        let ix = self.left(k) as usize;
+        let ix = self.mask.index_of(k) as usize;
         // println!("pos ix {} {} {:b}", pos, ix, self.mask);
         self.values.get_unchecked_mut(ix)
     }
@@ -497,7 +483,7 @@ impl<V: Clone + Send + Sync> CellByteNode<V> {
         match self.mask.test_bit(k) {
             true => {},
             false => {
-                let ix = self.left(k) as usize;
+                let ix = self.mask.index_of(k) as usize;
                 self.mask.set_bit(k);
                 let new_cf = CellCoFree::new(None, None);
                 self.values.insert(ix, new_cf);
@@ -846,7 +832,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         debug_assert_eq!(key.len(), 1);
         let k = key[0];
         if self.mask.test_bit(k) {
-            let ix = self.left(k) as usize;
+            let ix = self.mask.index_of(k) as usize;
             let cf = unsafe { self.values.get_unchecked_mut(ix) };
             match (cf.has_rec(), cf.has_val()) {
                 (true, true) => {
