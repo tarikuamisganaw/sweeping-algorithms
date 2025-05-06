@@ -124,12 +124,13 @@ fn binary_zipper_iter(bencher: Bencher, n: u64) {
     let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
     //Benchmark the zipper's iterator
-    let mut sink = 0;
     bencher.bench_local(|| {
+        let mut count = 0;
         let mut zipper = map.read_zipper();
-        while let Some(val) = zipper.to_next_val() {
-            *black_box(&mut sink) = *val
+        while zipper.to_next_val() {
+            count += 1;
         }
+        assert_eq!(count, n);
     });
 }
 
