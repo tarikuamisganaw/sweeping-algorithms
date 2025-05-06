@@ -1,4 +1,5 @@
 use divan::{Bencher, Divan};
+use pathmap::utils::find_prefix_overlap;
 use rand::prelude::StdRng;
 use rand_distr::{Exp, Triangular};
 use pathmap::fuzzer::*;
@@ -135,14 +136,14 @@ fn setup() -> Vec<(*const [u8], *const [u8])> {
 #[divan::bench()]
 fn common_prefix_reference(bencher: Bencher) {
     let pairs = setup(); 
-    
+
     pairs.iter().for_each(|(l, r)| {
         let l = unsafe { l.as_ref().unwrap() }; let r = unsafe { r.as_ref().unwrap() };
         let cnt = count_shared_reference(l, r);
         assert_eq!(&l[..cnt], &r[..cnt]);
         assert!(l.len() <= cnt || r.len() <= cnt || l[cnt] != r[cnt], "{l:?} {r:?} {:?}", cnt);
     });
-    println!("all tested reference");
+    // println!("all tested reference");
 
     bencher.bench_local(|| {
         pairs.iter().for_each(|(l, r)| {
@@ -152,6 +153,7 @@ fn common_prefix_reference(bencher: Bencher) {
     });
 }
 
+#[cfg(target_arch = "x86_64")]
 #[divan::bench()]
 fn common_prefix_sse2(bencher: Bencher) {
     let pairs = setup();
@@ -172,6 +174,7 @@ fn common_prefix_sse2(bencher: Bencher) {
     });
 }
 
+#[cfg(target_arch = "x86_64")]
 #[divan::bench()]
 fn common_prefix_avx2(bencher: Bencher) {
     let pairs = setup();
@@ -188,6 +191,25 @@ fn common_prefix_avx2(bencher: Bencher) {
         pairs.iter().for_each(|(l, r)| {
             let l = unsafe { l.as_ref().unwrap() }; let r = unsafe { r.as_ref().unwrap() };
             std::hint::black_box(count_shared_avx2(&l[..], &r[..]));
+        });
+    });
+}
+
+#[divan::bench()]
+fn common_prefix_default(bencher: Bencher) {
+    let pairs = setup();
+
+    pairs.iter().for_each(|(l, r)| {
+        let l = unsafe { l.as_ref().unwrap() }; let r = unsafe { r.as_ref().unwrap() };
+        let cnt = find_prefix_overlap(l, r);
+        assert_eq!(&l[..cnt], &r[..cnt]);
+        assert!(l.len() <= cnt || r.len() <= cnt || l[cnt] != r[cnt], "{l:?} {r:?} {:?}", cnt);
+    });
+
+    bencher.bench_local(|| {
+        pairs.iter().for_each(|(l, r)| {
+            let l = unsafe { l.as_ref().unwrap() }; let r = unsafe { r.as_ref().unwrap() };
+            std::hint::black_box(find_prefix_overlap(&l[..], &r[..]));
         });
     });
 }
