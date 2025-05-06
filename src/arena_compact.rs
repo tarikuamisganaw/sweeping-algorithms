@@ -398,7 +398,7 @@ where Storage: AsRef<[u8]>
     ///
     /// Returns a tuple of the read [Node] and next child [NodeId]
     /// The next child id is potentially invalid.
-    pub fn get_node(&self, node_id: NodeId) -> (Node, NodeId) {
+    fn get_node(&self, node_id: NodeId) -> (Node, NodeId) {
         let data = &self.storage.as_ref()[node_id.0 as usize..];
         let (node, off) = read_node(data);
         let next = NodeId(node_id.0 + off as u64);
@@ -408,7 +408,7 @@ where Storage: AsRef<[u8]>
     /// Read line data provided [LineId]
     ///
     /// Returns a byte slice of line data.
-    pub fn get_line(&self, line_id: LineId) -> &[u8] {
+    fn get_line(&self, line_id: LineId) -> &[u8] {
         let start = &self.storage.as_ref()[line_id.0 as usize..];
         let (len, off) = read_varint_u64(start);
         assert!(len != 0);
@@ -418,7 +418,7 @@ where Storage: AsRef<[u8]>
     /// Read root [Node]
     ///
     /// Returns root [Node], together with root's [NodeId].
-    pub fn get_root(&self) -> (Node, NodeId) {
+    fn get_root(&self) -> (Node, NodeId) {
         let root_slice = &self.storage.as_ref()[MAGIC_LENGTH..][..U64_SIZE];
         let root_buf: &[u8; U64_SIZE] = root_slice.try_into()
             .expect("buffer size must be U64_SIZE, we just made it this way");
@@ -777,12 +777,11 @@ fn build_arena_tree<V, Z, F>(zipper: Z, map_val: F) -> ArenaCompactTree<Vec<u8>>
             let id = arena.push_v(child);
             first_child = first_child.or(Some(id));
         }
-        let mut node = NodeBranch::empty();
-        node.bytemask = ByteMask::from(*bm);
-        if let Some(child) = first_child {
-            node.first_child = Some(child);
-        }
-        node.value = v.map(map_val);
+        let node = NodeBranch {
+            bytemask: ByteMask::from(*bm),
+            first_child,
+            value: v.map(map_val),
+        };
         if jump == 0 {
             return Node::Branch(node);
         }
@@ -903,12 +902,11 @@ fn dump_arena_tree<V, Z, F, P>(
             let id = arena.push(child)?;
             first_child = first_child.or(Some(id));
         }
-        let mut node = NodeBranch::empty();
-        node.bytemask = ByteMask::from(*bm);
-        if let Some(child) = first_child {
-            node.first_child = Some(child);
-        }
-        node.value = v.map(map_val);
+        let mut node = NodeBranch {
+            bytemask: ByteMask::from(*bm),
+            first_child,
+            value: v.map(map_val),
+        };
         if jump == 0 {
             return Ok(Node::Branch(node));
         }
@@ -1053,6 +1051,9 @@ where Storage: AsRef<[u8]>
 
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
     fn is_value(&self) -> bool {
+        if self.invalid > 0 {
+            return false;
+        }
         match &self.cur_node {
             Node::Branch(node) => {
                 node.value.is_some()
@@ -1073,6 +1074,9 @@ where Storage: AsRef<[u8]>
     ///
     /// Returns 0 if the focus is on a leaf
     fn child_count(&self) -> usize {
+        if self.invalid > 0 {
+            return 0;
+        }
         match &self.cur_node {
             Node::Branch(node) => {
                 node.bytemask.count_bits()
@@ -1093,6 +1097,9 @@ where Storage: AsRef<[u8]>
     ///
     /// Returns an empty mask if the focus is on a leaf or non-existent path
     fn child_mask(&self) -> ByteMask {
+        if self.invalid > 0 {
+            return ByteMask::EMPTY;
+        }
         match &self.cur_node {
             Node::Branch(node) => {
                 node.bytemask
@@ -1203,16 +1210,26 @@ where Storage: AsRef<[u8]>
         Some(ValueSlice::from_ref(slice_ref))
     }
 
+    fn ascend_invalid(&mut self, limit: Option<usize>) -> bool {
+        if self.invalid == 0 {
+            return true;
+        }
+        let len = self.path.len();
+        let mut invalid_cut = self.invalid.min(len - self.origin_depth);
+        if let Some(limit) = limit {
+            invalid_cut = invalid_cut.min(limit);
+        }
+        self.path.truncate(len - invalid_cut);
+        self.invalid = self.invalid - invalid_cut;
+        self.invalid == 0
+    }
+
     fn ascend_to_branch(&mut self, need_value: bool) -> bool {
         self.trace_pos();
         let mut moved = false;
         if self.invalid > 0 {
             moved = true;
-            let invalid_cut = (self.path.len() - self.origin_depth)
-                .min(self.invalid);
-            self.path.truncate(self.path.len() - invalid_cut);
-            self.invalid = self.invalid - invalid_cut;
-            if self.invalid > 0 {
+            if !self.ascend_invalid(None) {
                 return false;
             }
 
@@ -1260,6 +1277,9 @@ where Storage: AsRef<[u8]>
 
     fn descend_cond(&mut self, path: &[u8], on_value: bool) -> usize {
         self.trace_pos();
+        if self.invalid > 0 {
+            return 0;
+        }
         let mut descended = 0;
         let mut path = path.as_ref();
         'descend: while !path.is_empty() {
@@ -1559,9 +1579,9 @@ where Storage: AsRef<[u8]>
     /// the root and return `false`
     fn ascend(&mut self, mut steps: usize) -> bool {
         self.trace_pos();
-        let invalid = steps.min(self.invalid);
-        self.invalid -= invalid;
-        steps -= invalid;
+        if !self.ascend_invalid(Some(steps)) {
+            return false;
+        }
         while let Some(top_frame) = self.stack.last_mut() {
             let rest_path = &self.path[self.origin_depth..];
             let mut this_steps = steps.min(top_frame.node_depth).min(rest_path.len());
