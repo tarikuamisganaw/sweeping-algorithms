@@ -3,7 +3,7 @@
 use libz_ng_sys::*;
 use crate::trie_map::BytesTrieMap;
 use crate::TrieValue;
-use crate::zipper::{ZipperIteration, ZipperWriting};
+use crate::zipper::{ZipperReadOnlyIteration, ZipperWriting};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SerializationStats {
@@ -18,13 +18,13 @@ pub struct DeserializationStats {
   pub path_count : usize
 }
 
-pub fn serialize_paths_<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::io::Write>(rz: RZ, target: &mut W) -> std::io::Result<SerializationStats> {
+pub fn serialize_paths_<'a, V : TrieValue, RZ : ZipperReadOnlyIteration<'a, V>, W: std::io::Write>(rz: RZ, target: &mut W) -> std::io::Result<SerializationStats> {
   serialize_paths(rz, target, |_, _, _| {})
 }
 /// Serialize all paths in under path `k`
 /// Warning: the size of the individual path serialization can be double exponential in the size of the BytesTrieMap
 /// Returns the target output, total serialized bytes (uncompressed), and total number of paths
-pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::io::Write, F: FnMut(usize, &[u8], &V) -> ()>(mut rz: RZ, target: &mut W, mut fv: F) -> std::io::Result<SerializationStats> {
+pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperReadOnlyIteration<'a, V>, W: std::io::Write, F: FnMut(usize, &[u8], &V) -> ()>(mut rz: RZ, target: &mut W, mut fv: F) -> std::io::Result<SerializationStats> {
   const CHUNK: usize = 4096; // not tuned yet
   let mut buffer = [0u8; CHUNK];
   #[allow(invalid_value)] //Squish the warning about a Null function ptr, because zlib uses a default allocator if the the ptr is NULL
@@ -33,7 +33,7 @@ pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperIteration<'a, V>, W: std::i
   if ret != Z_OK { panic!("init failed") }
 
   let mut total_paths : usize = 0;
-  while let Some(v) = rz.to_next_val() {
+  while let Some(v) = rz.to_next_get_value() {
     let p = rz.path();
     fv(total_paths, p, v);
     let l = p.len();
@@ -199,12 +199,12 @@ mod test {
             println!("de {} {} {}", c, bw, pw);
 
             let mut lrz = restored_btm.read_zipper();
-            while let Some(_) = lrz.to_next_val() {
+            while lrz.to_next_val() {
               assert!(btm.contains(lrz.path()), "{}", std::str::from_utf8(lrz.path()).unwrap());
             }
 
             let mut rrz = btm.read_zipper();
-            while let Some(_) = rrz.to_next_val() {
+            while rrz.to_next_val() {
               assert!(restored_btm.contains(rrz.path()));
             }
           }
@@ -238,12 +238,12 @@ mod test {
               println!("de {} {} {}", c, bw, pw);
 
               let mut lrz = restored_btm.read_zipper();
-              while let Some(_) = lrz.to_next_val() {
+              while lrz.to_next_val() {
                 assert!(btm.contains(lrz.path()), "{}", std::str::from_utf8(lrz.path()).unwrap());
               }
 
               let mut rrz = btm.read_zipper();
-              while let Some(_) = rrz.to_next_val() {
+              while rrz.to_next_val() {
                 assert!(restored_btm.contains(rrz.path()));
               }
             }
@@ -274,12 +274,12 @@ mod test {
             println!("de {} {} {}", c, bw, pw);
 
             let mut lrz = restored_btm.read_zipper();
-            while let Some(v) = lrz.to_next_val() {
+            while let Some(v) = lrz.to_next_get_value() {
               assert_eq!(btm.get(lrz.path()), Some(v));
             }
 
             let mut rrz = btm.read_zipper();
-            while let Some(v) = rrz.to_next_val() {
+            while let Some(v) = rrz.to_next_get_value() {
               assert_eq!(restored_btm.get(rrz.path()), Some(v));
             }
           }

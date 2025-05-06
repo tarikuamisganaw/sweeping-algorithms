@@ -16,9 +16,10 @@ mutcursor = {version = "0.4"}
 num-traits = "0.2"
 tikv-jemallocator = {version = "0.6.0", optional = true}
 gxhash = {version="3.4.1", git="https://github.com/luketpeterson/gxhash/"} # for dag_serialization
-libz-ng-sys = "1.1.21" # for any serialzation
+libz-ng-sys = "1" # for any serialzation
 rand_distr = { version = "0.5.1", optional = true }
 rand = { version = "0.9.0", optional = true }
+memmap2 = { version="0.9.5", optional = true }
 
 [features]
 default = ["graft_root_vals"]
@@ -30,6 +31,7 @@ bridge_nodes = [] # Enable the experimental BridgeNode type.  Incompatible with 
 fuzzer = ["dep:rand", "dep:rand_distr"]  # Used for creating random paths, tries, and zipper movements
 counters = [] # Enable features to inspect performance properties of tries.  Mainly useful when tuning performance of the PathMap internals.
 graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
+arena_compact = ["dep:memmap2"]
 
 [dev-dependencies]
 paste = "1.0"
@@ -39,6 +41,7 @@ csv = "1.1.6"
 num = "0.4.3"
 rand_distr = { version = "0.5.1" }
 rand = { version = "0.9.0" }
+tempfile = "3.19.1"
 
 [[bench]]
 name = "superdense_keys"

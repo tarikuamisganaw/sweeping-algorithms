@@ -180,13 +180,14 @@ fn superdense_zipper_cursor(bencher: Bencher, n: u64) {
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
 
-    //Benchmark the cursor
-    let mut sink = 0;
+    //Benchmark using the the zipper as a cursor
     bencher.bench_local(|| {
+        let mut count = 0;
         let mut zipper = map.read_zipper();
-        while let Some(val) = zipper.to_next_val() {
-            *black_box(&mut sink) = *val
+        while zipper.to_next_val() {
+            count += 1;
         }
+        assert_eq!(count, n);
     });
 }
 
@@ -203,7 +204,7 @@ fn from_prefix_key(k: Vec<u8>) -> u64 {
     u64::from_le_bytes(buf) & (!0u64 >> shift)
 }
 
-#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200])]
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200, 20_000])]
 fn superdense_val_count_bench(bencher: Bencher, n: u64) {
 
     let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
@@ -213,6 +214,25 @@ fn superdense_val_count_bench(bencher: Bencher, n: u64) {
     let mut sink = 0;
     bencher.bench_local(|| {
         *black_box(&mut sink) = map.val_count()
+    });
+    assert_eq!(sink, n as usize);
+}
+
+#[cfg(feature="arena_compact")]
+#[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200, 20_000])]
+fn superdense_val_count_bench_act(bencher: Bencher, n: u64) {
+    use pathmap::{
+        arena_compact::ArenaCompactTree,
+        zipper::ZipperMoving,
+    };
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n { map.insert(prefix_key(&i), i); }
+    let act = ArenaCompactTree::from_zipper(map.read_zipper(), |&v| v);
+    let zipper = act.read_zipper();
+    //Benchmark the time taken to count the number of values in the map
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = zipper.val_count();
     });
     assert_eq!(sink, n as usize);
 }

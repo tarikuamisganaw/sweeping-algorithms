@@ -232,13 +232,14 @@ fn sparse_zipper_cursor(bencher: Bencher, n: u64) {
     }).collect();
     let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
-    //Benchmark the zipper's iterator
-    let mut sink = 0;
+    //Benchmark using the zipper as a cursor
     bencher.bench_local(|| {
+        let mut count = 0;
         let mut zipper = map.read_zipper();
-        while let Some(val) = zipper.to_next_val() {
-            *black_box(&mut sink) = *val
+        while zipper.to_next_val() {
+            count += 1;
         }
+        assert_eq!(count, n);
     });
 }
 

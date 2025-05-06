@@ -120,6 +120,31 @@ fn cities_get(bencher: Bencher) {
     });
 }
 
+#[cfg(feature="arena_compact")]
+#[divan::bench()]
+fn cities_get_act(bencher: Bencher) {
+    use pathmap::arena_compact::ArenaCompactTree;
+
+    let pairs = read_data();
+    let mut map = BytesTrieMap::new();
+    for (k, v) in pairs.iter() {
+        map.insert(k, *v);
+    }
+    let act = ArenaCompactTree::from_zipper(map.read_zipper(), |&v| v as u64);
+    // let counters = pathmap::counters::Counters::count_ocupancy(&map);
+    // // counters.print_histogram_by_depth();
+    // counters.print_run_length_histogram();
+
+    let mut _map_v = 0;
+    bencher.bench_local(|| {
+        for (k, _v) in pairs.iter() {
+            *black_box(&mut _map_v) = act.get(k).unwrap();
+            //Annoyingly, we can't check for the correct value because so many places share a name
+            //assert_eq!(map.get(k), Some(&v));
+        }
+    });
+}
+
 #[divan::bench()]
 fn cities_val_count(bencher: Bencher) {
 
@@ -135,6 +160,30 @@ fn cities_val_count(bencher: Bencher) {
     let mut sink = 0;
     bencher.bench_local(|| {
         *black_box(&mut sink) = map.val_count();
+    });
+    assert_eq!(sink, unique_count);
+}
+
+#[cfg(feature="arena_compact")]
+#[divan::bench()]
+fn cities_val_count_act(bencher: Bencher) {
+    use pathmap::{
+        arena_compact::ArenaCompactTree,
+        zipper::ZipperMoving,
+    };
+    let pairs = read_data();
+    let mut map = BytesTrieMap::new();
+    let mut unique_count = 0;
+    for (k, v) in pairs.iter() {
+        if map.insert(k, *v).is_none() {
+            unique_count += 1;
+        }
+    }
+    let act = ArenaCompactTree::from_zipper(map.read_zipper(), |&v| v as u64);
+    let zipper = act.read_zipper();
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = zipper.val_count();
     });
     assert_eq!(sink, unique_count);
 }

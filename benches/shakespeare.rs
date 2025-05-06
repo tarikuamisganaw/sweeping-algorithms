@@ -163,3 +163,28 @@ fn shakespeare_sentences_val_count(bencher: Bencher) {
     });
     assert_eq!(sink, unique_count);
 }
+
+
+#[cfg(feature="arena_compact")]
+#[divan::bench()]
+fn shakespeare_sentences_val_count_act(bencher: Bencher) {
+    use pathmap::{
+        arena_compact::ArenaCompactTree,
+        zipper::ZipperMoving,
+    };
+    let strings = read_data(false);
+    let mut map = BytesTrieMap::new();
+    let mut unique_count = 0;
+    for (v, k) in strings.iter().enumerate() {
+        if map.insert(k, v).is_none() {
+            unique_count += 1;
+        }
+    }
+    let act = ArenaCompactTree::from_zipper(map.read_zipper(), |&v| v as u64);
+    let act_zipper = act.read_zipper();
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = act_zipper.val_count();
+    });
+    assert_eq!(sink, unique_count);
+}

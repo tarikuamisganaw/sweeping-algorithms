@@ -289,6 +289,21 @@ pub trait ZipperReadOnlyValues<'a, V>: ZipperValues<V> {
     fn get_value(&self) -> Option<&'a V>;
 }
 
+/// An interface to implement iterating over all values in a subtrie via a zipper
+pub trait ZipperReadOnlyIteration<'a, V>: ZipperReadOnlyValues<'a, V> + ZipperIteration {
+    /// Advances to the next value with behavior identical to [ZipperIteration::to_next_val], but returns
+    /// a reference to the value or `None` if the zipper has encountered the root
+    fn to_next_get_value(&mut self) -> Option<&'a V> {
+        if self.to_next_val() {
+            let val = self.get_value();
+            debug_assert!(val.is_some());
+            val
+        } else {
+            None
+        }
+    }
+}
+
 /// An interface to access subtries through a [Zipper] that cannot modify the trie.  Allows
 /// references with lifetimes that may outlive the zipper
 ///
@@ -300,12 +315,13 @@ pub trait ZipperReadOnlySubtries<'a, V>: ZipperSubtries<V> + ZipperReadOnlyPriv<
 
 /// An interface for advanced [Zipper] movements used for various types of iteration; such as iterating
 /// every value, or iterating all paths descending from a common root at a certain depth
-pub trait ZipperIteration<'a, V>: ZipperMoving {
+pub trait ZipperIteration: ZipperMoving {
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order
     ///
-    /// Returns a reference to the value or `None` if the zipper has encountered the root.
-    fn to_next_val(&mut self) -> Option<&'a V>;
+    /// Returns `true` if the zipper is positioned at the next value, or `false` if the zipper has
+    /// encountered the root.
+    fn to_next_val(&mut self) -> bool;
 
     /// Descends the zipper's focus `k`` bytes, following the first child at each branch, and continuing
     /// with depth-first exploration until a path that is `k` bytes from the focus has been found
@@ -467,6 +483,7 @@ pub(crate) mod zipper_priv {
     }
 }
 use zipper_priv::*;
+pub use zipper_priv::{ZipperMovingPriv, ZipperConcretePriv};
 
 impl<Z> Zipper for &mut Z where Z: Zipper {
     fn path_exists(&self) -> bool { (**self).path_exists() }
@@ -502,8 +519,8 @@ impl<Z> ZipperAbsolutePath for &mut Z where Z: ZipperAbsolutePath {
     fn root_prefix_path(&self) -> Option<&[u8]> { (**self).root_prefix_path() }
 }
 
-impl<'a, V, Z> ZipperIteration<'a, V> for &mut Z where Z: ZipperIteration<'a, V> {
-    fn to_next_val(&mut self) -> Option<&'a V> { (**self).to_next_val() }
+impl<Z> ZipperIteration for &mut Z where Z: ZipperIteration {
+    fn to_next_val(&mut self) -> bool { (**self).to_next_val() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { (**self).descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { (**self).to_next_k_path(k) }
 }
@@ -520,6 +537,10 @@ impl<V, Z> ZipperSubtries<V> for &mut Z where Z: ZipperSubtries<V> {
 
 impl<'a, V, Z> ZipperReadOnlyValues<'a, V> for &mut Z where Z: ZipperReadOnlyValues<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperValues<V> {
     fn get_value(&self) -> Option<&'a V> { (**self).get_value() }
+}
+
+impl<'a, V, Z> ZipperReadOnlyIteration<'a, V> for &mut Z where Z: ZipperReadOnlyIteration<'a, V>, Self: ZipperReadOnlyValues<'a, V> + ZipperIteration {
+    fn to_next_get_value(&mut self) -> Option<&'a V> { (**self).to_next_get_value() }
 }
 
 impl<'a, V, Z> ZipperReadOnlySubtries<'a, V> for &mut Z where Z: ZipperReadOnlySubtries<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperSubtries<V> {
@@ -650,10 +671,14 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZippe
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperTracked<'a, '_, V> {
-    fn to_next_val(&mut self) -> Option<&'a V> { self.z.to_next_val() }
+impl<V: Clone + Send + Sync + Unpin> ZipperIteration for ReadZipperTracked<'_, '_, V> {
+    fn to_next_val(&mut self) -> bool { self.z.to_next_val() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyIteration<'a, V> for ReadZipperTracked<'a, '_, V> {
+    fn to_next_get_value(&mut self) -> Option<&'a V> { self.z.to_next_get_value() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperTracked<'_, '_, V> {
@@ -794,10 +819,14 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZippe
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperUntracked<'a, '_, V> {
-    fn to_next_val(&mut self) -> Option<&'a V> { self.z.to_next_val() }
+impl<V: Clone + Send + Sync + Unpin> ZipperIteration for ReadZipperUntracked<'_, '_, V> {
+    fn to_next_val(&mut self) -> bool { self.z.to_next_val() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyIteration<'a, V> for ReadZipperUntracked<'a, '_, V> {
+    fn to_next_get_value(&mut self) -> Option<&'a V> { self.z.to_next_get_value() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperUntracked<'_, '_, V> {
@@ -987,10 +1016,14 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZippe
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperOwned<V> {
-    fn to_next_val(&mut self) -> Option<&'a V> { self.z.to_next_val() }
+impl<V: Clone + Send + Sync + Unpin> ZipperIteration for ReadZipperOwned<V> {
+    fn to_next_val(&mut self) -> bool { self.z.to_next_val() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
+}
+
+impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyIteration<'a, V> for ReadZipperOwned<V> {
+    fn to_next_get_value(&mut self) -> Option<&'a V> { self.z.to_next_get_value() }
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperOwned<V> {
@@ -1619,8 +1652,34 @@ pub(crate) mod read_zipper_core {
     //
     //Then I need to port all the iter() conveniences over to use that new method
 
-    impl<'a, V: Clone + Send + Sync + Unpin> ZipperIteration<'a, V> for ReadZipperCore<'a, '_, V> {
-        fn to_next_val(&mut self) -> Option<&'a V> {
+    impl<V: Clone + Send + Sync + Unpin> ZipperIteration for ReadZipperCore<'_, '_, V> {
+        fn to_next_val(&mut self) -> bool {
+            self.to_next_get_value().is_some()
+        }
+        fn descend_first_k_path(&mut self, k: usize) -> bool {
+            self.prepare_buffers();
+            debug_assert!(self.is_regularized());
+
+            let cur_tok = self.focus_node.iter_token_for_path(self.node_key());
+            self.focus_iter_token = cur_tok;
+
+            self.k_path_internal(k, self.prefix_buf.len())
+        }
+        fn to_next_k_path(&mut self, k: usize) -> bool {
+            let base_idx = if self.path_len() > k {
+                self.prefix_buf.len() - k
+            } else {
+                self.origin_path.len()
+            };
+            //De-regularize the zipper
+            debug_assert!(self.is_regularized());
+            self.deregularize();
+            self.k_path_internal(k, base_idx)
+        }
+    }
+
+    impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyIteration<'a, V> for ReadZipperCore<'a, '_, V> {
+        fn to_next_get_value(&mut self) -> Option<&'a V> {
             self.prepare_buffers();
             loop {
                 if self.focus_iter_token == NODE_ITER_INVALID {
@@ -1682,26 +1741,6 @@ pub(crate) mod read_zipper_core {
                     }
                 }
             }
-        }
-        fn descend_first_k_path(&mut self, k: usize) -> bool {
-            self.prepare_buffers();
-            debug_assert!(self.is_regularized());
-
-            let cur_tok = self.focus_node.iter_token_for_path(self.node_key());
-            self.focus_iter_token = cur_tok;
-
-            self.k_path_internal(k, self.prefix_buf.len())
-        }
-        fn to_next_k_path(&mut self, k: usize) -> bool {
-            let base_idx = if self.path_len() > k {
-                self.prefix_buf.len() - k
-            } else {
-                self.origin_path.len()
-            };
-            //De-regularize the zipper
-            debug_assert!(self.is_regularized());
-            self.deregularize();
-            self.k_path_internal(k, base_idx)
         }
     }
 
@@ -2216,7 +2255,7 @@ impl<'a, V: Clone + Send + Sync + Unpin> Iterator for ReadZipperIter<'a, '_, V> 
             }
         }
         if let Some(zipper) = &mut self.zipper {
-            match zipper.to_next_val() {
+            match zipper.to_next_get_value() {
                 Some(val) => return Some((zipper.path().to_vec(), val)),
                 None => self.zipper = None
             }
@@ -3142,7 +3181,7 @@ pub(crate) mod zipper_iteration_tests {
     pub(crate) use zipper_iteration_tests;
 
     /// Internal method to provide a lifetime bound on the macro arguments to the test macro
-    pub fn run_test<'a, T: 'a + ZipperIteration<'a, ()>, Store>(
+    pub fn run_test<'a, T: 'a + ZipperIteration, Store>(
         store: &'a mut Store,
         make_t: impl Fn(&'a mut Store, &[u8]) -> T,
         z_path: &[u8],
@@ -3155,13 +3194,13 @@ pub(crate) mod zipper_iteration_tests {
     pub const ZIPPER_ITER_TEST1_KEYS: &[&[u8]] = &[b"arrow", b"bow", b"cannon", b"rom'i", b"roman", b"romane", b"romanus", b"romulus", b"rubens", b"ruber", b"rubicon", b"rubicundus"];
 
     /// Simply calls `to_next_val` over the whole trie, ensuring all paths are visited exactly once
-    pub fn zipper_iter_test1<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn zipper_iter_test1<'a, Z: ZipperIteration>(mut zipper: Z) {
         let keys = ZIPPER_ITER_TEST1_KEYS;
 
         //Test iteration of the whole tree
         let mut idx = 0;
         assert_eq!(zipper.is_value(), false);
-        while let Some(_) = zipper.to_next_val() {
+        while zipper.to_next_val() {
             println!("{idx}  {}", std::str::from_utf8(zipper.path()).unwrap());
             assert_eq!(keys[idx], zipper.path());
             idx += 1;
@@ -3176,11 +3215,11 @@ pub(crate) mod zipper_iteration_tests {
         }).collect()
     }
 
-    pub fn zipper_iter_test2<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn zipper_iter_test2<'a, Z: ZipperIteration>(mut zipper: Z) {
 
         //Test iterating using a zipper that has a root that is not the map root
         let mut count: usize = 0;
-        while let Some(()) = zipper.to_next_val() {
+        while zipper.to_next_val() {
             assert_eq!(zipper.is_value(), true);
             assert_eq!(zipper.path(), count.to_be_bytes());
             count += 1;
@@ -3201,7 +3240,7 @@ pub(crate) mod zipper_iteration_tests {
         b":9:muckymuck:5:raker:",
     ];
 
-    pub fn k_path_test1<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test1<'a, Z: ZipperIteration>(mut zipper: Z) {
 
         //This is a cheesy way to encode lengths, but it's is more readable than unprintable chars
         assert!(zipper.descend_indexed_branch(0));
@@ -3253,7 +3292,7 @@ pub(crate) mod zipper_iteration_tests {
         }).collect()
     }
 
-    pub fn k_path_test2<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test2<'a, Z: ZipperIteration>(mut zipper: Z) {
 
         zipper.descend_first_k_path(5);
         let mut count = 1;
@@ -3265,7 +3304,7 @@ pub(crate) mod zipper_iteration_tests {
 
     pub const K_PATH_TEST3_KEYS: &[&[u8]] = &[b":1a1A", b":1a1B", b":1a1C", b":1b1A", b":1b1B", b":1b1C", b":1c1A"];
 
-    pub fn k_path_test3<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test3<'a, Z: ZipperIteration>(mut zipper: Z) {
 
         //Scan over the first symbols in the path (lower case letters)
         assert_eq!(zipper.descend_to(b"1"), true);
@@ -3388,7 +3427,7 @@ pub(crate) mod zipper_iteration_tests {
         &[192, 215, 69, 171, 218, 187, 202, 120, 92, 33, 14, 77, 34, 46, 40, 93, 135, 117, 152],
     ];
 
-    pub fn k_path_test4<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test4<'a, Z: ZipperIteration>(mut zipper: Z) {
 
         zipper.descend_first_k_path(5);
         let mut count = 1;
@@ -3408,7 +3447,7 @@ pub(crate) mod zipper_iteration_tests {
         &[3, 193, 4, 194, 1, 43, 3, 193, 34, 193],
     ];
 
-    pub fn k_path_test5<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test5<'a, Z: ZipperIteration>(mut zipper: Z) {
         assert!(zipper.descend_to(&[3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194]));
         assert_eq!(zipper.descend_first_k_path(2), true);
         assert_eq!(zipper.path(), &[3, 193, 4, 194, 1, 43, 3, 193, 8, 194, 1, 45, 194, 1, 46]);
@@ -3423,9 +3462,9 @@ pub(crate) mod zipper_iteration_tests {
 
     /// This tests the k_path methods in the context of using them recursively, to shake out
     /// bugs caused by invalidating the iter token
-    pub fn k_path_test6<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test6<'a, Z: ZipperIteration>(mut zipper: Z) {
 
-        fn test_loop<'a, Z: ZipperMoving + ZipperIteration<'a, ()>, AscendF: Fn(&mut Z, usize), DescendF: Fn(&mut Z, &[u8])>(zipper: &mut Z, descend_f: DescendF, ascend_f: AscendF) {
+        fn test_loop<'a, Z: ZipperMoving + ZipperIteration, AscendF: Fn(&mut Z, usize), DescendF: Fn(&mut Z, &[u8])>(zipper: &mut Z, descend_f: DescendF, ascend_f: AscendF) {
             zipper.reset();
 
             //L0 descent
@@ -3503,7 +3542,7 @@ pub(crate) mod zipper_iteration_tests {
     ];
 
     /// This uses the k_path methods to descend and then re-ascend a trie, one step at a time.
-    pub fn k_path_test7<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test7<'a, Z: ZipperIteration>(mut zipper: Z) {
         let keys = K_PATH_TEST7_KEYS;
 
         for i in 0..keys[0].len() {
@@ -3524,7 +3563,7 @@ pub(crate) mod zipper_iteration_tests {
     pub const K_PATH_TEST8_KEYS: &[&[u8]] = &[b"ABCDEFGHIJKLMNOPQRSTUVWXYZ", b"ab",];
 
     /// Tests `..k_path` after `descend_to_byte`
-    pub fn k_path_test8<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test8<'a, Z: ZipperIteration>(mut zipper: Z) {
 
         zipper.reset();
         assert_eq!(zipper.descend_to_byte(b'A'), true);
@@ -3541,7 +3580,7 @@ pub(crate) mod zipper_iteration_tests {
     ];
 
     /// Tests `..k_path` in a subtrie without attitional branches to descend, when the outer trie does have branches
-    pub fn k_path_test9<'a, Z: ZipperIteration<'a, ()>>(mut zipper: Z) {
+    pub fn k_path_test9<'a, Z: ZipperIteration>(mut zipper: Z) {
 
         zipper.reset();
         assert_eq!(zipper.descend_first_k_path(1), true);
@@ -3637,7 +3676,7 @@ mod tests {
         //Fork a sub-zipper, and test iteration of that subtree
         zipper.descend_to(b"rub");
         let mut sub_zipper = zipper.fork_read_zipper();
-        while let Some(&val) = sub_zipper.to_next_val() {
+        while let Some(&val) = sub_zipper.to_next_get_value() {
             // println!("{val}  {} = {}", std::str::from_utf8(sub_zipper.path()).unwrap(), std::str::from_utf8(&rs[val].as_bytes()[3..]).unwrap());
             assert_eq!(&rs[val].as_bytes()[3..], sub_zipper.path());
         }
@@ -3656,8 +3695,8 @@ mod tests {
         let mut map = BytesTrieMap::<u64>::new();
 
         let mut zipper = map.read_zipper();
-        assert_eq!(zipper.to_next_val(), None);
-        assert_eq!(zipper.to_next_val(), None);
+        assert_eq!(zipper.to_next_val(), false);
+        assert_eq!(zipper.to_next_val(), false);
         drop(zipper);
 
         //Now test some operations that create nodes, but not values
@@ -3667,8 +3706,8 @@ mod tests {
         drop(map_head);
 
         let mut zipper = map.read_zipper();
-        assert_eq!(zipper.to_next_val(), None);
-        assert_eq!(zipper.to_next_val(), None);
+        assert_eq!(zipper.to_next_val(), false);
+        assert_eq!(zipper.to_next_val(), false);
     }
 
     /// Tests iterating a subtrie created by a descended WriteZipper
@@ -3689,7 +3728,7 @@ mod tests {
         let mut reader_z = map.read_zipper_at_path(b"in");
         assert_eq!(reader_z.val_count(), N);
         let mut count = 0;
-        while let Some(val) = reader_z.to_next_val() {
+        while let Some(val) = reader_z.to_next_get_value() {
             assert_eq!(reader_z.get_value(), Some(val));
             assert_eq!(reader_z.get_value(), Some(&count));
             assert_eq!(reader_z.path(), count.to_be_bytes());
@@ -3741,7 +3780,7 @@ mod tests {
 
         let mut reader_z = map.read_zipper_at_path([b'i', b'n', 1]);
         let mut sanity_counter = 0;
-        while let Some(_) = reader_z.to_next_val() {
+        while reader_z.to_next_val() {
             sanity_counter += 1;
         }
         assert_eq!(sanity_counter, 1);
@@ -3794,7 +3833,7 @@ mod tests {
         full_parent_path.extend(parent_zipper.path());
         assert!(family.contains_path(&full_parent_path));
 
-        while let Some(_val) = parent_zipper.to_next_val() {
+        while parent_zipper.to_next_val() {
             let mut full_parent_path = parent_path.as_bytes().to_vec();
             full_parent_path.extend(parent_zipper.path());
             assert!(family.contains(&full_parent_path));
