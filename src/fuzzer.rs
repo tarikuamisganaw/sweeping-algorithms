@@ -13,8 +13,8 @@ use crate::zipper::{ReadZipperUntracked, Zipper, ZipperReadOnlyIteration, Zipper
 
 #[derive(Debug)]
 pub struct Histogram<T : std::cmp::Eq + std::hash::Hash> {
-  counts: Vec<usize>,
-  lookup: HashMap<T, usize>
+  pub counts: Vec<usize>,
+  pub lookup: HashMap<T, usize>
 }
 impl <T : std::cmp::Eq + std::hash::Hash> Histogram<T> {
   pub fn from(iter: impl IntoIterator<Item=T>) -> Self {
@@ -44,7 +44,7 @@ impl <T : std::cmp::Eq + std::hash::Hash> Histogram<T> {
 }
 
 #[derive(Clone)]
-pub struct Filtered<T, D : Distribution<T> + Clone, P : Fn(&T) -> bool> { d: D, p: P, pd: PhantomData<T> }
+pub struct Filtered<T, D : Distribution<T> + Clone, P : Fn(&T) -> bool> { pub d: D, pub p: P, pub pd: PhantomData<T> }
 impl <T, D : Distribution<T> + Clone, P : Fn(&T) -> bool> Distribution<T> for Filtered<T, D, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
     loop {
@@ -55,7 +55,7 @@ impl <T, D : Distribution<T> + Clone, P : Fn(&T) -> bool> Distribution<T> for Fi
 }
 
 #[derive(Clone)]
-pub struct Mapped<T, S, D : Distribution<T> + Clone, F : Fn(T) -> S + Clone> { d: D, f: F, pd: PhantomData<(T, S)> }
+pub struct Mapped<T, S, D : Distribution<T> + Clone, F : Fn(T) -> S + Clone> { pub d: D, pub f: F, pub pd: PhantomData<(T, S)> }
 impl <T, S, D : Distribution<T> + Clone, F : Fn(T) -> S + Clone> Distribution<S> for Mapped<T, S, D, F> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> S {
     (self.f)(self.d.sample(rng))
@@ -63,7 +63,7 @@ impl <T, S, D : Distribution<T> + Clone, F : Fn(T) -> S + Clone> Distribution<S>
 }
 
 #[derive(Clone)]
-pub struct Collected<T, S, D : Distribution<T> + Clone, P : Fn(T) -> Option<S> + Clone> { d: D, pf: P, pd: PhantomData<(T, S)> }
+pub struct Collected<T, S, D : Distribution<T> + Clone, P : Fn(T) -> Option<S> + Clone> { pub d: D, pub pf: P, pub pd: PhantomData<(T, S)> }
 impl <T, S, D : Distribution<T> + Clone, P : Fn(T) -> Option<S> + Clone> Distribution<S> for Collected<T, S, D, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> S {
     loop {
@@ -77,8 +77,8 @@ impl <T, S, D : Distribution<T> + Clone, P : Fn(T) -> Option<S> + Clone> Distrib
 }
 
 #[derive(Clone)]
-pub struct Product2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, Z, F : Fn(X, Y) -> Z + Clone> { dx: DX, dy: DY, f: F,
-  pd: PhantomData<(X, Y, Z)> }
+pub struct Product2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, Z, F : Fn(X, Y) -> Z + Clone> { pub dx: DX, pub dy: DY, pub f: F,
+  pub pd: PhantomData<(X, Y, Z)> }
 impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, Z, F : Fn(X, Y) -> Z + Clone> Distribution<Z> for Product2<X, DX, Y, DY, Z, F> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Z {
     (self.f)(self.dx.sample(rng), self.dy.sample(rng))
@@ -86,8 +86,8 @@ impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, Z, F : F
 }
 
 #[derive(Clone)]
-pub struct Choice2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, DB : Distribution<bool> + Clone> { dx: DX, dy: DY, db: DB,
-  pd: PhantomData<(X, Y)> }
+pub struct Choice2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, DB : Distribution<bool> + Clone> { pub dx: DX, pub dy: DY, pub db: DB,
+  pub pd: PhantomData<(X, Y)> }
 impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, DB : Distribution<bool> + Clone> Distribution<Result<X, Y>> for Choice2<X, DX, Y, DY, DB> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Result<X, Y> {
     if self.db.sample(rng) { Ok(self.dx.sample(rng)) }
@@ -96,8 +96,8 @@ impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, DB : Dis
 }
 
 #[derive(Clone)]
-pub struct Dependent2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, FDY : Fn(X) -> DY + Clone> { dx: DX, fdy: FDY,
-  pd: PhantomData<(X, Y)> }
+pub struct Dependent2<X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, FDY : Fn(X) -> DY + Clone> { pub dx: DX, pub fdy: FDY,
+  pub pd: PhantomData<(X, Y)> }
 impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, FDY : Fn(X) -> DY + Clone> Distribution<Y> for Dependent2<X, DX, Y, DY, FDY> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Y {
     (self.fdy)(self.dx.sample(rng)).sample(rng)
@@ -105,8 +105,8 @@ impl <X, DX : Distribution<X> + Clone, Y, DY : Distribution<Y> + Clone, FDY : Fn
 }
 
 #[derive(Clone)]
-pub struct Concentrated<X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> { dx: DX, z: A, fa: FA,
-  pd: PhantomData<(X, Y)> }
+pub struct Concentrated<X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> { pub dx: DX, pub z: A, pub fa: FA,
+  pub pd: PhantomData<(X, Y)> }
 impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(&mut A, X) -> Option<Y>> Distribution<Y> for Concentrated<X, DX, A, Y, FA> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Y {
     let mut a = self.z.clone();
@@ -120,8 +120,8 @@ impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(&mut A, X) -> Optio
 }
 
 #[derive(Clone)]
-pub struct Diluted<X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -> Option<Y>> { dx: DX, fa: FA, fay: FAY,
-  pd: PhantomData<(X, A, Y)> }
+pub struct Diluted<X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -> Option<Y>> { pub dx: DX, pub fa: FA, pub fay: FAY,
+  pub pd: PhantomData<(X, A, Y)> }
 impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&mut A) -> Option<Y>> Distribution<Y> for Diluted<X, DX, A, Y, FA, FAY> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Y {
     let mut a = (self.fa)(self.dx.sample(rng));
@@ -134,7 +134,7 @@ impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&
 }
 
 #[derive(Clone)]
-pub struct Degenerate<T : Clone> { element: T }
+pub struct Degenerate<T : Clone> { pub element: T }
 impl <T : Clone> Distribution<T> for Degenerate<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
     self.element.clone()
@@ -142,7 +142,7 @@ impl <T : Clone> Distribution<T> for Degenerate<T> {
 }
 
 #[derive(Clone)]
-pub struct Categorical<T : Clone, ElemD : Distribution<usize> + Clone> { elements: Vec<T>, ed: ElemD }
+pub struct Categorical<T : Clone, ElemD : Distribution<usize> + Clone> { pub elements: Vec<T>, pub ed: ElemD }
 impl <T : Clone, ElemD : Distribution<usize> + Clone> Distribution<T> for Categorical<T, ElemD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
     self.elements[self.ed.sample(rng)].clone()
@@ -169,7 +169,7 @@ pub fn ratios<T : Clone>(ep: impl IntoIterator<Item=(T, usize)>) -> Categorical<
 }
 
 #[derive(Clone)]
-pub struct Repeated<T, LengthD : Distribution<usize>, ItemD : Distribution<T>> { lengthd: LengthD, itemd: ItemD, pd: PhantomData<T> }
+pub struct Repeated<T, LengthD : Distribution<usize>, ItemD : Distribution<T>> { pub lengthd: LengthD, pub itemd: ItemD, pub pd: PhantomData<T> }
 impl <T, LengthD : Distribution<usize>, ItemD : Distribution<T>> Distribution<Vec<T>> for Repeated<T, LengthD, ItemD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Vec<T> {
     let l = self.lengthd.sample(rng);
@@ -178,7 +178,7 @@ impl <T, LengthD : Distribution<usize>, ItemD : Distribution<T>> Distribution<Ve
 }
 
 #[derive(Clone)]
-pub struct Sentinel<MByteD : Distribution<Option<u8>> + Clone> { mbd: MByteD }
+pub struct Sentinel<MByteD : Distribution<Option<u8>> + Clone> { pub mbd: MByteD }
 impl <MByteD : Distribution<Option<u8>> + Clone> Distribution<Vec<u8>> for Sentinel<MByteD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Vec<u8> {
     let mut v = vec![];
@@ -190,7 +190,7 @@ impl <MByteD : Distribution<Option<u8>> + Clone> Distribution<Vec<u8>> for Senti
 }
 
 #[derive(Clone)]
-pub struct UniformTrie<T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> { size: usize, pd: PathD, vd: ValueD, ph: PhantomData<T> }
+pub struct UniformTrie<T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> { pub size: usize, pub pd: PathD, pub vd: ValueD, pub ph: PhantomData<T> }
 impl <T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> Distribution<BytesTrieMap<T>> for UniformTrie<T, PathD, ValueD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BytesTrieMap<T> {
     let mut btm = BytesTrieMap::new();
@@ -215,7 +215,7 @@ impl <T, SproutD : Fn(T) -> Distribution<&BytesTrieMap<T>>> Distribution<BytesTr
 }*/
 
 #[derive(Clone)]
-pub struct FairTrieValue<T : TrieValue> { source: BytesTrieMap<T> }
+pub struct FairTrieValue<T : TrieValue> { pub source: BytesTrieMap<T> }
 impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, T) {
     // it's much cheaper to draw many samples at once, but the current Distribution API is broken
@@ -232,7 +232,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
 }
 
 #[derive(Clone)]
-pub struct DescendFirstTrieValue<T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> { source: BytesTrieMap<T>, policy: P }
+pub struct DescendFirstTrieValue<T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> { pub source: BytesTrieMap<T>, pub policy: P }
 impl <T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> Distribution<(Vec<u8>, T)> for DescendFirstTrieValue<T, ByteD, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, T) {
     let mut rz = self.source.read_zipper();
@@ -249,7 +249,7 @@ fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> 
 }
 
 #[derive(Clone)]
-pub struct FairTriePath<T : TrieValue> { source: BytesTrieMap<T> }
+pub struct FairTriePath<T : TrieValue> { pub source: BytesTrieMap<T> }
 impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, Option<T>) {
     use crate::morphisms::Catamorphism;
@@ -266,7 +266,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
 }
 
 #[derive(Clone)]
-pub struct DescendTriePath<T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> { source: BytesTrieMap<T>, policy: P, ph: PhantomData<S> }
+pub struct DescendTriePath<T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> { pub source: BytesTrieMap<T>, pub policy: P, pub ph: PhantomData<S> }
 impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> Distribution<(Vec<u8>, S)> for DescendTriePath<T, S, SByteD, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, S) {
     let mut rz = self.source.read_zipper();

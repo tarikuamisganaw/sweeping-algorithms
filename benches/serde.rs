@@ -6,7 +6,7 @@ use pathmap::path_serialization::{deserialize_paths_, serialize_paths_};
 
 #[divan::bench()]
 fn big_logic_serialize_paths(bencher: Bencher) {
-  let file_path = std::path::PathBuf::from(file!()).parent().unwrap().join("big_logic.metta.paths");
+  let file_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches").join("big_logic.metta.paths");
   let mut file = File::open(file_path).unwrap();
   let mut map = BytesTrieMap::new();
   let mut in_buffer = vec![];
@@ -28,7 +28,7 @@ fn big_logic_serialize_paths(bencher: Bencher) {
 #[divan::bench()]
 fn big_logic_deserialize_paths(bencher: Bencher) {
   let mut map = BytesTrieMap::new();
-  let file_path = std::path::PathBuf::from(file!()).parent().unwrap().join("big_logic.metta.paths");
+  let file_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches").join("big_logic.metta.paths");
   let mut file = File::open(file_path).unwrap();
   // don't read directly from file, we want to avoid disk and caching funny business
   let mut in_buffer = vec![];

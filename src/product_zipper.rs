@@ -686,7 +686,7 @@ mod tests {
         let cata_pz = new_pz();
         cata_pz.into_cata_side_effect(|_, _, _, path| {
             // println!("{}", String::from_utf8_lossy(path));
-            let overlap = crate::line_list_node::find_prefix_overlap(path, moving_pz.path());
+            let overlap = crate::utils::find_prefix_overlap(path, moving_pz.path());
             if overlap < moving_pz.path().len() {
                 moving_pz.ascend(moving_pz.path().len() - overlap);
             }

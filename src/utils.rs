@@ -503,3 +503,147 @@ fn bit_utils_test() {
     assert_eq!(mask.test_bit(b'n'), true);
     assert_eq!(mask.test_bit(b't'), false);
 }
+
+//LP: Empirically, this strategy doesn't appear to work.  At least not on ARM using rustc.  My guess is the
+// no-op cold function gets optimized away before it has a change to affect the rest of the codegen.  When 
+// I switched `unlikely` to `count_shared_cold` I saw a 8% bump in the `common_prefix` benchmark.
+#[inline] #[cold] fn cold() {}
+#[inline] fn likely(b: bool) -> bool { if !b { cold() } b }
+#[inline] fn unlikely(b: bool) -> bool { if b { cold() } b }
+
+const PAGE_SIZE: usize = 4096;
+
+#[inline(always)]
+unsafe fn same_page<const VECTOR_SIZE: usize>(slice: &[u8]) -> bool {
+    let address = slice.as_ptr() as usize;
+    // Mask to keep only the last 12 bits
+    let offset_within_page = address & (PAGE_SIZE - 1);
+    // Check if the 16/32/64th byte from the current offset exceeds the page boundary
+    offset_within_page < PAGE_SIZE - VECTOR_SIZE
+}
+
+#[inline(always)]
+fn count_shared_bare(a: &[u8], b: &[u8]) -> usize {
+    let mut cnt = 0;
+    loop {
+        if unlikely(cnt == a.len()) {break}
+        if unlikely(cnt == b.len()) {break}
+        if unsafe{ a.get_unchecked(cnt) != b.get_unchecked(cnt) } {break}
+        cnt += 1;
+    }
+    cnt
+}
+
+#[cold]
+fn count_shared_cold(a: &[u8], b: &[u8]) -> usize {
+    count_shared_bare(a, b)
+}
+
+#[cfg(target_feature="avx2")]
+#[inline(always)]
+fn count_shared_avx2(p: &[u8], q: &[u8]) -> usize {
+    use core::arch::x86_64::*;
+    unsafe {
+        let pl = p.len();
+        let ql = q.len();
+        let max_shared = pl.min(ql);
+        if unlikely(max_shared == 0) { return 0 }
+        if likely(same_page::<32>(p) && same_page::<32>(q)) {
+            let pv = _mm256_loadu_si256(p.as_ptr() as _);
+            let qv = _mm256_loadu_si256(q.as_ptr() as _);
+            let ev = _mm256_cmpeq_epi8(pv, qv);
+            let ne = !(_mm256_movemask_epi8(ev) as u32);
+            if unlikely(ne == 0 && max_shared > 32) {
+                32 + count_shared_avx2(&p[32..], &q[32..])
+            } else {
+                (_tzcnt_u32(ne) as usize).min(max_shared)
+            }
+        } else {
+            count_shared_cold(p, q)
+        }
+    }
+}
+
+/// Returns the number of characters shared between two slices
+#[cfg(target_feature="avx2")]
+#[inline]
+pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+    count_shared_avx2(a, b)
+}
+
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[inline(always)]
+fn count_shared_neon(p: &[u8], q: &[u8]) -> usize {
+    use core::arch::aarch64::*;
+    unsafe {
+        let pl = p.len();
+        let ql = q.len();
+        let max_shared = pl.min(ql);
+        if unlikely(max_shared == 0) { return 0 }
+
+        if same_page::<16>(p) && same_page::<16>(q) {
+            let pv = vld1q_u8(p.as_ptr());
+            let qv = vld1q_u8(q.as_ptr());
+            let eq = vceqq_u8(pv, qv);
+
+            //UGH! There must be a better way to do this...
+            // let neg = vmvnq_u8(eq);
+            // let lo: u64 = vgetq_lane_u64(core::mem::transmute(neg), 0);
+            // let hi: u64 = vgetq_lane_u64(core::mem::transmute(neg), 1);
+            // let count = if lo != 0 {
+            //     lo.trailing_zeros()
+            // } else {
+            //     64 + hi.trailing_zeros()
+            // } / 8;
+
+            //UGH! This code is actually a bit faster than the commented out code below.
+            // I'm sure I'm just not familiar enough with the neon ISA
+            let mut bytes = [0u8; 16];
+            vst1q_u8(bytes.as_mut_ptr(), eq);
+            let scalar128 = u128::from_le_bytes(bytes);
+            let count = scalar128.trailing_ones() / 8;
+
+            if count != 16 || max_shared < 17 {
+                (count as usize).min(max_shared)
+            } else {
+                let new_len = max_shared-16;
+                16 + count_shared_neon(core::slice::from_raw_parts(p.as_ptr().add(16), new_len), core::slice::from_raw_parts(q.as_ptr().add(16), new_len))
+            }
+        } else {
+            return count_shared_cold(p, q);
+        }
+    }
+}
+
+/// Returns the number of characters shared between two slices
+#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[inline]
+pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+    count_shared_neon(a, b)
+}
+
+/// Returns the number of characters shared between two slices
+#[cfg(all(not(target_feature="avx2"), not(target_feature="neon")))]
+#[inline]
+pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+    count_shared_bare(a, b)
+}
+
+#[test]
+fn find_prefix_overlap_test() {
+    let tests = [
+        ("12345", "67890", 0),
+        ("", "12300", 0),
+        ("12345", "", 0),
+        ("12345", "12300", 3),
+        ("123", "123000000", 3),
+        ("123456789012345678901234567890xxxx", "123456789012345678901234567890yy", 30),
+        ("123456789012345678901234567890123456789012345678901234567890xxxx", "123456789012345678901234567890123456789012345678901234567890yy", 60),
+        ("1234567890123456xxxx", "1234567890123456yyyyyyy", 16),
+    ];
+
+    for test in tests {
+        let overlap = find_prefix_overlap(test.0.as_bytes(), test.1.as_bytes());
+        assert_eq!(overlap, test.2);
+    }
+}

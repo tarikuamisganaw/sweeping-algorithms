@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use local_or_heap::LocalOrHeap;
 
-use crate::utils::{BitMask, ByteMask};
+use crate::utils::{BitMask, ByteMask, find_prefix_overlap};
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
@@ -1124,18 +1124,6 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
     }
 }
 
-/// Returns the number of characters shared between two slices
-#[inline]
-pub(crate) fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
-    let mut cnt = 0;
-    loop {
-        if cnt == a.len() {break}
-        if cnt == b.len() {break}
-        if unsafe{ a.get_unchecked(cnt) != b.get_unchecked(cnt) } {break}
-        cnt += 1;
-    }
-    cnt
-}
 
 /// Returns the part of `src_key` that remains after excluding the first `key_len` bytes
 #[inline]
