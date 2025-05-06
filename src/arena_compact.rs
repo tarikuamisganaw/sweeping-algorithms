@@ -1410,7 +1410,7 @@ where Storage: AsRef<[u8]>
         if zipper.is_value() {
             count += 1;
         }
-        while <ACTZipper<'_, Storage> as ZipperIteration<'_, ValueSlice>>::to_next_val(&mut zipper, ).is_some() {
+        while zipper.to_next_val() {
             count += 1;
         }
         count
@@ -1656,20 +1656,20 @@ where Storage: AsRef<[u8]>
     // fn to_next_step(&mut self) -> bool;
 }
 
-impl<'tree, V, Storage> ZipperIteration<'tree, V> for ACTZipper<'tree, Storage>
-where Storage: AsRef<[u8]>, ValueSlice: AsRef<V>
+impl<Storage> ZipperIteration for ACTZipper<'_, Storage>
+where Storage: AsRef<[u8]>
 {
     /// Systematically advances to the next value accessible from the zipper, traversing in a depth-first
     /// order
     ///
     /// Returns a reference to the value or `None` if the zipper has encountered the root.
-    fn to_next_val(&mut self) -> Option<&'tree V> {
+    fn to_next_val(&mut self) -> bool {
         while self.to_next_step()  {
-            if let Some(val) = self.get_value() {
-                return Some(val).map(|v| v.as_ref());
+            if self.is_value() {
+                return true;
             }
         }
-        None
+        false
     }
 
     /// Descends the zipper's focus `k`` bytes, following the first child at each branch, and continuing
@@ -1740,7 +1740,7 @@ where Storage: AsRef<[u8]>, ValueSlice: AsRef<V>
 mod tests {
     use super::{ArenaCompactTree, ACTZipper};
     use crate::{
-        arena_compact::ValueSlice, morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{zipper_iteration_tests, zipper_moving_tests, ZipperIteration, ZipperMoving}
+        arena_compact::ValueSlice, morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{zipper_iteration_tests, zipper_moving_tests, ZipperIteration, ZipperMoving, ZipperValues}
     };
 
     zipper_moving_tests::zipper_moving_tests!(arena_compact_zipper,
@@ -1784,8 +1784,11 @@ mod tests {
         let mut act_zipper = act.read_zipper();
 
         loop {
-            let btm_val = btm_zipper.to_next_val().copied();
-            let act_val = act_zipper.to_next_val().map(|v: &ValueSlice| v.value());
+            btm_zipper.to_next_val();
+            act_zipper.to_next_val();
+
+            let btm_val = btm_zipper.value().copied();
+            let act_val = act_zipper.value().map(|v: &ValueSlice| v.value());
 
             assert_eq!(btm_zipper.path(), act_zipper.path());
             assert_eq!(btm_val, act_val);
