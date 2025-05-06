@@ -8,7 +8,7 @@ use gxhash::{HashMap, HashMapExt};
 use rand::distr::{Iter, Uniform};
 use crate::TrieValue;
 use crate::utils::{BitMask, ByteMask};
-use crate::zipper::{ZipperWriting, ReadZipperUntracked, Zipper, ZipperIteration, ZipperMoving, ZipperReadOnlyValues};
+use crate::zipper::{ReadZipperUntracked, Zipper, ZipperReadOnlyIteration, ZipperMoving, ZipperReadOnlyValues};
 
 
 #[derive(Debug)]
@@ -223,7 +223,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
     let size = rz.val_count();
     let target = rng.random_range(0..size);
     let mut i = 0;
-    while let Some(t) = rz.to_next_val() {
+    while let Some(t) = rz.to_next_get_value() {
       if i == target { return (rz.path().to_vec(), t.clone()) }
       i += 1;
     }
@@ -301,7 +301,7 @@ mod tests {
   use rand_distr::{Exp, Normal, Triangular, Uniform};
   use crate::fuzzer::*;
   use crate::ring::Lattice;
-  use crate::zipper::ZipperSubtries;
+  use crate::zipper::{ZipperWriting, ZipperSubtries};
 
   #[test]
   fn fixed_length() {

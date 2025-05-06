@@ -323,7 +323,7 @@ fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str
                     match zipper_rx.recv() {
                         Ok((mut reader_z, mut writer_z)) => {
                             //We got the zippers, do the stuff
-                            while let Some(val) = reader_z.to_next_val() {
+                            while let Some(val) = reader_z.to_next_get_value() {
                                 writer_z.descend_to(reader_z.path());
                                 writer_z.set_value(*val);
                                 writer_z.reset();
@@ -371,7 +371,7 @@ fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str
                 let mut sanity_counter = 0;
                 let mut writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(&[b'o', b'u', b't', 0]) };
                 let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(&[b'i', b'n', 0]) };
-                while let Some(val) = reader_z.to_next_val() {
+                while let Some(val) = reader_z.to_next_get_value() {
                     writer_z.descend_to(reader_z.path());
                     writer_z.set_value(*val);
                     writer_z.reset();
