@@ -5,10 +5,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use crate::trie_map::BytesTrieMap;
-use crate::zipper::{Zipper, ZipperValues, ZipperMoving, ZipperReadOnlyValues, ZipperWriting};
-use crate::zipper::ReadZipperUntracked;
-use crate::zipper::ZipperAbsolutePath;
-use crate::zipper::ZipperIteration;
+use crate::zipper::{ReadZipperUntracked, Zipper, ZipperAbsolutePath, ZipperValues, ZipperMoving, ZipperReadOnlyValues, ZipperWriting, ZipperIteration, ZipperReadOnlyIteration, };
 
 /// Marker to track an outstanding read zipper
 pub struct TrackingRead;
@@ -131,8 +128,8 @@ impl Conflict {
                 if zipper.path().len() == path.len() {
                     let mut subtree = zipper.fork_read_zipper();
                     match subtree.to_next_val() {
-                        None => Ok(()),
-                        Some(_) => Err(conflict_f(subtree.origin_path().unwrap_or_default())),
+                        false => Ok(()),
+                        true => Err(conflict_f(subtree.origin_path().unwrap_or_default())),
                     }
                 } else {
                     Ok(())
@@ -152,7 +149,7 @@ impl Conflict {
             None => {
                 if zipper.path().len() == path.len() {
                     let mut subtree = zipper.fork_read_zipper();
-                    match subtree.to_next_val() {
+                    match subtree.to_next_get_value() {
                         None => Ok(()),
                         Some(lock) => Err(conflict_f(
                             *lock,

@@ -534,7 +534,7 @@ mod tests {
                         match zipper_rx.recv() {
                             Ok((mut reader_z, mut writer_z)) => {
                                 //We got the zippers, do the stuff
-                                while let Some(val) = reader_z.to_next_val() {
+                                while let Some(val) = reader_z.to_next_get_value() {
                                     writer_z.descend_to(reader_z.path());
                                     writer_z.set_value(*val);
                                     writer_z.reset();

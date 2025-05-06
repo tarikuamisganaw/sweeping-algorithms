@@ -1077,7 +1077,7 @@ mod tests {
 
         let expected = [3, 5, 4];
         let mut i = 0;
-        while let Some(val) = zipper.to_next_val() {
+        while let Some(val) = zipper.to_next_get_value() {
             assert_eq!(*val, expected[i]);
             i += 1;
         }

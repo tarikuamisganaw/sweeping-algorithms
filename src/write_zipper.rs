@@ -1937,7 +1937,7 @@ mod tests {
             let mut sanity_counter = 0;
             let mut writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(b"out\0") };
             let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(b"in\0") };
-            while let Some(val) = reader_z.to_next_val() {
+            while let Some(val) = reader_z.to_next_get_value() {
                 writer_z.descend_to(reader_z.path());
                 writer_z.set_value(*val * 65536);
                 writer_z.reset();
