@@ -78,7 +78,7 @@
 //! ```
 use crate::{
     morphisms::Catamorphism,
-    utils::{BitMask, ByteMask},
+    utils::{BitMask, ByteMask, find_prefix_overlap},
     zipper::{
         Zipper, ZipperValues, ZipperAbsolutePath, ZipperIteration,
         ZipperMoving, ZipperMovingPriv, ZipperReadOnlyValues,
@@ -1288,9 +1288,7 @@ where Storage: AsRef<[u8]>
                     let frame = self.stack.last_mut().unwrap();
                     let node_path = &self.tree.get_line(line.path);
                     let rest_path = &node_path[frame.node_depth..];
-                    // TODO: SIMD this?
-                    let common = rest_path.iter().zip(path)
-                        .take_while(|(x, y)| x == y).count();
+                    let common = find_prefix_overlap(path, rest_path);
                     descended += common;
                     path = &path[common..];
                     let into_child = rest_path.len() == common && line.child.is_some();
