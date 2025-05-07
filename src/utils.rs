@@ -659,6 +659,45 @@ pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
 //     }
 // }
 
+// // COMMENTED OUT; uses Lokathor's `wide` crate.  Perf on neon is *identical* to the native neon version above
+// // We could make this the default code path depending on perf on x86, which I have yet to measure.
+
+// #[inline(always)]
+// fn count_shared_wide(p: &[u8], q: &[u8]) -> usize {
+//     use wide::u8x16;
+//     unsafe {
+//         let pl = p.len();
+//         let ql = q.len();
+//         let max_shared = pl.min(ql);
+//         if unlikely(max_shared == 0) { return 0 }
+
+//         if same_page::<16>(p) && same_page::<16>(q) {
+//             let mut p_array = [core::mem::MaybeUninit::<u8>::uninit(); 16];
+//             core::ptr::copy_nonoverlapping(p.as_ptr().cast(), (&mut p_array).as_mut_ptr(), 16);
+//             let pv = u8x16::from(core::mem::transmute::<_, [u8; 16]>(p_array));
+//             let mut q_array = [core::mem::MaybeUninit::<u8>::uninit(); 16];
+//             core::ptr::copy_nonoverlapping(q.as_ptr().cast(), (&mut q_array).as_mut_ptr(), 16);
+//             let qv = u8x16::from(core::mem::transmute::<_, [u8; 16]>(q_array));
+//             let ev = pv.cmp_eq(qv);
+
+//             let eq_arr = ev.to_array();
+//             let eq_u128: u128 = core::mem::transmute(eq_arr);
+
+//             let count = eq_u128.trailing_ones() / 8;
+
+//             if count != 16 || max_shared < 17 {
+//                 (count as usize).min(max_shared)
+//             } else {
+//                 let new_len = max_shared-16;
+//                 16 + count_shared_wide(core::slice::from_raw_parts(p.as_ptr().add(16), new_len), core::slice::from_raw_parts(q.as_ptr().add(16), new_len))
+//             }
+
+//         } else {
+//             return count_shared_cold(p, q);
+//         }
+//     }
+// }
+
 /// Returns the number of characters shared between two slices
 #[cfg(all(not(target_feature="avx2"), not(target_feature="neon")))]
 #[inline]
