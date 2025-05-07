@@ -1120,17 +1120,12 @@ where Storage: AsRef<[u8]>
 impl<'tree, Storage> ZipperAbsolutePath for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
-    /// Returns the path beginning from the origin to the current focus.  Returns `None` if the zipper
-    /// is relative and does not have an origin path
-    fn origin_path(&self) -> Option<&[u8]> {
-        Some(&self.path[self.origin_depth..])
+    fn absolute_path(&self) -> &[u8] {
+        &self.path[..]
     }
 
-    /// Returns the path from the origin to the zipper root
-    ///
-    /// After [reset](ZipperMoving::reset) is called, `zip.root_prefix_path() == zip.origin_path()`
-    fn root_prefix_path(&self) -> Option<&[u8]> {
-        Some(&self.path[..self.origin_depth])
+    fn root_prefix_path(&self) -> &[u8] {
+        &self.path[..self.origin_depth]
     }
 }
 

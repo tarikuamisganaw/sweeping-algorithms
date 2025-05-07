@@ -146,7 +146,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for TrieRef<'_, V> {
         self.get_value()
     }
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), None, self.get_value());
+        let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), 0, self.get_value());
         Self::ReadZipperT::new_forked_with_inner_zipper(core_z)
     }
 }
@@ -437,7 +437,7 @@ mod tests {
         z.descend_to(b"om");
         assert_eq!(z.val_count(), 5);
         assert_eq!(z.path(), b"om");
-        assert_eq!(z.origin_path(), None);
+        assert_eq!(z.absolute_path(), b"om");
 
         let new_map = trie_ref.make_map().unwrap();
         assert_eq!(new_map.val_count(), 9);

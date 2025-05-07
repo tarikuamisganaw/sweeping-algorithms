@@ -186,11 +186,11 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path_internal(self.root().unwrap().borrow().as_tagged(), &[], Some(0), root_val, None)
+            ReadZipperUntracked::new_with_node_and_path_internal(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val, None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_path_internal(self.root().unwrap().borrow().as_tagged(), &[], Some(0), root_val)
+            ReadZipperUntracked::new_with_node_and_path_internal(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val)
         }
     }
 

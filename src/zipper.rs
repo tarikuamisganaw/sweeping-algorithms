@@ -351,17 +351,18 @@ pub trait ZipperIteration: ZipperMoving {
 
 /// An interface for a [Zipper] to support accessing the full path buffer used to create the zipper
 pub trait ZipperAbsolutePath: ZipperMoving {
-//GOAT, should this be renamed to `absolute_path`?
-//GOAT, consider removing `Option` on return values, and creating a more limited implementation, where
-// the zippers that implement it have a const parameter, e.g. "const HAS_ABS_PATH: bool"
-    /// Returns the path beginning from the origin to the current focus.  Returns `None` if the zipper
-    /// is relative and does not have an origin path
-    fn origin_path(&self) -> Option<&[u8]>;
+    /// Returns the entire path leading to the current focus
+    ///
+    /// The starting point of the path depends on how the zipper was created.  For zippers created directly
+    /// from a [PathMap], `absolute_path` will start at the root of the map, regardless of the prefix path.
+    fn absolute_path(&self) -> &[u8];
 
     /// Returns the path from the origin to the zipper root
     ///
-    /// After [reset](ZipperMoving::reset) is called, `zip.root_prefix_path() == zip.origin_path()`
-    fn root_prefix_path(&self) -> Option<&[u8]>;
+    /// This function output remains constant throughout the zipper's life.
+    ///
+    /// After [reset](ZipperMoving::reset) is called, `zip.root_prefix_path() == zip.origin_path()`.
+    fn root_prefix_path(&self) -> &[u8];
 }
 
 /// Implemented on zippers that traverse in-memory trie structures, as opposed to virtual
@@ -515,8 +516,8 @@ impl<Z> ZipperMoving for &mut Z where Z: ZipperMoving + Zipper {
 }
 
 impl<Z> ZipperAbsolutePath for &mut Z where Z: ZipperAbsolutePath {
-    fn origin_path(&self) -> Option<&[u8]> { (**self).origin_path() }
-    fn root_prefix_path(&self) -> Option<&[u8]> { (**self).root_prefix_path() }
+    fn absolute_path(&self) -> &[u8] { (**self).absolute_path() }
+    fn root_prefix_path(&self) -> &[u8] { (**self).root_prefix_path() }
 }
 
 impl<Z> ZipperIteration for &mut Z where Z: ZipperIteration {
@@ -647,7 +648,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperTracked<'_, '_
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperTracked<'a, '_, V> {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
-        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], None, None);
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], 0, None);
         core::mem::swap(&mut temp_core, &mut self.z);
         Some(temp_core.make_static_path())
     }
@@ -682,8 +683,8 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyIteration<'a, V> for Read
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperTracked<'_, '_, V> {
-    fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
-    fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
+    fn absolute_path(&self) -> &[u8] { self.z.absolute_path() }
+    fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperTracked<'a, 'path, V> {
@@ -795,7 +796,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperUntracked<'_, 
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperUntracked<'a, '_, V>{
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
-        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], None, None);
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], 0, None);
         core::mem::swap(&mut temp_core, &mut self.z);
         Some(temp_core.make_static_path())
     }
@@ -830,8 +831,8 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyIteration<'a, V> for Read
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperUntracked<'_, '_, V> {
-    fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
-    fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
+    fn absolute_path(&self) -> &[u8] { self.z.absolute_path() }
+    fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperUntracked<'a, 'path, V> {
@@ -848,12 +849,12 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperUntracked<'a, 'path, V
     }
     /// See [ReadZipperCore::new_with_node_and_path_internal]
     #[cfg(debug_assertions)]
-    pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'path [u8], root_key_offset: usize, root_val: Option<&'a V>, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
         let core = ReadZipperCore::new_with_node_and_path_internal(root_node, path, root_key_offset, root_val);
         Self { z: core, _tracker: tracker }
     }
     #[cfg(not(debug_assertions))]
-    pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
+    pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'path [u8], root_key_offset: usize, root_val: Option<&'a V>) -> Self {
         let core = ReadZipperCore::new_with_node_and_path_internal(root_node, path, root_key_offset, root_val);
         Self { z: core }
     }
@@ -911,7 +912,7 @@ pub struct ReadZipperOwned<V: 'static> {
 impl<V: 'static + Clone + Send + Sync + Unpin> Clone for ReadZipperOwned<V> {
     fn clone(&self) -> Self {
         let new_map = (**self.map).clone();
-        Self::new_with_map(new_map, self.root_prefix_path().unwrap())
+        Self::new_with_map(new_map, self.root_prefix_path())
     }
 }
 
@@ -992,7 +993,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ReadZipperOwned<V> {
 impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for ReadZipperOwned<V> where Self: 'a {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> {
-        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], None, None);
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal(TaggedNodeRef::EmptyNode, &[], 0, None);
         core::mem::swap(&mut temp_core, &mut self.z);
         Some(temp_core.make_static_path())
     }
@@ -1027,8 +1028,8 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyIteration<'a, V> for Read
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperOwned<V> {
-    fn origin_path(&self) -> Option<&[u8]> { self.z.origin_path() }
-    fn root_prefix_path(&self) -> Option<&[u8]> { self.z.root_prefix_path() }
+    fn absolute_path(&self) -> &[u8] { self.z.absolute_path() }
+    fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
 
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -1055,7 +1056,7 @@ pub(crate) mod read_zipper_core {
         origin_path: SliceOrLen<'path>,
         /// The byte offset in `origin_path` from the root node to the zipper's root.
         /// `root_key = origin_path[root_key_offset..]`
-        root_key_offset: Option<usize>,
+        root_key_offset: usize,
         /// A special-case to access a value at the root node, because that value would be otherwise inaccessible
         root_val: Option<&'a V>,
         /// A reference to the focus node
@@ -1111,14 +1112,8 @@ pub(crate) mod read_zipper_core {
         fn value(&self) -> Option<&V> { self.get_value() }
         fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
             let new_root_val = self.get_value();
-            let (new_root_path, new_root_key_offset) = match &self.root_key_offset {
-                Some(_) => {
-                    let new_root_path = self.origin_path().unwrap();
-                    let new_root_key_offset = new_root_path.len() - self.node_key().len();
-                    (new_root_path, Some(new_root_key_offset))
-                },
-                None => (self.node_key(), None)
-            };
+            let new_root_path = self.absolute_path();
+            let new_root_key_offset = new_root_path.len() - self.node_key().len();
             Self::ReadZipperT::new_with_node_and_path_internal(self.focus_node.clone(), new_root_path, new_root_key_offset, new_root_val)
         }
     }
@@ -1533,16 +1528,12 @@ pub(crate) mod read_zipper_core {
 
     impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperCore<'_, '_, V> {
         unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
-            if self.root_key_offset.is_some() {
-                if self.prefix_buf.capacity() > 0 {
-                    assert!(len <= self.prefix_buf.capacity());
-                    unsafe{ core::slice::from_raw_parts(self.prefix_buf.as_ptr(), len) }
-                } else {
-                    assert!(len <= self.origin_path.len());
-                    unsafe{ &self.origin_path.as_slice_unchecked() }
-                }
+            if self.prefix_buf.capacity() > 0 {
+                assert!(len <= self.prefix_buf.capacity());
+                unsafe{ core::slice::from_raw_parts(self.prefix_buf.as_ptr(), len) }
             } else {
-                panic!()
+                assert!(len <= self.origin_path.len());
+                unsafe{ &self.origin_path.as_slice_unchecked() }
             }
         }
         /// Internal method to ensure buffers to facilitate movement of zipper are allocated and initialized
@@ -1734,7 +1725,7 @@ pub(crate) mod read_zipper_core {
                         self.focus_iter_token = iter_tok;
                         self.prefix_buf.truncate(prefix_offset);
                     } else {
-                        let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                        let new_len = self.origin_path.len().max(self.root_key_offset);
                         self.focus_iter_token = NODE_ITER_INVALID;
                         self.prefix_buf.truncate(new_len);
                         return None
@@ -1745,26 +1736,18 @@ pub(crate) mod read_zipper_core {
     }
 
     impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ReadZipperCore<'_, '_, V> {
-        fn origin_path(&self) -> Option<&[u8]> {
-            if self.root_key_offset.is_some() {
-                if self.prefix_buf.capacity() > 0 {
-                    Some(&self.prefix_buf)
-                } else {
-                    Some(unsafe{ &self.origin_path.as_slice_unchecked() })
-                }
+        fn absolute_path(&self) -> &[u8] {
+            if self.prefix_buf.capacity() > 0 {
+                &self.prefix_buf
             } else {
-                None
+                unsafe{ &self.origin_path.as_slice_unchecked() }
             }
         }
-        fn root_prefix_path(&self) -> Option<&[u8]> {
-            if self.root_key_offset.is_some() {
-                if self.prefix_buf.capacity() > 0 {
-                    Some(&self.prefix_buf[..self.origin_path.len()])
-                } else {
-                    Some(unsafe{ &self.origin_path.as_slice_unchecked() })
-                }
+        fn root_prefix_path(&self) -> &[u8] {
+            if self.prefix_buf.capacity() > 0 {
+                &self.prefix_buf[..self.origin_path.len()]
             } else {
-                None
+                unsafe{ &self.origin_path.as_slice_unchecked() }
             }
         }
     }
@@ -1781,15 +1764,14 @@ pub(crate) mod read_zipper_core {
         /// a zipper with a path that starts before the `root_node`.  One might want to do this in order to set
         /// an origin_path that extended above the zipper's root.  Also such an API would speed up the
         /// `fork_read_zipper` operation by avoiding re-traversing the node path
-        pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], mut root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
+        pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
             let (node, key, val) = node_along_path(root_node, path, root_val);
 
-            let zipper_path = match root_key_offset.as_mut() {
+            let (zipper_path, root_key_offset) = match root_key_offset {
                 Some(root_key_offset) => {
-                    *root_key_offset -= key.len();
-                    path
+                    (path, root_key_offset - key.len())
                 },
-                None => key
+                None => (key, 0)
             };
 
             Self::new_with_node_and_path_internal(node.as_tagged(), zipper_path, root_key_offset, val)
@@ -1799,7 +1781,7 @@ pub(crate) mod read_zipper_core {
         ///
         /// NOTE: This method currently doesn't descend subnodes.  Use [Self::new_with_node_and_path] if you can't
         /// guarantee the path is within the supplied node.
-        pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
+        pub(crate) fn new_with_node_and_path_internal(root_node: TaggedNodeRef<'a, V>, path: &'path [u8], root_key_offset: usize, root_val: Option<&'a V>) -> Self {
             Self {
                 origin_path: SliceOrLen::from(path),
                 root_key_offset,
@@ -1812,15 +1794,14 @@ pub(crate) mod read_zipper_core {
         }
         /// Same as [Self::new_with_node_and_path], but inits the zipper stack ahead of time, allowing a zipper
         /// that isn't bound by `'path`
-        pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], mut root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
+        pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
             let (node, key, val) = node_along_path(root_node, path, root_val);
 
-            let zipper_path = match root_key_offset.as_mut() {
+            let (zipper_path, root_key_offset) = match root_key_offset {
                 Some(root_key_offset) => {
-                    *root_key_offset -= key.len();
-                    path
+                    (path, root_key_offset - key.len())
                 },
-                None => key
+                None => (key, 0)
             };
 
             let mut prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
@@ -1984,7 +1965,7 @@ pub(crate) mod read_zipper_core {
                         self.focus_iter_token = iter_tok;
                         self.prefix_buf.truncate(prefix_offset);
                     } else {
-                        let new_len = self.origin_path.len().max(self.root_key_offset.unwrap_or(0));
+                        let new_len = self.origin_path.len().max(self.root_key_offset);
                         self.focus_iter_token = NODE_ITER_INVALID;
                         self.prefix_buf.truncate(new_len);
                         return false
@@ -2128,7 +2109,7 @@ pub(crate) mod read_zipper_core {
         #[inline]
         fn node_key_start(&self) -> usize {
             self.ancestors.last().map(|(_node, _iter_tok, i)| *i)
-                .unwrap_or_else(|| self.root_key_offset.unwrap_or(0))
+                .unwrap_or_else(|| self.root_key_offset)
         }
         /// Internal method returning the key within the focus node
         #[inline]
@@ -2153,7 +2134,7 @@ pub(crate) mod read_zipper_core {
                 let key_start = if self.ancestors.len() > 1 {
                     unsafe{ self.ancestors.get_unchecked(self.ancestors.len()-2) }.2
                 } else {
-                    self.root_key_offset.unwrap_or(0)
+                    self.root_key_offset
                 };
                 &self.prefix_buf[key_start..]
             } else {
@@ -3799,7 +3780,7 @@ mod tests {
         assert_eq!(r1.descend_to_byte(3), true);
         assert_eq!(r1.child_mask().0[0], 0);
         assert_eq!(r1.to_next_sibling_byte(), true);
-        assert_eq!(r1.origin_path().unwrap(), &[0, 4]);
+        assert_eq!(r1.absolute_path(), &[0, 4]);
         assert_eq!(r1.path(), &[4]);
         assert_eq!(r1.to_next_sibling_byte(), true);
         assert_eq!(r1.to_next_sibling_byte(), false);
@@ -3837,7 +3818,7 @@ mod tests {
             let mut full_parent_path = parent_path.as_bytes().to_vec();
             full_parent_path.extend(parent_zipper.path());
             assert!(family.contains(&full_parent_path));
-            assert_eq!(full_parent_path, parent_zipper.origin_path().unwrap());
+            assert_eq!(full_parent_path, parent_zipper.absolute_path());
         }
     }
 
@@ -3848,16 +3829,16 @@ mod tests {
 
         let mut zipper = btm.read_zipper_at_path(b"roma");
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "roma");
-        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "roma");
+        assert_eq!(std::str::from_utf8(zipper.absolute_path()).unwrap(), "roma");
         zipper.descend_to(b"n");
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "roman");
-        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "roman");
+        assert_eq!(std::str::from_utf8(zipper.absolute_path()).unwrap(), "roman");
         zipper.to_next_val();
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "romane");
-        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "romane");
+        assert_eq!(std::str::from_utf8(zipper.absolute_path()).unwrap(), "romane");
         zipper.to_next_val();
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "romanus");
-        assert_eq!(std::str::from_utf8(zipper.origin_path().unwrap()).unwrap(), "romanus");
+        assert_eq!(std::str::from_utf8(zipper.absolute_path()).unwrap(), "romanus");
         zipper.to_next_val();
         assert_eq!(zipper.path().len(), 0);
     }
