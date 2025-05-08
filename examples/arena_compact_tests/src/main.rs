@@ -19,14 +19,14 @@ fn arena_create() -> Result<(), std::io::Error> {
     let start = Instant::now();
     let btm = BytesTrieMap::from_iter(items().map(|i| (i, ())));
     println!("built btm in {:.2?}", start.elapsed());
-    pathmap::alloc_tracking::read().print();
-    pathmap::alloc_tracking::reset();
+    // pathmap::alloc_tracking::read().print();
+    // pathmap::alloc_tracking::reset();
 
     let start = Instant::now();
     let tree = ArenaCompactTree::from_zipper(btm.read_zipper(), |_v| 0);
     println!("built act in {:.2?}", start.elapsed());
-    pathmap::alloc_tracking::read().print();
-    pathmap::alloc_tracking::reset();
+    // pathmap::alloc_tracking::read().print();
+    // pathmap::alloc_tracking::reset();
 
     let start = Instant::now();
     let mut zipper = tree.read_zipper();
@@ -56,15 +56,15 @@ fn arena_dump() -> Result<(), std::io::Error> {
     let start = Instant::now();
     let btm = BytesTrieMap::from_iter(items().map(|i| (i, ())));
     println!("built btm in {:.2?}", start.elapsed());
-    pathmap::alloc_tracking::read().print();
-    pathmap::alloc_tracking::reset();
+    // pathmap::alloc_tracking::read().print();
+    // pathmap::alloc_tracking::reset();
 
     let start = Instant::now();
     let tree = ArenaCompactTree::dump_from_zipper(
         btm.read_zipper(), |_v| 0, tree_path)?;
     println!("built act in {:.2?}", start.elapsed());
-    pathmap::alloc_tracking::read().print();
-    pathmap::alloc_tracking::reset();
+    // pathmap::alloc_tracking::read().print();
+    // pathmap::alloc_tracking::reset();
 
     let start = Instant::now();
     let mut zipper = tree.read_zipper();
@@ -83,8 +83,8 @@ fn arena_dump() -> Result<(), std::io::Error> {
 }
 
 fn main() {
-    pathmap::alloc_tracking::init_tracking();
+    // pathmap::alloc_tracking::init_tracking();
     arena_create().unwrap();
     arena_dump().unwrap();
-    println!("{:?}", pathmap::alloc_tracking::read());
+    // println!("{:?}", pathmap::alloc_tracking::read());
 }
