@@ -1248,6 +1248,7 @@ pub(crate) mod read_zipper_core {
             if new_tok != NODE_ITER_FINISHED {
                 let byte_idx = self.node_key().len();
                 if byte_idx >= key_bytes.len() {
+                    debug_assert!(self.is_regularized());
                     return false; //We can't go any deeper down this path
                 }
                 self.focus_iter_token = new_tok;
@@ -1263,10 +1264,11 @@ pub(crate) mod read_zipper_core {
                         },
                     }
                 }
-
+                debug_assert!(self.is_regularized());
                 true
             } else {
                 self.focus_iter_token = new_tok;
+                debug_assert!(self.is_regularized());
                 false
             }
         }
@@ -1332,6 +1334,7 @@ pub(crate) mod read_zipper_core {
             };
             self.prefix_buf.truncate(key_start+overlap);
 
+            debug_assert!(self.is_regularized());
             self.prefix_buf.len() - original_path_len
         }
 
@@ -1350,6 +1353,7 @@ pub(crate) mod read_zipper_core {
 
         fn to_sibling(&mut self, next: bool) -> bool {
             self.prepare_buffers();
+            debug_assert!(self.is_regularized());
             if self.node_key().len() != 0 {
                 match self.focus_node.get_sibling_of_child(self.node_key(), next) {
                     (Some(prefix), Some(child_node)) => {
@@ -1419,6 +1423,7 @@ pub(crate) mod read_zipper_core {
                 }
                 let fixed_len = node_key.len() - 1;
                 if fixed_len >= key_bytes.len() || key_bytes[..fixed_len] != node_key[..fixed_len] {
+                    self.regularize();
                     return false;
                 }
 
@@ -1439,6 +1444,7 @@ pub(crate) mod read_zipper_core {
                         }
                     }
 
+                    debug_assert!(self.is_regularized());
                     return true
                 }
 
@@ -1446,6 +1452,7 @@ pub(crate) mod read_zipper_core {
             }
 
             self.focus_iter_token = NODE_ITER_FINISHED;
+            self.regularize();
             false
         }
 
@@ -1454,6 +1461,7 @@ pub(crate) mod read_zipper_core {
         }
 
         fn ascend(&mut self, mut steps: usize) -> bool {
+            debug_assert!(self.is_regularized());
             while steps > 0 {
                 if self.excess_key_len() == 0 {
                     match self.ancestors.pop() {
@@ -1461,31 +1469,41 @@ pub(crate) mod read_zipper_core {
                             self.focus_node = node;
                             self.focus_iter_token = iter_tok;
                         },
-                        None => return false
+                        None => {
+                            debug_assert!(self.is_regularized());
+                            return false
+                        }
                     };
                 }
                 let cur_jump = steps.min(self.excess_key_len());
                 self.prefix_buf.truncate(self.prefix_buf.len() - cur_jump);
                 steps -= cur_jump;
             }
+            debug_assert!(self.is_regularized());
             true
         }
 
         fn ascend_byte(&mut self) -> bool {
+            debug_assert!(self.is_regularized());
             if self.excess_key_len() == 0 {
                 match self.ancestors.pop() {
                     Some((node, iter_tok, _prefix_offset)) => {
                         self.focus_node = node;
                         self.focus_iter_token = iter_tok;
                     },
-                    None => return false
+                    None => {
+                        debug_assert!(self.is_regularized());
+                        return false
+                    }
                 };
             }
             self.prefix_buf.pop();
+            debug_assert!(self.is_regularized());
             true
         }
 
         fn ascend_until(&mut self) -> bool {
+            debug_assert!(self.is_regularized());
             if self.at_root() {
                 return false;
             }
@@ -1501,6 +1519,7 @@ pub(crate) mod read_zipper_core {
         }
 
         fn ascend_until_branch(&mut self) -> bool {
+            debug_assert!(self.is_regularized());
             if self.at_root() {
                 return false;
             }
@@ -1850,25 +1869,7 @@ pub(crate) mod read_zipper_core {
             self.prefix_buf.len() - self.origin_path.len()
         }
 
-        //GOAT, this isn't used anymore
-        // /// Ensures the zipper is in its regularized form
-        // ///
-        // /// Q: What the heck is "regularized form"?!?!?!
-        // /// A: The same zipper position may be representated with multiple configurations of the zipper's
-        // ///  field variables.  Consider the path: `abcd`, where the zipper points to `c`.  This could be
-        // ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
-        // ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
-        // ///  `node_key()` of `c`, which is called a deregularized form.
-        // fn regularize(&mut self) {
-        //     debug_assert!(self.prefix_buf.len() > self.node_key_start()); //If this triggers, we have uninitialized buffers
-        //     if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
-        //         self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
-        //         self.focus_node = next_node.as_tagged();
-        //         self.focus_iter_token = self.focus_node.new_iter_token();
-        //     }
-        // }
-
-        /// Ensures the zipper is in a deregularized form
+        /// Ensures the zipper is in its regularized form
         ///
         /// Q: What the heck is "regularized form"?!?!?!
         /// A: The same zipper position may be representated with multiple configurations of the zipper's
@@ -1876,6 +1877,16 @@ pub(crate) mod read_zipper_core {
         ///  represented with the `focus_node` of `c` and a `node_key()` of `[]`; called the zipper's
         ///  regularized form.  Alternatively it could be represented with the `focus_node` of `b` and a
         ///  `node_key()` of `c`, which is called a deregularized form.
+        fn regularize(&mut self) {
+            debug_assert!(self.prefix_buf.len() > self.node_key_start()); //If this triggers, we have uninitialized buffers
+            if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
+                self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+                self.focus_node = next_node.borrow().as_tagged();
+                self.focus_iter_token = self.focus_node.new_iter_token();
+            }
+        }
+
+        /// Ensures the zipper is in a deregularized form
         ///
         /// While there are dozens of deregularized forms of the zipper and only one regularized, this
         /// method puts the zipper in the state where the focus_node will be as close to the focus as
