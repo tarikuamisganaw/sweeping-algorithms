@@ -129,7 +129,7 @@ impl Conflict {
                     let mut subtree = zipper.fork_read_zipper();
                     match subtree.to_next_val() {
                         false => Ok(()),
-                        true => Err(conflict_f(subtree.absolute_path())),
+                        true => Err(conflict_f(subtree.origin_path())),
                     }
                 } else {
                     Ok(())
@@ -153,7 +153,7 @@ impl Conflict {
                         None => Ok(()),
                         Some(lock) => Err(conflict_f(
                             *lock,
-                            subtree.absolute_path(),
+                            subtree.origin_path(),
                         )),
                     }
                 } else {

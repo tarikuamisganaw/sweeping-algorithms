@@ -902,7 +902,7 @@ fn dump_arena_tree<V, Z, F, P>(
             let id = arena.push(child)?;
             first_child = first_child.or(Some(id));
         }
-        let mut node = NodeBranch {
+        let node = NodeBranch {
             bytemask: ByteMask::from(*bm),
             first_child,
             value: v.map(map_val),
@@ -1120,7 +1120,7 @@ where Storage: AsRef<[u8]>
 impl<'tree, Storage> ZipperAbsolutePath for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
-    fn absolute_path(&self) -> &[u8] {
+    fn origin_path(&self) -> &[u8] {
         &self.path[..]
     }
 

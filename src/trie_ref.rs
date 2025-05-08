@@ -437,7 +437,7 @@ mod tests {
         z.descend_to(b"om");
         assert_eq!(z.val_count(), 5);
         assert_eq!(z.path(), b"om");
-        assert_eq!(z.absolute_path(), b"om");
+        assert_eq!(z.origin_path(), b"om");
 
         let new_map = trie_ref.make_map().unwrap();
         assert_eq!(new_map.val_count(), 9);

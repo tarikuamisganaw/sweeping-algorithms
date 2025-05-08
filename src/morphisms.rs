@@ -405,7 +405,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
     stack.push(StackFrame::from(&z));
     if !z.descend_first_byte() {
         //Empty trie is a special case
-        return alg_f(&ByteMask::EMPTY, &mut [], 0, z.value(), z.absolute_path())
+        return alg_f(&ByteMask::EMPTY, &mut [], 0, z.value(), z.origin_path())
     }
 
     loop {
@@ -433,7 +433,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
                     let val = z.value();
                     let child_mask = ByteMask::from(z.child_mask());
                     let w = if stack_frame.child_cnt > 1 || val.is_some() || !JUMPING {
-                        alg_f(&child_mask, &mut stack_frame.children, 0, val, z.absolute_path())?
+                        alg_f(&child_mask, &mut stack_frame.children, 0, val, z.origin_path())?
                     } else {
                         debug_assert_eq!(stack_frame.children.len(), 1);
                         stack_frame.children.pop().unwrap()
@@ -479,16 +479,16 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
         //This loop runs until we got to a fork or the root.  We will take a spin through the loop
         // for each value we encounter along the way while ascending
         loop {
-            let old_path_len = z.absolute_path().len();
+            let old_path_len = z.origin_path().len();
             let old_val = z.get_value();
             let ascended = z.ascend_until();
             debug_assert!(ascended);
 
             let origin_path = unsafe{ z.origin_path_assert_len(old_path_len) };
             let jump_len = if z.child_count() != 1 || z.is_value() {
-                old_path_len - (z.absolute_path().len()+1)
+                old_path_len - (z.origin_path().len()+1)
             } else {
-                old_path_len - z.absolute_path().len()
+                old_path_len - z.origin_path().len()
             };
 
             w = alg_f(&child_mask, children, jump_len, old_val, origin_path)?;
@@ -507,7 +507,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
     } else {
         //This loop runs at each byte step as we ascend
         loop {
-            let origin_path = z.absolute_path();
+            let origin_path = z.origin_path();
             let byte = *origin_path.last().unwrap_or(&0);
             let val = z.value();
             w = alg_f(&child_mask, children, 0, val, origin_path)?;

@@ -307,7 +307,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ProductZi
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ProductZipper<'_, '_, V> {
-    fn absolute_path(&self) -> &[u8] { self.z.absolute_path() }
+    fn origin_path(&self) -> &[u8] { self.z.origin_path() }
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
 

@@ -2,7 +2,6 @@ use crate::utils::ByteMask;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
-use zipper_priv::*;
 use crate::ring::{AlgebraicStatus, DistributiveLattice, Lattice};
 use crate::TrieValue;
 use crate::write_zipper::write_zipper_priv::WriteZipperPriv;
