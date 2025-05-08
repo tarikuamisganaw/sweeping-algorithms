@@ -504,12 +504,12 @@ fn bit_utils_test() {
     assert_eq!(mask.test_bit(b't'), false);
 }
 
-//LP: Empirically, this strategy doesn't appear to work.  At least not on ARM using rustc.  My guess is the
-// no-op cold function gets optimized away before it has a change to affect the rest of the codegen.  When 
-// I switched `unlikely` to `count_shared_cold` I saw a 8% bump in the `common_prefix` benchmark.
-#[inline] #[cold] fn cold() {}
-#[inline] fn likely(b: bool) -> bool { if !b { cold() } b }
-#[inline] fn unlikely(b: bool) -> bool { if b { cold() } b }
+// LP: I switched `unlikely` to `count_shared_cold` I saw a 8% bump in the `common_prefix` benchmark.
+// FIXME: Branch prediction hint. This is currently only available on nightly
+#[cfg(not(feature = "nightly"))]
+pub use core::convert::{identity as likely, identity as unlikely};
+#[cfg(feature = "nightly")]
+pub use core::intrinsics::{likely, unlikely};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -621,82 +621,6 @@ fn count_shared_neon(p: &[u8], q: &[u8]) -> usize {
 pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     count_shared_neon(a, b)
 }
-
-//COMMENTED OUT because it depends on the nightly-only `portable_simd` feature.
-// On neon it's ~15% faster than the native neon version!?
-//
-// #[inline(always)]
-// fn count_shared_simd(p: &[u8], q: &[u8]) -> usize {
-//     use std::simd::{u8x32, cmp::SimdPartialEq};
-//     unsafe {
-//         let pl = p.len();
-//         let ql = q.len();
-//         let max_shared = pl.min(ql);
-//         if unlikely(max_shared == 0) { return 0 }
-
-//         if same_page::<32>(p) && same_page::<32>(q) {
-//             let mut p_array = [core::mem::MaybeUninit::<u8>::uninit(); 32];
-//             core::ptr::copy_nonoverlapping(p.as_ptr().cast(), (&mut p_array).as_mut_ptr(), 32);
-//             let pv = u8x32::from_array(core::mem::transmute(p_array));
-//             let mut q_array = [core::mem::MaybeUninit::<u8>::uninit(); 32];
-//             core::ptr::copy_nonoverlapping(q.as_ptr().cast(), (&mut q_array).as_mut_ptr(), 32);
-//             let qv = u8x32::from_array(core::mem::transmute(q_array));
-//             let ev = pv.simd_eq(qv);
-
-//             let mask = ev.to_bitmask();
-//             let count = mask.trailing_ones();
-
-//             if count != 32 || max_shared < 33 {
-//                 (count as usize).min(max_shared)
-//             } else {
-//                 let new_len = max_shared-32;
-//                 32 + count_shared_simd(core::slice::from_raw_parts(p.as_ptr().add(32), new_len), core::slice::from_raw_parts(q.as_ptr().add(32), new_len))
-//             }
-
-//         } else {
-//             return count_shared_cold(p, q);
-//         }
-//     }
-// }
-
-// // COMMENTED OUT; uses Lokathor's `wide` crate.  Perf on neon is *identical* to the native neon version above
-// // We could make this the default code path depending on perf on x86, which I have yet to measure.
-
-// #[inline(always)]
-// fn count_shared_wide(p: &[u8], q: &[u8]) -> usize {
-//     use wide::u8x16;
-//     unsafe {
-//         let pl = p.len();
-//         let ql = q.len();
-//         let max_shared = pl.min(ql);
-//         if unlikely(max_shared == 0) { return 0 }
-
-//         if same_page::<16>(p) && same_page::<16>(q) {
-//             let mut p_array = [core::mem::MaybeUninit::<u8>::uninit(); 16];
-//             core::ptr::copy_nonoverlapping(p.as_ptr().cast(), (&mut p_array).as_mut_ptr(), 16);
-//             let pv = u8x16::from(core::mem::transmute::<_, [u8; 16]>(p_array));
-//             let mut q_array = [core::mem::MaybeUninit::<u8>::uninit(); 16];
-//             core::ptr::copy_nonoverlapping(q.as_ptr().cast(), (&mut q_array).as_mut_ptr(), 16);
-//             let qv = u8x16::from(core::mem::transmute::<_, [u8; 16]>(q_array));
-//             let ev = pv.cmp_eq(qv);
-
-//             let eq_arr = ev.to_array();
-//             let eq_u128: u128 = core::mem::transmute(eq_arr);
-
-//             let count = eq_u128.trailing_ones() / 8;
-
-//             if count != 16 || max_shared < 17 {
-//                 (count as usize).min(max_shared)
-//             } else {
-//                 let new_len = max_shared-16;
-//                 16 + count_shared_wide(core::slice::from_raw_parts(p.as_ptr().add(16), new_len), core::slice::from_raw_parts(q.as_ptr().add(16), new_len))
-//             }
-
-//         } else {
-//             return count_shared_cold(p, q);
-//         }
-//     }
-// }
 
 /// Returns the number of characters shared between two slices
 #[cfg(all(not(target_feature="avx2"), not(target_feature="neon")))]
