@@ -130,8 +130,107 @@ const U64_SIZE: usize = core::mem::size_of::<u64>();
 pub const MAGIC_LENGTH: usize = 8;
 // Changes:
 // ACTree01 -> ACTree02: Relative offsets
-pub const COMPACT_TREE_MAGIC: [u8; MAGIC_LENGTH] = *b"ACTree02";
+// ACTree02 -> ACTree03: Branchless varint
+pub const COMPACT_TREE_MAGIC: [u8; MAGIC_LENGTH] = *b"ACTree03";
 
+const VARINT_LEN_BIAS: u8 = u8::MAX - 8;
+/// Decodes a variable-length encoded `u64` integer from a byte slice.
+///
+/// If the first byte is up to `VARINT_LEN_BIAS` (247), it represents the value directly.
+/// Otherwise, the first byte (`VARINT_LEN_BIAS + nbytes`) indicates the number of following
+/// bytes (`nbytes`) that contain the integer in little-endian order.
+///
+/// # Arguments
+/// * `data` - A byte slice containing the encoded varint.
+///
+/// # Returns
+/// A tuple containing:
+/// * The decoded `u64` value.
+/// * The number of bytes consumed from the input slice.
+///
+/// # Examples
+/// ```
+/// use pathmap::arena_compact::read_varint_u64;
+///
+/// // Single byte encoding (100)
+/// let data = [100];
+/// let (value, len) = read_varint_u64(&data);
+/// assert_eq!(value, 100);
+/// assert_eq!(len, 1);
+///
+/// // Multi-byte encoding (1000)
+/// let data = [249, 232, 3];
+/// let (value, len) = read_varint_u64(&data);
+/// assert_eq!(value, 1000);
+/// assert_eq!(len, 3);
+///
+/// // Maximum u64 value
+/// let data = [255, 255, 255, 255, 255, 255, 255, 255, 255];
+/// let (value, len) = read_varint_u64(&data);
+/// assert_eq!(value, u64::MAX);
+/// assert_eq!(len, 9);
+/// ```
+pub fn read_varint_u64(data: &[u8]) -> (u64, usize) {
+    let first = data[0];
+    if first <= VARINT_LEN_BIAS {
+        return (first as u64, 1);
+    }
+    let len = (first - VARINT_LEN_BIAS) as usize;
+    let rest = unsafe {
+        data.as_ptr().add(1)
+            .cast::<u64>().read_unaligned()
+    };
+    let zeros = (64 - len * 8) as u32;
+    let value = (rest << zeros) >> zeros;
+    (value, len + 1)
+}
+
+/// Encodes a `u64` integer into a variable-length format and writes it to a `Writer`.
+///
+/// The encoding uses a single byte for values up to `VARINT_LEN_BIAS` (247). For larger values,
+/// it writes a header byte (`VARINT_LEN_BIAS + nbytes`) followed by the `nbytes` least significant
+/// bytes of the integer in little-endian order. The maximum encoding size is 9 bytes.
+///
+/// # Arguments
+/// * `dst` - A mutable reference to a type implementing `Write`, such as `Vec<u8>` or `BufWriter`.
+/// * `int` - The unsigned 64-bit integer to encode.
+///
+/// # Examples
+/// ```
+/// use std::io::Write;
+/// use pathmap::arena_compact::push_varint_u64;
+///
+/// // Single byte encoding for small value (100)
+/// let mut buf = Vec::new();
+/// push_varint_u64(&mut buf, 100).unwrap();
+/// assert_eq!(buf, [100]);
+///
+/// // Multi-byte encoding for larger value (1000)
+/// let mut buf = Vec::new();
+/// push_varint_u64(&mut buf, 1000).unwrap();
+/// assert_eq!(buf, [249, 232, 3]);
+///
+/// // Maximum u64 value (2^64 - 1)
+/// let mut buf = Vec::new();
+/// push_varint_u64(&mut buf, u64::MAX).unwrap();
+/// assert_eq!(buf, [255, 255, 255, 255, 255, 255, 255, 255, 255]);
+/// ```
+pub fn push_varint_u64(dst: &mut impl Write, int: u64)
+    -> Result<usize, std::io::Error>
+{
+    if int <= VARINT_LEN_BIAS as u64 {
+        dst.write_all(&[int as u8])?;
+        return Ok(1)
+    }
+    let nbytes = (8 - int.leading_zeros() / 8) as usize;
+    let arr = int.to_le_bytes();
+    dst.write_all(&[VARINT_LEN_BIAS + nbytes as u8])?;
+    dst.write_all(&arr[..nbytes])?;
+    Ok(nbytes + 1)
+}
+
+/*
+older varints
 /// Read `u64` in variable-length encoding (VLE) from a slice.
 ///
 /// This function implements varint decoding, where numbers are encoded using
@@ -239,6 +338,7 @@ pub fn push_varint_u64(dst: &mut impl Write, mut int: u64)
     dst.write_all(&buf)?;
     Ok(MAX_VARINT_SIZE)
 }
+*/
 
 /// Read a node from the start of a given slice
 ///
