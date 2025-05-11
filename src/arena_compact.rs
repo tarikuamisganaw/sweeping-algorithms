@@ -128,7 +128,9 @@ const U64_SIZE: usize = core::mem::size_of::<u64>();
 
 /// File magic signature
 pub const MAGIC_LENGTH: usize = 8;
-pub const COMPACT_TREE_MAGIC: [u8; MAGIC_LENGTH] = *b"ACTree01";
+// Changes:
+// ACTree01 -> ACTree02: Relative offsets
+pub const COMPACT_TREE_MAGIC: [u8; MAGIC_LENGTH] = *b"ACTree02";
 
 /// Read `u64` in variable-length encoding (VLE) from a slice.
 ///
@@ -249,7 +251,7 @@ pub fn push_varint_u64(dst: &mut impl Write, mut int: u64)
 /// assert_eq!(node.child_count(), 0);
 /// assert_eq!(length, 1);
 /// ```
-fn read_node(data: &[u8]) -> (Node, usize) {
+fn read_node(data: &[u8], node_id: NodeId) -> (Node, usize) {
     let head = data[0];
     let mut pos = 1;
     if head & LINE_FLAG == 0 {
@@ -267,7 +269,7 @@ fn read_node(data: &[u8]) -> (Node, usize) {
         if nchildren > 0 {
             let (first_child, off) = read_varint_u64(&data[pos..]);
             pos += off;
-            node.first_child = Some(NodeId(first_child));
+            node.first_child = Some(NodeId(node_id.0 - first_child));
         }
         let children_bytes = &data[pos..pos + nchildren];
         pos += nchildren;
@@ -294,11 +296,11 @@ fn read_node(data: &[u8]) -> (Node, usize) {
         if has_child {
             let (child, off) = read_varint_u64(&data[pos..]);
             pos += off;
-            line.child = Some(NodeId(child));
+            line.child = Some(NodeId(node_id.0 - child));
         }
         let (line_id, off) = read_varint_u64(&data[pos..]);
         pos += off;
-        line.path = LineId(line_id);
+        line.path = LineId(node_id.0 - line_id);
         (Node::Line(line), pos)
     }
 }
@@ -332,7 +334,7 @@ pub struct ArenaCompactTree<Storage> {
 }
 
 impl<Storage> ArenaCompactTree<Storage> {
-    fn write_line(dst: &mut impl Write, line: &NodeLine)
+    fn write_line(dst: &mut impl Write, line: &NodeLine, node_id: NodeId)
         -> Result<(), std::io::Error>
     {
         const ARC_HEAD: u8 = 0x80;
@@ -344,13 +346,19 @@ impl<Storage> ArenaCompactTree<Storage> {
             push_varint_u64(dst, value)?;
         }
         if let Some(child) = line.child {
-            push_varint_u64(dst, child.0 as u64)?;
+            let offset = node_id.0.checked_sub(child.0)
+                .expect("Children are expected to be written first");
+            push_varint_u64(dst, offset as u64)?;
         }
-        push_varint_u64(dst, line.path.0 as u64)?;
+        let offset = node_id.0.checked_sub(line.path.0)
+            .expect("Children are expected to be written first");
+        push_varint_u64(dst, offset as u64)?;
         Ok(())
     }
 
-    fn write_node(dst: &mut impl Write, node: &NodeBranch) -> Result<(), std::io::Error> {
+    fn write_node(dst: &mut impl Write, node: &NodeBranch, node_id: NodeId)
+        -> Result<(), std::io::Error>
+    {
         let nchildren = node.bytemask.count_bits();
         let value_flag = if node.value.is_some() { VALUE_FLAG } else { 0 };
         let head = nchildren.min(32) as u8 | value_flag;
@@ -359,8 +367,10 @@ impl<Storage> ArenaCompactTree<Storage> {
             push_varint_u64(dst, value)?;
         }
         if let Some(first_child) = node.first_child {
+            let offset = node_id.0.checked_sub(first_child.0)
+                .expect("Children are expected to be written first");
             assert!(nchildren > 0, "child count == 0 and first_child is Some");
-            push_varint_u64(dst, first_child.0 as u64)?;
+            push_varint_u64(dst, offset as u64)?;
         }
         if nchildren >= 32 {
             for word in node.bytemask.0 {
@@ -400,7 +410,7 @@ where Storage: AsRef<[u8]>
     /// The next child id is potentially invalid.
     fn get_node(&self, node_id: NodeId) -> (Node, NodeId) {
         let data = &self.storage.as_ref()[node_id.0 as usize..];
-        let (node, off) = read_node(data);
+        let (node, off) = read_node(data, node_id);
         let next = NodeId(node_id.0 + off as u64);
         (node, next)
     }
@@ -494,25 +504,25 @@ where Storage: Write
     fn push_node(&mut self, node: &NodeBranch)
         -> Result<NodeId, std::io::Error>
     {
-        let node_id = self.position;
+        let node_id = NodeId(self.position);
         let mut cursor = std::io::Cursor::new([0; MAX_BRANCH_NODE_SIZE]);
-        Self::write_node(&mut cursor, node)?;
+        Self::write_node(&mut cursor, node, node_id)?;
         let len = cursor.position();
         self.storage.write_all(&cursor.get_ref()[..len as usize])?;
         self.position += len;
-        Ok(NodeId(node_id))
+        Ok(node_id)
     }
 
     fn push_line(&mut self, line: &NodeLine)
         -> Result<NodeId, std::io::Error>
     {
-        let node_id = self.position;
+        let node_id = NodeId(self.position);
         let mut cursor = std::io::Cursor::new([0; MAX_LINE_NODE_SIZE]);
-        Self::write_line(&mut cursor, line)?;
+        Self::write_line(&mut cursor, line, node_id)?;
         let len = cursor.position();
         self.storage.write_all(&cursor.get_ref()[..len as usize])?;
         self.position += len;
-        Ok(NodeId(node_id))
+        Ok(node_id)
     }
 
     fn push(&mut self, node: &Node) -> Result<NodeId, std::io::Error> {
