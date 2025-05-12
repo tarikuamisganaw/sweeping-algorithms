@@ -1181,6 +1181,7 @@ pub(crate) fn make_cell_node<V: Clone + Send + Sync>(node: &mut TrieNodeODRc<V>)
 //TODO: Make a Macro to generate OpaqueDynBoxes and ODRc (OpaqueDynRc) and an Arc version
 //NOTE for future separation into stand-alone crate: The `pub(crate)` visibility inside the `opaque_dyn_rc_trie_node`
 //  module come from the visibility of the trait it is derived on.  In this case, `TrieNode`
+//Credit to QuineDot for his ideas on this pattern here: https://users.rust-lang.org/t/inferred-lifetime-for-dyn-trait/112116/7
 pub(crate) use opaque_dyn_rc_trie_node::TrieNodeODRc;
 #[cfg(not(feature = "racy_refcount"))]
 mod opaque_dyn_rc_trie_node {
