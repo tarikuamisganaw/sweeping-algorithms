@@ -279,7 +279,7 @@ The `StraightPath` format is the most efficient way to represent a long uninterr
 
 * end_payload: `PayloadRef`, 1 Byte.  The payload at the end of the path.
 
-* path_bytes: `[u8; 30]`.  The segment of key.
+* path_bytes: `[u8; 30]`.  The segment of the key.  If the `has_root_val` flag is set, then `path_bytes[29]` is reinterpreted as the root value.
 
 ## LOUDS Chunk Format
 
@@ -295,7 +295,7 @@ The format consists of the following fields packed into a single 32 Byte chunk.
 
 * louds_bit_string: `[u8; 4]`, 4 Bytes.  A LOUDS bit string representing the structure of the subtrie.
 
-The final bit of the final byte of the louds_bit_string is reserved to indicate whether the node contains a root value, once the changes described in [A.0001_map_root_values.md] are implemented.  If the node does contain a root value, then the PayloadRef pointing to the root value will be stored at `endpoints_table[7]`.
+The final bit of the final byte of the `louds_bit_string` field is reserved to indicate whether the node contains a root value, once the changes described in [A.0001_map_root_values.md] are implemented.  If the node does contain a root value, then the PayloadRef pointing to the root value will be stored at `endpoints_table[7]`.
 
 * endpoints_table: `[PayloadRef; 8]`, 8 Bytes.  Stores the PayloadRefs for the values or links associated with each endpoint in the LOUDS tree.
 
@@ -335,8 +335,10 @@ louds_bit_string: `1,0 | 1,1,0 | 1,0 | 1,0 | 1,0 | 1,0 | 1,0 | 1,0 | 0 | 0`
 
 ## Pair Chunk Format
 
-Probably unneeded, as it only allows for a handful more path bytes above the LOUDS format.  A dedicated pair format could support a path length up to 29 bytes, while the LOUDS format is limited to 19 path bytes.
+Probably unneeded, as it only allows for a handful more path bytes above the LOUDS format.  A dedicated pair format could support a path length up to 29 bytes in total, while the LOUDS format is limited to 19 path bytes.  But a pair format probably doesn't have much reason to be, between the flexibility of the LOUDS format, and the simplicity of the StraightPath format.
 
 ## Star Chunk Format
 
-GOAT TODO
+A format appropriate for zero-sized V types, able to express dangling paths or paths terminating in values with only 2 bits-per-path.
+
+GOAT TODO...  We should probably measure whether a Star node would ever get used.  In addition to identifying other node formats we could design to address frequently observed patterns.
