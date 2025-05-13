@@ -546,10 +546,12 @@ fn count_shared_avx2(p: &[u8], q: &[u8]) -> usize {
             let qv = _mm256_loadu_si256(q.as_ptr() as _);
             let ev = _mm256_cmpeq_epi8(pv, qv);
             let ne = !(_mm256_movemask_epi8(ev) as u32);
-            if unlikely(ne == 0 && max_shared > 32) {
-                32 + count_shared_avx2(&p[32..], &q[32..])
+            let count = _tzcnt_u32(ne);
+            if count != 32 || max_shared < 33 {
+                (count as usize).min(max_shared)
             } else {
-                (_tzcnt_u32(ne) as usize).min(max_shared)
+                let new_len = max_shared-32;
+                32 + count_shared_avx2(core::slice::from_raw_parts(p.as_ptr().add(32), new_len), core::slice::from_raw_parts(q.as_ptr().add(32), new_len))
             }
         } else {
             count_shared_cold(p, q)
