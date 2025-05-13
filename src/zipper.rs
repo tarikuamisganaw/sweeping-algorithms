@@ -59,14 +59,17 @@ pub trait Zipper {
 
 /// Methods for zippers with a known value type
 pub trait ZipperValues<V> {
-    /// The read-zipper type returned from [fork_read_zipper](Zipper::fork_read_zipper)
-    type ReadZipperT<'a> where Self: 'a;
-
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     ///
-    /// If you have a zipper type that implements [ZipperReadOnly] then [ZipperReadOnly::get_value]
+    /// If you have a zipper type that implements [ZipperReadOnlyValues] then [ZipperReadOnlyValues::get_value]
     /// will provide a longer-lived reference to the value.
     fn value(&self) -> Option<&V>;
+}
+
+/// Method to fork a read zipper from the parent zipper
+pub trait ZipperForking<V> {
+    /// The read-zipper type returned from [fork_read_zipper](Zipper::fork_read_zipper)
+    type ReadZipperT<'a>: ZipperAbsolutePath + ZipperIteration + ZipperValues<V> where Self: 'a;
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus
     ///
@@ -539,8 +542,11 @@ impl<Z> ZipperIteration for &mut Z where Z: ZipperIteration {
 }
 
 impl<V, Z> ZipperValues<V> for &mut Z where Z: ZipperValues<V> {
-    type ReadZipperT<'a> = Z::ReadZipperT<'a> where Self: 'a;
     fn value(&self) -> Option<&V> { (**self).value() }
+}
+
+impl<V, Z> ZipperForking<V> for &mut Z where Z: ZipperForking<V> {
+    type ReadZipperT<'a> = Z::ReadZipperT<'a> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> { (**self).fork_read_zipper() }
 }
 
@@ -610,8 +616,11 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperTracked<'_, '_, V>{
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ReadZipperTracked<'_, '_, V>{
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn value(&self) -> Option<&V> { self.z.get_value() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for ReadZipperTracked<'_, '_, V>{
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -758,8 +767,11 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperUntracked<'_, '_, V> {
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ReadZipperUntracked<'_, '_, V> {
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn value(&self) -> Option<&V> { self.z.get_value() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for ReadZipperUntracked<'_, '_, V> {
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -955,8 +967,11 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ReadZipperOwned<V> {
 }
 
 impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ReadZipperOwned<V> {
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn value(&self) -> Option<&V> { self.z.get_value() }
+}
+
+impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for ReadZipperOwned<V> {
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let forked_zipper = self.z.fork_read_zipper();
         Self::ReadZipperT::new_forked_with_inner_zipper(forked_zipper)
@@ -1120,8 +1135,11 @@ pub(crate) mod read_zipper_core {
     }
 
     impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ReadZipperCore<'_, '_, V> {
-        type ReadZipperT<'a> = ReadZipperCore<'a, 'a, V> where Self: 'a;
         fn value(&self) -> Option<&V> { self.get_value() }
+    }
+
+    impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for ReadZipperCore<'_, '_, V> {
+        type ReadZipperT<'a> = ReadZipperCore<'a, 'a, V> where Self: 'a;
         fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
             let new_root_val = self.get_value();
             let new_root_path = self.origin_path();

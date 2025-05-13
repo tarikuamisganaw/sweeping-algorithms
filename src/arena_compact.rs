@@ -80,7 +80,7 @@ use crate::{
     morphisms::Catamorphism,
     utils::{BitMask, ByteMask, find_prefix_overlap},
     zipper::{
-        Zipper, ZipperValues, ZipperAbsolutePath, ZipperIteration,
+        Zipper, ZipperValues, ZipperForking, ZipperAbsolutePath, ZipperIteration,
         ZipperMoving, ZipperMovingPriv, ZipperReadOnlyValues,
         ZipperConcretePriv, ZipperConcrete,
     },
@@ -1446,11 +1446,15 @@ where Storage: AsRef<[u8]>
 impl<'tree, Storage> ZipperValues<ValueSlice> for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
-    type ReadZipperT<'t> = ACTZipper<'t, Storage> where Self: 't;
     fn value(&self) -> Option<&ValueSlice> {
         self.get_value_slice()
     }
+}
 
+impl<'tree, Storage> ZipperForking<ValueSlice> for ACTZipper<'tree, Storage>
+where Storage: AsRef<[u8]>
+{
+    type ReadZipperT<'t> = ACTZipper<'t, Storage> where Self: 't;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         self.clone().with_root_here()
     }
