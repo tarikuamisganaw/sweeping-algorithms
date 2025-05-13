@@ -504,12 +504,12 @@ fn bit_utils_test() {
     assert_eq!(mask.test_bit(b't'), false);
 }
 
-// LP: I switched `unlikely` to `count_shared_cold` I saw a 8% bump in the `common_prefix` benchmark.
-// FIXME: Branch prediction hint. This is currently only available on nightly
 #[cfg(not(feature = "nightly"))]
-pub use core::convert::{identity as likely, identity as unlikely};
+#[allow(unused)]
+pub(crate) use core::convert::{identity as likely, identity as unlikely};
 #[cfg(feature = "nightly")]
-pub use core::intrinsics::{likely, unlikely};
+#[allow(unused)]
+pub(crate) use core::intrinsics::{likely, unlikely};
 
 const PAGE_SIZE: usize = 4096;
 
@@ -522,21 +522,14 @@ unsafe fn same_page<const VECTOR_SIZE: usize>(slice: &[u8]) -> bool {
     offset_within_page < PAGE_SIZE - VECTOR_SIZE
 }
 
-#[inline(always)]
-fn count_shared_bare(a: &[u8], b: &[u8]) -> usize {
-    let mut cnt = 0;
-    loop {
-        if unlikely(cnt == a.len()) {break}
-        if unlikely(cnt == b.len()) {break}
-        if unsafe{ a.get_unchecked(cnt) != b.get_unchecked(cnt) } {break}
-        cnt += 1;
-    }
-    cnt
+fn count_shared_reference(p: &[u8], q: &[u8]) -> usize {
+    p.iter().zip(q)
+        .take_while(|(x, y)| x == y).count()
 }
 
 #[cold]
 fn count_shared_cold(a: &[u8], b: &[u8]) -> usize {
-    count_shared_bare(a, b)
+    count_shared_reference(a, b)
 }
 
 #[cfg(target_feature="avx2")]
@@ -571,7 +564,7 @@ pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     count_shared_avx2(a, b)
 }
 
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(all(not(feature = "nightly"), target_arch = "aarch64", target_feature = "neon"))]
 #[inline(always)]
 fn count_shared_neon(p: &[u8], q: &[u8]) -> usize {
     use core::arch::aarch64::*;
@@ -615,18 +608,55 @@ fn count_shared_neon(p: &[u8], q: &[u8]) -> usize {
     }
 }
 
+#[cfg(feature = "nightly")]
+#[inline(always)]
+fn count_shared_simd(p: &[u8], q: &[u8]) -> usize {
+    use std::simd::{u8x32, cmp::SimdPartialEq};
+    unsafe {
+        let pl = p.len();
+        let ql = q.len();
+        let max_shared = pl.min(ql);
+        if unlikely(max_shared == 0) { return 0 }
+        if same_page::<32>(p) && same_page::<32>(q) {
+            let mut p_array = [core::mem::MaybeUninit::<u8>::uninit(); 32];
+            core::ptr::copy_nonoverlapping(p.as_ptr().cast(), (&mut p_array).as_mut_ptr(), 32);
+            let pv = u8x32::from_array(core::mem::transmute(p_array));
+            let mut q_array = [core::mem::MaybeUninit::<u8>::uninit(); 32];
+            core::ptr::copy_nonoverlapping(q.as_ptr().cast(), (&mut q_array).as_mut_ptr(), 32);
+            let qv = u8x32::from_array(core::mem::transmute(q_array));
+            let ev = pv.simd_eq(qv);
+            let mask = ev.to_bitmask();
+            let count = mask.trailing_ones();
+            if count != 32 || max_shared < 33 {
+                (count as usize).min(max_shared)
+            } else {
+                let new_len = max_shared-32;
+                32 + count_shared_simd(core::slice::from_raw_parts(p.as_ptr().add(32), new_len), core::slice::from_raw_parts(q.as_ptr().add(32), new_len))
+            }
+        } else {
+            return count_shared_cold(p, q);
+        }
+    }
+}
 /// Returns the number of characters shared between two slices
-#[cfg(all(target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(all(not(feature = "nightly"), target_arch = "aarch64", target_feature = "neon"))]
 #[inline]
 pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     count_shared_neon(a, b)
 }
 
 /// Returns the number of characters shared between two slices
+#[cfg(all(feature = "nightly", target_arch = "aarch64", target_feature = "neon"))]
+#[inline]
+pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+    count_shared_simd(a, b)
+}
+
+/// Returns the number of characters shared between two slices
 #[cfg(all(not(target_feature="avx2"), not(target_feature="neon")))]
 #[inline]
 pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
-    count_shared_bare(a, b)
+    count_shared_reference(a, b)
 }
 
 #[test]

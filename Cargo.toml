@@ -33,12 +33,7 @@ fuzzer = ["dep:rand", "dep:rand_distr"]  # Used for creating random paths, tries
 counters = [] # Enable features to inspect performance properties of tries.  Mainly useful when tuning performance of the PathMap internals.
 graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
 arena_compact = ["dep:memmap2"]
-
-nightly = []
-rustc-internal-api = []
-rustc-dep-of-std = [
-    "nightly",
-]
+nightly = [] # Uses features in the nightly tool chain for better performance
 
 [dev-dependencies]
 paste = "1.0"
@@ -49,7 +44,6 @@ num = "0.4.3"
 rand_distr = { version = "0.5.1" }
 rand = { version = "0.9.0" }
 tempfile = "3.19.1"
-wide = "0.7.32"
 
 [[bench]]
 name = "superdense_keys"
