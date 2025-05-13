@@ -68,7 +68,7 @@ pub trait ZipperValues<V> {
 
 /// Method to fork a read zipper from the parent zipper
 pub trait ZipperForking<V> {
-    /// The read-zipper type returned from [fork_read_zipper](Zipper::fork_read_zipper)
+    /// The read-zipper type returned from [fork_read_zipper](ZipperForking::fork_read_zipper)
     type ReadZipperT<'a>: ZipperAbsolutePath + ZipperIteration + ZipperValues<V> where Self: 'a;
 
     /// Returns a new read-only Zipper, with the new zipper's root being at the zipper's current focus

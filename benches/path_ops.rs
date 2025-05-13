@@ -113,26 +113,6 @@ fn common_prefix_reference(bencher: Bencher) {
     });
 }
 
-#[cfg(target_feature = "sse2")]
-#[divan::bench()]
-fn common_prefix_sse2(bencher: Bencher) {
-    let pairs = setup();
-
-    pairs.iter().for_each(|(l, r)| {
-        let l = unsafe { l.as_ref().unwrap() }; let r = unsafe { r.as_ref().unwrap() };
-        let cnt = count_shared_sse2(l, r);
-        assert_eq!(&l[..cnt], &r[..cnt]);
-        assert!(l.len() <= cnt || r.len() <= cnt || l[cnt] != r[cnt], "{l:?} {r:?} {:?}", cnt);
-    });
-
-    bencher.bench_local(|| {
-        pairs.iter().for_each(|(l, r)| {
-            let l = unsafe { l.as_ref().unwrap() }; let r = unsafe { r.as_ref().unwrap() };
-            std::hint::black_box(count_shared_sse2(&l[..], &r[..]));
-        });
-    });
-}
-
 // ****************************************************************************************************
 // SSE2 implementation
 // The fastest path on vanilla x86 using the stable tool chain
