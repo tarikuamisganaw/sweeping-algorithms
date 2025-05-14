@@ -27,7 +27,7 @@
 
 use maybe_dangling::MaybeDangling;
 
-use crate::utils::ByteMask;
+use crate::utils::{ByteMask, find_prefix_overlap};
 use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
 
@@ -128,6 +128,23 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     /// WARNING: This is not a cheap method. It may have an order-N cost
     //GOAT! This doesn't belong here.  Should be a function that uses a non-side-effect catamorphism
     fn val_count(&self) -> usize;
+
+    /// Moves the zipper's focus to a specific location specified by `path`, relative to the zipper's root
+    ///
+    /// Returns the number of bytes shared between the old and new location and whether the new location exists in the trie
+    fn move_to_path<K: AsRef<[u8]>>(&mut self, path: K) -> (usize, bool) {
+        let path = path.as_ref();
+        let p = self.path();
+        let overlap = find_prefix_overlap(path, p);
+        let to_ascend = p.len() - overlap;
+        if overlap == 0 {  // This heuristic can be fine-tuned for performance; the behavior of the two branches is equivalent
+            self.reset();
+            (overlap, self.descend_to(path))
+        } else {
+            self.ascend(to_ascend);
+            (overlap, self.descend_to(&path[overlap..]))
+        }
+    }
 
     /// Moves the zipper deeper into the trie, to the `key` specified relative to the current zipper focus
     ///

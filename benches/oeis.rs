@@ -138,7 +138,7 @@ fn run(bencher: Bencher, stage: &str) {
 fn main() {
   // Run registered benchmarks.
   let divan = Divan::from_args()
-    .sample_count(3);
+    .sample_count(30);
 
   divan.main();
 }
