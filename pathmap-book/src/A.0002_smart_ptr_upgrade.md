@@ -30,7 +30,7 @@ We can experiment on this, not sure how it goes.
 
 ## Proposal: Node Regions
 
-Structures to own nodes and track dependencies.  A node region is a *logical* object responsible for node lifetimes.
+Structures to own nodes and track dependencies.  A node region is a *logical* object responsible for node life cycles, that manifests in the API.
 
 ### Features Enabled by Node Regions
 
@@ -59,9 +59,27 @@ In the shallow graft-by-reference case, no recursive descent is needed.  When a 
 
 * Node regions have properties that determine the behavior of operations that create references (graft-like operations).  For example, a file-backed region could not reference a node in a volatile memory region, so a graft-like operation would force a copy.  On the other hand a volatile in-memory region could reference a node in a file region.
 
+### Types of Node Regions
+
+* A Transient Region does not track its nodes and thus does not have the ability to cleanup individual nodes.  It is used for temporary storage of nodes for intermediate operations.  Freeing a Transient Region can be done by dropping all of the backing memory.  **CAVEAT** Non-`Copy` value types will cause a problem with Transient Regions.  We either need to forbid non-`Copy` value types from Transient Regions, or engineer a values table that permits dropping of values.
+
+* A Memory Region is intended to be long-lived, but not file-backed.  Individual nodes in a Memory Region can be freed, making room for new future nodes.  An entire Memory Region can be freed by dropping the backing memory (if the value type is `Copy`), but a more common usage patterns will be to have one persistent Memory Region for the life of the program.
+
+* As the name suggests, a File Region is backed by a file.  We may want read-write and read-only flavors of File Regions.  TBD
+
+#### Inter-Region Dependencies Allowed
+
+| X -> Y    | Transient | Memory    | File      |
+|-----------|-----------|-----------|-----------|
+| Transient |      √    |     √     |     √     |
+| Memory    |           |     √     |     √     |
+| File      |           |           |           |
+
+In English: "Any region can depend on a file region (and reference its nodes).  A file region can only reference nodes within itself."
+
 ## Proposal: Node Blocks
 
-Structure that lays out multiple nodes in a contiguous block of memory.  A node block is a physical object.   A node region could use a single node block, or be composed of multiple node blocks.
+Structure that lays out multiple nodes in a contiguous block of memory.  A node block is a physical object that is not visible at the API level.   A node region could use a single node block, or be composed of multiple node blocks.
 
 A node block would have:
 * Partial paths and node information for multiple nodes
@@ -157,10 +175,10 @@ My fear of circular references was referring to circularity at the node-block le
 
 The new TrieNodeODRc would be a 64-bit type.  In that we want to encode the following:
 
-* type_tag: 4 bits.  The code path to use to interpret the node.
+* type_tag: 3 bits.  Which code path to use to interpret the node.
 * block_addr: 44 bits (could be made smaller if necessary, by imposing restrictions on the computer / operating system architecture).  The pointer to any valid 4K node block in the user address space can be reconstructed from this field. See https://github.com/irrustible/ointers/blob/main/src/lib.rs for details and code pertaining to this.
 * node_id: 7 bits.  An id of a node, used to interpret the node's location within a block.  Usually corresponds to a node block chunk index.
-* spare: 9 bits.  Currently unused, by may permit tries that span multiple computers in the future.
+* spare: 10 bits.  Currently unused, by may permit tries that span multiple computers in the future.
 
 ```
        ┌07     ┌0F     ┌17     ┌1F     ┌27     ┌2F     ┌37     ┌3F
@@ -199,6 +217,8 @@ Deallocating node blocks may best be done with a GC algorithm, because, while we
 
 A `PayloadRef` is an 8-bit type used within a Chunk Format, that either refers to another chunk within the same node block (local link) or a slot within the `payloads_table` (external link or value).
 
+The simplest scheme would be for the high bit of a `PayloadRef` can indicate a local link if set, and an external link or value if not set.  Then the remaining 7 bits becomes an index in either the `chunks_table` or the `payloads_table`.  If we end up wanting more than 128 slots in the `payloads_table`, we can compare the 8-bit value against another constant, and subtract that constant to turn the `PayloadRef` into an index.
+
 A `PayloadRef` can have several sentinel values.  These specific values were chosen to avoid interference with valid mappings onto indices in the other tables.  If those tables change size, we can tweak these sentinels.
 
 - `ZERO_SIZED_VALUE = 0x7F`  Means "zero-size value exists here", and saves the need to actually fetch anything from the `payloads_table`.
@@ -215,7 +235,9 @@ The `ByteUnsaturated` format spans 2 32-Byte contiguous chunks, with the `child_
 
 Fields:
 
-* header: 24-element bitfield + 3 bits of length + flags = 4 Bytes.  The 24 element bitfield indicates whether a each payload in `payloads` is a value or a link.  The 3 bits of length indicate the used length of `prefix_path`. The remaining bits are flags which contains: `has_root_val`, `saturated_ff_val_or_child`, and 3 remaining `unused`.
+* common_header: `u8` = 1 Byte.  3-bits of tag, 3 bit integer to indicate the used length of `prefix_path`. `has_root_val` flag, and `saturated_ff_val_or_child` flag.
+
+* val_or_child_bitfield: 24-element bitfield = 3 Bytes.  Indicates whether each payload in `payloads` is a value or a link.
 
 * prefix_path: `[u8; 4]`, 4 Bytes.  Provides a short prefix path between the node's root and the multi-branching location.
 
@@ -226,6 +248,10 @@ Fields:
 ### Discussion
 
 QUESTION: We can trade a few prefix path bytes for payload table slots or vice versa, depending on what the data tells us.
+
+QUESTION: Do we want to stash the number of utilized slots in `payloads`?  Allows for fast paths for a few functions that would otherwise require 4 `popcnt` operations (or a 256-bit compare in the case of `is_empty`).  But we'd need to give up a child or a path prefix byte to get it.
+
+QUESTION: We might want a "medium-saturated" format that could store up to 55ish or 88ish children before going all the way to a saturated node.  Depending on the utilization we find.
 
 ## ByteSaturatedHead Chunk Format
 
@@ -273,13 +299,19 @@ An alternative implementation is to break a `ByteSaturatedBody` into 4 non-conti
 
 ## StraightPath Chunk Format
 
-The `StraightPath` format is the most efficient way to represent a long uninterrupted path.  It packs 30 key bytes into a single 32 Byte chunk with the following fields.
+The `StraightPath` format is the most efficient way to represent a long uninterrupted path.  It packs 29 key bytes into a single 32 Byte chunk with the following fields.
 
-* header: 1 Byte.  Bits [0..5] == `path_len`, Bit 5 == `end_val_or_child`, Bit 6 == `has_root_val` (only needed once the changes described in [A.0001_map_root_values.md] are implemented.), Bit 7 == `unused`.
+* common_header: `u8` = 1 Byte.  3-bits of tag, Bit 3 == `end_is_used`, Bit 4 == `end_val_or_child`, Bit 5 == `has_root_val` (only needed once the changes described in [A.0001_map_root_values.md] are implemented.), Bits 6 & 7 = `unused`.
+
+* length: 1 Byte.  Bits [0..5] == `path_len`.
 
 * end_payload: `PayloadRef`, 1 Byte.  The payload at the end of the path.
 
-* path_bytes: `[u8; 30]`.  The segment of the key.  If the `has_root_val` flag is set, then `path_bytes[29]` is reinterpreted as the root value.
+* path_bytes: `[u8; 29]`.  The segment of the key.  If the `has_root_val` flag is set, then `path_bytes[28]` is reinterpreted as the root value `PayloadRef`.
+
+### Discussion
+
+QUESTION: Should we allow the `end_payload` space to be used as an extra path byte if `V` is a zero-sized type?  We can use the `end_is_used` flag to distinguish a dangling path from a value.
 
 ## LOUDS Chunk Format
 
@@ -287,7 +319,9 @@ The `LOUDSChunkFormat` format represents a subtree with up to 8 payloads, with u
 
 The format consists of the following fields packed into a single 32 Byte chunk.
 
-* path_bytes: `[u8; 19]`, 19 Bytes.  A 1-1 mapping with nodes encoded in the `louds_bit_string`
+* common_header: `u8` = 1 Byte.  3-bits of tag, flag = `has_root_val`, 4-bits of `unused`.
+
+* path_bytes: `[u8; 18]`, 18 Bytes.  A 1-1 mapping with nodes encoded in the `louds_bit_string`
 
 * endpoint_metadata: An 8-element bitfield = 1 Byte.  Each bit in this bitfield indicates whether the associated endpoint is a value or a link.
 
@@ -295,9 +329,7 @@ The format consists of the following fields packed into a single 32 Byte chunk.
 
 * louds_bit_string: `[u8; 4]`, 4 Bytes.  A LOUDS bit string representing the structure of the subtrie.
 
-The final bit of the final byte of the `louds_bit_string` field is reserved to indicate whether the node contains a root value, once the changes described in [A.0001_map_root_values.md] are implemented.  If the node does contain a root value, then the PayloadRef pointing to the root value will be stored at `endpoints_table[7]`.
-
-* endpoints_table: `[PayloadRef; 8]`, 8 Bytes.  Stores the PayloadRefs for the values or links associated with each endpoint in the LOUDS tree.
+* endpoints_table: `[PayloadRef; 8]`, 8 Bytes.  Stores the PayloadRefs for the values or links associated with each endpoint in the LOUDS tree.  If `has_root_val` is set, then the PayloadRef pointing to the root value will be stored at `endpoints_table[7]`.
 
   GOAT OUTDATED.  IGNORE THIS PART.  If `endpoint_metadata[0] == root`, then `endpoints_table[0]` will be a value associated with the root (zero-length path), once the changes described in [A.0001_map_root_values.md] are implemented.
 
