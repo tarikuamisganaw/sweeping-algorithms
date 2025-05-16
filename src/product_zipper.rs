@@ -7,7 +7,7 @@ use zipper_priv::*;
 /// A [Zipper] type that moves through a Cartesian product space created by extending each value at the
 /// end of a path in a primary space with the root of a secondardary space, and doing it recursively for
 /// as many spaces as needed
-pub struct ProductZipper<'factor_z, 'trie, V> {
+pub struct ProductZipper<'factor_z, 'trie, V: Clone + Send + Sync> {
     z: read_zipper_core::ReadZipperCore<'trie, 'static, V>,
     secondaries: Vec<TrieRef<'trie, V>>,
     factor_paths: Vec<usize>,

@@ -12,7 +12,7 @@ use crate::tiny_node::TinyRefNode;
 
 
 /// A LineListNode stores up to 2 children in a single cache line
-pub struct LineListNode<V> {
+pub struct LineListNode<V: Clone + Send + Sync> {
     /// bit 15 = slot_0_used
     /// bit 14 = slot_1_used
     /// bit 13 = slot_0_is_child (child ptr vs value)
@@ -35,7 +35,7 @@ const SLOT_0_USED_MASK: u16 = 1 << 15;
 const SLOT_1_USED_MASK: u16 = 1 << 14;
 const BOTH_SLOTS_USED_MASK: u16 = SLOT_0_USED_MASK | SLOT_1_USED_MASK;
 
-impl<V> Drop for LineListNode<V> {
+impl<V: Clone + Send + Sync> Drop for LineListNode<V> {
     fn drop(&mut self) {
         //Discussion: The straightforward recursive implementation hits a stack overflow with, some very
         // long path lengths.  However we don't want to burden the common case with extra work.  The
@@ -70,7 +70,7 @@ impl<V> Drop for LineListNode<V> {
 }
 
 #[inline]
-fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
+fn list_node_iterative_drop<V: Clone + Send + Sync>(node: &mut LineListNode<V>) {
     let mut next_node = list_node_take_child_to_drop(node).unwrap();
     loop {
         if next_node.refcount() > 1 {
@@ -91,7 +91,7 @@ fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
 }
 
 #[inline]
-fn list_node_take_child_to_drop<V>(node: &mut LineListNode<V>) -> Option<TrieNodeODRc<V>> {
+fn list_node_take_child_to_drop<V: Clone + Send + Sync>(node: &mut LineListNode<V>) -> Option<TrieNodeODRc<V>> {
     let child0 = node.is_used_child_0();
     let child1 = node.is_used_child_1();
     match (child0, child1) {
@@ -116,7 +116,7 @@ fn list_node_take_child_to_drop<V>(node: &mut LineListNode<V>) -> Option<TrieNod
     }
 }
 
-impl<V: Clone> Clone for LineListNode<V> {
+impl<V: Clone + Send + Sync> Clone for LineListNode<V> {
     fn clone(&self) -> Self {
         debug_assert!(validate_node(self));
         let val_or_child0 = if self.is_used::<0>() {
@@ -152,13 +152,13 @@ impl<V: Clone> Clone for LineListNode<V> {
     }
 }
 
-impl<V> Default for LineListNode<V> {
+impl<V: Clone + Send + Sync> Default for LineListNode<V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V> core::fmt::Debug for LineListNode<V> {
+impl<V: Clone + Send + Sync> core::fmt::Debug for LineListNode<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
@@ -187,7 +187,7 @@ impl<V> core::fmt::Debug for LineListNode<V> {
     }
 }
 
-impl<V> LineListNode<V> {
+impl<V: Clone + Send + Sync> LineListNode<V> {
 
     #[inline]
     pub fn new() -> Self {
@@ -894,7 +894,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
 
     /// Converts the node to a ByteNode, transplanting the contents and leaving `self` empty
     pub(crate) fn convert_to_dense<Cf: CoFree<V=V>>(&mut self, capacity: usize) -> TrieNodeODRc<V>
-        where V: Clone, ByteNode<Cf>: TrieNodeDowncast<V>
+        where ByteNode<Cf>: TrieNodeDowncast<V>
     {
         let mut replacement_node = ByteNode::<Cf>::with_capacity(capacity);
 
@@ -1502,7 +1502,7 @@ fn merge_into_list_nodes<V: Clone + Send + Sync + Lattice>(target: &mut LineList
     }
 }
 
-fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V>)> {
+fn follow_path<'a, 'k, V: Clone + Send + Sync>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V>)> {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         let next_node = next_node.borrow();
         if consumed_byte_cnt < key.len() {
@@ -1521,7 +1521,7 @@ fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Op
 
 /// Follows a path from a node, returning `(true, _)` if a value was encountered along the path, returns
 /// `(false, Some)` if the path continues, and `(false, None)` if the path does not descend from the node
-fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V>)>) {
+fn follow_path_to_value<'a, 'k, V: Clone + Send + Sync>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V>)>) {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         if consumed_byte_cnt < key.len() {
             let next_node = next_node.borrow();
@@ -2531,6 +2531,10 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
 }
 
 impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for LineListNode<V> {
+    #[inline]
+    fn tag(&self) -> usize {
+        LINE_LIST_NODE_TAG
+    }
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::LineListNode(self)
@@ -2546,7 +2550,7 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for LineListNode<V> {
 
 /// DEBUG-ONLY  Performs some validity tests to catch malformed ListNodes before they can wreak more havoc
 #[cfg(debug_assertions)]
-pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool {
+pub(crate) fn validate_node<V: Clone + Send + Sync>(node: &LineListNode<V>) -> bool {
     let (key0, key1) = node.get_both_keys();
 
     //If a key is used it must be non-zero length
@@ -2583,13 +2587,13 @@ pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool {
 
 /// So release build will compile
 #[cfg(not(debug_assertions))]
-pub(crate) fn validate_node<V>(_node: &LineListNode<V>) -> bool { true }
+pub(crate) fn validate_node<V: Clone + Send + Sync>(_node: &LineListNode<V>) -> bool { true }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn get_recursive<'a, 'b, V: Clone>(key: &'a [u8], node: &'b dyn TrieNode<V>) -> (&'a [u8], &'b dyn TrieNode<V>, usize) {
+    fn get_recursive<'a, 'b, V: Clone + Send + Sync>(key: &'a [u8], node: &'b dyn TrieNode<V>) -> (&'a [u8], &'b dyn TrieNode<V>, usize) {
         let mut remaining_key = key;
         let mut child_node = node as &dyn TrieNode<V>;
         let mut levels = 0;

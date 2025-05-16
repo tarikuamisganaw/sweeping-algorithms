@@ -178,6 +178,10 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
 }
 
 impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for EmptyNode {
+    #[inline]
+    fn tag(&self) -> usize {
+        EMPTY_NODE_TAG
+    }
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::EmptyNode
     }

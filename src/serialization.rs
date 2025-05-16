@@ -696,7 +696,7 @@ pub fn deserialize_file<V: TrieValue>(file_path : impl AsRef<std::path::Path>, d
   let mut branches_buffer = Vec::with_capacity(2_usize.pow(30)/U64_BYTES);
   
   // we pay the price of looking at a tag, but it should pay off as we get constant lookup
-  enum Deserialized<V> {
+  enum Deserialized<V: Clone + Send + Sync> {
     Path(std::ops::Range<usize>),
     Value(V),
     ChildMask(ChildMask),

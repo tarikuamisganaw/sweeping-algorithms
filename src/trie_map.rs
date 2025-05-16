@@ -21,13 +21,13 @@ use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, L
 /// assert_eq!(map.get("two"), Some(&"2".to_string()));
 /// assert!(!map.contains("three"));
 /// ```
-pub struct BytesTrieMap<V> {
+pub struct BytesTrieMap<V: Clone + Send + Sync> {
     pub(crate) root: UnsafeCell<Option<TrieNodeODRc<V>>>,
     pub(crate) root_val: UnsafeCell<Option<V>>,
 }
 
-unsafe impl<V: Send + Sync> Send for BytesTrieMap<V> {}
-unsafe impl<V: Send + Sync> Sync for BytesTrieMap<V> {}
+unsafe impl<V: Clone + Send + Sync> Send for BytesTrieMap<V> {}
+unsafe impl<V: Clone + Send + Sync> Sync for BytesTrieMap<V> {}
 
 impl<V: Clone + Send + Sync + Unpin> Clone for BytesTrieMap<V> {
     fn clone(&self) -> Self {
@@ -647,7 +647,7 @@ mod tests {
     use crate::ring::Lattice;
 
     #[test]
-    fn map_test() {
+    fn get_from_map_test() {
         let mut map = BytesTrieMap::new();
         //NOW: map contains an empty ListNode
 

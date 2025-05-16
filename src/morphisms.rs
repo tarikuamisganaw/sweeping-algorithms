@@ -962,7 +962,7 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 //
 //GOAT, If we exposed an interface that allowed values to be set in bulk, (e.g. with a mask), we could
 // plumb it straight through to a node interface
-pub struct TrieBuilder<V, W> {
+pub struct TrieBuilder<V: Clone + Send + Sync, W> {
     child_mask: [u64; 4],
     cur_mask_word: usize,
     child_paths: ReusingQueue<Vec<u8>>,
@@ -970,12 +970,12 @@ pub struct TrieBuilder<V, W> {
 }
 
 /// Internal structure 
-enum WOrNode<V, W> {
+enum WOrNode<V: Clone + Send + Sync, W> {
     W(W),
     Node(TrieNodeODRc<V>)
 }
 
-impl<V, W: Default> Default for WOrNode<V, W> {
+impl<V: Clone + Send + Sync, W: Default> Default for WOrNode<V, W> {
     fn default() -> Self {
         //GOAT, the default impl here is mainly to facilitate core::mem::take, therefore, the default
         // should be the cheapest thing to create.  At some point that will be a TrieNodeODRc pointing

@@ -7,7 +7,7 @@ use crate::zipper::*;
 use crate::zipper_tracking::*;
 use crate::dense_byte_node::CellByteNode;
 
-pub trait ZipperCreation<'trie, V> {
+pub trait ZipperCreation<'trie, V: Clone + Send + Sync> {
     /// Creates a new read-only [Zipper] with the path specified from the `ZipperHead`
     fn read_zipper_at_path<'a, K: AsRef<[u8]>>(&'a self, path: K) -> Result<ReadZipperTracked<'a, 'static, V>, Conflict> where 'trie: 'a;
 
@@ -81,13 +81,13 @@ trait ZipperCreationPriv<'trie, V> {
 // safely.  Therefore it is possible to have a ZipperHead that sits at an ordinary node, or even in the
 // middle of a node, however creating a WriteZipper means the node at the root of the WriteZipper must be
 // upgraded to a CellByteNode.
-pub struct ZipperHead<'parent, 'trie, V> {
+pub struct ZipperHead<'parent, 'trie, V: Clone + Send + Sync> {
     z: UnsafeCell<OwnedOrBorrowedMut<'parent, WriteZipperCore<'trie, 'static, V>>>,
     tracker_paths: SharedTrackerPaths,
 }
 
 // `ZipperHead` can be `Send` but absolutely must not be `Sync`!
-unsafe impl<V: Send + Sync + Unpin> Send for ZipperHead<'_, '_, V> {}
+unsafe impl<V: Clone + Send + Sync + Unpin> Send for ZipperHead<'_, '_, V> {}
 
 impl<'parent, 'trie: 'parent, V: Clone + Send + Sync + Unpin> ZipperHead<'parent, 'trie, V> {
 
@@ -113,7 +113,7 @@ enum OwnedOrBorrowedMut<'a, T> {
     Borrowed(&'a mut T)
 }
 
-impl<'trie, V> ZipperCreationPriv<'trie, V> for ZipperHead<'_, 'trie, V> {
+impl<'trie, V: Clone + Send + Sync> ZipperCreationPriv<'trie, V> for ZipperHead<'_, 'trie, V> {
     fn with_inner_core_z<'a, Out, F>(&'a self, func: F) -> Out
         where F: FnOnce(&mut WriteZipperCore<'trie, 'static, V>) -> Out, V: 'trie
     {
@@ -129,7 +129,7 @@ impl<'trie, V> ZipperCreationPriv<'trie, V> for ZipperHead<'_, 'trie, V> {
     }
 }
 
-impl<V> Drop for ZipperHead<'_, '_, V> {
+impl<V: Clone + Send + Sync> Drop for ZipperHead<'_, '_, V> {
     fn drop(&mut self) {
         self.with_inner_core_z(|z| z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut()))
     }
@@ -149,7 +149,7 @@ impl<V> Drop for ZipperHead<'_, '_, V> {
 /// 2. Within `ZipperHeadOwned` there is a `WriteZipperOwned`, which needs to wrap its `WriteZipperCore`
 ///   in a `Box`.  This indirection is probably no big deal because the contents will likely be in cache,
 ///   but it ought to be measured nonetheless.
-pub struct ZipperHeadOwned<V: 'static> {
+pub struct ZipperHeadOwned<V: Clone + Send + Sync + 'static> {
     z: std::sync::Mutex<WriteZipperOwned<V>>,
     tracker_paths: SharedTrackerPaths,
 }

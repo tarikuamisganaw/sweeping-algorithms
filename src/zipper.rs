@@ -81,7 +81,7 @@ pub trait ZipperForking<V> {
 }
 
 /// Methods for zippers that can access concrete subtries
-pub trait ZipperSubtries<V>: ZipperValues<V> + zipper_priv::ZipperPriv<V=V> {
+pub trait ZipperSubtries<V: Clone + Send + Sync>: ZipperValues<V> + zipper_priv::ZipperPriv<V=V> {
     /// Returns a new [BytesTrieMap] containing everything below the zipper's focus or `None` if no
     /// subtrie exists below the focus
     ///
@@ -338,7 +338,7 @@ pub trait ZipperReadOnlyIteration<'a, V>: ZipperReadOnlyValues<'a, V> + ZipperIt
 /// references with lifetimes that may outlive the zipper
 ///
 /// This trait will never be implemented on the same type as [ZipperWriting]
-pub trait ZipperReadOnlySubtries<'a, V>: ZipperSubtries<V> + ZipperReadOnlyPriv<'a, V> {
+pub trait ZipperReadOnlySubtries<'a, V: Clone + Send + Sync>: ZipperSubtries<V> + ZipperReadOnlyPriv<'a, V> {
     /// Returns a [TrieRef] for the specified path, relative to the current focus
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V>;
 }
@@ -426,7 +426,7 @@ pub(crate) mod zipper_priv {
     use super::*;
 
     pub trait ZipperPriv {
-        type V;
+        type V: Clone + Send + Sync;
 
         /// Returns an abstracted reference to the node at the zipper's focus
         ///
@@ -485,7 +485,7 @@ pub(crate) mod zipper_priv {
         fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize);
     }
 
-    pub trait ZipperReadOnlyPriv<'a, V> {
+    pub trait ZipperReadOnlyPriv<'a, V: Clone + Send + Sync> {
         /// Internal method returns the minimal components that compose the zipper, which are:
         ///
         /// `(focus_node, node_key, focus_val)`
@@ -567,11 +567,11 @@ impl<V, Z> ZipperForking<V> for &mut Z where Z: ZipperForking<V> {
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> { (**self).fork_read_zipper() }
 }
 
-impl<V, Z> ZipperSubtries<V> for &mut Z where Z: ZipperSubtries<V> {
+impl<V: Clone + Send + Sync, Z> ZipperSubtries<V> for &mut Z where Z: ZipperSubtries<V> {
     fn make_map(&self) -> Option<BytesTrieMap<Self::V>> { (**self).make_map() }
 }
 
-impl<'a, V, Z> ZipperReadOnlyValues<'a, V> for &mut Z where Z: ZipperReadOnlyValues<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperValues<V> {
+impl<'a, V: Clone + Send + Sync, Z> ZipperReadOnlyValues<'a, V> for &mut Z where Z: ZipperReadOnlyValues<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperValues<V> {
     fn get_value(&self) -> Option<&'a V> { (**self).get_value() }
 }
 
@@ -579,7 +579,7 @@ impl<'a, V, Z> ZipperReadOnlyIteration<'a, V> for &mut Z where Z: ZipperReadOnly
     fn to_next_get_value(&mut self) -> Option<&'a V> { (**self).to_next_get_value() }
 }
 
-impl<'a, V, Z> ZipperReadOnlySubtries<'a, V> for &mut Z where Z: ZipperReadOnlySubtries<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperSubtries<V> {
+impl<'a, V: Clone + Send + Sync, Z> ZipperReadOnlySubtries<'a, V> for &mut Z where Z: ZipperReadOnlySubtries<'a, V>, Self: ZipperReadOnlyPriv<'a, V> + ZipperSubtries<V> {
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> { (**self).trie_ref_at_path(path) }
 }
 
@@ -587,7 +587,7 @@ impl<Z> ZipperConcrete for &mut Z where Z: ZipperConcrete, Self: ZipperConcreteP
     fn is_shared(&self) -> bool { (**self).is_shared() }
 }
 
-impl<V, Z> ZipperPriv for &mut Z where Z: ZipperPriv<V=V> {
+impl<V: Clone + Send + Sync, Z> ZipperPriv for &mut Z where Z: ZipperPriv<V=V> {
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { (**self).get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { (**self).try_borrow_focus() }
@@ -599,7 +599,7 @@ impl<Z> ZipperMovingPriv for &mut Z where Z: ZipperMovingPriv {
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { (**self).reserve_buffers(path_len, stack_depth) }
 }
 
-impl<'a, V, Z> ZipperReadOnlyPriv<'a, V> for &mut Z where Z: ZipperReadOnlyPriv<'a, V> {
+impl<'a, V: Clone + Send + Sync, Z> ZipperReadOnlyPriv<'a, V> for &mut Z where Z: ZipperReadOnlyPriv<'a, V> {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) { (**self).borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V>> { (**self).take_core() }
 }
@@ -615,13 +615,13 @@ impl<Z> ZipperConcretePriv for &mut Z where Z: ZipperConcretePriv {
 
 /// A [Zipper] that is unable to modify the trie
 #[derive(Clone)]
-pub struct ReadZipperTracked<'a, 'path, V> {
+pub struct ReadZipperTracked<'a, 'path, V: Clone + Send + Sync> {
     z: ReadZipperCore<'a, 'path, V>,
     _tracker: ZipperTracker<TrackingRead>,
 }
 
 //The Drop impl ensures the tracker gets dropped at the right time
-impl<V> Drop for ReadZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync> Drop for ReadZipperTracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
@@ -763,7 +763,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> std::iter::IntoIterator for Read
 /// A [Zipper] that is unable to modify the trie, used when it is possible to statically guarantee
 /// non-interference between zippers
 #[derive(Clone)]
-pub struct ReadZipperUntracked<'a, 'path, V> {
+pub struct ReadZipperUntracked<'a, 'path, V: Clone + Send + Sync> {
     z: ReadZipperCore<'a, 'path, V>,
     /// We will still track the zipper in debug mode, because unsafe isn't permission to break the rules
     #[cfg(debug_assertions)]
@@ -772,7 +772,7 @@ pub struct ReadZipperUntracked<'a, 'path, V> {
 
 #[cfg(debug_assertions)]
 //We only need a custom drop when we have a tracker
-impl<V> Drop for ReadZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync> Drop for ReadZipperUntracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
@@ -941,7 +941,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> std::iter::IntoIterator for Read
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 
 /// A [Zipper] that holds ownership of the root node, so there is no need for a lifetime parameter
-pub struct ReadZipperOwned<V: 'static> {
+pub struct ReadZipperOwned<V: Clone + Send + Sync + 'static> {
     map: MaybeDangling<Box<BytesTrieMap<V>>>,
     // NOTE About this Box around the WriteZipperCore... The reason this is needed is for the
     // [WriteZipperOwned::into_map] method.  This box effectively provides a fence, ensuring that the
@@ -1095,7 +1095,7 @@ pub(crate) mod read_zipper_core {
     /// A [Zipper] that is unable to modify the trie
     ///
     /// (Internal type, but in private module so it can be part of sealed interface)
-    pub struct ReadZipperCore<'a, 'path, V> {
+    pub struct ReadZipperCore<'a, 'path, V: Clone + Send + Sync> {
         /// A reference to the entire origin path, of which `root_key` is the final subset
         origin_path: SliceOrLen<'path>,
         /// The byte offset in `origin_path` from the root node to the zipper's root.
@@ -1115,7 +1115,7 @@ pub(crate) mod read_zipper_core {
         ancestors: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
     }
 
-    impl<V> Clone for ReadZipperCore<'_, '_, V> where V: Clone {
+    impl<V: Clone + Send + Sync> Clone for ReadZipperCore<'_, '_, V> where V: Clone {
         fn clone(&self) -> Self {
             Self {
                 origin_path: self.origin_path.clone(),
@@ -1686,7 +1686,7 @@ pub(crate) mod read_zipper_core {
     }
 
     #[inline]
-    pub(crate) fn read_zipper_shared_addr<'a, V: 'a, Z: Zipper + ZipperReadOnlyPriv<'a, V> + ZipperConcrete>(zipper: &Z) -> Option<FocusAddr> {
+    pub(crate) fn read_zipper_shared_addr<'a, V: Clone + Send + Sync + 'a, Z: Zipper + ZipperReadOnlyPriv<'a, V> + ZipperConcrete>(zipper: &Z) -> Option<FocusAddr> {
         let (node, key, value) = zipper.borrow_raw_parts();
         if !zipper.is_shared() || !key.is_empty() || value.is_some() {
             // TODO(igorm): Currently values associated with a nodes that can be shared
@@ -2248,7 +2248,7 @@ pub(crate) mod read_zipper_core {
 use read_zipper_core::*;
 
 /// Internal function to walk along a path to the final node reference
-pub(crate) fn node_along_path<'a, 'path, V>(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_val: Option<&'a V>) -> (&'a dyn TrieNode<V>, &'path [u8], Option<&'a V>) {
+pub(crate) fn node_along_path<'a, 'path, V: Clone + Sync + Send>(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_val: Option<&'a V>) -> (&'a dyn TrieNode<V>, &'path [u8], Option<&'a V>) {
     let mut key = path;
     let mut node = root_node;
     let mut val = root_val;
@@ -2276,7 +2276,7 @@ pub(crate) fn node_along_path<'a, 'path, V>(root_node: &'a dyn TrieNode<V>, path
 ///
 /// NOTE: This is a convenience to allow access to syntactic sugar like `for` loops, [collect](std::iter::Iterator::collect),
 ///  etc.  It will always be faster to use the zipper itself for iteration and traversal.
-pub struct ReadZipperIter<'a, 'path, V>{
+pub struct ReadZipperIter<'a, 'path, V: Clone + Send + Sync>{
     started: bool,
     zipper: Option<ReadZipperCore<'a, 'path, V>>,
 }

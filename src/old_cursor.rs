@@ -8,7 +8,7 @@ use crate::dense_byte_node::{DenseByteNode, OrdinaryCoFree, CoFree};
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
-pub struct AllDenseCursor<'a, V> where V : Clone {
+pub struct AllDenseCursor<'a, V: Clone + Send + Sync> where V : Clone {
     prefix: Vec<u8>,
     btnis: Vec<ByteTrieNodeIter<'a, V>>,
     nopush: bool
@@ -68,13 +68,13 @@ impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
     }
 }
 
-pub struct ByteTrieNodeIter<'a, V> {
+pub struct ByteTrieNodeIter<'a, V: Clone + Send + Sync> {
     i: u8,
     w: u64,
     btn: &'a DenseByteNode<V>
 }
 
-impl <'a, V> ByteTrieNodeIter<'a, V> {
+impl <'a, V: Clone + Send + Sync> ByteTrieNodeIter<'a, V> {
     fn new(btn: &'a DenseByteNode<V>) -> Self {
         Self {
             i: 0,
@@ -246,7 +246,7 @@ impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
 // Abstracted OldCursor
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-pub struct PathMapCursor<'a, V> where V : Clone {
+pub struct PathMapCursor<'a, V: Clone + Send + Sync> {
     prefix_buf: Vec<u8>,
     btnis: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
 }

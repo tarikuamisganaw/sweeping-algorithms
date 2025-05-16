@@ -61,7 +61,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Default for ByteNode<Cf> {
     }
 }
 
-impl<V, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
+impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
@@ -74,7 +74,7 @@ impl<V, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
     }
 }
 
-impl<V, Cf: CoFree<V=V>> ByteNode<Cf> {
+impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -494,7 +494,7 @@ impl<V: Clone + Send + Sync> CellByteNode<V> {
         let rec = match rec {
             Some(rec) => rec,
             None => {
-                *rec = Some(TrieNodeODRc::new(crate::empty_node::EmptyNode));
+                *rec = Some(TrieNodeODRc::new_allocated(0, 0));
                 rec.as_mut().unwrap()
             }
         };
@@ -1285,6 +1285,10 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
 }
 
 impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>> {
+    #[inline]
+    fn tag(&self) -> usize {
+        DENSE_BYTE_NODE_TAG
+    }
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::DenseByteNode(self)
@@ -1306,7 +1310,11 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>>
     }
 }
 
-impl<V> TrieNodeDowncast<V> for ByteNode<CellCoFree<V>> {
+impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for ByteNode<CellCoFree<V>> {
+    #[inline]
+    fn tag(&self) -> usize {
+        CELL_BYTE_NODE_TAG
+    }
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::CellByteNode(self)
     }
@@ -1339,7 +1347,7 @@ pub(crate) fn bit_sibling(pos: u8, x: u64, next: bool) -> u8 {
 }
 
 pub trait CoFree: Clone + Default + Send + Sync {
-    type V;
+    type V: Clone + Send + Sync;
     fn new(rec: Option<TrieNodeODRc<Self::V>>, val: Option<Self::V>) -> Self;
     fn from_cf<OtherCf: CoFree<V=Self::V>>(cf: OtherCf) -> Self;
     fn rec(&self) -> Option<&TrieNodeODRc<Self::V>>;
@@ -1368,12 +1376,12 @@ trait CfShared<OtherCf>: CoFree {
 }
 
 #[derive(Clone, Debug)]
-pub struct OrdinaryCoFree<V> {
+pub struct OrdinaryCoFree<V: Clone + Send + Sync> {
     rec: Option<TrieNodeODRc<V>>,
     value: Option<V>
 }
 
-impl<V> Default for OrdinaryCoFree<V> {
+impl<V: Clone + Send + Sync> Default for OrdinaryCoFree<V> {
     fn default() -> Self {
         Self {rec: None, value: None}
     }
@@ -1449,7 +1457,7 @@ use core::cell::UnsafeCell;
 use core::pin::Pin;
 
 #[derive(Debug)]
-pub struct CellCoFree<V>(Pin<Box<CellCoFreeInsides<V>>>);
+pub struct CellCoFree<V: Clone + Send + Sync>(Pin<Box<CellCoFreeInsides<V>>>);
 
 impl<V: Clone + Send + Sync> Default for CellCoFree<V> {
     fn default() -> Self {
@@ -1470,7 +1478,7 @@ impl<V: Clone + Send + Sync> From<OrdinaryCoFree<V>> for CellCoFree<V> {
     }
 }
 
-impl<V> CellCoFree<V> {
+impl<V: Clone + Send + Sync> CellCoFree<V> {
     fn both_mut_refs(&mut self) -> (&mut Option<TrieNodeODRc<V>>, &mut Option<V>) {
         unsafe{ self.0.as_mut().get_unchecked_mut() }.both_mut_refs()
     }
@@ -1540,19 +1548,19 @@ impl<V: Clone + Send + Sync> CoFree for CellCoFree<V> {
 }
 
 #[derive(Debug)]
-struct CellCoFreeInsides<V> {
+struct CellCoFreeInsides<V: Clone + Send + Sync> {
     rec: UnsafeCell<Option<TrieNodeODRc<V>>>,
     value: UnsafeCell<Option<V>>
 }
 
-impl<V> Default for CellCoFreeInsides<V> {
+impl<V: Clone + Send + Sync> Default for CellCoFreeInsides<V> {
     fn default() -> Self {
         Self {rec: UnsafeCell::new(None), value: UnsafeCell::new(None)}
     }
 }
 
-unsafe impl<V: Send + Sync> Send for CellCoFreeInsides<V> {}
-unsafe impl<V: Send + Sync> Sync for CellCoFreeInsides<V> {}
+unsafe impl<V: Clone + Send + Sync> Send for CellCoFreeInsides<V> {}
+unsafe impl<V: Clone + Send + Sync> Sync for CellCoFreeInsides<V> {}
 
 impl<V: Clone + Send + Sync> Clone for CellCoFreeInsides<V> {
     fn clone(&self) -> Self {
@@ -1563,7 +1571,7 @@ impl<V: Clone + Send + Sync> Clone for CellCoFreeInsides<V> {
     }
 }
 
-impl<V> CellCoFreeInsides<V> {
+impl<V: Clone + Send + Sync> CellCoFreeInsides<V> {
     fn both_mut_refs(&mut self) -> (&mut Option<TrieNodeODRc<V>>, &mut Option<V>) {
         let rec = unsafe{ &mut *self.rec.get() };
         let val = unsafe{ &mut *self.value.get() };
@@ -1725,7 +1733,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     }
 }
 
-impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroDistributiveLattice<OtherCf> for Cf {
+impl<V: Clone + Send + Sync + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroDistributiveLattice<OtherCf> for Cf {
     fn psubtract(&self, other: &OtherCf) -> AlgebraicResult<Self> where Self: Sized {
         let rec = self.rec().psubtract(&other.rec());
         let val = self.val().psubtract(&other.val());
@@ -1733,7 +1741,7 @@ impl<V: Clone + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> Hete
     }
 }
 
-impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroQuantale<OtherCf> for Cf {
+impl<V: Clone + Send + Sync, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroQuantale<OtherCf> for Cf {
     fn prestrict(&self, other: &OtherCf) -> AlgebraicResult<Self> {
         debug_assert!(self.has_rec() || self.has_val());
         if other.has_val() { AlgebraicResult::Identity(SELF_IDENT) } // assumes self can never be CoFree{None, None}
@@ -1761,7 +1769,7 @@ impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroQuantale<OtherCf> fo
     }
 }
 
-impl<V: Clone, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> CfShared<OtherCf> for Cf {
+impl<V: Clone + Send + Sync, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> CfShared<OtherCf> for Cf {
     #[inline]
     fn combine_algebraic_results(&self, other: &OtherCf, rec: AlgebraicResult<Option<TrieNodeODRc<Self::V>>>, val: AlgebraicResult<Option<Self::V>>) -> AlgebraicResult<Self> {
         match (rec, val) {
@@ -2168,7 +2176,7 @@ impl<V: DistributiveLattice + Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf>
 
 //NOTE: This *looks* like an impl of Quantale, but it isn't, so we can have `self` and
 // `other` be differently parameterized types
-impl<V:Clone, Cf: CoFree<V=V>> ByteNode<Cf> {
+impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
     fn prestrict<OtherCf: CoFree<V=V>>(&self, other: &ByteNode<OtherCf>) -> AlgebraicResult<Self> where Self: Sized {
         let mut is_identity = true;
 

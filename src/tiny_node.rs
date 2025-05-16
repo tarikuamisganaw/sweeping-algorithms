@@ -17,7 +17,7 @@ use crate::ring::*;
 
 /// A borrowed reference to a payload with a key stored elsewhere, contained in 16 Bytes
 #[derive(Clone, Copy)]
-pub struct TinyRefNode<'a, V> {
+pub struct TinyRefNode<'a, V: Clone + Send + Sync> {
     /// bit 7 = used
     /// bit 6 = is_child
     /// bit 5 to bit 0 = key_len
@@ -316,7 +316,11 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
     }
 }
 
-impl<V> TrieNodeDowncast<V> for TinyRefNode<'_, V> {
+impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for TinyRefNode<'_, V> {
+    #[inline]
+    fn tag(&self) -> usize {
+        TINY_REF_NODE_TAG
+    }
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::TinyRefNode(self)
     }

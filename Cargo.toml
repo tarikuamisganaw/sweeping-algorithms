@@ -23,6 +23,7 @@ memmap2 = { version="0.9.5", optional = true }
 
 [features]
 default = ["graft_root_vals"]
+nightly = [] # Uses features in the nightly tool chain for better performance
 jemalloc = ["dep:tikv-jemallocator"] # Enables [jemalloc](https://jemalloc.net/) as the default allocator.  This dramatically improves scaling for write-heavy workloads and is generally recommended.  The only reason it is not the default is to avoid interference with the host application allocator.
 zipper_tracking = [] #Exports the zipper_tracking module publicly
 all_dense_nodes = [] # Exclusively use the DenseByteNode type, which generally performs worse but is useful for compatibility and perf comparisons.
@@ -30,9 +31,9 @@ bridge_nodes = [] # Enable the experimental BridgeNode type.  Incompatible with 
 fuzzer = ["dep:rand", "dep:rand_distr"]  # Used for creating random paths, tries, and zipper movements
 counters = [] # Enable features to inspect performance properties of tries.  Mainly useful when tuning performance of the PathMap internals.
 graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
+slim_ptrs = [] # Enables use of a 64-Byte inter-node pointer type (TrieNodeODRc).  Currently does not support refcounting, but this may be fixed
 arena_compact = ["dep:memmap2"]
-nightly = [] # Uses features in the nightly tool chain for better performance
-act_counters = ["arena_compact"]
+act_counters = ["arena_compact"] # LP: Question: Why isn't this code enabled by just counters + arena_compact???
 
 [dev-dependencies]
 paste = "1.0"

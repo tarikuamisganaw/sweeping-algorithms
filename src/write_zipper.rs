@@ -5,14 +5,13 @@ use maybe_dangling::MaybeDangling;
 use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::trie_map::BytesTrieMap;
-use crate::empty_node::EmptyNode;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::zipper_tracking::*;
 use crate::ring::{AlgebraicResult, AlgebraicStatus, DistributiveLattice, Lattice, COUNTER_IDENT, SELF_IDENT};
 
 /// Implemented on [Zipper] types that allow modification of the trie
-pub trait ZipperWriting<V>: WriteZipperPriv<V> {
+pub trait ZipperWriting<V: Clone + Send + Sync>: WriteZipperPriv<V> {
     /// A [ZipperHead] that can be created from this zipper
     type ZipperHead<'z> where Self: 'z;
 
@@ -179,13 +178,13 @@ pub trait ZipperWriting<V>: WriteZipperPriv<V> {
 pub(crate) mod write_zipper_priv {
     use crate::trie_node::*;
 
-    pub trait WriteZipperPriv<V> {
+    pub trait WriteZipperPriv<V: Clone + Send + Sync> {
         fn take_focus(&mut self) -> Option<TrieNodeODRc<V>>;
     }
 }
 use write_zipper_priv::*;
 
-impl<V, Z> ZipperWriting<V> for &mut Z where Z: ZipperWriting<V> {
+impl<V: Clone + Send + Sync, Z> ZipperWriting<V> for &mut Z where Z: ZipperWriting<V> {
     type ZipperHead<'z> = Z::ZipperHead<'z> where Self: 'z;
     fn get_value_mut(&mut self) -> Option<&mut V> { (**self).get_value_mut() }
     fn get_value_or_insert(&mut self, default: V) -> &mut V { (**self).get_value_or_insert(default) }
@@ -211,7 +210,7 @@ impl<V, Z> ZipperWriting<V> for &mut Z where Z: ZipperWriting<V> {
     fn remove_unmasked_branches(&mut self, mask: ByteMask) { (**self).remove_unmasked_branches(mask) }
 }
 
-impl<V, Z> WriteZipperPriv<V> for &mut Z where Z: WriteZipperPriv<V> {
+impl<V: Clone + Send + Sync, Z> WriteZipperPriv<V> for &mut Z where Z: WriteZipperPriv<V> {
     fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> { (**self).take_focus() }
 }
 
@@ -220,13 +219,13 @@ impl<V, Z> WriteZipperPriv<V> for &mut Z where Z: WriteZipperPriv<V> {
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 
 /// A [write zipper](ZipperWriting) type for editing and adding paths and values in the trie
-pub struct WriteZipperTracked<'a, 'path, V> {
+pub struct WriteZipperTracked<'a, 'path, V: Clone + Send + Sync> {
     z: WriteZipperCore<'a, 'path, V>,
     _tracker: Option<ZipperTracker<TrackingWrite>>,
 }
 
 //The Drop impl ensures the tracker gets dropped at the right time
-impl<V> Drop for WriteZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync> Drop for WriteZipperTracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
@@ -273,13 +272,13 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperTracked<'_, '_,
     fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
 }
 
-impl<'a, 'path, V : Clone> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'path, V> {
+impl<'a, 'path, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'path, V> {
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<'a, 'path, V : Clone> zipper_priv::ZipperMovingPriv for WriteZipperTracked<'a, 'path, V> {
+impl<'a, 'path, V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperTracked<'a, 'path, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -355,7 +354,7 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperTracked<'
 
 /// A [write zipper](ZipperWriting) type for editing and adding paths and values in the trie, used when it
 /// is possible to statically guarantee non-interference between zippers
-pub struct WriteZipperUntracked<'a, 'k, V> {
+pub struct WriteZipperUntracked<'a, 'k, V: Clone + Send + Sync> {
     z: WriteZipperCore<'a, 'k, V>,
     /// We will still track the zipper in debug mode, because unsafe isn't permission to break the rules
     #[cfg(debug_assertions)]
@@ -364,7 +363,7 @@ pub struct WriteZipperUntracked<'a, 'k, V> {
 
 //We only want a custom drop when we have a tracker
 #[cfg(debug_assertions)]
-impl<V> Drop for WriteZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync> Drop for WriteZipperUntracked<'_, '_, V> {
     fn drop(&mut self) { }
 }
 
@@ -411,13 +410,13 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperUntracked<'_, '
     fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
 }
 
-impl<'a, 'k, V : Clone> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k, V> {
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<'a, 'k, V : Clone> zipper_priv::ZipperMovingPriv for WriteZipperUntracked<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperUntracked<'a, 'k, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -513,7 +512,7 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperUntracked
 /// I see is that it saves the caller from creating a new temporary [write zipper](ZipperWriting) and re-traversing to the
 /// zipper root each time, which could be a perf gain.  On the other hand, this object has higher overhead
 /// than the ordinary borrowed `WriteZipper`, both at creation time as well as during use.
-pub struct WriteZipperOwned<V: 'static> {
+pub struct WriteZipperOwned<V: Clone + Send + Sync + 'static> {
     prefix_path: MaybeDangling<Box<[u8]>>,
     map: MaybeDangling<Box<BytesTrieMap<V>>>,
     // NOTE About this Box around the WriteZipperCore... The reason this is needed is for the
@@ -573,13 +572,13 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperOwned<V> {
     fn ascend_until_branch(&mut self) -> bool { self.z.ascend_until_branch() }
 }
 
-impl<V: Clone> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
+impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
     type V = V;
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone> zipper_priv::ZipperMovingPriv for WriteZipperOwned<V> {
+impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -691,7 +690,7 @@ impl<V: Clone + Send + Sync + Unpin> WriteZipperPriv<V> for WriteZipperOwned<V> 
 //
 
 /// The core implementation of WriteZipper
-pub(crate) struct WriteZipperCore<'a, 'k, V> {
+pub(crate) struct WriteZipperCore<'a, 'k, V: Clone + Send + Sync> {
     pub(crate) key: KeyFields<'k>,
 
     pub(crate) root_val: Option<&'a mut Option<V>>,
@@ -908,7 +907,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperCore<'_, '_, V>
     }
 }
 
-impl<'a, 'k, V: Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> {
@@ -931,7 +930,7 @@ impl<'a, 'k, V: Clone> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     }
 }
 
-impl<'a, 'k, V: Clone> zipper_priv::ZipperMovingPriv for WriteZipperCore<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperCore<'a, 'k, V> {
     unsafe fn origin_path_assert_len(&self, _len: usize) -> &[u8] {
         unimplemented!()
     }
@@ -1489,7 +1488,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
             } else {
                 self.focus_stack.to_root();
                 let stack_root = self.focus_stack.root_mut().unwrap();
-                **stack_root = TrieNodeODRc::new(EmptyNode);
+                **stack_root = TrieNodeODRc::new_allocated(0, 0);
                 self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
                 true
             }
@@ -1550,7 +1549,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
             debug_assert!(self.at_root());
-            let mut replacement_node = TrieNodeODRc::new(EmptyNode);
+            let mut replacement_node = TrieNodeODRc::new_allocated(0, 0);
             self.focus_stack.backtrack();
             let stack_root = self.focus_stack.root_mut().unwrap();
             core::mem::swap(*stack_root, &mut replacement_node);
@@ -1729,7 +1728,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
 
 /// An internal function to replace the node at a the top of the focus stack
 #[inline]
-pub(crate) fn replace_top_node<'cursor, V>(focus_stack: &mut MutCursorRootedVec<'cursor, &'cursor mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
+pub(crate) fn replace_top_node<'cursor, V: Clone + Send + Sync>(focus_stack: &mut MutCursorRootedVec<'cursor, &'cursor mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
     key: &KeyFields, replacement_node: TrieNodeODRc<V>)
 {
     focus_stack.backtrack();
@@ -1766,7 +1765,7 @@ pub(crate) fn swap_top_node<'cursor, V: Clone + Send + Sync, F>(focus_stack: &mu
         },
         None => {
             let stack_root = focus_stack.root_mut().unwrap();
-            let mut temp_node = TrieNodeODRc::new(EmptyNode);
+            let mut temp_node = TrieNodeODRc::new_allocated(0, 0);
             core::mem::swap(&mut temp_node, *stack_root);
             match func(temp_node) {
                 Some(replacement_node) => { **stack_root = replacement_node; },
