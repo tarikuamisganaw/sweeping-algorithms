@@ -1583,6 +1583,28 @@ where Storage: AsRef<[u8]>
         }
         descended
     }
+
+    fn to_sibling(&mut self, next: bool) -> bool {
+        let top_frame = self.stack.last().unwrap();
+        if self.stack.len() <= 1 || top_frame.node_depth > 0 {
+            // can't move to sibling at root, or along the path
+            return false;
+        }
+        let top2_frame = &self.stack[self.stack.len() - 2];
+        let sibling_idx = if next {
+            let idx = top2_frame.child_index + 1;
+            if idx >= top2_frame.child_count {
+                return false;
+            }
+            idx
+        } else {
+            if top2_frame.child_index == 0 {
+                return false;
+            }
+            top2_frame.child_index - 1
+        };
+        self.ascend(1) && self.descend_indexed_branch(sibling_idx)
+    }
 }
 
 impl<'tree, Storage> ZipperValues<ValueSlice> for ACTZipper<'tree, Storage>
@@ -1867,28 +1889,6 @@ where Storage: AsRef<[u8]>
     /// root
     fn ascend_until_branch(&mut self) -> bool {
         self.ascend_to_branch(false)
-    }
-
-    fn to_sibling(&mut self, next: bool) -> bool {
-        let top_frame = self.stack.last().unwrap();
-        if self.stack.len() <= 1 || top_frame.node_depth > 0 {
-            // can't move to sibling at root, or along the path
-            return false;
-        }
-        let top2_frame = &self.stack[self.stack.len() - 2];
-        let sibling_idx = if next {
-            let idx = top2_frame.child_index + 1;
-            if idx >= top2_frame.child_count {
-                return false;
-            }
-            idx
-        } else {
-            if top2_frame.child_index == 0 {
-                return false;
-            }
-            top2_frame.child_index - 1
-        };
-        self.ascend(1) && self.descend_indexed_branch(sibling_idx)
     }
 
     #[inline]

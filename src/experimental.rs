@@ -75,6 +75,11 @@ impl ZipperMoving for FullZipper {
     fn ascend_until_branch(&mut self) -> bool {
         self.path.pop().is_some() // not sure? What's the difference with the previous?
     }
+    fn to_next_sibling_byte(&mut self) -> bool { self.to_sibling(true) }
+    fn to_prev_sibling_byte(&mut self) -> bool { self.to_sibling(false) }
+}
+
+impl FullZipper {
     fn to_sibling(&mut self, next: bool) -> bool {
         if self.path.is_empty() { return false } // right?
         if next {
@@ -87,8 +92,6 @@ impl ZipperMoving for FullZipper {
             else { false }
         }
     }
-    fn to_next_sibling_byte(&mut self) -> bool { self.to_sibling(true) }
-    fn to_prev_sibling_byte(&mut self) -> bool { self.to_sibling(false) }
 }
 
 // Doesn't seem as lawful as the above, still maybe useful for testing

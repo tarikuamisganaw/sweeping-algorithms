@@ -115,7 +115,9 @@ pub trait ZipperSubtries<V: Clone + Send + Sync>: ZipperValues<V> + zipper_priv:
 /// will never change.
 pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     /// Returns `true` if the zipper's focus is at its root, and it cannot ascend further, otherwise returns `false`
-    fn at_root(&self) -> bool;
+    fn at_root(&self) -> bool {
+        self.path().len() == 0
+    }
 
     /// Resets the zipper's focus back to its root
     fn reset(&mut self);
@@ -197,7 +199,9 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
 
     /// Moves the zipper one byte deeper into the trie.  Identical in effect to [descend_to](Self::descend_to)
     /// with a 1-byte key argument
-    fn descend_to_byte(&mut self, k: u8) -> bool;
+    fn descend_to_byte(&mut self, k: u8) -> bool {
+        self.descend_to(&[k])
+    }
 
 //GOAT, I think we should rename this to `descend_indexed_byte` for consistency
     /// Descends the zipper's focus one byte into a child branch uniquely identified by `child_idx`
@@ -230,7 +234,17 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
     /// moved otherwise returns `false`
-    fn descend_until(&mut self) -> bool;
+    fn descend_until(&mut self) -> bool {
+        let mut descended = false;
+        while self.child_count() < 2 {
+            if self.descend_first_byte() {
+                descended = true;
+            } else {
+                break
+            }
+        }
+        descended
+    }
 
     /// Ascends the zipper `steps` steps.  Returns `true` if the zipper sucessfully moved `steps`
     ///
@@ -239,7 +253,9 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     fn ascend(&mut self, steps: usize) -> bool;
 
     /// Ascends the zipper up a single byte.  Equivalent to passing `1` to [ascend](Self::ascend)
-    fn ascend_byte(&mut self) -> bool;
+    fn ascend_byte(&mut self) -> bool {
+        self.ascend(1)
+    }
 
     /// Ascends the zipper to the nearest upstream branch point or value.  Returns `true` if the zipper
     /// focus moved upwards, otherwise returns `false` if the zipper was already at the root
@@ -274,15 +290,15 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     //     return true;
     // }
 
-    //GOAT, this should be deprecated in favor of to_next_sibling_byte and to_prev_sibling_byte
-    /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
-    /// otherwise returns `false`
-    ///
-    /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
-    /// where the index passed is 1 more or less than the index of the current focus position.
-    ///
-    /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
-    fn to_sibling(&mut self, next: bool) -> bool;
+    // //GOAT, this should be deprecated in favor of to_next_sibling_byte and to_prev_sibling_byte
+    // /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
+    // /// otherwise returns `false`
+    // ///
+    // /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
+    // /// where the index passed is 1 more or less than the index of the current focus position.
+    // ///
+    // /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
+    // fn to_sibling(&mut self, next: bool) -> bool;
 
     /// Moves the zipper's focus to the next sibling byte with the same parent
     ///
@@ -575,7 +591,6 @@ impl<Z> ZipperMoving for &mut Z where Z: ZipperMoving + Zipper {
     fn ascend_byte(&mut self) -> bool { (**self).ascend_byte() }
     fn ascend_until(&mut self) -> bool { (**self).ascend_until() }
     fn ascend_until_branch(&mut self) -> bool { (**self).ascend_until_branch() }
-    fn to_sibling(&mut self, next: bool) -> bool { (**self).to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { (**self).to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { (**self).to_prev_sibling_byte() }
     fn to_next_step(&mut self) -> bool { (**self).to_next_step() }
@@ -695,7 +710,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperTracked<'_, '_, 
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
-    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
@@ -846,7 +860,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperUntracked<'_, '_
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
-    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
@@ -1046,7 +1059,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ReadZipperOwned<V> {
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
-    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
@@ -1419,56 +1431,6 @@ pub(crate) mod read_zipper_core {
 
         //     self.focus_node.node_first_val_depth_along_key();
         // }
-
-        fn to_sibling(&mut self, next: bool) -> bool {
-            self.prepare_buffers();
-            debug_assert!(self.is_regularized());
-            if self.node_key().len() != 0 {
-                match self.focus_node.get_sibling_of_child(self.node_key(), next) {
-                    (Some(prefix), Some(child_node)) => {
-                        *self.prefix_buf.last_mut().unwrap() = prefix;
-                        self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
-                        self.focus_node = child_node.as_tagged();
-                        self.focus_iter_token = NODE_ITER_INVALID;
-                        true
-                    },
-                    (Some(prefix), None) => {
-                        *self.prefix_buf.last_mut().unwrap() = prefix;
-                        true
-                    },
-                    (None, _) => false
-                }
-            } else {
-                let mut should_pop = false;
-                let result = match self.ancestors.last() {
-                    None => { false }
-                    Some((parent, _iter_tok, _prefix_offset)) => {
-                        match parent.get_sibling_of_child(self.parent_key(), next) {
-                            (Some(prefix), Some(child_node)) => {
-                                *self.prefix_buf.last_mut().unwrap() = prefix;
-                                self.focus_node = child_node.as_tagged();
-                                self.focus_iter_token = NODE_ITER_INVALID;
-                                true
-                            },
-                            (Some(prefix), None) => {
-                                *self.prefix_buf.last_mut().unwrap() = prefix;
-                                should_pop = true;
-                                true
-                            },
-                            (None, _) => {
-                                false
-                            }
-                        }
-                    }
-                };
-                if should_pop {
-                    let (focus_node, iter_tok, _prefix_offset) = self.ancestors.pop().unwrap();
-                    self.focus_node = focus_node;
-                    self.focus_iter_token = iter_tok;
-                }
-                result
-            }
-        }
 
         fn to_next_sibling_byte(&mut self) -> bool {
             self.prepare_buffers();
@@ -2016,6 +1978,60 @@ pub(crate) mod read_zipper_core {
                 };
             }
             (self, key)
+        }
+
+        /// Internal implementation of `to_next_sibling_byte` / `to_prev_sibling_byte`, which
+        /// performs about as well as the `to_next_sibling_byte` that is there, but doesn't
+        /// update the zipper's iter tokens
+        #[inline]
+        fn to_sibling(&mut self, next: bool) -> bool {
+            self.prepare_buffers();
+            debug_assert!(self.is_regularized());
+            if self.node_key().len() != 0 {
+                match self.focus_node.get_sibling_of_child(self.node_key(), next) {
+                    (Some(prefix), Some(child_node)) => {
+                        *self.prefix_buf.last_mut().unwrap() = prefix;
+                        self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+                        self.focus_node = child_node.as_tagged();
+                        self.focus_iter_token = NODE_ITER_INVALID;
+                        true
+                    },
+                    (Some(prefix), None) => {
+                        *self.prefix_buf.last_mut().unwrap() = prefix;
+                        true
+                    },
+                    (None, _) => false
+                }
+            } else {
+                let mut should_pop = false;
+                let result = match self.ancestors.last() {
+                    None => { false }
+                    Some((parent, _iter_tok, _prefix_offset)) => {
+                        match parent.get_sibling_of_child(self.parent_key(), next) {
+                            (Some(prefix), Some(child_node)) => {
+                                *self.prefix_buf.last_mut().unwrap() = prefix;
+                                self.focus_node = child_node.as_tagged();
+                                self.focus_iter_token = NODE_ITER_INVALID;
+                                true
+                            },
+                            (Some(prefix), None) => {
+                                *self.prefix_buf.last_mut().unwrap() = prefix;
+                                should_pop = true;
+                                true
+                            },
+                            (None, _) => {
+                                false
+                            }
+                        }
+                    }
+                };
+                if should_pop {
+                    let (focus_node, iter_tok, _prefix_offset) = self.ancestors.pop().unwrap();
+                    self.focus_node = focus_node;
+                    self.focus_iter_token = iter_tok;
+                }
+                result
+            }
         }
 
         /// Internal method that implements both `k_path...` methods above
@@ -2605,16 +2621,16 @@ pub(crate) mod zipper_moving_tests {
 
         zipper.descend_to(&[b'r']); zipper.descend_to(&[b'o']); zipper.descend_to(&[b'm']); // focus = rom
         assert!(zipper.descend_to(&[b'\''])); // focus = rom'  (' is the lowest byte)
-        assert!(zipper.to_sibling(true)); // focus = roma  (a is the second byte), but we can't actually guarantee whether we land on 'a' or 'u'
+        assert!(zipper.to_next_sibling_byte()); // focus = roma  (a is the second byte), but we can't actually guarantee whether we land on 'a' or 'u'
         assert_in_list(zipper.path(), &[b"roma", b"romu"]);
         assert_eq!(zipper.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'n']); // both follow-ups romane and romanus have n following a
-        assert!(zipper.to_sibling(true)); // focus = romu  (u is the third byte)
+        assert!(zipper.to_next_sibling_byte()); // focus = romu  (u is the third byte)
         assert_in_list(zipper.path(), &[b"roma", b"romu"]);
         assert_eq!(zipper.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'l']); // and romu is followed by lus
-        assert!(!zipper.to_sibling(true)); // fails because there were only 3 children ['\'', 'a', 'u']
-        assert!(zipper.to_sibling(false)); // focus = roma or romu (we stepped back)
+        assert!(!zipper.to_next_sibling_byte()); // fails because there were only 3 children ['\'', 'a', 'u']
+        assert!(zipper.to_prev_sibling_byte()); // focus = roma or romu (we stepped back)
         assert_in_list(zipper.path(), &[b"roma", b"romu"]);
-        assert!(zipper.to_sibling(false)); // focus = rom' (we stepped back to where we began)
+        assert!(zipper.to_prev_sibling_byte()); // focus = rom' (we stepped back to where we began)
         assert_eq!(zipper.path(), b"rom'");
         assert_eq!(zipper.child_mask().byte_mask_iter().collect::<Vec<_>>(), vec![b'i']);
         assert!(zipper.ascend(1)); // focus = rom

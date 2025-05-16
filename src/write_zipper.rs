@@ -263,7 +263,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperTracked<'_, '_,
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
-    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
@@ -401,7 +400,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperUntracked<'_, '
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
-    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
@@ -563,7 +561,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperOwned<V> {
     fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
-    fn to_sibling(&mut self, next: bool) -> bool { self.z.to_sibling(next) }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
     fn to_prev_sibling_byte(&mut self) -> bool { self.z.to_prev_sibling_byte() }
     fn ascend(&mut self, steps: usize) -> bool { self.z.ascend(steps) }
@@ -816,18 +813,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperCore<'_, '_, V>
         }
     }
 
-    fn descend_to_byte(&mut self, k: u8) -> bool {
-        self.descend_to(&[k])
-    }
-
-    fn descend_until(&mut self) -> bool {
-        unimplemented!()
-    }
-
-    fn to_sibling(&mut self, next: bool) -> bool {
-        unimplemented!()
-    }
-
     fn to_prev_sibling_byte(&mut self) -> bool {
         unimplemented!()
     }
@@ -848,10 +833,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperCore<'_, '_, V>
             self.key.prefix_buf.truncate(self.key.prefix_buf.len() - cur_jump);
             steps -= cur_jump;
         }
-    }
-
-    fn ascend_byte(&mut self) -> bool {
-        self.ascend(1)
     }
 
     fn ascend_until(&mut self) -> bool {

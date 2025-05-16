@@ -213,12 +213,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
         self.ensure_descend_next_factor();
         self.z.descend_until()
     }
-    fn to_sibling(&mut self, next: bool) -> bool {
-        self.ensure_descend_next_factor();
-        let moved = self.z.to_sibling(next);
-        self.fix_after_ascend();
-        moved
-    }
     fn to_next_sibling_byte(&mut self) -> bool {
         self.ensure_descend_next_factor();
         let moved = self.z.to_next_sibling_byte();
@@ -226,7 +220,10 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
         moved
     }
     fn to_prev_sibling_byte(&mut self) -> bool {
-        self.to_sibling(false)
+        self.ensure_descend_next_factor();
+        let moved = self.z.to_prev_sibling_byte();
+        self.fix_after_ascend();
+        moved
     }
     fn ascend(&mut self, steps: usize) -> bool {
         let ascended = self.z.ascend(steps);
