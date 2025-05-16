@@ -10,9 +10,11 @@ use crate::ring::*;
 use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
 use crate::tiny_node::TinyRefNode;
 
-
 /// A LineListNode stores up to 2 children in a single cache line
+#[repr(C)]
 pub struct LineListNode<V: Clone + Send + Sync> {
+    #[cfg(feature = "slim_ptrs")]
+    refcnt: std::sync::atomic::AtomicU32,
     /// bit 15 = slot_0_used
     /// bit 14 = slot_1_used
     /// bit 13 = slot_0_is_child (child ptr vs value)
@@ -29,6 +31,9 @@ pub struct LineListNode<V: Clone + Send + Sync> {
 // one chache line.  But if we put in into an RcBox, (which adds a 16 byte header) we either need 14 bytes
 // to stay within 1 cache line, or 78 to pack into two.
 //WARNING the length bits mean I will overflow if I go above 63
+#[cfg(feature = "slim_ptrs")]
+const KEY_BYTES_CNT: usize = 42;
+#[cfg(not(feature = "slim_ptrs"))]
 const KEY_BYTES_CNT: usize = 14;
 
 const SLOT_0_USED_MASK: u16 = 1 << 15;
@@ -142,6 +147,8 @@ impl<V: Clone + Send + Sync> Clone for LineListNode<V> {
             ValOrChildUnion{ _unused: () }
         };
         let new_node = Self {
+            #[cfg(feature = "slim_ptrs")]
+            refcnt: std::sync::atomic::AtomicU32::new(1),
             header: self.header,
             key_bytes: self.key_bytes,
             val_or_child0,
@@ -192,6 +199,8 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
     #[inline]
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "slim_ptrs")]
+            refcnt: std::sync::atomic::AtomicU32::new(1),
             header: 0,
             key_bytes: [MaybeUninit::uninit(); KEY_BYTES_CNT],
             val_or_child0: ValOrChildUnion{ _unused: () },
@@ -2610,6 +2619,9 @@ mod tests {
     #[test]
     fn test_line_list_node() {
         // assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
+        #[cfg(feature = "slim_ptrs")]
+        assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
+        #[cfg(not(feature = "slim_ptrs"))]
         assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 48); //Shrunk to account for DynBox header
 
         //A simple test with a V that fits inside 16 bytes, only testing slot_0
@@ -2690,7 +2702,7 @@ mod tests {
     /// This tests the logic to split a single key that consumes a whole node into multiple nodes
     #[test]
     fn test_line_list_overflow_split_in_place() {
-        const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
+        const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs. Now is the time for all good men to come to the aid of their country.".as_bytes();
 
         //A test using only one slot, where the key exceeds the available space, make sure recursive nodes
         // are created
@@ -2968,14 +2980,15 @@ mod tests {
         //Test two separate keys
         let mut new_node = LineListNode::<usize>::new();
         assert_eq!(new_node.node_set_val(b"albatross", 42).map_err(|_| 0), Ok((None, false)));
-        assert_eq!(new_node.node_set_val(b"brubru", 42).map_err(|_| 0), Ok((None, true)));
+        assert_eq!(new_node.node_set_val(b"brown-winged whistling thrush (Myophonus castaneus)", 42).map_err(|_| 0), Ok((None, true)));
         debug_assert!(validate_node(&new_node));
+
         assert_eq!(new_node.count_branches(b""), 2);
         assert_eq!(new_node.count_branches(b"a"), 1);
         assert_eq!(new_node.count_branches(b"alb"), 1);
         assert_eq!(new_node.count_branches(b"albatross"), 0);
         assert_eq!(new_node.get_sibling_of_child(b"albatross", true).0, None);
-        assert_eq!(new_node.get_sibling_of_child(b"brubru", true).0, None);
+        assert_eq!(new_node.get_sibling_of_child(b"brown-winged whistling thrush", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, Some(b'b'));
         assert_eq!(new_node.get_sibling_of_child(b"b", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"b", false).0, Some(b'a'));

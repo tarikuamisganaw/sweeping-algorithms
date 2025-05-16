@@ -447,7 +447,10 @@ impl<V: Clone + Send + Sync> ValOrChild<V> {
 
 pub union ValOrChildUnion<V: Clone + Send + Sync> {
     pub child: ManuallyDrop<TrieNodeODRc<V>>,
-    pub val: ManuallyDrop<LocalOrHeap<V>>,
+    #[cfg(feature = "slim_ptrs")]
+    pub val: ManuallyDrop<LocalOrHeap<V, [u8; 8]>>,
+    #[cfg(not(feature = "slim_ptrs"))]
+    pub val: ManuallyDrop<LocalOrHeap<V, [u8; 16]>>,
     pub _unused: ()
 }
 
