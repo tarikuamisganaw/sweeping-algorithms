@@ -33,7 +33,10 @@ counters = [] # Enable features to inspect performance properties of tries.  Mai
 graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
 slim_ptrs = [] # Enables use of a 64-Byte inter-node pointer type (TrieNodeODRc).  Currently does not support refcounting, but this may be fixed
 arena_compact = ["dep:memmap2"]
+<<<<<<< HEAD
 act_counters = ["arena_compact"] # LP: Question: Why isn't this code enabled by just counters + arena_compact???
+=======
+>>>>>>> 2e50b81 (Adding `slim_ptrs` feature flag to shrink TrieNodeODRc to 64-bits.  Currently there is no refcounting, and none of the other structures have beed adjusted to utilize the smaller pointers, so the perf benefit is not in this checkin.)
 
 [dev-dependencies]
 paste = "1.0"
