@@ -88,6 +88,48 @@ impl ByteMask {
 
         Some(byte as u8)
     }
+
+    /// Returns the bit in the mask corresponding to the next highest bit above `byte`, or `None`
+    /// if `byte` was the highest set bit in the mask
+    pub fn next_bit(&self, byte: u8) -> Option<u8> {
+        if byte == 255 {
+            return None
+        }
+        let byte = byte + 1;
+        let word_idx = byte >> 6;
+        let mod_idx = byte & 0x3F;
+        let mut mask = !0u64 << mod_idx;
+        if word_idx == 0 {
+            let cnt = (self.0[0] & mask).trailing_zeros() as u8;
+            if cnt < 64 {
+                return Some(cnt)
+            }
+            mask = !0u64;
+        }
+        if word_idx < 2 {
+            let cnt = (self.0[1] & mask).trailing_zeros() as u8;
+            if cnt < 64 {
+                return Some(64 + cnt)
+            }
+            if word_idx == 1 {
+                mask = !0u64;
+            }
+        }
+        if word_idx < 3 {
+            let cnt = (self.0[2] & mask).trailing_zeros() as u8;
+            if cnt < 64 {
+                return Some(128 + cnt)
+            }
+            if word_idx == 2 {
+                mask = !0u64;
+            }
+        }
+        let cnt = (self.0[3] & mask).trailing_zeros() as u8;
+        if cnt < 64 {
+            return Some(192 + cnt)
+        }
+        None
+    }
 }
 
 impl core::fmt::Debug for ByteMask {
@@ -502,6 +544,39 @@ fn bit_utils_test() {
     mask.clear_bit(b't');
     assert_eq!(mask.test_bit(b'n'), true);
     assert_eq!(mask.test_bit(b't'), false);
+}
+
+#[test]
+fn next_bit_test() {
+    let test_mask = ByteMask::from([
+        0b1010010010010010010010000000000000000000000000000000000000010101u64,
+        0b0000000000000000000000000000000000000000100000000000000000000000u64,
+        0b0000000000000000000000000000000000000000000000000000000000000000u64,
+        0b1000000000000000000000000000010000000000000000000000000000000001u64,
+    ]);
+    let set_bits: Vec<u8> = (0..=255).into_iter().filter(|i| test_mask.test_bit(*i)).collect();
+
+    let mut i = 0;
+    let mut cnt = test_mask.test_bit(0) as usize;
+    while let Some(next_bit) = test_mask.next_bit(i) {
+        assert!(test_mask.test_bit(next_bit));
+        i = next_bit;
+        cnt += 1;
+    }
+    assert_eq!(cnt, set_bits.len());
+}
+
+#[test]
+fn next_bit_test2() {
+    let mut test_mask = ByteMask::EMPTY;
+    test_mask.set_bit(39);
+    test_mask.set_bit(97);
+    test_mask.set_bit(117);
+
+    assert_eq!(Some(39), test_mask.next_bit(0));
+    assert_eq!(Some(97), test_mask.next_bit(39));
+    assert_eq!(Some(117), test_mask.next_bit(97));
+    assert_eq!(None, test_mask.next_bit(117));
 }
 
 #[cfg(not(feature = "nightly"))]

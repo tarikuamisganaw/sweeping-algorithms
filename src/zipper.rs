@@ -207,13 +207,26 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     /// WARNING: The branch represented by a given index is not guaranteed to be stable across modifications
     /// to the trie.  This method should only be used as part of a directed traversal operation, but
     /// index-based paths may not be stored as locations within the trie.
-    fn descend_indexed_branch(&mut self, idx: usize) -> bool;
+    fn descend_indexed_branch(&mut self, idx: usize) -> bool {
+        let mask = self.child_mask();
+        let child_byte = match mask.indexed_bit::<true>(idx) {
+            Some(byte) => byte,
+            None => {
+                return false
+            }
+        };
+        let descended = self.descend_to_byte(child_byte);
+        debug_assert!(descended);
+        true
+    }
 
     /// Descends the zipper's focus one step into the first child branch in a depth-first traversal
     ///
     /// NOTE: This method should have identical behavior to passing `0` to [descend_indexed_branch](ZipperMoving::descend_indexed_branch),
     /// although with less overhead
-    fn descend_first_byte(&mut self) -> bool;
+    fn descend_first_byte(&mut self) -> bool {
+        self.descend_indexed_branch(0)
+    }
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
     /// moved otherwise returns `false`
@@ -276,9 +289,30 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     /// Returns `true` if the focus was moved.  If the focus is already on the last byte among its siblings,
     /// this method returns false, leving the focus unmodified.
     ///
-    /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
+    /// This method is equivalent to calling [ZipperMoving::ascend] with `1`, followed by [ZipperMoving::descend_indexed_branch]
     /// where the index passed is 1 more than the index of the current focus position.
-    fn to_next_sibling_byte(&mut self) -> bool;
+    fn to_next_sibling_byte(&mut self) -> bool {
+        let cur_byte = match self.path().last() {
+            Some(byte) => *byte,
+            None => return false
+        };
+        if !self.ascend_byte() {
+            return false
+        }
+        let mask = self.child_mask();
+        match mask.next_bit(cur_byte) {
+            Some(byte) => {
+                let descended = self.descend_to_byte(byte);
+                debug_assert!(descended);
+                true
+            },
+            None => {
+                let descended = self.descend_to_byte(cur_byte);
+                debug_assert!(descended);
+                false
+            }
+        }
+    }
 
     /// Moves the zipper's focus to the previous sibling byte with the same parent
     ///
@@ -2548,8 +2582,8 @@ pub(crate) mod zipper_moving_tests {
     /// Internal method to provide a lifetime bound on the macro arguments to the test macro
     pub fn run_test<'a, T: 'a + ZipperMoving, Store>(
         store: &'a mut Store,
-        make_t: impl Fn(&'a mut Store, &[u8]) -> T,
-        z_path: &[u8],
+        make_t: impl Fn(&'a mut Store, &'a[u8]) -> T,
+        z_path: &'a[u8],
         test_f: impl Fn(T)
     ) {
         let t = make_t(store, z_path);

@@ -820,28 +820,16 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperCore<'_, '_, V>
         self.descend_to(&[k])
     }
 
-    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
-        panic!()
-    }
-
-    fn descend_first_byte(&mut self) -> bool {
-        panic!()
-    }
-
     fn descend_until(&mut self) -> bool {
-        panic!()
+        unimplemented!()
     }
 
     fn to_sibling(&mut self, next: bool) -> bool {
-        panic!()
-    }
-
-    fn to_next_sibling_byte(&mut self) -> bool {
-        panic!()
+        unimplemented!()
     }
 
     fn to_prev_sibling_byte(&mut self) -> bool {
-        panic!()
+        unimplemented!()
     }
 
     fn ascend(&mut self, mut steps: usize) -> bool {
@@ -1003,7 +991,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
         unsafe{ &mut *(self as *mut WriteZipperCore<V>).cast() }
     }
 
-    //GOAT, the concept of a regularized zipper might be very useful for WriteZippers, so I may be able to delete this code
+    //GOAT, the concept of a regularized zipper might not be very useful for WriteZippers, so I may be able to delete this code
     // /// Ensures the zipper is in its regularized form
     // ///
     // /// Unlike a ReadZipper, a WriteZipper's regularized form is holding the parent node at the top of the
@@ -2819,13 +2807,13 @@ mod tests {
     }
 
     //GOAT.  Uncomment these tests when the write zipper moving methods get fully implemented
-    // crate::zipper::zipper_moving_tests::zipper_moving_tests!(write_zipper,
-    //     |keys: &[&[u8]]| {
-    //         let mut btm = BytesTrieMap::new();
-    //         keys.iter().for_each(|k| { btm.insert(k, ()); });
-    //         btm
-    //     },
-    //     |btm: &mut BytesTrieMap<()>| -> _ {
-    //         btm.write_zipper()
-    // });
+    crate::zipper::zipper_moving_tests::zipper_moving_tests!(write_zipper,
+        |keys: &[&[u8]]| {
+            let mut btm = BytesTrieMap::new();
+            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            btm
+        },
+        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> WriteZipperUntracked<()> {
+            btm.write_zipper_at_path(path)
+    });
 }
