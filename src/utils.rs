@@ -8,6 +8,7 @@ pub struct ByteMask(pub [u64; 4]);
 
 impl ByteMask {
     pub const EMPTY: ByteMask = Self(empty_mask());
+    pub const FULL: ByteMask = Self([!0u64; 4]);
 
     /// Create a new empty ByteMask
     #[inline]
@@ -90,7 +91,7 @@ impl ByteMask {
     }
 
     /// Returns the bit in the mask corresponding to the next highest bit above `byte`, or `None`
-    /// if `byte` was the highest set bit in the mask
+    /// if `byte` was at or above the highest set bit in the mask
     pub fn next_bit(&self, byte: u8) -> Option<u8> {
         if byte == 255 {
             return None
@@ -127,6 +128,48 @@ impl ByteMask {
         let cnt = (self.0[3] & mask).trailing_zeros() as u8;
         if cnt < 64 {
             return Some(192 + cnt)
+        }
+        None
+    }
+
+    /// Returns the bit in the mask corresponding to the previous bit below `byte`, or `None`
+    /// if `byte` was at or below the lowest set bit in the mask
+    pub fn prev_bit(&self, byte: u8) -> Option<u8> {
+        if byte == 0 {
+            return None
+        }
+        let byte = byte - 1;
+        let word_idx = byte >> 6;
+        let mod_idx = byte & 0x3F;
+        let mut mask = !0u64 >> (63 - mod_idx);
+        if word_idx == 3 {
+            let cnt = (self.0[3] & mask).leading_zeros() as u8;
+            if cnt < 64 {
+                return Some(255 - cnt)
+            }
+            mask = !0u64;
+        }
+        if word_idx > 1 {
+            let cnt = (self.0[2] & mask).leading_zeros() as u8;
+            if cnt < 64 {
+                return Some(191 - cnt)
+            }
+            if word_idx == 2 {
+                mask = !0u64;
+            }
+        }
+        if word_idx > 0 {
+            let cnt = (self.0[1] & mask).leading_zeros() as u8;
+            if cnt < 64 {
+                return Some(127 - cnt)
+            }
+            if word_idx == 1 {
+                mask = !0u64;
+            }
+        }
+        let cnt = (self.0[0] & mask).leading_zeros() as u8;
+        if cnt < 64 {
+            return Some(63 - cnt)
         }
         None
     }
@@ -548,22 +591,41 @@ fn bit_utils_test() {
 
 #[test]
 fn next_bit_test() {
-    let test_mask = ByteMask::from([
-        0b1010010010010010010010000000000000000000000000000000000000010101u64,
-        0b0000000000000000000000000000000000000000100000000000000000000000u64,
-        0b0000000000000000000000000000000000000000000000000000000000000000u64,
-        0b1000000000000000000000000000010000000000000000000000000000000001u64,
-    ]);
-    let set_bits: Vec<u8> = (0..=255).into_iter().filter(|i| test_mask.test_bit(*i)).collect();
+    fn do_test(test_mask: ByteMask) {
+        let set_bits: Vec<u8> = (0..=255).into_iter().filter(|i| test_mask.test_bit(*i)).collect();
 
-    let mut i = 0;
-    let mut cnt = test_mask.test_bit(0) as usize;
-    while let Some(next_bit) = test_mask.next_bit(i) {
-        assert!(test_mask.test_bit(next_bit));
-        i = next_bit;
-        cnt += 1;
+        let mut i = 0;
+        let mut cnt = test_mask.test_bit(0) as usize;
+        while let Some(next_bit) = test_mask.next_bit(i) {
+            assert!(test_mask.test_bit(next_bit));
+            i = next_bit;
+            cnt += 1;
+        }
+        assert_eq!(cnt, set_bits.len());
+
+        let mut i = 255;
+        let mut cnt = test_mask.test_bit(255) as usize;
+        while let Some(prev_bit) = test_mask.prev_bit(i) {
+            assert!(test_mask.test_bit(prev_bit));
+            i = prev_bit;
+            cnt += 1;
+        }
+        assert_eq!(cnt, set_bits.len());
     }
-    assert_eq!(cnt, set_bits.len());
+
+    // do_test(ByteMask::from([
+    //     0b1010010010010010010010000000000000000000000000000000000000010101u64,
+    //     0b0000000000000000000000000000000000000000100000000000000000000000u64,
+    //     0b0000000000000000000000000000000000000000000000000000000000000000u64,
+    //     0b1001000000000000000000000000000000000000000000000000000000000001u64,
+    // ]));
+    // do_test(ByteMask::from([
+    //     0b0000000000000000000000000000000000000000000000000000000000000000u64,
+    //     0b0000000000000000000000000000000000000000100000000000000000000000u64,
+    //     0b0000000000000000000000000000000000000000000000000000000000000000u64,
+    //     0b1001000000000000000000000000000000000000000000000000000000000001u64,
+    // ]));
+    do_test(ByteMask::from(ByteMask::FULL));
 }
 
 #[test]

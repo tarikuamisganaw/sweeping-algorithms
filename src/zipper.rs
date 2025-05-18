@@ -120,7 +120,11 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     }
 
     /// Resets the zipper's focus back to its root
-    fn reset(&mut self);
+    fn reset(&mut self) {
+        while !self.at_root() {
+            self.ascend_byte();
+        }
+    }
 
     /// Returns the path from the zipper's root to the current focus
     fn path(&self) -> &[u8];
@@ -259,11 +263,15 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
 
     /// Ascends the zipper to the nearest upstream branch point or value.  Returns `true` if the zipper
     /// focus moved upwards, otherwise returns `false` if the zipper was already at the root
+    ///
+    /// NOTE: A default implementation could be provided, but all current zippers have more optimal native implementations.
     fn ascend_until(&mut self) -> bool;
 
     /// Ascends the zipper to the nearest upstream branch point, skipping over values along the way.  Returns
     /// `true` if the zipper focus moved upwards, otherwise returns `false` if the zipper was already at the
     /// root
+    ///
+    /// NOTE: A default implementation could be provided, but all current zippers have more optimal native implementations.
     fn ascend_until_branch(&mut self) -> bool;
 
 //GOAT, I think this method ought to behave like the other two, and ascend above the current value, instead
@@ -337,7 +345,28 @@ pub trait ZipperMoving: Zipper + ZipperMovingPriv {
     ///
     /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
     /// where the index passed is 1 less than the index of the current focus position.
-    fn to_prev_sibling_byte(&mut self) -> bool;
+    fn to_prev_sibling_byte(&mut self) -> bool {
+        let cur_byte = match self.path().last() {
+            Some(byte) => *byte,
+            None => return false
+        };
+        if !self.ascend_byte() {
+            return false
+        }
+        let mask = self.child_mask();
+        match mask.prev_bit(cur_byte) {
+            Some(byte) => {
+                let descended = self.descend_to_byte(byte);
+                debug_assert!(descended);
+                true
+            },
+            None => {
+                let descended = self.descend_to_byte(cur_byte);
+                debug_assert!(descended);
+                false
+            }
+        }
+    }
 
     /// Advances the zipper to visit every existing path within the trie in a depth-first order
     ///

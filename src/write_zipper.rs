@@ -813,10 +813,6 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperCore<'_, '_, V>
         }
     }
 
-    fn to_prev_sibling_byte(&mut self) -> bool {
-        unimplemented!()
-    }
-
     fn ascend(&mut self, mut steps: usize) -> bool {
         loop {
             if self.key.node_key().len() == 0 {
