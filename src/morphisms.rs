@@ -317,7 +317,7 @@ impl SplitCataJumping {
     }
 }
 
-impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperConcrete + ZipperAbsolutePath {
+impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperConcrete + ZipperAbsolutePath + ZipperPathBuffer {
     fn into_cata_side_effect_fallible<W, Err, AlgF>(self, mut alg_f: AlgF) -> Result<W, Err>
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, Err>,
     {
@@ -392,7 +392,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
 #[inline]
 fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z: Z, mut alg_f: AlgF) -> Result<W, Err>
     where
-    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperAbsolutePath + ZipperPathBuffer,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     //`stack` holds a "frame" at each forking point above the zipper position.  No frames exist for values
@@ -469,7 +469,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
         alg_f: &mut AlgF, children: &mut [W]
 ) -> Result<W, Err>
     where
-    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperAbsolutePath + ZipperPathBuffer,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
 {
     let mut w;
@@ -716,7 +716,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
 ) -> Result<W, E>
     where
     Cache: CacheStrategy<W>,
-    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperConcrete + ZipperAbsolutePath,
+    Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperConcrete + ZipperAbsolutePath + ZipperPathBuffer,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>
 {
     use gxhash::HashMapExt;

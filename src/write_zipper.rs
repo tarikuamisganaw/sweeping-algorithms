@@ -277,7 +277,7 @@ impl<'a, 'path, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperT
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<'a, 'path, V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperTracked<'a, 'path, V> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin> ZipperPathBuffer for WriteZipperTracked<'a, 'path, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -414,7 +414,7 @@ impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperUntr
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperUntracked<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync + Unpin> ZipperPathBuffer for WriteZipperUntracked<'a, 'k, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -575,7 +575,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperOwned<V> {
+impl<V: Clone + Send + Sync + Unpin> ZipperPathBuffer for WriteZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -872,7 +872,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperCore<'_, '_, V>
     }
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync > zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> {
@@ -895,7 +895,7 @@ impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperCore
     }
 }
 
-impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperMovingPriv for WriteZipperCore<'a, 'k, V> {
+impl<'a, 'k, V: Clone + Send + Sync + Unpin> ZipperPathBuffer for WriteZipperCore<'a, 'k, V> {
     unsafe fn origin_path_assert_len(&self, _len: usize) -> &[u8] {
         unimplemented!()
     }

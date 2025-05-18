@@ -113,7 +113,7 @@ pub trait ZipperSubtries<V: Clone + Send + Sync>: ZipperValues<V> + zipper_priv:
 /// A zipper's **origin** is always equal-to-or-above the zipper's root.  The position of the origin depends
 /// on how the zipper was created, and the origin will never be below the root.  The origin of a given zipper
 /// will never change.
-pub trait ZipperMoving: Zipper + ZipperMovingPriv {
+pub trait ZipperMoving: Zipper {
     /// Returns `true` if the zipper's focus is at its root, and it cannot ascend further, otherwise returns `false`
     fn at_root(&self) -> bool {
         self.path().len() == 0
@@ -501,6 +501,24 @@ pub trait ZipperConcrete: zipper_priv::ZipperConcretePriv {
     fn is_shared(&self) -> bool;
 }
 
+/// Provides more direct control over a [ZipperMoving] zipper's path buffer
+pub trait ZipperPathBuffer: ZipperMoving {
+    /// Internal method to get the path, beyond its length.  Panics if `len` > the path's capacity, or
+    /// if the zipper is relative and doesn't have an `origin_path`
+    ///
+    /// This method is unsafe because it relies on the caller to not read uninitialized memory, even if
+    /// the memory has been allocated.
+    unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8];
+
+    /// Make sure the path buffer is allocated, to facilitate zipper movement
+    fn prepare_buffers(&mut self);
+
+    /// Reserve buffer space within the zipper's path buffer and node stack
+    ///
+    /// This method will only grow the buffers and will never shrink them.
+    fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize);
+}
+
 pub(crate) mod zipper_priv {
     use super::*;
 
@@ -547,23 +565,6 @@ pub(crate) mod zipper_priv {
         fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>>;
     }
 
-    pub trait ZipperMovingPriv {
-        /// Internal method to get the path, beyond its length.  Panics if `len` > the path's capacity, or
-        /// if the zipper is relative and doesn't have an `origin_path`
-        ///
-        /// This method is unsafe because it relies on the caller to not read uninitialized memory, even if
-        /// the memory has been allocated.
-        unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8];
-
-        /// Make sure the path buffer is allocated, to facilitate zipper movement
-        fn prepare_buffers(&mut self);
-
-        /// Reserve buffer space within the zipper's path buffer and node stack
-        ///
-        /// This method will only grow the buffers and will never shrink them.
-        fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize);
-    }
-
     pub trait ZipperReadOnlyPriv<'a, V: Clone + Send + Sync> {
         /// Internal method returns the minimal components that compose the zipper, which are:
         ///
@@ -595,7 +596,7 @@ pub(crate) mod zipper_priv {
     }
 }
 use zipper_priv::*;
-pub use zipper_priv::{ZipperMovingPriv, ZipperConcretePriv};
+pub use zipper_priv::ZipperConcretePriv;
 
 impl<Z> Zipper for &mut Z where Z: Zipper {
     fn path_exists(&self) -> bool { (**self).path_exists() }
@@ -671,7 +672,7 @@ impl<V: Clone + Send + Sync, Z> ZipperPriv for &mut Z where Z: ZipperPriv<V=V> {
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { (**self).try_borrow_focus() }
 }
 
-impl<Z> ZipperMovingPriv for &mut Z where Z: ZipperMovingPriv {
+impl<Z> ZipperPathBuffer for &mut Z where Z: ZipperPathBuffer {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { (**self).origin_path_assert_len(len) }
     fn prepare_buffers(&mut self) { (**self).prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { (**self).reserve_buffers(path_len, stack_depth) }
@@ -781,7 +782,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperTrack
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperTracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> ZipperPathBuffer for ReadZipperTracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -931,7 +932,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperUntra
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperUntracked<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin> ZipperPathBuffer for ReadZipperUntracked<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -1130,7 +1131,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperOwned
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperOwned<V> {
+impl<V: Clone + Send + Sync + Unpin> ZipperPathBuffer for ReadZipperOwned<V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
@@ -1617,7 +1618,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ReadZipperCore<'_, '_, V> {
+    impl<V: Clone + Send + Sync + Unpin> ZipperPathBuffer for ReadZipperCore<'_, '_, V> {
         unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
             if self.prefix_buf.capacity() > 0 {
                 assert!(len <= self.prefix_buf.capacity());

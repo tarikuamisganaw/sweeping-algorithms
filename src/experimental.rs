@@ -17,7 +17,7 @@ impl Zipper for FullZipper {
     fn child_mask(&self) -> ByteMask { [!0u64, !0u64, !0u64, !0u64].into() }
 }
 
-impl ZipperMovingPriv for FullZipper {
+impl ZipperPathBuffer for FullZipper {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
         assert!(len <= self.path.capacity());
         unsafe{ core::slice::from_raw_parts(self.path.as_ptr(), len) }

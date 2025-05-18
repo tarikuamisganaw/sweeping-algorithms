@@ -81,7 +81,7 @@ use crate::{
     utils::{BitMask, ByteMask, find_prefix_overlap},
     zipper::{
         Zipper, ZipperValues, ZipperForking, ZipperAbsolutePath, ZipperIteration,
-        ZipperMoving, ZipperMovingPriv, ZipperReadOnlyValues,
+        ZipperMoving, ZipperPathBuffer, ZipperReadOnlyValues,
         ZipperConcretePriv, ZipperConcrete,
     },
 };
@@ -1381,7 +1381,7 @@ where Storage: AsRef<[u8]>
     }
 }
 
-impl<'tree, Storage> ZipperMovingPriv for ACTZipper<'tree, Storage>
+impl<'tree, Storage> ZipperPathBuffer for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {

@@ -293,7 +293,7 @@ impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ProductZipper<'
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperMovingPriv for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin + Unpin> ZipperPathBuffer for ProductZipper<'_, '_, V> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
