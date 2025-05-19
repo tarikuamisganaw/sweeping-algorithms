@@ -1,6 +1,4 @@
 /target
 .DS_Store
-.idea
 Cargo.lock
-src/bytetrie_alloc.rs
-src/bytetrie_alloc_simd.rs
+.tmp/

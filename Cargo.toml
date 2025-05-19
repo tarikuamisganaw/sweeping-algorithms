@@ -2,38 +2,59 @@
 name = "pathmap"
 version = "0.1.0"
 edition = "2021"
+description = "A key-value store with prefix compression, structural sharing, and powerful algebraic operations"
+exclude = ["benches/", "pathmap-book/", ".*"]
 
 [dependencies]
-#rclite = "0.2.4"
-#ahash = "0.8.11"
-#hashbrown = "0.14.3"
-#roaring = "0.10.3"
+maybe-dangling = "0.1.1"
 dyn-clone = "1.0.17"
 local-or-heap = "0.1.0"
-smallvec = {version = "1.13.0", optional = true}
-mutcursor = {version = "0.1.6"}
+reusing-vec = {version = "0.2.0", features = ["smallvec"]}
+smallvec = {version = "1.13.2", features = ["union"]}
+arrayvec = "0.7.6"
+mutcursor = {version = "0.4"}
 num-traits = "0.2"
+tikv-jemallocator = {version = "0.6.0", optional = true}
+gxhash = {version="3.4.1", git="https://github.com/luketpeterson/gxhash/"} # for dag_serialization
+libz-ng-sys = "1" # for any serialzation
+rand_distr = { version = "0.5.1", optional = true }
+rand = { version = "0.9.0", optional = true }
+memmap2 = { version="0.9.5", optional = true }
 
 [features]
-all_dense_nodes = [] # Exclusively use the DenseNode type, which generally performs worse but is useful for compatibility and perf comparisons
-counters = [] # Enable features to inspect performance properties of trees
-smallvec = ["dep:smallvec"] # Use SmallVec inside the DenseByteNode. Seems to help on very large trees and hurt on small ones
-
-[build]
-rustflags = "-C opt-level=3 -C target-cpu=native"
+default = ["graft_root_vals"]
+nightly = [] # Uses features in the nightly tool chain for better performance
+jemalloc = ["dep:tikv-jemallocator"] # Enables [jemalloc](https://jemalloc.net/) as the default allocator.  This dramatically improves scaling for write-heavy workloads and is generally recommended.  The only reason it is not the default is to avoid interference with the host application allocator.
+zipper_tracking = [] #Exports the zipper_tracking module publicly
+all_dense_nodes = [] # Exclusively use the DenseByteNode type, which generally performs worse but is useful for compatibility and perf comparisons.
+bridge_nodes = [] # Enable the experimental BridgeNode type.  Incompatible with `all_dense_nodes`
+fuzzer = ["dep:rand", "dep:rand_distr"]  # Used for creating random paths, tries, and zipper movements
+counters = [] # Enable features to inspect performance properties of tries.  Mainly useful when tuning performance of the PathMap internals.
+graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
+slim_ptrs = [] # Enables use of a 64-Byte inter-node pointer type (TrieNodeODRc)
+arena_compact = ["dep:memmap2"]
+act_counters = ["arena_compact"] # LP: Question: Why isn't this code enabled by just counters + arena_compact???
 
 [dev-dependencies]
+paste = "1.0"
 divan = "0.1.14"
-rand = "0.8.5"
 serde = { version = "1.0.163", features = ["derive"]}
 csv = "1.1.6"
+num = "0.4.3"
+rand_distr = { version = "0.5.1" }
+rand = { version = "0.9.0" }
+tempfile = "3.19.1"
 
 [[bench]]
-name = "basics"
+name = "superdense_keys"
 harness = false
 
 [[bench]]
 name = "sparse_keys"
+harness = false
+
+[[bench]]
+name = "binary_keys"
 harness = false
 
 [[bench]]
@@ -43,3 +64,20 @@ harness = false
 [[bench]]
 name = "shakespeare"
 harness = false
+
+[[bench]]
+name = "parallel"
+harness = false
+
+[[bench]]
+name = "serde"
+harness = false
+
+[[bench]]
+name = "oeis"
+harness = false
+
+[[bench]]
+name = "path_ops"
+harness = false
+required-features = ["fuzzer"]

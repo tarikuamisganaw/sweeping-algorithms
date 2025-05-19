@@ -21,7 +21,8 @@ fn read_data(as_words: bool) -> Vec<String> {
     // https://ocw.mit.edu/ans7870/6/6.006/s08/lecturenotes/files/t8.shakespeare.txt
     // ~200k clauses
     // ~900k words
-    let file = File::open("/Users/admin/Desktop/t8.shakespeare.txt").unwrap();
+    let file_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches").join("shakespeare.txt");
+    let file = File::open(file_path).unwrap();
 
     //Parse the file, with each sentence clause as an expression
     let mut reader = BufReader::new(file);
@@ -159,6 +160,31 @@ fn shakespeare_sentences_val_count(bencher: Bencher) {
     let mut sink = 0;
     bencher.bench_local(|| {
         *black_box(&mut sink) = map.val_count();
+    });
+    assert_eq!(sink, unique_count);
+}
+
+
+#[cfg(feature="arena_compact")]
+#[divan::bench()]
+fn shakespeare_sentences_val_count_act(bencher: Bencher) {
+    use pathmap::{
+        arena_compact::ArenaCompactTree,
+        zipper::ZipperMoving,
+    };
+    let strings = read_data(false);
+    let mut map = BytesTrieMap::new();
+    let mut unique_count = 0;
+    for (v, k) in strings.iter().enumerate() {
+        if map.insert(k, v).is_none() {
+            unique_count += 1;
+        }
+    }
+    let act = ArenaCompactTree::from_zipper(map.read_zipper(), |&v| v as u64);
+    let act_zipper = act.read_zipper();
+    let mut sink = 0;
+    bencher.bench_local(|| {
+        *black_box(&mut sink) = act_zipper.val_count();
     });
     assert_eq!(sink, unique_count);
 }

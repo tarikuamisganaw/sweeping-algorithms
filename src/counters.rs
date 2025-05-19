@@ -1,6 +1,6 @@
 
 use crate::trie_map::BytesTrieMap;
-use crate::zipper::{Zipper, ReadZipper, zipper_priv::ZipperPriv};
+use crate::zipper::{*, zipper_priv::ZipperPriv};
 use crate::trie_node::TrieNode;
 
 /// Example usage of counters
@@ -96,7 +96,7 @@ impl Counters {
             );
         }
     }
-    pub fn count_ocupancy<V: Clone>(map: &BytesTrieMap<V>) -> Self {
+    pub fn count_ocupancy<V: Clone + Send + Sync>(map: &BytesTrieMap<V>) -> Self {
         let mut counters = Counters::new();
 
         counters.count_node(map.root().borrow(), 0);
@@ -113,70 +113,17 @@ impl Counters {
             }
         }
 
-        //GOAT, old implementation using TrieNode::boxed_node_iter()
-        // let mut cur_run_length = 0;
-        // let mut byte_depth = 0;
-        // let mut byte_depth_stack: Vec<usize> = vec![0];
-        // let mut depth = 0;
-        // let mut prefixes: Vec<Vec<u8>> = vec![vec![]];
-        // let mut btnis = vec![map.root().borrow().boxed_node_iter()];
-        // loop {
-        //     match btnis.last_mut() {
-        //         None => { break }
-        //         Some(last) => {
-        //             match last.next() {
-        //                 None => {
-        //                     depth -= 1;
-        //                     byte_depth -= byte_depth_stack.pop().unwrap();
-        //                     cur_run_length = 0;
-        //                     prefixes.pop();
-        //                     btnis.pop();
-        //                 }
-        //                 Some((bytes, item)) => {
-        //                     //let mut cur_prefix: Vec<u8> = prefixes.last().unwrap().clone();
-        //                     //cur_prefix.extend(bytes);
-
-        //                     match item {
-        //                         ValOrChildRef::Val(_val) => {
-
-        //                             counters.push_run(cur_run_length + bytes.len(), byte_depth + bytes.len());
-
-        //                             //return Some((cur_prefix, val))
-        //                         },
-        //                         ValOrChildRef::Child(child) => {
-        //                             depth += 1;
-        //                             counters.count_node(child.item_count(), depth);
-
-        //                             byte_depth += bytes.len();
-        //                             byte_depth_stack.push(bytes.len());
-
-        //                             if child.item_count() > 1 {
-        //                                 counters.push_run(cur_run_length + bytes.len(), byte_depth);
-        //                                 cur_run_length = 0;
-        //                             } else {
-        //                                 cur_run_length += bytes.len();
-        //                             }
-
-        //                             //prefixes.push(cur_prefix);
-        //                             btnis.push(child.boxed_node_iter())
-        //                         }
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
         counters
     }
-    fn count_node<V: Clone>(&mut self, node: &dyn TrieNode<V>, depth: usize) {
-        if let Some(node) = node.as_dense() {
+    fn count_node<V: Clone + Send + Sync>(&mut self, node: &dyn TrieNode<V>, depth: usize) {
+        if let Some(node) = node.as_tagged().as_dense() {
             if node.item_count() != 1 {
                 self.end_run(depth);
             }
             self.increment_common_counters(node, depth);
             self.total_dense_byte_nodes_by_depth[depth] += 1;
         }
-        if let Some(node) = node.as_list() {
+        if let Some(node) = node.as_tagged().as_list() {
             if node.item_count() != 1 {
                 self.end_run(depth);
             }
@@ -239,7 +186,7 @@ impl Counters {
     }
 }
 
-pub fn print_traversal<V: Clone>(zipper: &ReadZipper<V>) {
+pub fn print_traversal<'a, V: 'a + Clone, Z: ZipperIteration<'a, V> + Clone>(zipper: &Z) {
     let mut zipper = zipper.clone();
 
     println!("{:?}", zipper.path());

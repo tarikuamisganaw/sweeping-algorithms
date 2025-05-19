@@ -1,24 +1,28 @@
+use core::hint::unreachable_unchecked;
 use core::mem::{ManuallyDrop, MaybeUninit};
 use std::collections::HashMap;
 
 use local_or_heap::LocalOrHeap;
 
+use crate::utils::{BitMask, ByteMask, find_prefix_overlap};
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::dense_byte_node::DenseByteNode;
+use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
 use crate::tiny_node::TinyRefNode;
 
-
 /// A LineListNode stores up to 2 children in a single cache line
-pub struct LineListNode<V> {
+#[repr(C)]
+pub struct LineListNode<V: Clone + Send + Sync> {
+    #[cfg(feature = "slim_ptrs")]
+    refcnt: std::sync::atomic::AtomicU32,
     /// bit 15 = slot_0_used
     /// bit 14 = slot_1_used
     /// bit 13 = slot_0_is_child (child ptr vs value)
     /// bit 12 = slot_1_is_child (child ptr vs value).  If bit 14 is 0, but bit 12 is 1, it means slot_0 consumed all the key space, so nothing can go in slot_1
     /// bits 11 to bit 6 = slot_0_key_len
     /// bit 5 to bit 0 = slot_1_key_len
-    header: u16,
     key_bytes: [MaybeUninit<u8>; KEY_BYTES_CNT],
+    header: u16,
     val_or_child0: ValOrChildUnion<V>,
     val_or_child1: ValOrChildUnion<V>,
 }
@@ -27,47 +31,16 @@ pub struct LineListNode<V> {
 // one chache line.  But if we put in into an RcBox, (which adds a 16 byte header) we either need 14 bytes
 // to stay within 1 cache line, or 78 to pack into two.
 //WARNING the length bits mean I will overflow if I go above 63
+#[cfg(feature = "slim_ptrs")]
+const KEY_BYTES_CNT: usize = 42;
+#[cfg(not(feature = "slim_ptrs"))]
 const KEY_BYTES_CNT: usize = 14;
 
-pub union ValOrChildUnion<V> {
-    pub child: ManuallyDrop<TrieNodeODRc<V>>,
-    pub val: ManuallyDrop<LocalOrHeap<V>>,
-    pub _unused: ()
-}
+const SLOT_0_USED_MASK: u16 = 1 << 15;
+const SLOT_1_USED_MASK: u16 = 1 << 14;
+const BOTH_SLOTS_USED_MASK: u16 = SLOT_0_USED_MASK | SLOT_1_USED_MASK;
 
-impl<V> Default for ValOrChildUnion<V> {
-    fn default() -> Self {
-        Self { _unused: () }
-    }
-}
-impl<V> From<V> for ValOrChildUnion<V> {
-    fn from(val: V) -> Self {
-        Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
-    }
-}
-impl<V> From<TrieNodeODRc<V>> for ValOrChildUnion<V> {
-    fn from(child: TrieNodeODRc<V>) -> Self {
-        Self{ child: ManuallyDrop::new(child) }
-    }
-}
-impl<V> From<ValOrChild<V>> for ValOrChildUnion<V> {
-    fn from(voc: ValOrChild<V>) -> Self {
-        match voc {
-            ValOrChild::Child(child) => Self{ child: ManuallyDrop::new(child) },
-            ValOrChild::Val(val) => Self{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }
-        }
-    }
-}
-impl<V> ValOrChildUnion<V> {
-    unsafe fn into_val(self) -> V {
-        LocalOrHeap::into_inner(ManuallyDrop::into_inner(self.val))
-    }
-    unsafe fn into_child(self) -> TrieNodeODRc<V> {
-        ManuallyDrop::into_inner(self.child)
-    }
-}
-
-impl<V> Drop for LineListNode<V> {
+impl<V: Clone + Send + Sync> Drop for LineListNode<V> {
     fn drop(&mut self) {
         //Discussion: The straightforward recursive implementation hits a stack overflow with, some very
         // long path lengths.  However we don't want to burden the common case with extra work.  The
@@ -76,23 +49,22 @@ impl<V> Drop for LineListNode<V> {
 
         let slot0_used = self.is_used::<0>();
         let slot1_used = self.is_used::<1>();
+        let slot0_child = self.is_child_ptr::<0>();
+        let slot1_child = self.is_child_ptr::<1>();
 
-        if  slot0_used && !slot1_used {
-            if self.is_child_ptr::<0>() {
-                list_node_iterative_drop(self);
-            } else {
-                unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
-            }
+        if  (slot0_used && slot0_child) != (slot1_used && slot1_child)  {
+            //If there is exactly one child, do the non-recursive drop
+            list_node_iterative_drop(self);
         } else {
             if slot0_used {
-                if self.is_child_ptr::<0>() {
+                if slot0_child {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.child) }
                 } else {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child0.val) }
                 }
             }
             if slot1_used {
-                if self.is_child_ptr::<1>() {
+                if slot1_child {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.child) }
                 } else {
                     unsafe{ ManuallyDrop::drop(&mut self.val_or_child1.val) }
@@ -103,16 +75,13 @@ impl<V> Drop for LineListNode<V> {
 }
 
 #[inline]
-fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
-    debug_assert!(node.is_used::<0>());
-    debug_assert!(!node.is_used::<1>());
-
+fn list_node_iterative_drop<V: Clone + Send + Sync>(node: &mut LineListNode<V>) {
     let mut next_node = list_node_take_child_to_drop(node).unwrap();
     loop {
-        if std::rc::Rc::strong_count(next_node.as_rc()) > 1 {
+        if next_node.refcount() > 1 {
             break;
         }
-        match next_node.make_mut().as_list_mut() {
+        match next_node.make_mut().as_tagged_mut().into_list() {
             Some(list_node) => {
                 match list_node_take_child_to_drop(list_node) {
                     Some(child_node) => {
@@ -127,18 +96,32 @@ fn list_node_iterative_drop<V>(node: &mut LineListNode<V>) {
 }
 
 #[inline]
-fn list_node_take_child_to_drop<V>(node: &mut LineListNode<V>) -> Option<TrieNodeODRc<V>> {
-    if node.is_used_child_0() && !node.is_used::<1>()
-    {
-        node.header = 0;
-        let next_node = unsafe{ ManuallyDrop::take(&mut node.val_or_child0.child) };
-        Some(next_node)
-    } else {
-        None //Since we don't clear the header, the recursive path will end up freeing the downward trie
+fn list_node_take_child_to_drop<V: Clone + Send + Sync>(node: &mut LineListNode<V>) -> Option<TrieNodeODRc<V>> {
+    let child0 = node.is_used_child_0();
+    let child1 = node.is_used_child_1();
+    match (child0, child1) {
+        (true, false) => {
+            if node.is_used::<1>() {
+                unsafe{ ManuallyDrop::drop(&mut node.val_or_child1.val) }
+            }
+            node.header = 0;
+            let next_node = unsafe{ ManuallyDrop::take(&mut node.val_or_child0.child) };
+            Some(next_node)
+        },
+        (false, true) => {
+            if node.is_used::<0>() {
+                unsafe{ ManuallyDrop::drop(&mut node.val_or_child0.val) }
+            }
+            node.header = 0;
+            let next_node = unsafe{ ManuallyDrop::take(&mut node.val_or_child1.child) };
+            Some(next_node)
+        }
+        (true, true) => None, //Since we don't clear the header, the recursive path will end up freeing the downward trie
+        (false, false) => None, //Node is already empty of child links; recursive path will drop values
     }
 }
 
-impl<V: Clone> Clone for LineListNode<V> {
+impl<V: Clone + Send + Sync> Clone for LineListNode<V> {
     fn clone(&self) -> Self {
         debug_assert!(validate_node(self));
         let val_or_child0 = if self.is_used::<0>() {
@@ -164,6 +147,8 @@ impl<V: Clone> Clone for LineListNode<V> {
             ValOrChildUnion{ _unused: () }
         };
         let new_node = Self {
+            #[cfg(feature = "slim_ptrs")]
+            refcnt: std::sync::atomic::AtomicU32::new(1),
             header: self.header,
             key_bytes: self.key_bytes,
             val_or_child0,
@@ -174,13 +159,13 @@ impl<V: Clone> Clone for LineListNode<V> {
     }
 }
 
-impl<V> Default for LineListNode<V> {
+impl<V: Clone + Send + Sync> Default for LineListNode<V> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<V> core::fmt::Debug for LineListNode<V> {
+impl<V: Clone + Send + Sync> core::fmt::Debug for LineListNode<V> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
         // like serialization for inspection using standard tools.
@@ -209,42 +194,17 @@ impl<V> core::fmt::Debug for LineListNode<V> {
     }
 }
 
-impl<V> LineListNode<V> {
+impl<V: Clone + Send + Sync> LineListNode<V> {
 
     #[inline]
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "slim_ptrs")]
+            refcnt: std::sync::atomic::AtomicU32::new(1),
             header: 0,
             key_bytes: [MaybeUninit::uninit(); KEY_BYTES_CNT],
             val_or_child0: ValOrChildUnion{ _unused: () },
             val_or_child1: ValOrChildUnion{ _unused: () },
-        }
-    }
-    fn clone_with_updated_payloads(&self, payload_0: Option<ValOrChildUnion<V>>, payload_1: Option<ValOrChildUnion<V>>) -> Option<Self> {
-        match (payload_0, payload_1) {
-            (Some(slot0_payload), Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let (key0, key1) = self.get_both_keys();
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                debug_assert!(validate_node(&new_node));
-                Some(new_node)
-            },
-            (Some(slot0_payload), None) => {
-                let mut new_node = Self::new();
-                let key0 = unsafe{ self.key_unchecked::<0>() };
-                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
-                debug_assert!(validate_node(&new_node));
-                Some(new_node)
-            },
-            (None, Some(slot1_payload)) => {
-                let mut new_node = Self::new();
-                let key1 = unsafe{ self.key_unchecked::<1>() };
-                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
-                debug_assert!(validate_node(&new_node));
-                Some(new_node)
-            },
-            (None, None) => None,
         }
     }
     #[inline]
@@ -253,6 +213,17 @@ impl<V> LineListNode<V> {
             0 => self.header & (1 << 15) > 0,
             1 => self.header & (1 << 14) > 0,
             _ => unreachable!()
+        }
+    }
+    /// Returns the number of slots in the node that are in use
+    #[inline]
+    pub fn used_slot_count(&self) -> usize {
+        let masked = self.header & BOTH_SLOTS_USED_MASK;
+        match masked {
+            0 => 0,
+            SLOT_0_USED_MASK => 1,
+            BOTH_SLOTS_USED_MASK => 2,
+            _ => unreachable!() //Slot1 without Slot0 is invalid
         }
     }
     /// Extracts the flag and length bits assocated with slot_0
@@ -341,12 +312,12 @@ impl<V> LineListNode<V> {
     //     KEY_BYTES_CNT - self.key_len_0()
     // }
     #[inline]
-    unsafe fn key_unchecked<const SLOT: usize>(&self) -> &[u8] {
+    pub(crate) unsafe fn key_unchecked<const SLOT: usize>(&self) -> &[u8] {
         match SLOT {
             0 => core::slice::from_raw_parts(self.key_bytes.as_ptr().cast(), self.key_len_0()),
             1 => {
-                let base_ptr = self.key_bytes.get_unchecked(self.key_len_0());
-                core::slice::from_raw_parts(base_ptr.as_ptr().cast(), self.key_len_1())
+                let ptr = self.key_bytes.as_ptr().cast::<u8>().add(self.key_len_0());
+                core::slice::from_raw_parts(ptr, self.key_len_1())
             },
             _ => unreachable!(),
         }
@@ -375,303 +346,14 @@ impl<V> LineListNode<V> {
             _ => unreachable!()
         }
     }
-    //Currently unneeded.  May delete
-    // #[inline]
-    // unsafe fn val_in_slot_mut<const SLOT: usize>(&mut self) -> &mut V {
-    //     match SLOT {
-    //         0 => &mut **self.val_or_child0.val,
-    //         1 => &mut **self.val_or_child1.val,
-    //         _ => unreachable!()
-    //     }
-    // }
-    //Currently unneeded.  May delete
-    // #[inline]
-    // unsafe fn set_val_0(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-    //     self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
-    // }
-    //Currently unneeded.  May delete
-    // #[inline]
-    // unsafe fn set_val_1(&mut self, key: &[u8], val: LocalOrHeap<V>) {
-    //     self.set_payload_1(key, false, ValOrChildUnion{ val: ManuallyDrop::new(val) });
-    // }
-    /// Sets the payload and key for slot_0, and ensures slot_1 is empty
+    /// Returns a reference to a child or value in the specified slot.  This method is unsafe
+    /// because it doesn't check if the slot is occupied and can never return [PayloadRef::None]
     #[inline]
-    unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
-        debug_assert!(key.len() <= KEY_BYTES_CNT);
-        core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
-        self.val_or_child0 = payload;
-        self.header = Self::header0(is_child_ptr, key.len());
-        if key.len() == KEY_BYTES_CNT {
-            self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
+    unsafe fn payload_in_slot<const SLOT: usize>(&self) -> PayloadRef<V> {
+        match self.is_child_ptr::<SLOT>() {
+            true => PayloadRef::Child(unsafe{ self.child_in_slot::<SLOT>() }),
+            false => PayloadRef::Val(unsafe{ self.val_in_slot::<SLOT>() })
         }
-    }
-    #[inline]
-    unsafe fn set_payload_1(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
-        let key_0_used_cnt = self.key_len_0();
-        debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
-        let base_ptr = self.key_bytes.get_unchecked_mut(key_0_used_cnt);
-        core::ptr::copy_nonoverlapping(key.as_ptr(), base_ptr.as_mut_ptr().cast(), key.len());
-        self.val_or_child1 = payload;
-        self.header |= Self::header1(is_child_ptr, key.len());
-    }
-    #[inline]
-    pub(crate) unsafe fn set_payload_owned<const SLOT: usize>(&mut self, key: &[u8], payload: ValOrChild<V>) where V: Clone {
-        match SLOT {
-            0 => match payload {
-                ValOrChild::Child(child) => self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }),
-                ValOrChild::Val(val) => self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) })
-            },
-            1 => match payload {
-                ValOrChild::Child(child) => { self.set_payload_1_no_overflow(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }); },
-                ValOrChild::Val(val) => { self.set_payload_1_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }); }
-            },
-            _ => unreachable!()
-        }
-    }
-    /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
-    /// created, or false if everything fit within self
-    unsafe fn set_payload_0_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
-        if key.len() <= KEY_BYTES_CNT {
-            //The entire key fits within the node
-            unsafe{ self.set_payload_0(key, is_child_ptr, payload); }
-            false
-        } else {
-            //We need to create a number of intermediate nodes to hold the key
-            let node_cnt = (key.len()-1) / KEY_BYTES_CNT;
-            let child_node_key = &key[(node_cnt * KEY_BYTES_CNT)..];
-            debug_assert!(child_node_key.len() > 0);
-            debug_assert!(child_node_key.len() <= KEY_BYTES_CNT);
-            let mut child_node = Self::new();
-            child_node.set_payload_0(child_node_key, is_child_ptr, payload);
-            let mut next_node = TrieNodeODRc::new(child_node);
-            for idx in (1..node_cnt).rev() {
-                let mut child_node = Self::new();
-                let child_node_key = &key[(idx*KEY_BYTES_CNT)..((idx+1)*KEY_BYTES_CNT)];
-                child_node.set_child_0(child_node_key, next_node);
-                next_node = TrieNodeODRc::new(child_node);
-            }
-            self.set_child_0(&key[..KEY_BYTES_CNT], next_node);
-            true
-        }
-    }
-    /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
-    /// created, or false if everything fit within self
-    unsafe fn set_payload_1_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
-        debug_assert!(!self.is_used::<1>());
-
-        //See if we are able to insert any of the key into slot_1
-        if self.is_available_1() {
-            let remaining_key_bytes = KEY_BYTES_CNT - self.key_len_0();
-            if key.len() <= remaining_key_bytes {
-                //The entire key fits within the node
-                unsafe{ self.set_payload_1(key, is_child_ptr, payload); }
-                false
-            } else {
-                //We need to recursively create a new node to hold the remaining part of the key
-                let mut child_node = Self::new();
-                child_node.set_payload_0_no_overflow(&key[remaining_key_bytes..], is_child_ptr, payload);
-                unsafe{ self.set_child_1(&key[..remaining_key_bytes], TrieNodeODRc::new(child_node)); }
-                true
-            }
-        } else {
-            //If there is a single slot that is occupied but the key consumes the full node, then arbitrarily
-            // chop the existing key in half to make room
-            self.split_0(KEY_BYTES_CNT / 2);
-
-            //Try again to add the new value to self, now that we've cleared some space
-            self.set_payload_1_no_overflow(key, is_child_ptr, payload);
-            true
-        }
-    }
-    /// Shifts the contents of slot_0 to slot_1, and puts the supplied payload into slot_0.  Returns `true`
-    /// if a continuation node was created, or false if everything fit within self
-    unsafe fn set_payload_0_shift_existing(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
-        debug_assert!(self.is_used::<0>());
-        debug_assert!(!self.is_used::<1>());
-
-        //Make sure some key-space is available in the node
-        if self.is_available_1() {
-            let old_key_len = self.key_len_0();
-            let old_is_child_ptr = self.is_child_ptr::<0>();
-            let remaining_key_bytes = KEY_BYTES_CNT - old_key_len;
-            let (new_key, new_is_child_ptr, new_payload, created_sub_branch) = if key.len() <= remaining_key_bytes {
-                //The entire key fits within the node
-                (key, is_child_ptr, payload, false)
-            } else {
-                //We need to recursively create at least one new node to hold the remaining part of the key
-                let mut child_node = Self::new();
-                child_node.set_payload_0_no_overflow(&key[remaining_key_bytes..], is_child_ptr, payload);
-                (&key[..remaining_key_bytes], true, ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) }, true)
-            };
-            let new_key_len = new_key.len();
-            debug_assert!(new_key_len + old_key_len <= KEY_BYTES_CNT);
-
-            unsafe {
-                //Copy the slot_0 key to slot_1, making room for the new key in slot_0
-                let src_ptr: *const u8 = self.key_bytes.as_ptr().cast();
-                let dst_ptr = self.key_bytes.get_unchecked_mut(new_key_len).as_mut_ptr();
-                core::ptr::copy(src_ptr, dst_ptr, old_key_len);
-
-                //Copy new_key into slot_0
-                let src_ptr: *const u8 = new_key.as_ptr();
-                let dst_ptr = self.key_bytes.as_mut_ptr().cast();
-                core::ptr::copy_nonoverlapping(src_ptr, dst_ptr, new_key_len);
-            }
-
-            //Transplant the the slot_0 payload to slot_1
-            core::mem::swap(&mut self.val_or_child0, &mut self.val_or_child1);
-
-            //Set the new payload on slot_0
-            self.val_or_child0 = new_payload;
-
-            //Construct the new header
-            self.header = Self::header0(new_is_child_ptr, new_key_len) | Self::header1(old_is_child_ptr, old_key_len);
-
-            created_sub_branch
-        } else {
-            //If there is a single slot that is occupied but the key consumes the full node, then arbitrarily
-            // chop the existing key in half to make room, and then try again
-            self.split_0(KEY_BYTES_CNT / 2);
-            self.set_payload_0_shift_existing(key, is_child_ptr, payload);
-            true
-        }
-    }
-    /// Takes the contents of SLOT.  If SLOT is 0 then it shifts the contents of slot_1 into slot_0
-    fn take_payload<const SLOT: usize>(&mut self) -> Option<ValOrChild<V>> {
-        if !self.is_used::<SLOT>() {
-            return None;
-        }
-        match SLOT {
-            0 => {
-                match self.is_child_ptr::<SLOT>() {
-                    true => {
-                        let child = unsafe{ ManuallyDrop::take(&mut self.val_or_child0.child) };
-                        self.shift_1_to_0();
-                        Some(ValOrChild::Child(child))
-                    },
-                    false => {
-                        let val = unsafe{ ManuallyDrop::take(&mut self.val_or_child0.val) };
-                        self.shift_1_to_0();
-                        Some(ValOrChild::Val(LocalOrHeap::into_inner(val)))
-                    }
-                }
-            },
-            1 => {
-                match self.is_child_ptr::<SLOT>() {
-                    true => {
-                        let child = unsafe{ ManuallyDrop::take(&mut self.val_or_child1.child) };
-                        self.header &= Self::header1_inverse();
-                        Some(ValOrChild::Child(child))
-                    },
-                    false => {
-                        let val = unsafe{ ManuallyDrop::take(&mut self.val_or_child1.val) };
-                        self.header &= Self::header1_inverse();
-                        Some(ValOrChild::Val(LocalOrHeap::into_inner(val)))
-                    }
-                }
-            },
-            _ => unreachable!()
-        }
-    }
-    /// Shifts the contents of slot1 into slot0, obliterating the contents of slot0
-    fn shift_1_to_0(&mut self) {
-        if self.is_used::<1>() {
-            self.val_or_child0 = core::mem::take(&mut self.val_or_child1);
-            let key_len_1 = self.key_len_1();
-            let is_child_1 = self.is_child_ptr::<1>();
-            unsafe {
-                let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
-                let dst_ptr = self.key_bytes.as_mut_ptr().cast();
-                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
-            }
-            self.header = Self::header0(is_child_1, key_len_1);
-        } else {
-            self.header = 0;
-        }
-    }
-    /// Returns the clone of the value or child in the slot
-    fn clone_payload<const SLOT: usize>(&self) -> Option<ValOrChild<V>> where V: Clone {
-        if !self.is_used::<SLOT>() {
-            return None;
-        }
-        match SLOT {
-            0 => match self.is_child_ptr::<SLOT>() {
-                true => {
-                    let child = unsafe{ &*self.val_or_child0.child }.clone();
-                    Some(ValOrChild::Child(child))
-                },
-                false => {
-                    let val = unsafe{ &**self.val_or_child0.val }.clone();
-                    Some(ValOrChild::Val(val))
-                }
-            },
-            1 => match self.is_child_ptr::<SLOT>() {
-                true => {
-                    let child = unsafe{ &*self.val_or_child1.child }.clone();
-                    Some(ValOrChild::Child(child))
-                },
-                false => {
-                    let val = unsafe{ &**self.val_or_child1.val }.clone();
-                    Some(ValOrChild::Val(val))
-                }
-            },
-            _ => unreachable!()
-        }
-    }
-    #[inline]
-    unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
-        self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
-    }
-    #[inline]
-    unsafe fn set_child_1(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
-        self.set_payload_1(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
-    }
-    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
-    fn split_0(&mut self, idx: usize) where V: Clone {
-        let mut self_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut self_payload, &mut self.val_or_child0);
-        let node_key_0 = unsafe{ self.key_unchecked::<0>() };
-
-        let mut child_node = Self::new();
-        unsafe{ child_node.set_payload_0(&node_key_0[idx..], self.is_child_ptr::<0>(), self_payload); }
-
-        //Convert slot_0 to a child ptr
-        self.val_or_child0 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
-
-        //Shift the key for slot_1, if there is one
-        let slot_mask_1 = if self.is_used::<1>() {
-            let key_len_1 = self.key_len_1();
-            unsafe {
-                let src_ptr = self.key_bytes.get_unchecked(self.key_len_0()).as_ptr();
-                let dst_ptr = self.key_bytes.get_unchecked_mut(idx).as_mut_ptr();
-                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
-            }
-            self.flags_and_len_1()
-        } else {
-            0
-        };
-
-        //Re-adjust the length and flags
-        self.header = (0xa000 | (idx << 6) | slot_mask_1) as u16;
-        if idx == KEY_BYTES_CNT {
-            self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
-        }
-    }
-    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
-    fn split_1(&mut self, idx: usize) where V: Clone {
-        let mut self_payload = ValOrChildUnion{ _unused: () };
-        core::mem::swap(&mut self_payload, &mut self.val_or_child1);
-        let node_key_1 = unsafe{ self.key_unchecked::<1>() };
-
-        let mut child_node = Self::new();
-        unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr::<1>(), self_payload); }
-
-        //Convert slot_0 from to a child ptr
-        self.val_or_child1 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
-
-        //Re-adjust the length and flags
-        let slot_mask_0 = self.flags_and_len_0();
-        self.header = (slot_mask_0 | 0x5000 | idx) as u16;
     }
     fn contains_val(&self, key: &[u8]) -> bool {
         if self.is_used_value_0() {
@@ -770,6 +452,319 @@ impl<V> LineListNode<V> {
             (false, true) => unreachable!(),
         }
     }
+}
+
+impl<V: Clone + Send + Sync> LineListNode<V> {
+
+    #[inline]
+    unsafe fn set_child_0(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
+        self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
+    }
+    #[inline]
+    unsafe fn set_child_1(&mut self, key: &[u8], child: TrieNodeODRc<V>) {
+        self.set_payload_1(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) });
+    }
+    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
+    fn split_0(&mut self, idx: usize) where V: Clone {
+        let mut self_payload = ValOrChildUnion{ _unused: () };
+        core::mem::swap(&mut self_payload, &mut self.val_or_child0);
+        let node_key_0 = unsafe{ self.key_unchecked::<0>() };
+
+        let mut child_node = Self::new();
+        unsafe{ child_node.set_payload_0(&node_key_0[idx..], self.is_child_ptr::<0>(), self_payload); }
+
+        //Convert slot_0 to a child ptr
+        self.val_or_child0 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+
+        //Shift the key for slot_1, if there is one
+        let slot_mask_1 = if self.is_used::<1>() {
+            let key_len_1 = self.key_len_1();
+            unsafe {
+                let base_ptr = self.key_bytes.as_mut_ptr().cast::<u8>();
+                let src_ptr = base_ptr.add(self.key_len_0());
+                let dst_ptr = base_ptr.add(idx);
+                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
+            }
+            self.flags_and_len_1()
+        } else {
+            0
+        };
+
+        //Re-adjust the length and flags
+        self.header = (0xa000 | (idx << 6) | slot_mask_1) as u16;
+        if idx == KEY_BYTES_CNT {
+            self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
+        }
+    }
+    /// Splits the key in slot_0 at `idx` (exclusive.  ie. the length of the key)
+    fn split_1(&mut self, idx: usize) where V: Clone {
+        let mut self_payload = ValOrChildUnion{ _unused: () };
+        core::mem::swap(&mut self_payload, &mut self.val_or_child1);
+        let node_key_1 = unsafe{ self.key_unchecked::<1>() };
+
+        let mut child_node = Self::new();
+        unsafe{ child_node.set_payload_0(&node_key_1[idx..], self.is_child_ptr::<1>(), self_payload); }
+
+        //Convert slot_0 from to a child ptr
+        self.val_or_child1 = ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) };
+
+        //Re-adjust the length and flags
+        let slot_mask_0 = self.flags_and_len_0();
+        self.header = (slot_mask_0 | 0x5000 | idx) as u16;
+    }
+    fn clone_with_updated_payloads(&self, payload_0: Option<ValOrChildUnion<V>>, payload_1: Option<ValOrChildUnion<V>>) -> Option<Self> {
+        match (payload_0, payload_1) {
+            (Some(slot0_payload), Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let (key0, key1) = self.get_both_keys();
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                unsafe{ new_node.set_payload_1(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (Some(slot0_payload), None) => {
+                let mut new_node = Self::new();
+                let key0 = unsafe{ self.key_unchecked::<0>() };
+                unsafe{ new_node.set_payload_0(key0, self.is_child_ptr::<0>(), slot0_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (None, Some(slot1_payload)) => {
+                let mut new_node = Self::new();
+                let key1 = unsafe{ self.key_unchecked::<1>() };
+                unsafe{ new_node.set_payload_0(key1, self.is_child_ptr::<1>(), slot1_payload); }
+                debug_assert!(validate_node(&new_node));
+                Some(new_node)
+            },
+            (None, None) => None,
+        }
+    }
+    /// Sets the payload and key for slot_0, and ensures slot_1 is empty
+    #[inline]
+    unsafe fn set_payload_0(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
+        debug_assert!(key.len() <= KEY_BYTES_CNT);
+        core::ptr::copy_nonoverlapping(key.as_ptr(), self.key_bytes.as_mut_ptr().cast(), key.len());
+        self.val_or_child0 = payload;
+        self.header = Self::header0(is_child_ptr, key.len());
+        if key.len() == KEY_BYTES_CNT {
+            self.header |= 1 << 12; //Set the flag state so slot_1 is unavailable
+        }
+    }
+    #[inline]
+    unsafe fn set_payload_1(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) {
+        let key_0_used_cnt = self.key_len_0();
+        debug_assert!(key.len() <= KEY_BYTES_CNT - key_0_used_cnt);
+        let dst_ptr = self.key_bytes.as_mut_ptr().cast::<u8>().add(key_0_used_cnt);
+        core::ptr::copy_nonoverlapping(key.as_ptr(), dst_ptr, key.len());
+        self.val_or_child1 = payload;
+        self.header |= Self::header1(is_child_ptr, key.len());
+    }
+    #[inline]
+    pub(crate) unsafe fn set_payload_owned<const SLOT: usize>(&mut self, key: &[u8], payload: ValOrChild<V>) where V: Clone {
+        match SLOT {
+            0 => match payload {
+                ValOrChild::Child(child) => self.set_payload_0(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }),
+                ValOrChild::Val(val) => self.set_payload_0(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) })
+            },
+            1 => match payload {
+                ValOrChild::Child(child) => { self.set_payload_1_no_overflow(key, true, ValOrChildUnion{ child: ManuallyDrop::new(child) }); },
+                ValOrChild::Val(val) => { self.set_payload_1_no_overflow(key, false, ValOrChildUnion{ val: ManuallyDrop::new(LocalOrHeap::new(val)) }); }
+            },
+            _ => unreachable!()
+        }
+    }
+    /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
+    /// created, or false if everything fit within self
+    unsafe fn set_payload_0_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
+        if key.len() <= KEY_BYTES_CNT {
+            //The entire key fits within the node
+            unsafe{ self.set_payload_0(key, is_child_ptr, payload); }
+            false
+        } else {
+            //We need to create a number of intermediate nodes to hold the key
+            let node_cnt = (key.len()-1) / KEY_BYTES_CNT;
+            let child_node_key = &key[(node_cnt * KEY_BYTES_CNT)..];
+            debug_assert!(child_node_key.len() > 0);
+            debug_assert!(child_node_key.len() <= KEY_BYTES_CNT);
+            let mut child_node = Self::new();
+            child_node.set_payload_0(child_node_key, is_child_ptr, payload);
+            let mut next_node = TrieNodeODRc::new(child_node);
+            for idx in (1..node_cnt).rev() {
+                let mut child_node = Self::new();
+                let child_node_key = &key[(idx*KEY_BYTES_CNT)..((idx+1)*KEY_BYTES_CNT)];
+                child_node.set_child_0(child_node_key, next_node);
+                next_node = TrieNodeODRc::new(child_node);
+            }
+            self.set_child_0(&key[..KEY_BYTES_CNT], next_node);
+            true
+        }
+    }
+    /// Creates continuation nodes rather than overflowing the key; returns `true` if a continuation node was
+    /// created, or false if everything fit within self
+    unsafe fn set_payload_1_no_overflow(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
+        debug_assert!(!self.is_used::<1>());
+
+        //See if we are able to insert any of the key into slot_1
+        if self.is_available_1() {
+            let remaining_key_bytes = KEY_BYTES_CNT - self.key_len_0();
+            if key.len() <= remaining_key_bytes {
+                //The entire key fits within the node
+                unsafe{ self.set_payload_1(key, is_child_ptr, payload); }
+                false
+            } else {
+                //We need to recursively create a new node to hold the remaining part of the key
+                let mut child_node = Self::new();
+                child_node.set_payload_0_no_overflow(&key[remaining_key_bytes..], is_child_ptr, payload);
+                unsafe{ self.set_child_1(&key[..remaining_key_bytes], TrieNodeODRc::new(child_node)); }
+                true
+            }
+        } else {
+            //If there is a single slot that is occupied but the key consumes the full node, then arbitrarily
+            // chop the existing key in half to make room
+            self.split_0(KEY_BYTES_CNT / 2);
+
+            //Try again to add the new value to self, now that we've cleared some space
+            self.set_payload_1_no_overflow(key, is_child_ptr, payload);
+            true
+        }
+    }
+    /// Shifts the contents of slot_0 to slot_1, and puts the supplied payload into slot_0.  Returns `true`
+    /// if a continuation node was created, or false if everything fit within self
+    unsafe fn set_payload_0_shift_existing(&mut self, key: &[u8], is_child_ptr: bool, payload: ValOrChildUnion<V>) -> bool where V: Clone {
+        debug_assert!(self.is_used::<0>());
+        debug_assert!(!self.is_used::<1>());
+
+        //Make sure some key-space is available in the node
+        if self.is_available_1() {
+            let old_key_len = self.key_len_0();
+            let old_is_child_ptr = self.is_child_ptr::<0>();
+            let remaining_key_bytes = KEY_BYTES_CNT - old_key_len;
+            let (new_key, new_is_child_ptr, new_payload, created_sub_branch) = if key.len() <= remaining_key_bytes {
+                //The entire key fits within the node
+                (key, is_child_ptr, payload, false)
+            } else {
+                //We need to recursively create at least one new node to hold the remaining part of the key
+                let mut child_node = Self::new();
+                child_node.set_payload_0_no_overflow(&key[remaining_key_bytes..], is_child_ptr, payload);
+                (&key[..remaining_key_bytes], true, ValOrChildUnion{ child: ManuallyDrop::new(TrieNodeODRc::new(child_node)) }, true)
+            };
+            let new_key_len = new_key.len();
+            debug_assert!(new_key_len + old_key_len <= KEY_BYTES_CNT);
+
+            unsafe {
+                //Copy the slot_0 key to slot_1, making room for the new key in slot_0
+                let base_ptr = self.key_bytes.as_mut_ptr().cast::<u8>();
+                let src_ptr: *const u8 = base_ptr;
+                let dst_ptr = base_ptr.add(new_key_len);
+                core::ptr::copy(src_ptr, dst_ptr, old_key_len);
+
+                //Copy new_key into slot_0
+                let src_ptr: *const u8 = new_key.as_ptr();
+                let dst_ptr = self.key_bytes.as_mut_ptr().cast();
+                core::ptr::copy_nonoverlapping(src_ptr, dst_ptr, new_key_len);
+            }
+
+            //Transplant the the slot_0 payload to slot_1
+            core::mem::swap(&mut self.val_or_child0, &mut self.val_or_child1);
+
+            //Set the new payload on slot_0
+            self.val_or_child0 = new_payload;
+
+            //Construct the new header
+            self.header = Self::header0(new_is_child_ptr, new_key_len) | Self::header1(old_is_child_ptr, old_key_len);
+
+            created_sub_branch
+        } else {
+            //If there is a single slot that is occupied but the key consumes the full node, then arbitrarily
+            // chop the existing key in half to make room, and then try again
+            self.split_0(KEY_BYTES_CNT / 2);
+            self.set_payload_0_shift_existing(key, is_child_ptr, payload);
+            true
+        }
+    }
+    /// Takes the contents of SLOT.  If SLOT is 0 then it shifts the contents of slot_1 into slot_0
+    fn take_payload<const SLOT: usize>(&mut self) -> Option<ValOrChild<V>> {
+        if !self.is_used::<SLOT>() {
+            return None;
+        }
+        match SLOT {
+            0 => {
+                match self.is_child_ptr::<SLOT>() {
+                    true => {
+                        let child = unsafe{ ManuallyDrop::take(&mut self.val_or_child0.child) };
+                        self.shift_1_to_0();
+                        Some(ValOrChild::Child(child))
+                    },
+                    false => {
+                        let val = unsafe{ ManuallyDrop::take(&mut self.val_or_child0.val) };
+                        self.shift_1_to_0();
+                        Some(ValOrChild::Val(LocalOrHeap::into_inner(val)))
+                    }
+                }
+            },
+            1 => {
+                match self.is_child_ptr::<SLOT>() {
+                    true => {
+                        let child = unsafe{ ManuallyDrop::take(&mut self.val_or_child1.child) };
+                        self.header &= Self::header1_inverse();
+                        Some(ValOrChild::Child(child))
+                    },
+                    false => {
+                        let val = unsafe{ ManuallyDrop::take(&mut self.val_or_child1.val) };
+                        self.header &= Self::header1_inverse();
+                        Some(ValOrChild::Val(LocalOrHeap::into_inner(val)))
+                    }
+                }
+            },
+            _ => unreachable!()
+        }
+    }
+    /// Shifts the contents of slot1 into slot0, obliterating the contents of slot0
+    fn shift_1_to_0(&mut self) {
+        if self.is_used::<1>() {
+            self.val_or_child0 = core::mem::take(&mut self.val_or_child1);
+            let key_len_1 = self.key_len_1();
+            let is_child_1 = self.is_child_ptr::<1>();
+            unsafe {
+                let base_ptr = self.key_bytes.as_mut_ptr().cast::<u8>();
+                let src_ptr = base_ptr.add(self.key_len_0());
+                let dst_ptr = base_ptr;
+                core::ptr::copy(src_ptr, dst_ptr, key_len_1);
+            }
+            self.header = Self::header0(is_child_1, key_len_1);
+        } else {
+            self.header = 0;
+        }
+    }
+    /// Returns the clone of the value or child in the slot
+    pub(crate) fn clone_payload<const SLOT: usize>(&self) -> Option<ValOrChild<V>> where V: Clone {
+        if !self.is_used::<SLOT>() {
+            return None;
+        }
+        match SLOT {
+            0 => match self.is_child_ptr::<SLOT>() {
+                true => {
+                    let child = unsafe{ &*self.val_or_child0.child }.clone();
+                    Some(ValOrChild::Child(child))
+                },
+                false => {
+                    let val = unsafe{ &**self.val_or_child0.val }.clone();
+                    Some(ValOrChild::Val(val))
+                }
+            },
+            1 => match self.is_child_ptr::<SLOT>() {
+                true => {
+                    let child = unsafe{ &*self.val_or_child1.child }.clone();
+                    Some(ValOrChild::Child(child))
+                },
+                false => {
+                    let val = unsafe{ &**self.val_or_child1.val }.clone();
+                    Some(ValOrChild::Val(val))
+                }
+            },
+            _ => unreachable!()
+        }
+    }
     /// Sets the payload on the node with the specified key, upgrading the node if necessary.
     /// If `is_child_ptr == true`, this method always returns `(None, _)`, if it's false, will return the
     /// replaced value if there was one.
@@ -855,8 +850,8 @@ impl<V> LineListNode<V> {
 
         //We couldn't store the value in either of the slots, so upgrade the node
         //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-        let mut replacement_node = self.convert_to_dense(3);
-        let dense_node = replacement_node.make_mut().as_dense_mut().unwrap();
+        let mut replacement_node = self.convert_to_dense::<OrdinaryCoFree<V>>(3);
+        let dense_node = replacement_node.make_mut().as_tagged_mut().into_dense().unwrap();
 
         //Add the new key-value pair to the new DenseByteNode
         if key.len() > 1 {
@@ -889,17 +884,28 @@ impl<V> LineListNode<V> {
 
         //If the overlap is illegal, split the prefix
         if overlap > 0 && !legal_overlap {
-            if let Some((shared_key, merged_payload)) = merge_guts::<V, 0, 1>(overlap, key0, self, key1, self) {
-                let mut new_node = Self::new();
-                unsafe{ new_node.set_payload_owned::<0>(shared_key, merged_payload) };
-                *self = new_node;
+            match merge_guts::<V, 0, 1>(overlap, key0, self, key1, self) {
+                AlgebraicResult::Element((shared_key, merged_payload)) => {
+                    let mut new_node = Self::new();
+                    unsafe{ new_node.set_payload_owned::<0>(shared_key, merged_payload) };
+                    *self = new_node;
+                },
+                AlgebraicResult::Identity(mask) => {
+                    debug_assert!(mask & SELF_IDENT > 0);
+                    let mut new_node = Self::new();
+                    unsafe{ new_node.set_payload_owned::<0>(key0, self.clone_payload::<0>().unwrap()) };
+                    *self = new_node;
+                },
+                AlgebraicResult::None => {}
             }
         }
     }
 
-    /// Converts the node to a DenseByteNode, transplanting the contents and leaving `self` empty
-    pub(crate) fn convert_to_dense(&mut self, capacity: usize) -> TrieNodeODRc<V> where V: Clone {
-        let mut replacement_node = DenseByteNode::<V>::with_capacity(capacity);
+    /// Converts the node to a ByteNode, transplanting the contents and leaving `self` empty
+    pub(crate) fn convert_to_dense<Cf: CoFree<V=V>>(&mut self, capacity: usize) -> TrieNodeODRc<V>
+        where ByteNode<Cf>: TrieNodeDowncast<V>
+    {
+        let mut replacement_node = ByteNode::<Cf>::with_capacity(capacity);
 
         //1. Transplant the key / value from slot_1 to the new node
         if self.is_used::<0>() {
@@ -949,47 +955,87 @@ impl<V> LineListNode<V> {
         TrieNodeODRc::new(replacement_node)
     }
 
-    /// Internal method to meet the contents of `SLOT` with the contents of the `other` node
-    fn meet_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> Option<ValOrChildUnion<V>> where V: Clone + Lattice {
-        if self.is_used::<SLOT>() {
-            let path = unsafe{ self.key_unchecked::<SLOT>() };
-            if let Some((onward_key, onward_node)) = follow_path(other, path) {
-                if self.is_child_ptr::<SLOT>() {
-                    let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
-                    let meet_node = if onward_key.len() == 0 {
-                        self_onward_link.borrow().meet_dyn(onward_node)
-                    } else {
-                        match onward_node.get_node_at_key(onward_key).into_option() {
-                            Some(other_onward_node) => self_onward_link.borrow().meet_dyn(other_onward_node.borrow()),
-                            None => None
-                        }
-                    };
-                    meet_node.map(|node| ValOrChildUnion::from(node))
-                } else {
-                    let self_val = unsafe{ self.val_in_slot::<SLOT>() };
-                    if let Some(other_val) = onward_node.node_get_val(onward_key) {
-                        let meet_val = self_val.meet(other_val);
-                        Some(ValOrChildUnion::from(meet_val))
-                    } else {
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
+    //GOAT Dead code, in favor of `pmeet_generic`  Currently it's not deleted because we may refer back to it
+    // but it's slated for deletion soon.
+    //
+    // /// Internal method to meet the contents of `SLOT` with the contents of the `other` node
+    // #[inline]
+    // fn meet_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> FatAlgebraicResult<ValOrChild<V>> where V: Clone + Lattice {
+    //     if self.is_used::<SLOT>() {
+    //         let path = unsafe{ self.key_unchecked::<SLOT>() };
+    //         if let Some((onward_key, onward_node)) = follow_path(other, path) {
+    //             if self.is_child_ptr::<SLOT>() {
+    //                 let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
+    //                 let (meet_result, other_node) = if onward_key.len() == 0 {
+    //                     //GOAT!!!!, if onward_node were a TrieNodeODRc, we would avoid having to make a deep copy here, and more importantly
+    //                     // breaking the sharing!!
+    //                     (self_onward_link.borrow().pmeet_dyn(onward_node), Some(onward_node.clone_self()))
+    //                 } else {
+    //                     match onward_node.get_node_at_key(onward_key).into_option() {
+    //                         Some(other_onward_node) => {
+    //                             (self_onward_link.borrow().pmeet_dyn(other_onward_node.borrow()), Some(other_onward_node))
+    //                         },
+    //                         None => {
+    //                             if other.node_is_empty() {
+    //                                 return FatAlgebraicResult::new(COUNTER_IDENT, None)
+    //                             } else {
+    //                                 return FatAlgebraicResult::new(0, None)
+    //                             }
+    //                         }
+    //                     }
+    //                 };
+    //                 match meet_result {
+    //                     AlgebraicResult::None => FatAlgebraicResult::none(),
+    //                     AlgebraicResult::Element(node) => FatAlgebraicResult::element(ValOrChild::Child(node)),
+    //                     AlgebraicResult::Identity(mask) => {
+    //                         if mask & SELF_IDENT > 0 {
+    //                             FatAlgebraicResult::new(mask, Some(ValOrChild::Child(self_onward_link.clone())))
+    //                         } else {
+    //                             debug_assert_eq!(mask, COUNTER_IDENT);
+    //                             debug_assert!(other_node.is_some());
+    //                             FatAlgebraicResult::new(mask, other_node.map(|node| ValOrChild::Child(node)))
+    //                         }
+    //                     }
+    //                 }
+    //             } else {
+    //                 let self_val = unsafe{ self.val_in_slot::<SLOT>() };
+    //                 if let Some(other_val) = onward_node.node_get_val(onward_key) {
+    //                     match self_val.pmeet(other_val) {
+    //                         AlgebraicResult::None => FatAlgebraicResult::none(),
+    //                         AlgebraicResult::Element(val) => FatAlgebraicResult::element(ValOrChild::Val(val)),
+    //                         AlgebraicResult::Identity(mask) => {
+    //                             if mask & SELF_IDENT > 0 {
+    //                                 FatAlgebraicResult::new(mask, Some(ValOrChild::Val(self_val.clone())))
+    //                             } else {
+    //                                 debug_assert_eq!(mask, COUNTER_IDENT);
+    //                                 FatAlgebraicResult::new(mask, Some(ValOrChild::Val(other_val.clone())))
+    //                             }
+    //                         }
+    //                     }
+    //                 } else {
+    //                     if other.node_is_empty() {
+    //                         FatAlgebraicResult::new(COUNTER_IDENT, None)
+    //                     } else {
+    //                         FatAlgebraicResult::new(0, None)
+    //                     }
+    //                 }
+    //             }
+    //         } else {
+    //             if other.node_is_empty() {
+    //                 FatAlgebraicResult::new(COUNTER_IDENT, None)
+    //             } else {
+    //                 FatAlgebraicResult::new(0, None)
+    //             }
+    //         }
+    //     } else {
+    //         FatAlgebraicResult::new(SELF_IDENT, None)
+    //     }
+    // }
 
     /// Internal method to subtract the contents of `SLOT` with the contents of the `other` node
-    /// If this method returns `(false, None)`, it means the original value should be "annihilated", e.g. complete
-    ///   subtraction leaving nothing behind
-    /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
-    /// If it returns `(false, Some(_))` then a new node was created
-    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone + PartialDistributiveLattice {
+    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<ValOrChildUnion<V>> where V: Clone + DistributiveLattice {
         if !self.is_used::<SLOT>() {
-            return (false, None)
+            return AlgebraicResult::None
         }
         let path = unsafe{ self.key_unchecked::<SLOT>() };
         if let Some((onward_key, onward_node)) = follow_path(other, path) {
@@ -1000,71 +1046,93 @@ impl<V> LineListNode<V> {
                 } else {
                     match onward_node.get_node_at_key(onward_key).into_option() {
                         Some(other_onward_node) => self_onward_link.borrow().psubtract_dyn(other_onward_node.borrow()),
-                        None => return (true, None) //We can keep the child that is already here
+                        None => return AlgebraicResult::Identity(SELF_IDENT)
                     }
                 };
-                debug_assert!(difference.1.as_ref().map(|node| node.borrow().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or(true));
-                (difference.0, difference.1.map(|node| ValOrChildUnion::from(node)))
+                debug_assert!(difference.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or([true, true], true));
+                difference.map(|node| ValOrChildUnion::from(node))
             } else {
                 debug_assert!(onward_key.len() > 0);
                 let self_val = unsafe{ self.val_in_slot::<SLOT>() };
                 let other_val = onward_node.node_get_val(onward_key).unwrap();
-                let difference_val = self_val.psubtract(other_val);
-                //GOAT!!!! Gotta return the "unmodified" flag from the value subtract, rather than assuming `false`
-                (false, difference_val.map(|val| ValOrChildUnion::from(val)))
+                self_val.psubtract(other_val).map(|val| ValOrChildUnion::from(val))
             }
         } else {
             //We subtracted nothing from the slot, so the source should be referenced, unmodified
-            (true, None)
+            AlgebraicResult::Identity(SELF_IDENT)
         }
     }
     /// Internal method to restrict the contents of `SLOT` with the contents of the `other` node
-    /// If this method returns `(false, None)`, it means the original value should be "annihilated", e.g. complete
-    ///   removal leaving nothing behind
-    /// If it returns `(true, _)` it means the original value of the slot should be maintained, unmodified.
-    /// If it returns `(false, Some(_))` then a new node was created
-    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> (bool, Option<ValOrChildUnion<V>>) where V: Clone {
+    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<ValOrChildUnion<V>> where V: Clone {
         if self.is_used::<SLOT>() {
             let path = unsafe{ self.key_unchecked::<SLOT>() };
             let (found_val, onward) = follow_path_to_value(other, path);
             if found_val {
-                return (true, None);
+                return AlgebraicResult::Identity(SELF_IDENT);
             }
             if let Some((onward_key, onward_node)) = onward {
                 if self.is_child_ptr::<SLOT>() {
                     let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
-                    let restricted_node = if onward_key.len() == 0 {
+                    let restricted_node_result = if onward_key.len() == 0 {
                         self_onward_link.borrow().prestrict_dyn(onward_node)
                     } else {
                         let other_onward_node = onward_node.get_node_at_key(onward_key);
                         self_onward_link.borrow().prestrict_dyn(other_onward_node.borrow())
                     };
-                    //GOAT, should carry an "unmodified" flag out of prestrict_dyn, and propagate it here
-                    (false, restricted_node.map(|node| ValOrChildUnion::from(node)))
+                    restricted_node_result.map(|node| ValOrChildUnion::from(node))
                 } else {
-                    (false, None)
+                    AlgebraicResult::None
                 }
             } else {
-                (false, None)
+                AlgebraicResult::None
             }
         } else {
-            (false, None)
+            AlgebraicResult::None
         }
+    }
+
+    /// Internal method to combine the result from separate **Non-Commutative** operations on individual slots into
+    /// an AlgebraicResult for the whole node
+    #[inline]
+    fn combine_slot_results_into_node_result(&self, slot0_result: AlgebraicResult<ValOrChildUnion<V>>, slot1_result: AlgebraicResult<ValOrChildUnion<V>>) -> AlgebraicResult<TrieNodeODRc<V>> {
+        let (slot0_payload, slot1_payload) = match (slot0_result, slot1_result) {
+            (AlgebraicResult::Identity(mask0), AlgebraicResult::Identity(mask1)) => {
+                debug_assert_eq!(mask0, SELF_IDENT);
+                debug_assert_eq!(mask1, SELF_IDENT);
+                return AlgebraicResult::Identity(SELF_IDENT)
+            },
+            (AlgebraicResult::None, AlgebraicResult::None) => return AlgebraicResult::None,
+            (AlgebraicResult::Identity(mask), AlgebraicResult::None) => {
+                if !self.is_used::<1>() {
+                    debug_assert_eq!(mask, SELF_IDENT);
+                    return AlgebraicResult::Identity(SELF_IDENT)
+                } else {
+                    let slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
+                    (slot0_payload, None)
+                }
+            },
+            // NOTE: There is no need to special-case the (AlgebraicResult::None, AlgebraicResult::Identity)
+            // case, because if slot1 can't have contents if slot0 is empty, therefore we know that if
+            // slot0 is None, and we didn't hit the (None, None) case above, then the case below is the
+            // correct case to handle this situation
+            (e0, e1) => {
+                let slot0_payload = e0.map_into_option(|arg_idx| {
+                    debug_assert_eq!(arg_idx, 0);
+                    self.clone_payload::<0>().map(|payload| payload.into())
+                });
+                let slot1_payload = e1.map_into_option(|arg_idx| {
+                    debug_assert_eq!(arg_idx, 0);
+                    self.clone_payload::<1>().map(|payload| payload.into())
+                });
+                (slot0_payload, slot1_payload)
+            }
+        };
+        debug_assert!(slot0_payload.is_some() || slot1_payload.is_some());
+        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
+        AlgebraicResult::Element(TrieNodeODRc::new(new_node))
     }
 }
 
-/// Returns the number of characters shared between two slices
-#[inline]
-fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
-    let mut cnt = 0;
-    loop {
-        if cnt == a.len() {break}
-        if cnt == b.len() {break}
-        if a[cnt] != b[cnt] {break}
-        cnt += 1;
-    }
-    cnt
-}
 
 /// Returns the part of `src_key` that remains after excluding the first `key_len` bytes
 #[inline]
@@ -1093,18 +1161,18 @@ fn should_swap_keys(key0: &[u8], key1: &[u8]) -> bool {
 
 /// Attempts to merge a specific slot in a ListNode with a specific slot in another ListNode.  Returns the merged
 /// (key, payload) pair if a merge was possible, otherwise None
-fn try_merge<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
+fn try_merge<'a, V: Clone + Lattice + Send + Sync, const ASLOT: usize, const BSLOT: usize>(a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> AlgebraicResult<(&'a[u8], ValOrChild<V>)> {
     //Are there are any common paths between the nodes?
     let overlap = find_prefix_overlap(a_key, b_key);
     if overlap > 0 {
         merge_guts::<V, ASLOT, BSLOT>(overlap, a_key, a, b_key, b)
     } else {
-        None //No overlap between keys
+        AlgebraicResult::None //No overlap between keys
     }
 }
 
 /// The part of `try_merge` that we probably shouldn't inline
-fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> Option<(&'a[u8], ValOrChild<V>)> {
+fn merge_guts<'a, V: Clone + Lattice + Send + Sync, const ASLOT: usize, const BSLOT: usize>(mut overlap: usize, a_key: &'a[u8], a: &LineListNode<V>, b_key: &'a[u8], b: &LineListNode<V>) -> AlgebraicResult<(&'a[u8], ValOrChild<V>)> {
     debug_assert!(overlap > 0);
     let a_key_len = a_key.len();
     let b_key_len = b_key.len();
@@ -1125,14 +1193,12 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
             (true, true) => { //both are child nodes, so join them
                 let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
                 let b_child = unsafe{ b.child_in_slot::<BSLOT>() };
-                let new_child = a_child.join(b_child);
-                return Some((a_key, ValOrChild::Child(new_child)))
+                return a_child.pjoin(b_child).map(|new_child| (a_key, ValOrChild::Child(new_child)))
             },
             (false, false) => { //both are values, so join them
                 let a_val = unsafe{ a.val_in_slot::<ASLOT>() };
                 let b_val = unsafe{ b.val_in_slot::<BSLOT>() };
-                let new_val = a_val.join(b_val);
-                return Some((a_key, ValOrChild::Val(new_val)))
+                return a_val.pjoin(b_val).map(|new_val| (a_key, ValOrChild::Val(new_val)))
             },
             _ => {}
         }
@@ -1146,8 +1212,15 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
         let mut intermediate_node = LineListNode::new();
         unsafe{ intermediate_node.set_payload_owned::<0>(&a_key[overlap..], a_payload); }
         debug_assert!(validate_node(&intermediate_node));
-        let joined = b_child.join(&TrieNodeODRc::new(intermediate_node));
-        return Some((&a_key[0..overlap], ValOrChild::Child(joined)))
+        let intermediate_node = TrieNodeODRc::new(intermediate_node);
+        let joined = b_child.pjoin(&intermediate_node).unwrap_or_else(|which_arg| {
+            match which_arg {
+                0 => b_child.clone(),
+                1 => intermediate_node,
+                _ => unreachable!()
+            }
+        }, || panic!());
+        return AlgebraicResult::Element((&a_key[0..overlap], ValOrChild::Child(joined)))
     }
     if a_key_len == overlap && a.is_child_ptr::<ASLOT>() && b_key_len > overlap {
         let a_child = unsafe{ a.child_in_slot::<ASLOT>() };
@@ -1155,8 +1228,15 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
         let mut intermediate_node = LineListNode::new();
         unsafe{ intermediate_node.set_payload_owned::<0>(&b_key[overlap..], b_payload); }
         debug_assert!(validate_node(&intermediate_node));
-        let joined = a_child.join(&TrieNodeODRc::new(intermediate_node));
-        return Some((&a_key[0..overlap], ValOrChild::Child(joined)))
+        let intermediate_node = TrieNodeODRc::new(intermediate_node);
+        let joined = a_child.pjoin(&intermediate_node).unwrap_or_else(|which_arg| {
+            match which_arg {
+                0 => a_child.clone(),
+                1 => intermediate_node,
+                _ => unreachable!()
+            }
+        }, || panic!());
+        return AlgebraicResult::Element((&a_key[0..overlap], ValOrChild::Child(joined)))
     }
 
     //If we have overlapping initial bytes that can be joined together, make a new prefix node
@@ -1189,43 +1269,251 @@ fn merge_guts<'a, V: Clone + Lattice, const ASLOT: usize, const BSLOT: usize>(mu
             }
         }
         debug_assert!(validate_node(&new_node));
-        Some((&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node))))
+        AlgebraicResult::Element((&a_key[..overlap], ValOrChild::Child(TrieNodeODRc::new(new_node))))
     } else {
-        None
+        AlgebraicResult::None
     }
 }
 
-/// Merges the entries in the ListNode into the DenseByteNode
-pub fn merge_into_dense_node<V>(dense_node: &mut DenseByteNode<V>, list_node: &LineListNode<V>) where V: Clone + Lattice {
-    dense_node.reserve_capacity(2);
+fn merge_list_nodes<V: Clone + Send + Sync + Lattice>(a: &LineListNode<V>, b: &LineListNode<V>) -> Result<AlgebraicResult<LineListNode<V>>, AlgebraicResult<DenseByteNode<V>>> {
+    debug_assert!(validate_node(a));
+    debug_assert!(validate_node(b));
 
-    if list_node.is_used::<0>() {
-        let key = unsafe{ list_node.key_unchecked::<0>() };
-        let payload = list_node.clone_payload::<0>().unwrap();
-        if key.len() > 1 {
-            let mut child_node = LineListNode::<V>::new();
-            unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
-            dense_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
-        } else {
-            dense_node.join_payload_into(key[0], payload);
+    let (self_key0, self_key1) = a.get_both_keys();
+    let (other_key0, other_key1) = b.get_both_keys();
+    let mut entries: [MaybeUninit<(&[u8], ValOrChild<V>)>; 4] = [MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()];
+    let mut entry_cnt = 0;
+    let mut used: [bool; 4] = [false; 4]; //[self_0, self_1, other_0, other_1]
+    let mut identity_masks: [u64; 4] = [0; 4];
+
+    // Try each pairing in self and other, to see if there is a key-join that can happen
+    // We can assume two keys in the same node can't merge, because they would have already been merged,
+    // and therefore we can also assume that if a key can be merged with one key of a node it can't be
+    // merged with the other
+    match try_merge::<V, 0, 0>(self_key0, a, other_key0, b) {
+        AlgebraicResult::Element(joined) => {
+            entries[entry_cnt] = MaybeUninit::new(joined);
+            entry_cnt += 1;
+            used[0] = true;
+            used[2] = true;
+        },
+        AlgebraicResult::Identity(mask) => {
+            if mask & SELF_IDENT > 0 {
+                entries[entry_cnt] = MaybeUninit::new((self_key0, a.clone_payload::<0>().unwrap()));
+            } else {
+                debug_assert!(mask & COUNTER_IDENT > 0);
+                entries[entry_cnt] = MaybeUninit::new((other_key0, b.clone_payload::<0>().unwrap()));
+            }
+            identity_masks[entry_cnt] = mask;
+            entry_cnt += 1;
+            used[0] = true;
+            used[2] = true;
+        },
+        AlgebraicResult::None => { }
+    }
+    match try_merge::<V, 0, 1>(self_key0, a, other_key1, b) {
+        AlgebraicResult::Element(joined) => {
+            entries[entry_cnt] = MaybeUninit::new(joined);
+            entry_cnt += 1;
+            debug_assert!(used[0] == false); //If we create multiple joined entries from the same source, it's a bug somewhere
+            used[0] = true;
+            used[3] = true;
+        },
+        AlgebraicResult::Identity(mask) => {
+            if mask & SELF_IDENT > 0 {
+                entries[entry_cnt] = MaybeUninit::new((self_key0, a.clone_payload::<0>().unwrap()));
+            } else {
+                debug_assert!(mask & COUNTER_IDENT > 0);
+                entries[entry_cnt] = MaybeUninit::new((other_key1, b.clone_payload::<1>().unwrap()));
+            }
+            identity_masks[entry_cnt] = mask;
+            entry_cnt += 1;
+            debug_assert!(used[0] == false); //See above
+            used[0] = true;
+            used[3] = true;
+        },
+        AlgebraicResult::None => {}
+    }
+    match try_merge::<V, 1, 0>(self_key1, a, other_key0, b) {
+        AlgebraicResult::Element(joined) => {
+            entries[entry_cnt] = MaybeUninit::new(joined);
+            entry_cnt += 1;
+            debug_assert!(used[2] == false); //See above
+            used[1] = true;
+            used[2] = true;
+        },
+        AlgebraicResult::Identity(mask) => {
+            if mask & SELF_IDENT > 0 {
+                entries[entry_cnt] = MaybeUninit::new((self_key1, a.clone_payload::<1>().unwrap()));
+            } else {
+                debug_assert!(mask & COUNTER_IDENT > 0);
+                entries[entry_cnt] = MaybeUninit::new((other_key0, b.clone_payload::<0>().unwrap()));
+            }
+            identity_masks[entry_cnt] = mask;
+            entry_cnt += 1;
+            debug_assert!(used[2] == false); //See above
+            used[1] = true;
+            used[2] = true;
+        },
+        AlgebraicResult::None => {}
+    }
+    match try_merge::<V, 1, 1>(self_key1, a, other_key1, b) {
+        AlgebraicResult::Element(joined) => {
+            entries[entry_cnt] = MaybeUninit::new(joined);
+            entry_cnt += 1;
+            debug_assert!(used[1] == false); //See above
+            debug_assert!(used[3] == false); //See above
+            used[1] = true;
+            used[3] = true;
+        },
+        AlgebraicResult::Identity(mask) => {
+            if mask & SELF_IDENT > 0 {
+                entries[entry_cnt] = MaybeUninit::new((self_key1, a.clone_payload::<1>().unwrap()));
+            } else {
+                debug_assert!(mask & COUNTER_IDENT > 0);
+                entries[entry_cnt] = MaybeUninit::new((other_key1, b.clone_payload::<1>().unwrap()));
+            }
+            identity_masks[entry_cnt] = mask;
+            entry_cnt += 1;
+            debug_assert!(used[1] == false); //See above
+            debug_assert!(used[3] == false); //See above
+            used[1] = true;
+            used[3] = true;
+        },
+        AlgebraicResult::None => {}
+    }
+
+    //Add the single entries that didn't merge
+    if !used[0] {
+        match a.clone_payload::<0>() {
+            Some(payload) => {
+                entries[entry_cnt] = MaybeUninit::new((self_key0, payload));
+                identity_masks[entry_cnt] = SELF_IDENT;
+                entry_cnt += 1;
+            },
+            None => {}
+        }
+    }
+    if !used[1] {
+        match a.clone_payload::<1>() {
+            Some(payload) => {
+                entries[entry_cnt] = MaybeUninit::new((self_key1, payload));
+                identity_masks[entry_cnt] = SELF_IDENT;
+                entry_cnt += 1;
+            },
+            None => {}
+        }
+    }
+    if !used[2] {
+        match b.clone_payload::<0>() {
+            Some(payload) => {
+                entries[entry_cnt] = MaybeUninit::new((other_key0, payload));
+                identity_masks[entry_cnt] = COUNTER_IDENT;
+                entry_cnt += 1;
+            },
+            None => {}
+        }
+    }
+    if !used[3] {
+        match b.clone_payload::<1>() {
+            Some(payload) => {
+                entries[entry_cnt] = MaybeUninit::new((other_key1, payload));
+                identity_masks[entry_cnt] = COUNTER_IDENT;
+                entry_cnt += 1;
+            },
+            None => {}
         }
     }
 
-    if list_node.is_used::<1>() {
-        let key = unsafe{ list_node.key_unchecked::<1>() };
-        let payload = list_node.clone_payload::<1>().unwrap();
-        if key.len() > 1 {
-            let mut child_node = LineListNode::<V>::new();
-            unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
-            dense_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
-        } else {
-            dense_node.join_payload_into(key[0], payload);
+    //Do we have two or fewer paths, that can fit into a new ListNode?
+    if entry_cnt <= 2 {
+        let mut joined_node = LineListNode::new();
+        let mut pair0: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+        core::mem::swap(&mut pair0, &mut entries[0]);
+        let (key0, payload0) = unsafe{ pair0.assume_init() };
+
+        match entry_cnt {
+            1 => {
+                if identity_masks[0] > 0 {
+                    return Ok(AlgebraicResult::Identity(identity_masks[0]))
+                } else {
+                    unsafe{ joined_node.set_payload_owned::<0>(key0, payload0); }
+                    debug_assert!(validate_node(&joined_node));
+                    return Ok(AlgebraicResult::Element(joined_node))
+                }
+            },
+            2 => {
+                let mut pair1: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+                core::mem::swap(&mut pair1, &mut entries[1]);
+                let (key1, payload1) = unsafe{ pair1.assume_init() };
+                let new_ident_mask = identity_masks[0] & identity_masks[1];
+                if new_ident_mask > 0 {
+                    return Ok(AlgebraicResult::Identity(new_ident_mask))
+                } else {
+                    if should_swap_keys(key0, key1) {
+                        unsafe{ joined_node.set_payload_owned::<0>(key1, payload1); }
+                        unsafe{ joined_node.set_payload_owned::<1>(key0, payload0); }
+                    } else {
+                        unsafe{ joined_node.set_payload_owned::<0>(key0, payload0); }
+                        unsafe{ joined_node.set_payload_owned::<1>(key1, payload1); }
+                    }
+                    debug_assert!(validate_node(&joined_node));
+                    return Ok(AlgebraicResult::Element(joined_node))
+                }
+            },
+            0 => {
+                debug_assert!(a.node_is_empty() && b.node_is_empty());
+                return Ok(AlgebraicResult::None)
+            },
+            _ => unreachable!()
         }
+    }
+
+    //Otherwise, create a DenseByteNode
+    let mut joined_node = DenseByteNode::<V>::with_capacity(entry_cnt);
+    for i in 0..entry_cnt {
+        let mut pair: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
+        core::mem::swap(&mut pair, &mut entries[i]);
+        let (key, payload) = unsafe{ pair.assume_init() };
+        debug_assert!(key.len() > 0);
+        if key.len() > 1 {
+            let mut child_node = LineListNode::new();
+            unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
+            debug_assert!(validate_node(&child_node));
+            joined_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
+        } else {
+            joined_node.set_payload_owned(key[0], payload);
+        }
+    }
+    Err(AlgebraicResult::Element(joined_node))
+}
+
+fn merge_into_list_nodes<V: Clone + Send + Sync + Lattice>(target: &mut LineListNode<V>, other: &LineListNode<V>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V>>) {
+    match merge_list_nodes(target, other) {
+        Ok(AlgebraicResult::Element(new_list_node)) => {
+            *target = new_list_node;
+            (AlgebraicStatus::Element, Ok(()))
+        },
+        Ok(AlgebraicResult::Identity(mask)) => {
+            if mask & SELF_IDENT > 0 {
+                (AlgebraicStatus::Identity, Ok(()))
+            } else {
+                debug_assert!(mask & COUNTER_IDENT > 0);
+                *target = other.clone();
+                (AlgebraicStatus::Element, Ok(()))
+            }
+        },
+        Err(AlgebraicResult::Element(new_dense_node)) => (AlgebraicStatus::Element, Err(TrieNodeODRc::new(new_dense_node))),
+        _ => unreachable!() //Each case enumerated below
+        // Ok(AlgebraicResult::None) => unreachable!(), //Join results are always a superset of self
+        // Err(AlgebraicResult::None) => unreachable!(), //Join results are always a superset of self
+        // Err(AlgebraicResult::Identity(_)) => unreachable!(), //A new node type can't be an identity
     }
 }
 
-fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V>)> {
+fn follow_path<'a, 'k, V: Clone + Send + Sync>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V>)> {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
+        let next_node = next_node.borrow();
         if consumed_byte_cnt < key.len() {
             node = next_node;
             key = &key[consumed_byte_cnt..]
@@ -1242,9 +1530,10 @@ fn follow_path<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> Op
 
 /// Follows a path from a node, returning `(true, _)` if a value was encountered along the path, returns
 /// `(false, Some)` if the path continues, and `(false, None)` if the path does not descend from the node
-fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V>)>) {
+fn follow_path_to_value<'a, 'k, V: Clone + Send + Sync>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V>)>) {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         if consumed_byte_cnt < key.len() {
+            let next_node = next_node.borrow();
             node = next_node;
             key = &key[consumed_byte_cnt..]
         } else {
@@ -1261,7 +1550,15 @@ fn follow_path_to_value<'a, 'k, V>(mut node: &'a dyn TrieNode<V>, mut key: &'k[u
     }
 }
 
-impl<V: Clone> TrieNode<V> for LineListNode<V> {
+impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
+    #[inline]
+    fn node_key_overlap(&self, key: &[u8]) -> usize {
+        let (key0, key1) = self.get_both_keys();
+        let overlap0 = find_prefix_overlap(key, key0);
+        let overlap1 = find_prefix_overlap(key, key1);
+        overlap0.max(overlap1)
+    }
+    #[inline]
     fn node_contains_partial_key(&self, key: &[u8]) -> bool {
         let (key0, key1) = self.get_both_keys();
         if key0.starts_with(key) || key1.starts_with(key) {
@@ -1270,13 +1567,13 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         false
     }
     #[inline(always)]
-    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &dyn TrieNode<V>)> {
+    fn node_get_child(&self, key: &[u8]) -> Option<(usize, &TrieNodeODRc<V>)> {
         if self.is_used_child_0() {
             let node_key_0 = unsafe{ self.key_unchecked::<0>() };
             let key_len = node_key_0.len();
             if key.len() >= key_len {
                 if node_key_0 == &key[..key_len] {
-                    let child = unsafe{ self.child_in_slot::<0>().borrow() };
+                    let child = unsafe{ self.child_in_slot::<0>() };
                     return Some((key_len, child))
                 }
             }
@@ -1286,47 +1583,138 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             let key_len = node_key_1.len();
             if key.len() >= key_len {
                 if node_key_1 == &key[..key_len] {
-                    let child = unsafe{ self.child_in_slot::<1>().borrow() };
+                    let child = unsafe{ self.child_in_slot::<1>() };
                     return Some((key_len, child))
                 }
             }
         }
         None
     }
-    fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, Option<&mut V>, Option<&mut TrieNodeODRc<V>>)> {
-        let self_ptr: *mut Self = self;
-        if let Some((consumed_bytes, child)) = self.get_child_mut(key) {
-            // SAFETY: We know the value and the child will be in different non-overlapping parts of the node,
-            // so it will be safe to mutably borrow them both at the same time.
-            let self_clone = unsafe{ &mut *self_ptr };
-            if let Some(val) = self_clone.get_val_mut(&key[..consumed_bytes]) {
-                Some((consumed_bytes, Some(val), Some(child)))
-            } else {
-                Some((consumed_bytes, None, Some(child)))
-            }
-        } else {
-            // SAFETY: In addition to the point above about the value not overlapping the child ptr, we also
-            // drop the previous borrow so this unsafe would be unnecessary under Polonius
-            let self_clone = unsafe{ &mut *self_ptr };
-            if let Some(val) = self_clone.get_val_mut(key) {
-                Some((key.len(), Some(val), None))
-            } else {
-                None
-            }
-        }
-    }
+    //GOAT, Deprecated node_get_child_and_val_mut
+    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)> {
+    //     unimplemented!()
+    //     //GOAT, this code is unsound because we alias the self mutable ref.  To fix it, we need to unpack
+    //     // the implementations of get_child_mut and get_val_mut.
+    //     //  But we may not actually need this method to work.
+    //     //
+    //     // let self_ptr: *mut Self = self;
+    //     // if let Some((consumed_bytes, child)) = self.get_child_mut(key) {
+    //     //     // SAFETY: We know the value and the child will be in different non-overlapping parts of the node,
+    //     //     // so it will be safe to mutably borrow them both at the same time.
+    //     //     let self_ref = unsafe{ &mut *self_ptr };
+    //     //     if let Some(val) = self_ref.get_val_mut(&key[..consumed_bytes]) {
+    //     //         Some((consumed_bytes, child, Some(val)))
+    //     //     } else {
+    //     //         Some((consumed_bytes, None, Some(child)))
+    //     //     }
+    //     // } else {
+    //     //     // SAFETY: In addition to the point above about the value not overlapping the child ptr, we also
+    //     //     // drop the previous borrow so this unsafe would be unnecessary under Polonius
+    //     //     let self_clone = unsafe{ &mut *self_ptr };
+    //     //     if let Some(val) = self_clone.get_val_mut(key) {
+    //     //         Some((key.len(), Some(val), None))
+    //     //     } else {
+    //     //         None
+    //     //     }
+    //     // }
+    // }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)> {
         self.get_child_mut(key)
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     let (key0, key1) = self.get_both_keys();
+    //     let mut pos = 0;
+    //     if self.is_used_child_0() {
+    //         pos = match keys.binary_search(&key0) {
+    //             Ok(pos) => pos,
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     if self.is_used_child_1() {
+    //         match &keys[pos+1..].binary_search(&key1) {
+    //             Ok(_) => {},
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     true
+    // }
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V> {
         let (consumed_bytes, child_node) = self.get_child_mut(key).unwrap();
         debug_assert!(consumed_bytes == key.len());
         *child_node = new_node;
         child_node.make_mut()
     }
+    fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V>)]) -> bool {
+        //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
+        // node types.  But currently there is no path to call it.
+        // unreachable!();
+        let mut slot_0_requested = !self.is_used::<0>();
+        let mut slot_1_requested = !self.is_used::<1>();
+        let (node_key_0, node_key_1) = self.get_both_keys();
+
+        debug_assert!(results.len() >= keys.len());
+        for ((key, expect_val), (result_key_len, payload_ref)) in keys.into_iter().zip(results.iter_mut()) {
+            if self.is_used::<0>() {
+                if key.starts_with(node_key_0) {
+                    let node_key_len = node_key_0.len();
+                    if self.is_child_ptr::<0>() {
+                        if !*expect_val || node_key_len < key.len() {
+                            slot_0_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Child(unsafe{ &*self.val_or_child0.child });
+                        }
+                    } else {
+                        if *expect_val && node_key_len == key.len() {
+                            slot_0_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Val(unsafe{ &**self.val_or_child0.val });
+                        }
+                    }
+                }
+            }
+            if self.is_used::<1>() {
+                if key.starts_with(node_key_1) {
+                    let node_key_len = node_key_1.len();
+                    if self.is_child_ptr::<1>() {
+                        if !*expect_val || node_key_len < key.len() {
+                            slot_1_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Child(unsafe{ &*self.val_or_child1.child });
+                        }
+                    } else {
+                        if *expect_val && node_key_len == key.len() {
+                            slot_1_requested = true;
+                            *result_key_len = node_key_len;
+                            *payload_ref = PayloadRef::Val(unsafe{ &**self.val_or_child1.val });
+                        }
+                    }
+                }
+            }
+        }
+        slot_0_requested && slot_1_requested
+    }
     fn node_contains_val(&self, key: &[u8]) -> bool {
         self.contains_val(key)
     }
+    //GOAT, we probably don't need this interface, although it is fully implemented and working
+    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
+    //     let (key0, key1) = self.get_both_keys();
+    //     let mut pos = 0;
+    //     if self.is_used_value_0() {
+    //         pos = match keys.binary_search(&key0) {
+    //             Ok(pos) => pos,
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     if self.is_used_value_1() {
+    //         match keys[pos+1..].binary_search(&key1) {
+    //             Ok(_) => {},
+    //             Err(_) => return false
+    //         };
+    //     }
+    //     true
+    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         self.get_val(key)
     }
@@ -1355,11 +1743,6 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         None
     }
 
-    //GOAT-Deprecated-Update
-    // fn node_update_val(&mut self, key: &[u8], default_f: Box<dyn FnOnce()->V + '_>) -> Result<&mut V, TrieNodeODRc<V>> {
-    //     panic!()
-    // }
-
     fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>> {
         self.set_payload_abstract::<true>(key, new_node.into())
             .map(|(_, created_subnode)| created_subnode)
@@ -1379,8 +1762,33 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         remove_0 || remove_1
     }
 
-    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: [u64; 4]) {
-        panic!(); // todo
+    fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask) {
+        let key_len = key.len();
+        let (key0, key1) = self.get_both_keys();
+        let mut remove_0 = false;
+        let mut remove_1 = false;
+        if key0.starts_with(key) {
+            if key0.len() > key_len {
+                remove_0 = !mask.test_bit(key0[key_len]);
+            } else {
+                //We can only get here if key0 == key, and the calling code should have descend
+                // through this node if that key specifies an onward link
+                debug_assert!(!self.is_child_ptr::<0>());
+            }
+        }
+        if key1.starts_with(key) {
+            if key1.len() > key_len {
+                remove_1 = !mask.test_bit(key1[key_len]);
+            } else {
+                debug_assert!(!self.is_child_ptr::<1>()); //See comment above
+            }
+        }
+        if remove_1 {
+            self.take_payload::<1>().unwrap();
+        }
+        if remove_0 {
+            self.take_payload::<0>().unwrap();
+        }
     }
 
     fn node_is_empty(&self) -> bool {
@@ -1397,38 +1805,33 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     // * 2 = the item in slot1 has already been returned, so the next call to `next_items` must return
     // *   NODE_ITER_FINISHED
     // *==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==**==--==*
+    #[inline(always)]
     fn new_iter_token(&self) -> u128 {
         0
     }
+    /// Explanation of logic: The ListNode contains a sorted list of keys (up to 2 of them), and the
+    /// query `key` argument is a third key.  We want to determine where the `key` arg falls in the sorted
+    /// list.
+    /// - < key0, we want to return (0, &[])
+    /// - >= key0 && < key1, we should return (1, key0)
+    /// - == key1, we should return (2, key1)
+    /// - > key1, (NODE_ITER_FINISHED, &[])
     #[inline(always)]
-    fn iter_token_for_path(&self, key: &[u8]) -> (u128, &[u8]) {
+    fn iter_token_for_path(&self, key: &[u8]) -> u128 {
         if key.len() == 0 {
-            return (0, &[])
+            return 0
         }
         let (key0, key1) = self.get_both_keys();
-        if key0.len() >= key.len() {
-            let short_key = &key0[..key.len()];
-            if key < short_key {
-                return (0, &[])
-            }
-            if key == short_key {
-                if key0 == key1 {
-                    return (2, key0)
-                } else {
-                    return (1, key0)
-                }
-            }
+        if key < key0 {
+            return 0
         }
-        if key1.len() >= key.len() {
-            let short_key = &key1[..key.len()];
-            if key < short_key {
-                return (1, key0)
-            }
-            if key == short_key {
-                return (2, key1)
-            }
+        if key < key1 {
+            return 1
         }
-        (NODE_ITER_FINISHED, &[])
+        if key == key1 {
+            return 2
+        }
+        NODE_ITER_FINISHED
     }
     #[inline(always)]
     fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V>>, Option<&V>) {
@@ -1534,12 +1937,17 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             }
             1 => {
                 if self.is_used::<1>() {
+                    //The only way we can get a valid child branch at index 1 is if key_length == 0,
+                    // because ListNode has a rule that overlap is only allowed at the first byte
+                    if key.len() > 0 {
+                        return (None, None)
+                    }
                     let (key0, key1) = self.get_both_keys();
-                    if key1.starts_with(key) && key1.len() > key.len() {
-                        if key.len() == 0 && key0[0] == key1[0] {
+                    if key1.len() > 0 {
+                        if key0[0] == key1[0] {
                             return (None, None)
                         }
-                        if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
+                        if key1.len() == 1 && self.is_child_ptr::<1>() {
                             return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
                         } else {
                             return (Some(key1[key.len()]), None)
@@ -1547,7 +1955,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                     }
                 }
             },
-            _ => unreachable!()
+            _ => {}
         }
         (None, None)
     }
@@ -1555,8 +1963,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V>>) {
         //Logic:  There are 6 possible results from this method:
         // 1. The `key` arg is zero-length, in which case this method should return the common prefix
-        //    (which is guaranteed to be one byte or less) if there is on, or otherwise return the 
-        //    result in slot0
+        //    if there is one (which is guaranteed to be one byte), or otherwise return the result in slot0
         // 2. The supplied key exactly matches key0 and key1.  In this case, the result is whichever of the
         //    two results is an onward node link. This case can only occur if the `key` arg length is 1.
         // 3. The supplied key exactly matches key0 and is a prefix of key1.  The result is the remaining
@@ -1573,6 +1980,12 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         //Case 1
         if key.len() == 0 {
             if key1.len() > 0 && key0[0] == key1[0] {
+                if key0.len() == 1 && self.is_child_ptr::<0>() {
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().borrow()) });
+                }
+                if key1.len() == 1 && self.is_child_ptr::<1>() {
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<1>().borrow()) });
+                }
                 return (Some(&key0[0..1]), None);
             } else {
                 if self.is_child_ptr::<0>() {
@@ -1670,7 +2083,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
     }
 
     #[inline(always)]
-    fn node_branches_mask(&self, key: &[u8]) -> [u64; 4] {
+    fn node_branches_mask(&self, key: &[u8]) -> ByteMask {
         let (key0, key1) = self.get_both_keys();
         let mut m = [0u64; 4];
 
@@ -1682,7 +2095,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             let k = key1[key.len()];
             m[((k & 0b11000000) >> 6) as usize] |= 1u64 << (k & 0b00111111);
         }
-        m
+        m.into()
     }
 
     fn is_leaf(&self, key: &[u8]) -> bool {
@@ -1707,13 +2120,25 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         //The key-add logic elsewhere in this file would have split the node if the overlap between the keys
         // were more than one character. However list-node keys are allowed to have the first character in
         // common to avoid the possibility of needing zero-length keys.
-        //Therefore there are only two possible cases:
+        //Therefore there are 3 possible cases:
+        // - Case0 - key is a superset of one of the existing keys, so the result is the existing key
         // - Case1 - key.len() > 1 and the node keys' first bytes are the same and therfore we have a 1-byte banch key or
         // - Case2 - key.len() == 1, or the node keys' first bytes are different, in which case we have a zero-length branch key
-        if key.len() == 1 {
+        let key_len = key.len();
+        if key_len == 1 {
             return &[]
         }
         let (key0, key1) = self.get_both_keys();
+        if key_len > key0.len() {
+            if &key[..key0.len()] == key0 {
+                return key0
+            }
+        }
+        if key_len > key1.len() {
+            if &key[..key1.len()] == key1 {
+                return key1
+            }
+        }
         let key_byte = key.get(0);
         if key0.get(0) == key_byte && key1.get(0) == key_byte {
             &key0[0..1]
@@ -1737,7 +2162,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                     if key1_last_byte != key.last().unwrap() {
                         let sib_node = if key1.len() == key.len() && self.is_child_ptr::<1>() {
                             let sib_node = unsafe{ self.child_in_slot::<1>().borrow() };
-                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
+                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None
@@ -1759,7 +2184,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
                     if key0_last_byte != key.last().unwrap() {
                         let sib_node = if key0.len() == key.len() && self.is_child_ptr::<0>() {
                             let sib_node = unsafe{ self.child_in_slot::<0>().borrow() };
-                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
+                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None
@@ -1780,7 +2205,11 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
 
         //Zero-length key means clone this node
         if key.len() == 0 {
-            return AbstractNodeRef::BorrowedDyn(self)
+            return if !self.node_is_empty() {
+                AbstractNodeRef::BorrowedDyn(self)
+            } else {
+                AbstractNodeRef::None
+            }
         }
         //Exact match with a path to a child node means return that node
         let (key0, key1) = self.get_both_keys();
@@ -1848,7 +2277,7 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         }
         if key1.len() > key.len() && key1.starts_with(key) {
             let mut new_node = Self::new();
-            unsafe{ new_node.set_payload_0(&key0[key.len()..], self.is_child_ptr::<0>(), ValOrChildUnion{ _unused: () }) }
+            unsafe{ new_node.set_payload_0(&key1[key.len()..], self.is_child_ptr::<0>(), ValOrChildUnion{ _unused: () }) }
             new_node.val_or_child0 = self.take_payload::<1>().unwrap().into();
             debug_assert!(validate_node(&new_node));
             return Some(TrieNodeODRc::new(new_node));
@@ -1856,159 +2285,72 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         None
     }
 
-    fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice {
+    fn pjoin_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: Lattice {
         debug_assert!(validate_node(self));
-        if let Some(other_list_node) = other.as_list() {
-            debug_assert!(validate_node(other_list_node));
-
-            let (self_key0, self_key1) = self.get_both_keys();
-            let (other_key0, other_key1) = other_list_node.get_both_keys();
-            let mut entries: [MaybeUninit<(&[u8], ValOrChild<V>)>; 4] = [MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit(), MaybeUninit::uninit()];
-            let mut entry_cnt = 0;
-            let mut used: [bool; 4] = [false; 4]; //[self_0, self_1, other_0, other_1]
-
-            // Try each pairing in self and other, to see if there is a key-join that can happen
-            // We can assume two keys in the same node can't merge, because they would have already been merged,
-            // and therefore we can also assume that if a key can be merged with one key of a node it can't be
-            // merged with the other
-            match try_merge::<V, 0, 0>(self_key0, self, other_key0, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    used[0] = true;
-                    used[2] = true;
-                },
-                None => {}
-            }
-            match try_merge::<V, 0, 1>(self_key0, self, other_key1, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    debug_assert!(used[0] == false); //If we create multiple joined entries from the same source, it's a bug somewhere
-                    used[0] = true;
-                    used[3] = true;
-                },
-                None => {}
-            }
-            match try_merge::<V, 1, 0>(self_key1, self, other_key0, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    debug_assert!(used[2] == false); //See above
-                    used[1] = true;
-                    used[2] = true;
-                },
-                None => {}
-            }
-            match try_merge::<V, 1, 1>(self_key1, self, other_key1, other_list_node) {
-                Some(joined) => {
-                    entries[entry_cnt] = MaybeUninit::new(joined);
-                    entry_cnt += 1;
-                    debug_assert!(used[1] == false); //See above
-                    debug_assert!(used[3] == false); //See above
-                    used[1] = true;
-                    used[3] = true;
-                },
-                None => {}
-            }
-
-            //Add the single entries that didn't merge
-            if !used[0] {
-                match self.clone_payload::<0>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((self_key0, payload));
-                        entry_cnt += 1;
-                    },
-                    None => {}
+        match other.as_tagged() {
+            TaggedNodeRef::LineListNode(other_list_node) => {
+                match merge_list_nodes(self, other_list_node) {
+                    Ok(joined_list_node) => joined_list_node.map(|node| TrieNodeODRc::new(node)),
+                    Err(joined_dense_node) => joined_dense_node.map(|node| TrieNodeODRc::new(node)),
                 }
-            }
-            if !used[1] {
-                match self.clone_payload::<1>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((self_key1, payload));
-                        entry_cnt += 1;
-                    },
-                    None => {}
-                }
-            }
-            if !used[2] {
-                match other_list_node.clone_payload::<0>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((other_key0, payload));
-                        entry_cnt += 1;
-                    },
-                    None => {}
-                }
-            }
-            if !used[3] {
-                match other_list_node.clone_payload::<1>() {
-                    Some(payload) => {
-                        entries[entry_cnt] = MaybeUninit::new((other_key1, payload));
-                        entry_cnt += 1;
-                    },
-                    None => {}
-                }
-            }
-
-            //Do we have two or fewer paths, that can fit into a new ListNode? 
-            if entry_cnt <= 2 {
-                let mut joined_node = Self::new();
-                let mut pair0: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
-                core::mem::swap(&mut pair0, &mut entries[0]);
-                let (key0, payload0) = unsafe{ pair0.assume_init() };
-
-                match entry_cnt {
-                    1 => {
-                        unsafe{ joined_node.set_payload_owned::<0>(key0, payload0); }
-                    },
-                    2 => {
-                        let mut pair1: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
-                        core::mem::swap(&mut pair1, &mut entries[1]);
-                        let (key1, payload1) = unsafe{ pair1.assume_init() };
-                        if should_swap_keys(key0, key1) {
-                            unsafe{ joined_node.set_payload_owned::<0>(key1, payload1); }
-                            unsafe{ joined_node.set_payload_owned::<1>(key0, payload0); }
-                        } else {
-                            unsafe{ joined_node.set_payload_owned::<0>(key0, payload0); }
-                            unsafe{ joined_node.set_payload_owned::<1>(key1, payload1); }
-                        }
-                    },
-                    _ => unreachable!()
-                }
-                debug_assert!(validate_node(&joined_node));
-                return TrieNodeODRc::new(joined_node)
-            }
-
-            //Otherwise, create a DenseByteNode
-            let mut joined_node = DenseByteNode::<V>::with_capacity(entry_cnt);
-            for i in 0..entry_cnt {
-                let mut pair: MaybeUninit<(&[u8], ValOrChild<V>)> = MaybeUninit::uninit();
-                core::mem::swap(&mut pair, &mut entries[i]);
-                let (key, payload) = unsafe{ pair.assume_init() };
-                debug_assert!(key.len() > 0);
-                if key.len() > 1 {
-                    let mut child_node = Self::new();
-                    unsafe{ child_node.set_payload_owned::<0>(&key[1..], payload); }
-                    debug_assert!(validate_node(&child_node));
-                    joined_node.join_child_into(key[0], TrieNodeODRc::new(child_node));
-                } else {
-                    joined_node.set_payload_owned(key[0], payload);
-                }
-            }
-            TrieNodeODRc::new(joined_node)
-        } else {
-            if let Some(other_dense_node) = other.as_dense() {
+            },
+            TaggedNodeRef::DenseByteNode(other_dense_node) => {
                 let mut new_node = other_dense_node.clone();
-                merge_into_dense_node(&mut new_node, self);
-                TrieNodeODRc::new(new_node)
-            } else {
-                unreachable!();
+                match new_node.merge_from_list_node(self) {
+                    AlgebraicStatus::None => unreachable!(), //Joining a non-empty node with another non-empty node should never produce an empty node
+                    AlgebraicStatus::Identity => AlgebraicResult::Identity(COUNTER_IDENT),
+                    AlgebraicStatus::Element => AlgebraicResult::Element(TrieNodeODRc::new(new_node))
+                }
+            },
+            #[cfg(feature = "bridge_nodes")]
+            TaggedNodeRef::BridgeNode(_other_bridge_node) => {
+                unimplemented!()
+            },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                tiny_node.pjoin_dyn(self)
+            },
+            TaggedNodeRef::CellByteNode(other_dense_node) => {
+                let mut new_node = other_dense_node.clone();
+                match new_node.merge_from_list_node(self) {
+                    AlgebraicStatus::None => unreachable!(), //Joining a non-empty node with another non-empty node should never produce an empty node
+                    AlgebraicStatus::Identity => AlgebraicResult::Identity(COUNTER_IDENT),
+                    AlgebraicStatus::Element => AlgebraicResult::Element(TrieNodeODRc::new(new_node))
+                }
+            },
+            TaggedNodeRef::EmptyNode => {
+                AlgebraicResult::Identity(SELF_IDENT)
             }
         }
     }
 
-    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice {
-        panic!()
+    fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V>>) where V: Lattice {
+        debug_assert!(validate_node(self));
+        match other.borrow().as_tagged() {
+            TaggedNodeRef::LineListNode(other_list_node) => {
+                merge_into_list_nodes(self, other_list_node)
+            },
+            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+                let mut new_node = other_dense_node.clone();
+                let status = new_node.merge_from_list_node(self);
+                debug_assert!(!status.is_none());
+                (AlgebraicStatus::Element, Err(TrieNodeODRc::new(new_node)))
+            },
+            #[cfg(feature = "bridge_nodes")]
+            TaggedNodeRef::BridgeNode(_other_bridge_node) => {
+                unimplemented!()
+            },
+            TaggedNodeRef::TinyRefNode(tiny_node) => {
+                let other_tiny_node = tiny_node.into_list_node().unwrap();
+                merge_into_list_nodes(self, &other_tiny_node)
+            },
+            TaggedNodeRef::CellByteNode(other_dense_node) => {
+                let mut new_node = other_dense_node.clone();
+                let status = new_node.merge_from_list_node(self);
+                debug_assert!(!status.is_none());
+                (AlgebraicStatus::Element, Err(TrieNodeODRc::new(new_node)))
+            },
+            TaggedNodeRef::EmptyNode => (AlgebraicStatus::Identity, Ok(()))
+        }
     }
 
     fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice {
@@ -2036,8 +2378,9 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             if byte_cnt < key_len {
                 let new_key_len = key_len-byte_cnt;
                 unsafe{
-                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    let base_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>();
+                    let src_ptr = base_ptr.add(byte_cnt);
+                    let dst_ptr = base_ptr;
                     core::ptr::copy(src_ptr, dst_ptr, new_key_len);
                 }
                 temp_node.header &= 0xf03f; //Zero out the old length, and reset it
@@ -2077,28 +2420,30 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
             if &key0[byte_cnt..] <= &key1[byte_cnt..] {
                 unsafe {
                     //Shorten key0
-                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    let base_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>();
+                    let src_ptr = base_ptr.add(byte_cnt);
+                    let dst_ptr = base_ptr;
                     core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
                     //Shorten key1
-                    let src_ptr = temp_node.key_bytes.get_unchecked(key0_len+byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.get_unchecked_mut(new_key0_len).as_mut_ptr();
+                    let src_ptr = base_ptr.add(key0_len+byte_cnt);
+                    let dst_ptr = base_ptr.add(new_key0_len);
                     core::ptr::copy(src_ptr, dst_ptr, new_key1_len);
                 }
             } else {
                 unsafe {
                     //Move key0 into a temp buffer
                     let mut tmp_key_buf: [MaybeUninit<u8>; KEY_BYTES_CNT] = [MaybeUninit::new(0); KEY_BYTES_CNT];
-                    let src_ptr = temp_node.key_bytes.get_unchecked(byte_cnt);
-                    let dst_ptr = tmp_key_buf.as_mut_ptr();
+                    let src_ptr = temp_node.key_bytes.as_ptr().cast::<u8>().add(byte_cnt);
+                    let dst_ptr = tmp_key_buf.as_mut_ptr().cast::<u8>();
                     core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
                     //Shorten key1 into the key0 slot
-                    let src_ptr = temp_node.key_bytes.get_unchecked(key0_len+byte_cnt).as_ptr();
-                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast();
+                    let base_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>();
+                    let src_ptr = base_ptr.add(key0_len+byte_cnt);
+                    let dst_ptr = base_ptr;
                     core::ptr::copy(src_ptr, dst_ptr, new_key1_len);
                     //Move the temp key into the key1 slot
-                    let src_ptr = tmp_key_buf.as_ptr();
-                    let dst_ptr = temp_node.key_bytes.get_unchecked_mut(new_key1_len);
+                    let src_ptr = tmp_key_buf.as_ptr().cast::<u8>();
+                    let dst_ptr = temp_node.key_bytes.as_mut_ptr().cast::<u8>().add(new_key1_len);
                     core::ptr::copy(src_ptr, dst_ptr, new_key0_len);
                 }
                 core::mem::swap(&mut new_key0_len, &mut new_key1_len);
@@ -2120,10 +2465,17 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         let new_key1 = &key1[chop_bytes-1..];
 
         let overlap = find_prefix_overlap(&key0[chop_bytes..], &key1[chop_bytes..]);
-        let merged_payload = if let Some((_shared_key, merged_payload)) = merge_guts::<V, 0, 1>(overlap+1, new_key0, &temp_node, new_key1, &temp_node) {
-            merged_payload
-        } else {
-            unreachable!()
+        let merged_payload = match merge_guts::<V, 0, 1>(overlap+1, new_key0, &temp_node, new_key1, &temp_node) {
+            AlgebraicResult::Element((_shared_key, merged_payload)) => merged_payload,
+            AlgebraicResult::Identity(mask) => {
+                if mask & SELF_IDENT > 0 {
+                    temp_node.clone_payload::<0>().unwrap()
+                } else {
+                    debug_assert_eq!(mask, COUNTER_IDENT);
+                    temp_node.clone_payload::<1>().unwrap()
+                }
+            },
+            AlgebraicResult::None => unreachable!() //`merge_guts` shouldn't return AlgebraicResult::None because that should have been caught by an earlier case
         };
 
         if let ValOrChild::Child(mut child_node) = merged_payload {
@@ -2137,68 +2489,77 @@ impl<V: Clone> TrieNode<V> for LineListNode<V> {
         unreachable!()
     }
 
-    fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice {
+    fn pmeet_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: Lattice {
         debug_assert!(validate_node(self));
-        let slot0_payload = self.meet_slot_contents::<0>(other);
-        let slot1_payload = self.meet_slot_contents::<1>(other);
-        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
-        new_node.map(|node| TrieNodeODRc::new(node))
-    }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: PartialDistributiveLattice {
+        let mut self_payloads_buf: [(&[u8], PayloadRef<V>); 2] = [(&[], PayloadRef::None); 2];
+
+        let self_slot_count = self.used_slot_count();
+        let self_payloads = match self_slot_count {
+            0 => return AlgebraicResult::None,
+            1 => {
+                let key = unsafe{ self.key_unchecked::<0>() };
+                let payload = unsafe{ self.payload_in_slot::<0>() };
+                self_payloads_buf[0] = (key, payload);
+                &self_payloads_buf[..1]
+            },
+            2 => {
+                let (key0, key1) = self.get_both_keys();
+                let payload0 = unsafe{ self.payload_in_slot::<0>() };
+                let payload1 = unsafe{ self.payload_in_slot::<1>() };
+                self_payloads_buf[0] = (key0, payload0);
+                self_payloads_buf[1] = (key1, payload1);
+                &self_payloads_buf[..2]
+            },
+            _ => unsafe{ unreachable_unchecked() }
+        };
+
+        pmeet_generic::<2, V, _>(self_payloads, other, |payloads| {
+            debug_assert_eq!(payloads.len(), self_payloads.len());
+            let slot0_payload = payloads.get_mut(0).and_then(|p| core::mem::take(p)).map(|p| p.into());
+            let slot1_payload = payloads.get_mut(1).and_then(|p| core::mem::take(p)).map(|p| p.into());
+            let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload).unwrap();
+            TrieNodeODRc::new(new_node)
+        })
+    }
+    fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> where V: DistributiveLattice {
         debug_assert!(validate_node(self));
-        let (slot0_unmodified, mut slot0_payload) = self.subtract_from_slot_contents::<0>(other);
-        let (slot1_unmodified, mut slot1_payload) = self.subtract_from_slot_contents::<1>(other);
-        match (slot0_unmodified, slot1_unmodified) {
-            (true, true) => return (true, None),
-            (true, false) => slot0_payload = self.clone_payload::<0>().map(|payload| payload.into()),
-            (false, true) => slot1_payload = self.clone_payload::<1>().map(|payload| payload.into()),
-            (false, false) => {},
-        }
-        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
-        (false, new_node.map(|node| TrieNodeODRc::new(node)))
+        let slot0_result = self.subtract_from_slot_contents::<0>(other);
+        let slot1_result = self.subtract_from_slot_contents::<1>(other);
+        self.combine_slot_results_into_node_result(slot0_result, slot1_result)
     }
-
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> {
+    fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> AlgebraicResult<TrieNodeODRc<V>> {
         debug_assert!(validate_node(self));
-        let (slot0_unmodified, mut slot0_payload) = self.restrict_slot_contents::<0>(other);
-        let (slot1_unmodified, mut slot1_payload) = self.restrict_slot_contents::<1>(other);
-        match (slot0_unmodified, slot1_unmodified) {
-            (true, true) => { //=> return (true, None), GOAT, should early-out when node is unmodified, but prestrict_dyn doesn't have the right signature
-                slot0_payload = self.clone_payload::<0>().map(|payload| payload.into());
-                slot1_payload = self.clone_payload::<1>().map(|payload| payload.into());
-            }
-            (true, false) => slot0_payload = self.clone_payload::<0>().map(|payload| payload.into()),
-            (false, true) => slot1_payload = self.clone_payload::<1>().map(|payload| payload.into()),
-            (false, false) => {},
-        }
-        let new_node = self.clone_with_updated_payloads(slot0_payload, slot1_payload);
-        new_node.map(|node| TrieNodeODRc::new(node))
-    }
-
-    fn as_dense(&self) -> Option<&DenseByteNode<V>> {
-        None
-    }
-    fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>> {
-        None
-    }
-    fn as_list(&self) -> Option<&Self> {
-        Some(self)
-    }
-    fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>> {
-        Some(self)
-    }
-    fn as_tagged(&self) -> TaggedNodeRef<V> {
-        TaggedNodeRef::LineListNode(self)
+        let slot0_result = self.restrict_slot_contents::<0>(other);
+        let slot1_result = self.restrict_slot_contents::<1>(other);
+        self.combine_slot_results_into_node_result(slot0_result, slot1_result)
     }
     fn clone_self(&self) -> TrieNodeODRc<V> {
         TrieNodeODRc::new(self.clone())
     }
 }
 
+impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for LineListNode<V> {
+    #[inline]
+    fn tag(&self) -> usize {
+        LINE_LIST_NODE_TAG
+    }
+    #[inline(always)]
+    fn as_tagged(&self) -> TaggedNodeRef<V> {
+        TaggedNodeRef::LineListNode(self)
+    }
+    #[inline(always)]
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+        TaggedNodeRefMut::LineListNode(self)
+    }
+    fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
+        self.convert_to_dense::<CellCoFree<V>>(3)
+    }
+}
+
 /// DEBUG-ONLY  Performs some validity tests to catch malformed ListNodes before they can wreak more havoc
 #[cfg(debug_assertions)]
-pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool {
+pub(crate) fn validate_node<V: Clone + Send + Sync>(node: &LineListNode<V>) -> bool {
     let (key0, key1) = node.get_both_keys();
 
     //If a key is used it must be non-zero length
@@ -2235,17 +2596,18 @@ pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool {
 
 /// So release build will compile
 #[cfg(not(debug_assertions))]
-pub(crate) fn validate_node<V>(node: &LineListNode<V>) -> bool { true }
+pub(crate) fn validate_node<V: Clone + Send + Sync>(_node: &LineListNode<V>) -> bool { true }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn get_recursive<'a, 'b, V: Clone>(key: &'a [u8], node: &'b dyn TrieNode<V>) -> (&'a [u8], &'b dyn TrieNode<V>, usize) {
+    fn get_recursive<'a, 'b, V: Clone + Send + Sync>(key: &'a [u8], node: &'b dyn TrieNode<V>) -> (&'a [u8], &'b dyn TrieNode<V>, usize) {
         let mut remaining_key = key;
         let mut child_node = node as &dyn TrieNode<V>;
         let mut levels = 0;
         while let Some((bytes_used, next_node)) = child_node.node_get_child(remaining_key) {
+            let next_node = next_node.borrow();
             remaining_key = &remaining_key[bytes_used..];
             child_node = next_node;
             levels += 1;
@@ -2257,6 +2619,9 @@ mod tests {
     #[test]
     fn test_line_list_node() {
         // assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
+        #[cfg(feature = "slim_ptrs")]
+        assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 64);
+        #[cfg(not(feature = "slim_ptrs"))]
         assert_eq!(core::mem::size_of::<LineListNode<[u8; 1024]>>(), 48); //Shrunk to account for DynBox header
 
         //A simple test with a V that fits inside 16 bytes, only testing slot_0
@@ -2299,6 +2664,7 @@ mod tests {
 
         assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
         let (bytes_used, child_node) = new_node.node_get_child("a".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("hello".as_bytes()), Some(&24));
     }
@@ -2311,6 +2677,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 9);
         assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("s billy".as_bytes()), Some(&24));
@@ -2335,7 +2702,7 @@ mod tests {
     /// This tests the logic to split a single key that consumes a whole node into multiple nodes
     #[test]
     fn test_line_list_overflow_split_in_place() {
-        const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs".as_bytes();
+        const LONG_KEY: &[u8] = "Pack my box with five dozen liquor jugs. Now is the time for all good men to come to the aid of their country.".as_bytes();
 
         //A test using only one slot, where the key exceeds the available space, make sure recursive nodes
         // are created
@@ -2359,13 +2726,14 @@ mod tests {
         assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
         assert_eq!(new_node.node_get_val("slot1".as_bytes()), Some(&123));
     }
 
-    /// This test consumes slot_0, and tests that a common prefix is found when adding an entry to slot_1 
+    /// This test consumes slot_0, and tests that a common prefix is found when adding an entry to slot_1
     #[test]
     fn test_line_list_node_shared_prefixes_slot_1() {
 
@@ -2374,6 +2742,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
@@ -2387,14 +2756,17 @@ mod tests {
         assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok((None, false)));
         let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
-        assert!(replacement_node.borrow().as_dense().is_some());
+        if let TaggedNodeRef::DenseByteNode(_) = replacement_node.borrow().as_tagged() { } else { panic!("expected node would be a byte node"); }
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("pple".as_bytes()), Some(&1));
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("banana".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("anana".as_bytes()), Some(&2));
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("carrot".as_bytes()).unwrap();
+        let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("arrot".as_bytes()), Some(&3));
     }
@@ -2406,14 +2778,17 @@ mod tests {
         let mut b = LineListNode::<u64>::new();
         b.node_set_val("banana".as_bytes(), 1).unwrap_or_else(|_| panic!());
 
-        let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
-        assert_eq!(joined.borrow().node_get_val("apple".as_bytes()), Some(&0));
-        assert_eq!(joined.borrow().node_get_val("banana".as_bytes()), Some(&1));
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        debug_assert!(validate_node(join_list_node));
+        assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&0));
+        assert_eq!(join_list_node.node_get_val("banana".as_bytes()), Some(&1));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        debug_assert!(validate_node(join_list_node));
+        assert!(!join_list_node.node_is_empty());
     }
 
     #[test]
@@ -2424,13 +2799,15 @@ mod tests {
         b.node_set_val("apple".as_bytes(), 24).unwrap_or_else(|_| panic!());
 
         //u64's default impl of Lattice::join just takes the value from self
-        let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
-        assert_eq!(joined.borrow().node_get_val("apple".as_bytes()), Some(&42));
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        debug_assert!(validate_node(join_list_node));
+        assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&42));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        assert!(!join_list_node.node_is_empty());
     }
 
     #[test]
@@ -2439,18 +2816,20 @@ mod tests {
         a.node_set_val("apple".as_bytes(), 42).unwrap_or_else(|_| panic!());
         let mut b = LineListNode::<u64>::new();
         b.node_set_val("apricot".as_bytes(), 24).unwrap_or_else(|_| panic!());
-        let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        debug_assert!(validate_node(join_list_node));
 
-        let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), joined.borrow());
+        let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), join_list_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&42));
 
-        let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), joined.borrow());
+        let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), join_list_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        assert!(!join_list_node.node_is_empty());
     }
 
     #[test]
@@ -2462,14 +2841,16 @@ mod tests {
         b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
         b.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
 
-        let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
-        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
-        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        debug_assert!(validate_node(join_list_node));
+        assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        assert!(!join_list_node.node_is_empty());
     }
 
     #[test]
@@ -2483,14 +2864,16 @@ mod tests {
         debug_assert!(validate_node(&a));
         debug_assert!(validate_node(&b));
 
-        let joined = a.join_dyn(&b);
-        debug_assert!(validate_node(joined.borrow().as_list().unwrap()));
-        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
-        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        debug_assert!(validate_node(join_list_node));
+        assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        assert!(!join_list_node.node_is_empty());
     }
 
     #[test]
@@ -2502,14 +2885,16 @@ mod tests {
         b.node_set_val("2".as_bytes(), 2).unwrap_or_else(|_| panic!());
         b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
 
-        let joined = a.join_dyn(&b);
-        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
-        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
-        assert_eq!(joined.borrow().node_get_val("2".as_bytes()), Some(&2));
+        let joined_result = a.pjoin_dyn(&b);
+        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
+        assert_eq!(joined_node.node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(joined_node.node_get_val("1".as_bytes()), Some(&1));
+        assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
+        assert!(!joined_node.node_is_empty());
     }
 
     #[test]
@@ -2521,15 +2906,17 @@ mod tests {
         b.node_set_val("2".as_bytes(), 2).unwrap_or_else(|_| panic!());
         b.node_set_val("3".as_bytes(), 3).unwrap_or_else(|_| panic!());
 
-        let joined = a.join_dyn(&b);
-        assert_eq!(joined.borrow().node_get_val("0".as_bytes()), Some(&0));
-        assert_eq!(joined.borrow().node_get_val("1".as_bytes()), Some(&1));
-        assert_eq!(joined.borrow().node_get_val("2".as_bytes()), Some(&2));
-        assert_eq!(joined.borrow().node_get_val("3".as_bytes()), Some(&3));
+        let joined_result = a.pjoin_dyn(&b);
+        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
+        assert_eq!(joined_node.node_get_val("0".as_bytes()), Some(&0));
+        assert_eq!(joined_node.node_get_val("1".as_bytes()), Some(&1));
+        assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
+        assert_eq!(joined_node.node_get_val("3".as_bytes()), Some(&3));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
+        assert!(!joined_node.node_is_empty());
     }
 
     #[test]
@@ -2543,23 +2930,25 @@ mod tests {
         debug_assert!(validate_node(&a));
         debug_assert!(validate_node(&b));
 
-        let joined = a.join_dyn(&b);
+        let joined_result = a.pjoin_dyn(&b);
+        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
 
-        let (remaining_key, child_node, _) = get_recursive("0a".as_bytes(), joined.borrow());
+        let (remaining_key, child_node, _) = get_recursive("0a".as_bytes(), joined_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&0));
 
-        let (remaining_key, child_node, _) = get_recursive("1a".as_bytes(), joined.borrow());
+        let (remaining_key, child_node, _) = get_recursive("1a".as_bytes(), joined_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&1));
 
-        let (remaining_key, child_node, _) = get_recursive("1b".as_bytes(), joined.borrow());
+        let (remaining_key, child_node, _) = get_recursive("1b".as_bytes(), joined_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&1));
 
-        let (remaining_key, child_node, _) = get_recursive("2b".as_bytes(), joined.borrow());
+        let (remaining_key, child_node, _) = get_recursive("2b".as_bytes(), joined_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&2));
 
-        //re-run join, just to make sure the source maps didn't get modified 
-        let joined = a.join_dyn(&b);
-        assert!(!joined.borrow().node_is_empty());
+        //re-run join, just to make sure the source maps didn't get modified
+        let joined_result = a.pjoin_dyn(&b);
+        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_>, &b]);
+        assert!(!joined_node.node_is_empty());
     }
 
     #[test]
@@ -2591,14 +2980,15 @@ mod tests {
         //Test two separate keys
         let mut new_node = LineListNode::<usize>::new();
         assert_eq!(new_node.node_set_val(b"albatross", 42).map_err(|_| 0), Ok((None, false)));
-        assert_eq!(new_node.node_set_val(b"brubru", 42).map_err(|_| 0), Ok((None, true)));
+        assert_eq!(new_node.node_set_val(b"brown-winged whistling thrush (Myophonus castaneus)", 42).map_err(|_| 0), Ok((None, true)));
         debug_assert!(validate_node(&new_node));
+
         assert_eq!(new_node.count_branches(b""), 2);
         assert_eq!(new_node.count_branches(b"a"), 1);
         assert_eq!(new_node.count_branches(b"alb"), 1);
         assert_eq!(new_node.count_branches(b"albatross"), 0);
         assert_eq!(new_node.get_sibling_of_child(b"albatross", true).0, None);
-        assert_eq!(new_node.get_sibling_of_child(b"brubru", true).0, None);
+        assert_eq!(new_node.get_sibling_of_child(b"brown-winged whistling thrush", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"a", true).0, Some(b'b'));
         assert_eq!(new_node.get_sibling_of_child(b"b", true).0, None);
         assert_eq!(new_node.get_sibling_of_child(b"b", false).0, Some(b'a'));
@@ -2718,23 +3108,53 @@ mod tests {
 
 }
 
-
-//GOAT, need to make a "Value" trait with an equality checker.
+//GOAT, make an is_shared() zipper method, with all relevant caveats in the documentation
 //
-//GOAT, want a tri-state or bi-state return flag for unmodified values.  For all lattice ops, incl join, meet, and subtract
+//GOAT, tests to make sure the right status codes are returned from all algebraic ops
 //
-//GOAT, want to promote the meet method to partial meet, to rreturn an "unmodified" flag
+//GOAT, merge wrappers for lattice impls on primitives
 //
-//GOAT, macro for the algebraic impl on primitive types
+//GOAT, remove garbage lattice impls
 //
 //GOAT, rename BytesTrieMap to PathMap, consider other renames, marked by GOATs
+//GOAT Catamorphism names:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004745719
 //
-//GOAT, Make sound API for multiple zippers on a map
+//GOAT, document how path existence can't be used to confirm the existence of a value, only the non-existence
+//  and document the meaning of path existence more generally.
+//GOAT, consider exposing an explicit prune method.  Possibly also consider exposing a "create_path" method.
+//  SEE "PATH EXISTS DISCUSSION" below
 //
-//GOAT, Fix remaining tests
+//GOAT, consider adding a "prune" flag to methods that might remove values
 //
-//GOAT, Write ReadMe
-//  intro - as a key-value store, the power of prefixes, structural sharing
-//  algebraic ops
-//  Zippers as a concept
-//  Multiple zippers in the same map
+
+
+// PATH EXISTS DISCUSSION
+// Ok... Fork 1 is about paths, and specifically what information about values you can get from whether or not a path exists.  In the current code, the *nonexistence* of a path guarantees no value is below that point (how could there be one?) but the *existence* of a path does **not** guarantee a value is.
+// Earlier drafts of PathMap (about 3 months ago) we were upholding that property that all paths led to values.  But I realized this property is impossible to uphold with the a multi write-zipper implementation.
+// Bottom line, with the current set of guarantees, you can't use `path_exists` to conclude that there are zippers above you.  You will have to call `to_next_value` to search downwards.
+// Looking forwards, I think I may add explicit methods like `ascend_prune` that ascends the zipper upwards from an empty leaf, pruning as it goes, and `descend_create` to do the opposite.  (although I'm a little on the fence about how descend_create would actually be useful.)  Maybe it might make sense to implement versions of these methods that don't move the zipper focus.
+// But if we tweak the zipper contract so that paths are explicitly managed, just like values, and document the behavior of every operation with respect to paths, then the existence of a path might become a reliable signal.
+// However, that brings up another question: Do you *want* to be pruning the path each time?  Consider a loop where a zipper is acquired, dropped, acquired, dropped, etc.  If each acquisition means creating the path, and each drop means pruning it, that is a lot of wasted work.  On the other hand, just setting and clearing a value is a lot cheaper.
+// Anyway, let me know your thoughts.
+
+//GOAT, Put the old cursor behind a feature flag, and prepare it for removal
+
+//GOAT, move range into "utils" module, and integrate efficient implementation
+
+//GOAT, write up plan for generalization of caching val_count
+
+//GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
+
+//GOAT, look at the `move_to(path)` zipper movement API, to avoid ascending too far
+
+//GOAT, implement IntoIterator on PathMap
+
+//GOAT, the following tests appear to leak memory, when running under miri:
+// * test write_zipper::tests::write_zipper_drop_head_long_key_test ... ok
+// * test write_zipper::tests::write_zipper_drop_head_test1 ... ok
+// * test write_zipper::tests::write_zipper_drop_head_test2 ... ok
+// * test write_zipper::tests::write_zipper_insert_prefix_test ... ok
+// * test write_zipper::tests::write_zipper_remove_prefix_test ... ok
+// * test write_zipper::tests::write_zipper_test_zipper_conversion ... ok
+
+//GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957

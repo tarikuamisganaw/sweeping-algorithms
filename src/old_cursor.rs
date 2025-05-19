@@ -4,27 +4,28 @@
 
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::{TaggedNodeRef, NODE_ITER_FINISHED};
-use crate::dense_byte_node::{DenseByteNode, CoFree};
+use crate::dense_byte_node::{DenseByteNode, OrdinaryCoFree, CoFree};
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
-pub struct AllDenseCursor<'a, V> where V : Clone {
+pub struct AllDenseCursor<'a, V: Clone + Send + Sync> where V : Clone {
     prefix: Vec<u8>,
     btnis: Vec<ByteTrieNodeIter<'a, V>>,
     nopush: bool
 }
 
-impl <'a, V : Clone> AllDenseCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync + Unpin> AllDenseCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
+        btm.ensure_root();
         Self {
             prefix: vec![],
-            btnis: vec![ByteTrieNodeIter::new(btm.root().borrow().as_dense().unwrap())],
+            btnis: vec![ByteTrieNodeIter::new(btm.root().unwrap().borrow().as_tagged().as_dense().unwrap())],
             nopush: false
         }
     }
 }
 
-impl <'a, V : Clone> AllDenseCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
     pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
         loop {
             match self.btnis.last_mut() {
@@ -43,17 +44,17 @@ impl <'a, V : Clone> AllDenseCursor<'a, V> {
                                 self.prefix.push(b);
                             }
 
-                            match &cf.rec {
+                            match cf.rec() {
                                 None => {
                                     self.nopush = true;
                                 }
                                 Some(rec) => {
                                     self.nopush = false;
-                                    self.btnis.push(ByteTrieNodeIter::new(rec.borrow().as_dense().unwrap()));
+                                    self.btnis.push(ByteTrieNodeIter::new(rec.borrow().as_tagged().as_dense().unwrap()));
                                 }
                             }
 
-                            match &cf.value {
+                            match cf.val() {
                                 None => {}
                                 Some(v) => {
                                     return Some((&self.prefix, v))
@@ -67,26 +68,26 @@ impl <'a, V : Clone> AllDenseCursor<'a, V> {
     }
 }
 
-pub struct ByteTrieNodeIter<'a, V> {
+pub struct ByteTrieNodeIter<'a, V: Clone + Send + Sync> {
     i: u8,
     w: u64,
     btn: &'a DenseByteNode<V>
 }
 
-impl <'a, V> ByteTrieNodeIter<'a, V> {
+impl <'a, V: Clone + Send + Sync> ByteTrieNodeIter<'a, V> {
     fn new(btn: &'a DenseByteNode<V>) -> Self {
         Self {
             i: 0,
-            w: btn.mask[0],
+            w: btn.mask.0[0],
             btn: btn
         }
     }
 }
 
-impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
-    type Item = (u8, &'a CoFree<V>);
+impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
+    type Item = (u8, &'a OrdinaryCoFree<V>);
 
-    fn next(&mut self) -> Option<(u8, &'a CoFree<V>)> {
+    fn next(&mut self) -> Option<(u8, &'a OrdinaryCoFree<V>)> {
         loop {
             if self.w != 0 {
                 let wi = self.w.trailing_zeros() as u8;
@@ -95,7 +96,7 @@ impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
                 return Some((index, unsafe{ self.btn.get_unchecked(index) } ))
             } else if self.i < 3 {
                 self.i += 1;
-                self.w = unsafe { *self.btn.mask.get_unchecked(self.i as usize) };
+                self.w = unsafe { *self.btn.mask.0.get_unchecked(self.i as usize) };
             } else {
                 return None
             }
@@ -245,16 +246,17 @@ impl <'a, V : Clone> Iterator for ByteTrieNodeIter<'a, V> {
 // Abstracted OldCursor
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
-pub struct PathMapCursor<'a, V> where V : Clone {
+pub struct PathMapCursor<'a, V: Clone + Send + Sync> {
     prefix_buf: Vec<u8>,
     btnis: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
 }
 
-impl <'a, V : Clone> PathMapCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync + Unpin> PathMapCursor<'a, V> {
     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
         const EXPECTED_DEPTH: usize = 16;
         const EXPECTED_PATH_LEN: usize = 256;
-        let node = TaggedNodeRef::DenseByteNode(btm.root().borrow().as_dense().unwrap());
+        btm.ensure_root();
+        let node = btm.root().unwrap().borrow().as_tagged();
         let token = node.new_iter_token();
         let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
         btnis.push((node, token, 0));
@@ -265,7 +267,7 @@ impl <'a, V : Clone> PathMapCursor<'a, V> {
     }
 }
 
-impl <'a, V : Clone> PathMapCursor<'a, V> {
+impl <'a, V : Clone + Send + Sync> PathMapCursor<'a, V> {
     pub fn next(&mut self) -> Option<(&[u8], &'a V)> {
         loop {
             match self.btnis.last_mut() {
