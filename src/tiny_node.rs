@@ -319,7 +319,7 @@ impl<'a, V: Clone + Send + Sync> TrieNode<V> for TinyRefNode<'a, V> {
 impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for TinyRefNode<'_, V> {
     #[inline]
     fn tag(&self) -> usize {
-        TINY_REF_NODE_TAG
+        unreachable!()
     }
     fn as_tagged(&self) -> TaggedNodeRef<V> {
         TaggedNodeRef::TinyRefNode(self)

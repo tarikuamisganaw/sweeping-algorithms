@@ -49,10 +49,23 @@ pub type DenseByteNode<V> = ByteNode<OrdinaryCoFree<V>>;
 /// A ByteNode with insides that **can** be shared across threads
 pub type CellByteNode<V> = ByteNode<CellCoFree<V>>;
 
-#[derive(Clone)]
+#[repr(C)]
 pub struct ByteNode<Cf> {
+    #[cfg(feature = "slim_ptrs")]
+    refcnt: std::sync::atomic::AtomicU32,
     pub mask: ByteMask,
     values: Vec<Cf>,
+}
+
+impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Clone for ByteNode<Cf> {
+    fn clone(&self) -> Self {
+        Self {
+            #[cfg(feature = "slim_ptrs")]
+            refcnt: std::sync::atomic::AtomicU32::new(1),
+            mask: self.mask,
+            values: self.values.clone()
+        }
+    }
 }
 
 impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Default for ByteNode<Cf> {
@@ -77,16 +90,19 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> Debug for ByteNode<Cf> {
 impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
     #[inline]
     pub fn new() -> Self {
-        Self {
-            mask: ByteMask::EMPTY,
-            values: <_>::default()
-        }
+        Self::new_with_fields(ByteMask::EMPTY, <_>::default())
     }
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
+        Self::new_with_fields(ByteMask::EMPTY, Vec::with_capacity(capacity))
+    }
+    #[inline]
+    fn new_with_fields(mask: ByteMask, values: Vec<Cf>) -> Self {
         Self {
-            mask: ByteMask::EMPTY,
-            values: Vec::with_capacity(capacity),
+            #[cfg(feature = "slim_ptrs")]
+            refcnt: std::sync::atomic::AtomicU32::new(1),
+            mask,
+            values,
         }
     }
     #[inline]
@@ -1929,7 +1945,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
                 if is_counter_identity { mask |= COUNTER_IDENT; }
                 AlgebraicResult::Identity(mask)
             } else {
-                AlgebraicResult::Element(Self{ mask: jm, values: <_>::from(v) })
+                AlgebraicResult::Element(Self::new_with_fields(jm, <_>::from(v)))
             }
         }
     }
@@ -2077,7 +2093,7 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
                 if is_counter_identity { mask |= COUNTER_IDENT; }
                 AlgebraicResult::Identity(mask)
             } else {
-                AlgebraicResult::Element(Self{ mask: mm, values: <_>::from(v) })
+                AlgebraicResult::Element(Self::new_with_fields(mm, <_>::from(v)))
             }
         }
     }
@@ -2113,14 +2129,11 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
         }
 
         unsafe{ v.set_len(c); }
-        return Self{ mask: jm, values: <_>::from(v) };
+        return Self::new_with_fields(jm, <_>::from(v));
     }
     fn convert(other: ByteNode<OtherCf>) -> Self {
         let values = other.values.into_iter().map(|other_cf| Cf::convert(other_cf)).collect();
-        Self {
-            mask: other.mask,
-            values
-        }
+        Self::new_with_fields(other.mask, values)
     }
     fn bottom() -> Self {
         Self::default()
@@ -2243,7 +2256,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> ByteNode<Cf> {
             if is_identity {
                 AlgebraicResult::Identity(SELF_IDENT)
             } else {
-                AlgebraicResult::Element(Self{ mask: mm, values: <_>::from(v) })
+                AlgebraicResult::Element(Self::new_with_fields(mm, <_>::from(v)))
             }
         }
     }

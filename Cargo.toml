@@ -31,7 +31,7 @@ bridge_nodes = [] # Enable the experimental BridgeNode type.  Incompatible with 
 fuzzer = ["dep:rand", "dep:rand_distr"]  # Used for creating random paths, tries, and zipper movements
 counters = [] # Enable features to inspect performance properties of tries.  Mainly useful when tuning performance of the PathMap internals.
 graft_root_vals = [] # Enables an experimental change in behavior that causes `graft`, `graft_map`, `make_map`, `take_map`, and `join_map` to treat the value at the focus as part of the operation
-slim_ptrs = [] # Enables use of a 64-Byte inter-node pointer type (TrieNodeODRc).  Currently does not support refcounting, but this may be fixed
+slim_ptrs = [] # Enables use of a 64-Byte inter-node pointer type (TrieNodeODRc)
 arena_compact = ["dep:memmap2"]
 act_counters = ["arena_compact"] # LP: Question: Why isn't this code enabled by just counters + arena_compact???
 
