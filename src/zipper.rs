@@ -961,8 +961,8 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperUntracked<'a, 'path, V
         Self { z: core, _tracker: tracker }
     }
     #[cfg(not(debug_assertions))]
-    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
-        let core = ReadZipperCore::new_with_node_and_path(root_node, path, root_key_offset, root_val);
+    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, path: &'path [u8], root_key_offset: usize, root_val: Option<&'a V>) -> Self {
+        let core = ReadZipperCore::new_with_node_and_path(root_node, 0, path, root_key_offset, root_val);
         Self { z: core }
     }
     /// See [ReadZipperCore::new_with_node_and_path_internal]
@@ -983,8 +983,8 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperUntracked<'a, 'path, V
         Self { z: core, _tracker: tracker }
     }
     #[cfg(not(debug_assertions))]
-    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
-        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, path, root_key_offset, root_val);
+    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: usize, root_val: Option<&'a V>) -> Self {
+        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, 0, path, root_key_offset, root_val);
         Self { z: core }
     }
     /// Makes a new `ReadZipperUntracked` for use in the implementation of [Zipper::fork_read_zipper].

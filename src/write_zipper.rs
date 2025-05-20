@@ -312,7 +312,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperTracked<'a, 'path, V>
         let root_val = core::mem::take(&mut self.z.root_val);
         let root_val = root_val.and_then(|root_val| root_val.as_ref());
 
-        let mut new_zipper = ReadZipperTracked::new_with_node_and_cloned_path(root_node, root_path, None, root_val, tracker);
+        let mut new_zipper = ReadZipperTracked::new_with_node_and_cloned_path(root_node, root_path, root_path.len(), root_val, tracker);
         new_zipper.descend_to(descended_path);
         new_zipper
     }
@@ -458,10 +458,10 @@ impl <'a, 'k, V: Clone + Send + Sync + Unpin> WriteZipperUntracked<'a, 'k, V> {
         let root_val = root_val.and_then(|root_val| root_val.as_ref());
 
         #[cfg(debug_assertions)]
-        let mut new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path(root_node, root_path, None, root_val, tracker);
+        let mut new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path(root_node, root_path, root_path.len(), root_val, tracker);
 
         #[cfg(not(debug_assertions))]
-        let mut new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path(root_node, root_path, None, root_val);
+        let mut new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path(root_node, root_path, root_path.len(), root_val);
         new_zipper.descend_to(descended_path);
         new_zipper
     }
