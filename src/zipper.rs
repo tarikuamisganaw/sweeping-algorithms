@@ -816,8 +816,8 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperTracked<'a, 'path, V> 
     //     Self { z: core, _tracker: tracker }
     // }
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
-    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, tracker: ZipperTracker<TrackingRead>) -> Self {
-        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, path, root_key_offset, root_val);
+    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: usize, root_val: Option<&'a V>, tracker: ZipperTracker<TrackingRead>) -> Self {
+        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, 0, path, root_key_offset, root_val);
         Self { z: core, _tracker: tracker }
     }
 }
@@ -978,8 +978,8 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin> ReadZipperUntracked<'a, 'path, V
     }
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
     #[cfg(debug_assertions)]
-    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>, root_val: Option<&'a V>, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
-        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, path, root_key_offset, root_val);
+    pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: usize, root_val: Option<&'a V>, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
+        let core = ReadZipperCore::new_with_node_and_cloned_path(root_node, 0, path, root_key_offset, root_val);
         Self { z: core, _tracker: tracker }
     }
     #[cfg(not(debug_assertions))]
@@ -1042,7 +1042,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> ReadZipperOwned<V> {
         let map = MaybeDangling::new(Box::new(map));
         let root_ref = unsafe{ &*(*map).root.get() }.as_ref().unwrap().borrow();
         let root_val = Option::as_ref( unsafe{ &*(*map).root_val.get() } );
-        let core = ReadZipperCore::new_with_node_and_cloned_path(root_ref, path, Some(path.len()), root_val);
+        let core = ReadZipperCore::new_with_node_and_cloned_path(root_ref, 0, path, path.len(), root_val);
         Self { map, z: Box::new(core) }
     }
     /// Consumes the zipper and returns a map contained within the zipper
@@ -1878,20 +1878,15 @@ pub(crate) mod read_zipper_core {
         }
         /// Same as [Self::new_with_node_and_path], but inits the zipper stack ahead of time, allowing a zipper
         /// that isn't bound by `'path`
-        pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, path: &[u8], root_key_offset: Option<usize>, root_val: Option<&'a V>) -> Self {
-            let (node, key, val) = node_along_path(root_node, path, root_val);
+        pub(crate) fn new_with_node_and_cloned_path(root_node: &'a dyn TrieNode<V>, root_path_start: usize, path: &[u8], root_key_offset: usize, root_val: Option<&'a V>) -> Self {
+            let (node, key, val) = node_along_path(root_node, &path[root_path_start..], root_val);
 
-            let (zipper_path, root_key_offset) = match root_key_offset {
-                Some(root_key_offset) => {
-                    (path, root_key_offset - key.len())
-                },
-                None => (key, 0)
-            };
+            let root_key_offset = root_key_offset - key.len() + root_path_start;
 
             let mut prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
-            prefix_buf.extend(zipper_path);
+            prefix_buf.extend(path);
             Self {
-                origin_path: SliceOrLen::Len(zipper_path.len()),
+                origin_path: SliceOrLen::Len(path.len()),
                 root_key_offset,
                 root_val: val,
                 focus_node: node.as_tagged(),
