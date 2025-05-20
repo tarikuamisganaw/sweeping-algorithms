@@ -205,7 +205,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), Some(path.len()), root_val, None)
+            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), path.len(), root_val, None)
         }
         #[cfg(not(debug_assertions))]
         {

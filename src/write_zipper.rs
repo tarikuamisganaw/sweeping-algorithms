@@ -244,7 +244,8 @@ impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for WriteZipperTracked<'_,
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.value();
-        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), &self.z.key.node_key(), None, new_root_val);
+        let node_key = self.z.key.node_key();
+        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), 0, node_key, node_key.len(), new_root_val);
         Self::ReadZipperT::new_forked_with_inner_zipper(rz_core)
     }
 }
@@ -381,7 +382,8 @@ impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for WriteZipperUntracked<'
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.value();
-        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), &self.z.key.node_key(), None, new_root_val);
+        let node_key = self.z.key.node_key();
+        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), 0, node_key, node_key.len(), new_root_val);
         Self::ReadZipperT::new_forked_with_inner_zipper(rz_core)
     }
 }
@@ -542,7 +544,8 @@ impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for WriteZipperOwned<V> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
         let new_root_val = self.value();
-        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), &self.z.key.node_key(), None, new_root_val);
+        let node_key = self.z.key.node_key();
+        let rz_core = read_zipper_core::ReadZipperCore::new_with_node_and_path(self.z.focus_stack.top().unwrap(), 0, node_key, node_key.len(), new_root_val);
         Self::ReadZipperT::new_forked_with_inner_zipper(rz_core)
     }
 }
