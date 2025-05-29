@@ -238,11 +238,11 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         let root_val = self.root_val.get_mut();
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], None)
+            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], vec![], None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[])
+            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], vec![])
         }
     }
 
@@ -256,11 +256,11 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, None)
+            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, vec![], None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path)
+            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, vec![])
         }
     }
 
@@ -269,7 +269,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
         let root_val = self.root_val.get_mut();
-        let z = WriteZipperCore::new_with_node_and_path_internal(root_node, Some(root_val), &[]);
+        let z = WriteZipperCore::new_with_node_and_path_internal(root_node, Some(root_val), &[], vec![]);
         z.into_zipper_head()
     }
 
@@ -769,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn map_remove_test() {
+    fn map_remove_test1() {
         let mut map = BytesTrieMap::new();
         map.insert("aaaaa", "aaaaa");
         map.insert("bbbbb", "bbbbb");

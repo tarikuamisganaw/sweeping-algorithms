@@ -64,6 +64,15 @@ pub trait ZipperCreation<'trie, V: Clone + Send + Sync> {
     // ///
     // /// May panic if `zipper` did not originate from the `self` `ZipperHead`.
     // fn replace_owned_write_zipper(&self, zipper: WriteZipperOwned<V>);
+
+    /// Reclaims ownership of a write zipper that was provided by the `ZipperHead` to ensure the zipper's
+    /// root prefix path is pruned
+    ///
+    /// This method is necessary because the act of creating a write zipper at a path will create the parent
+    /// path from the zipper head, but then a dangling path may remain after the zipper is dropped.
+    ///
+    /// May panic if `zipper` did not originate from the `self` `ZipperHead`.
+    fn cleanup_write_zipper<Z: ZipperWriting<V> + ZipperAbsolutePath>(&self, z: Z);
 }
 
 trait ZipperCreationPriv<'trie, V> {
@@ -268,7 +277,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             let zipper_root_node: &'trie mut TrieNodeODRc<V> = unsafe{ &mut *(zipper_root_node as *mut _) };
             let zipper_root_val: &'trie mut Option<V> = unsafe{ &mut *(zipper_root_val as *mut _) };
 
-            Ok(WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], zipper_tracker))
+            Ok(WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], path.to_vec(), zipper_tracker))
         })
     }
     unsafe fn write_zipper_at_exclusive_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperUntracked<'a, 'static, V> where 'trie: 'a {
@@ -284,12 +293,21 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             {
                 let tracker = ZipperTracker::<TrackingWrite>::new(self.tracker_paths().clone(), path)
                     .unwrap_or_else(|conflict| panic!("Fatal error. WriteZipper at {path:?} {conflict}"));
-                WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], Some(tracker))
+                WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], path.to_vec(), Some(tracker))
             }
             #[cfg(not(debug_assertions))]
             {
-                WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[])
+                WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], path.to_vec())
             }
+        })
+    }
+    fn cleanup_write_zipper<ChildZ: ZipperWriting<V> + ZipperAbsolutePath>(&self, mut z: ChildZ) {
+        let origin_path = z.take_root_prefix_path();
+        drop(z);
+        self.with_inner_core_z(|z| {
+            z.move_to_path(origin_path);
+            z.prune_path();
+            z.reset();
         })
     }
 }
@@ -429,7 +447,7 @@ fn prepare_node_at_path_end<'a, V: Clone + Send + Sync>(start_node: &'a mut Trie
 
 #[cfg(test)]
 mod tests {
-    use crate::trie_map::BytesTrieMap;
+    use crate::{trie_map::BytesTrieMap, utils::BitMask};
     use crate::zipper::*;
     use crate::tests::prefix_key;
     use std::{thread, thread::ScopedJoinHandle};
@@ -1066,5 +1084,23 @@ mod tests {
             assert_eq!(map.get(hello_path), Some(&i));
             assert_eq!(map.get(goodbye_path), Some(&i));
         }
+    }
+    /// Tests the [ZipperHead::cleanup_write_zipper] method
+    #[test]
+    fn cleanup_write_zipper_test() {
+        //First ensure we *do* have a dangling path from these operations
+        let mut map = BytesTrieMap::<()>::new();
+        let zh = map.zipper_head();
+        let wz = zh.write_zipper_at_exclusive_path("a_path_to_nowhere").unwrap();
+        drop(wz);
+        drop(zh);
+        assert!(map.read_zipper().child_mask().test_bit(b'a'));
+
+        //Now do it again, and clean up the zipper
+        let zh = map.zipper_head();
+        let wz = zh.write_zipper_at_exclusive_path("a_path_to_nowhere").unwrap();
+        zh.cleanup_write_zipper(wz);
+        drop(zh);
+        assert!(!map.read_zipper().child_mask().test_bit(b'a'));
     }
 }

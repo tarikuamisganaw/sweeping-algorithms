@@ -101,6 +101,9 @@ impl<V: TrieValue> WriteZipperPriv<V> for NullZipper {
     fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> {
         None
     }
+    fn take_root_prefix_path(&mut self) -> Vec<u8> {
+        unimplemented!()
+    }
 }
 
 impl <V : TrieValue> ZipperWriting<V> for NullZipper {

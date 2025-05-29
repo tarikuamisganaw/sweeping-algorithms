@@ -246,7 +246,7 @@ pub trait TrieNode<V: Clone + Send + Sync>: TrieNodeDowncast<V> + DynClone + cor
     ///
     /// WARNING: This method does not recurse, so an onward child link's children will not be
     ///   considered.  Therefore, it is necessary to call this method on the referenced node and
-    ///   not the parent.
+    ///   not the parent.  Call [node_count_branches_recursive] to get this behavior.
     /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
     fn count_branches(&self, key: &[u8]) -> usize;
 
@@ -264,11 +264,12 @@ pub trait TrieNode<V: Clone + Send + Sync>: TrieNodeDowncast<V> + DynClone + cor
     ///   `is_leaf` will not be true.
     fn is_leaf(&self, key: &[u8]) -> bool;
 
-    /// Returns the key of the prior upstream branch, within the node
+    /// Returns the key of the prior upstream branch or value, within the node
     ///
     /// This method will never be called with a zero-length key.
     /// Returns &[] if `key` is descended from the root and therefore has no upstream branch.
     /// Returns &[] if `key` does not exist within the node.
+    /// Returns the path to a value within the node, if there is a value located at a prefix of `key`
     fn prior_branch_key(&self, key: &[u8]) -> &[u8];
 
     /// Returns the child of this node that is immediately before or after the child identified by `key`
@@ -536,6 +537,23 @@ pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, MergeF>(self_payloa
         return AlgebraicResult::Identity(combined_mask)
     }
     AlgebraicResult::Element(merge_f(&mut result_payloads[..]))
+}
+
+pub(crate) fn node_count_branches_recursive<V: Clone + Send + Sync>(node: &dyn TrieNode<V>, key: &[u8]) -> usize {
+    if key.len() == 0 {
+        return node.count_branches(b"");
+    }
+    match node.node_get_child(key) {
+        Some((consumed_bytes, child_node)) => {
+            let child_node = child_node.borrow();
+            if key.len() >= consumed_bytes {
+                child_node.count_branches(&key[consumed_bytes..])
+            } else {
+                0
+            }
+        },
+        None => node.count_branches(key)
+    }
 }
 
 /// Internal function to implement the recursive part of `pmeet_generic`

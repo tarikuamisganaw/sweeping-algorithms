@@ -1065,8 +1065,13 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         if key.len() == 1 {
             &[]
         } else {
-            let k = key[0] as usize;
-            &ALL_BYTES[k..=k]
+            let k = key[0];
+            if self.mask.test_bit(k) {
+                let k = k as usize;
+                &ALL_BYTES[k..=k]
+            } else {
+                &[]
+            }
         }
     }
 
