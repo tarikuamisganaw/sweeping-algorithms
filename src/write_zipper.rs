@@ -1738,7 +1738,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
             // We want the byte immediately after the current `node_key`
             let next_node_key_byte = &path_buf[node_key_start..temp_path.len()+1];
             let removed = focus_node.node_remove_all_branches(next_node_key_byte);
-            debug_assert!(removed);
+
+            //If we got here, we should have either removed something, or we should be at the top of the zipper
+            debug_assert!(removed || self.focus_stack.depth()==1);
         }
     }
 
