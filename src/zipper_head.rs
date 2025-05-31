@@ -306,7 +306,9 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
         drop(z);
         self.with_inner_core_z(|z| {
             z.move_to_path(origin_path);
-            z.prune_path();
+            if !z.is_value() && z.child_count() == 0 {
+                z.prune_path();
+            }
             z.reset();
         })
     }
@@ -1087,14 +1089,17 @@ mod tests {
     }
     /// Tests the [ZipperHead::cleanup_write_zipper] method
     #[test]
-    fn cleanup_write_zipper_test() {
-        //First ensure we *do* have a dangling path from these operations
+    fn cleanup_write_zipper_test1() {
         let mut map = BytesTrieMap::<()>::new();
+        map.insert("the_path_to_somewhere", ());
+
+        //First ensure we *do* have a dangling path from these operations
         let zh = map.zipper_head();
         let wz = zh.write_zipper_at_exclusive_path("a_path_to_nowhere").unwrap();
         drop(wz);
         drop(zh);
         assert!(map.read_zipper().child_mask().test_bit(b'a'));
+        assert!(map.read_zipper().child_mask().test_bit(b't'));
 
         //Now do it again, and clean up the zipper
         let zh = map.zipper_head();
@@ -1102,5 +1107,34 @@ mod tests {
         zh.cleanup_write_zipper(wz);
         drop(zh);
         assert!(!map.read_zipper().child_mask().test_bit(b'a'));
+        assert!(map.read_zipper().child_mask().test_bit(b't'));
+    }
+    /// Tests the [ZipperHead::cleanup_write_zipper] method
+    #[test]
+    fn cleanup_write_zipper_test2() {
+        let mut map = BytesTrieMap::<()>::new();
+        map.insert("a_path_to_somewhere", ());
+        let zh = map.zipper_head();
+
+        //Make a ZipperHead, which will create a dangling path, but then clean it up
+        let wz = zh.write_zipper_at_exclusive_path("a_path_to_nowhere").unwrap();
+        zh.cleanup_write_zipper(wz);
+
+        //Make sure we cleaned up the dangling path, but nothing else
+        let mut rz = zh.read_zipper_at_borrowed_path(b"a_path_").unwrap();
+        assert!(rz.descend_until());
+        assert_eq!(rz.path(), b"to_somewhere");
+        drop(rz);
+
+        //Now make sure we don't accidentally clean up a path with the wz on top of an existing path
+        let wz = zh.write_zipper_at_exclusive_path("a_path_to_").unwrap();
+        zh.cleanup_write_zipper(wz);
+        let mut rz = zh.read_zipper_at_borrowed_path(b"a_path_").unwrap();
+        assert_eq!(rz.path(), b"");
+        assert!(rz.descend_until());
+        assert_eq!(rz.path(), b"to_somewhere");
+        drop(rz);
+
+        drop(zh);
     }
 }

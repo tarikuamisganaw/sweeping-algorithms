@@ -738,14 +738,17 @@ pub(crate) struct WriteZipperCore<'a, 'k, V: Clone + Send + Sync> {
     pub(crate) focus_stack: MutCursorRootedVec<'a, &'a mut TrieNodeODRc<V>, dyn TrieNode<V> + 'static>,
 }
 
-/// The part of the `WriteZipper` that contains the key-related fields.  So it can be borrowed separately
+/// The part of the zipper that contains the path and key-related fields.  So it can be borrowed separately
 ///
 /// For a more complete description of the meaning of the fields, see [read_zipper_core::ReadZipperCore::new_with_node_and_path]
+//
+//TODO: We may want to unify this object with the ReadZipper's fields now that they do exactly the same thing, but the ReadZipper
+// stores a single Vec for nodes and path indices, where the WriteZipper has them separate.
 pub(crate) struct KeyFields<'path> {
     /// The zipper's root prefix path
-    origin_path: SliceOrLen<'path>,
+    pub(crate) origin_path: SliceOrLen<'path>,
     /// The index into `origin_path` of the start of the root node's key
-    root_key_start: usize,
+    pub(crate) root_key_start: usize,
     /// Stores the entire path, including the bytes from origin_path
     pub(crate) prefix_buf: Vec<u8>,
     /// Stores the lengths for each successive node's key

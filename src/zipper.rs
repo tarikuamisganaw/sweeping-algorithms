@@ -2374,35 +2374,8 @@ impl<'a, V: Clone + Send + Sync + Unpin> Iterator for ReadZipperIter<'a, '_, V> 
     }
 }
 
-// //GOAT, Consider deleting.  I feel like this API just isn't that convenient and might lead people away from better-performing options
-// /// An Iterator returned by [into_child_iter](ReadZipper::into_child_iter) to iterate over the children from
-// /// a branch of the trie
-// ///
-// /// NOTE: This type is a convenience to allow access to syntactic sugar like `for` loops,
-// /// [collect](std::iter::Iterator::collect), etc.
-// ///
-// /// NOTE: Does not descend recursively.  Use [into_iter](std::iter::IntoIterator::into_iter) for a depth-first
-// /// traversal, or just use the [Zipper] methods directly.
-// pub struct ReadZipperChildIter<'a, 'path, V>(Option<ReadZipperCore<'a, 'path, V>>);
-
-// impl<V: Clone + Send + Sync> Iterator for ReadZipperChildIter<'_, '_, V> {
-//     type Item = u8;
-
-//     fn next(&mut self) -> Option<u8> {
-//         if let Some(zipper) = &mut self.0 {
-//             let result = zipper.path().last().cloned();
-//             if !zipper.to_next_sibling_byte() {
-//                 self.0 = None;
-//             }
-//             result
-//         } else {
-//             None
-//         }
-//     }
-// }
-
-/// The origin path, if it's outside the Zipper, or the length of the origin path if the origin has already
-/// been copied into the `prefix_buf`
+/// The origin path, will be a slice if it's borrowed from outside the Zipper, or length of the origin path in
+/// the `prefix_buf` if it has already been copied
 #[derive(Clone, Copy)]
 pub(crate) enum SliceOrLen<'a> {
     Slice(&'a [u8]),
@@ -2415,6 +2388,7 @@ impl<'a> From<&'a [u8]> for SliceOrLen<'a> {
     }
 }
 
+#[allow(unused)]
 impl<'a> SliceOrLen<'a> {
     #[inline]
     pub fn len(&self) -> usize {
