@@ -206,7 +206,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             // logic makes sure conflicting paths aren't permitted, so we should not get aliased &mut borrows
             let root_node: &'trie dyn TrieNode<V> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
-            Ok(ReadZipperTracked::new_with_node_and_path(root_node, path.as_ref(), path.len(), root_val, zipper_tracker))
+            Ok(ReadZipperTracked::new_with_node_and_path(root_node, path.as_ref(), path.len(), 0, root_val, zipper_tracker))
         })
     }
     unsafe fn read_zipper_at_borrowed_path_unchecked<'a, 'path>(&'a self, path: &'path[u8]) -> ReadZipperUntracked<'a, 'path, V> where 'trie: 'a {
@@ -223,11 +223,11 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             {
                 let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)
                     .unwrap_or_else(|conflict| panic!("Fatal error. ReadZipper at {path:?} {conflict}"));
-                ReadZipperUntracked::new_with_node_and_path(root_node, path.as_ref(), path.len(), root_val, Some(zipper_tracker))
+                ReadZipperUntracked::new_with_node_and_path(root_node, path.as_ref(), path.len(), 0, root_val, Some(zipper_tracker))
             }
             #[cfg(not(debug_assertions))]
             {
-                ReadZipperUntracked::new_with_node_and_path(root_node, path.as_ref(), path.len(), root_val)
+                ReadZipperUntracked::new_with_node_and_path(root_node, path.as_ref(), path.len(), 0, root_val)
             }
         })
     }
@@ -242,7 +242,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             let root_node: &'trie dyn TrieNode<V> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
 
-            Ok(ReadZipperTracked::new_with_node_and_cloned_path(root_node, path.as_ref(), path.len(), root_val, zipper_tracker))
+            Ok(ReadZipperTracked::new_with_node_and_cloned_path(root_node, path.as_ref(), path.len(), 0, root_val, zipper_tracker))
         })
     }
     unsafe fn read_zipper_at_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> ReadZipperUntracked<'a, 'static, V> where 'trie: 'a {
@@ -260,11 +260,11 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             {
                 let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)
                     .unwrap_or_else(|conflict| panic!("Fatal error. ReadZipper at {path:?} {conflict}"));
-                ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), path.len(), root_val, Some(zipper_tracker))
+                ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), path.len(), 0, root_val, Some(zipper_tracker))
             }
             #[cfg(not(debug_assertions))]
             {
-                ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), path.len(), root_val)
+                ReadZipperUntracked::new_with_node_and_cloned_path(root_node, path.as_ref(), path.len(), 0, root_val)
             }
         })
     }
@@ -277,7 +277,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             let zipper_root_node: &'trie mut TrieNodeODRc<V> = unsafe{ &mut *(zipper_root_node as *mut _) };
             let zipper_root_val: &'trie mut Option<V> = unsafe{ &mut *(zipper_root_val as *mut _) };
 
-            Ok(WriteZipperTracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], path.to_vec(), zipper_tracker))
+            Ok(WriteZipperTracked::new_with_node_and_cloned_path_internal(zipper_root_node, Some(zipper_root_val), path, path.len(), zipper_tracker))
         })
     }
     unsafe fn write_zipper_at_exclusive_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> WriteZipperUntracked<'a, 'static, V> where 'trie: 'a {
@@ -293,11 +293,11 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             {
                 let tracker = ZipperTracker::<TrackingWrite>::new(self.tracker_paths().clone(), path)
                     .unwrap_or_else(|conflict| panic!("Fatal error. WriteZipper at {path:?} {conflict}"));
-                WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], path.to_vec(), Some(tracker))
+                WriteZipperUntracked::new_with_node_and_cloned_path_internal(zipper_root_node, Some(zipper_root_val), path, path.len(), Some(tracker))
             }
             #[cfg(not(debug_assertions))]
             {
-                WriteZipperUntracked::new_with_node_and_path_internal(zipper_root_node, Some(zipper_root_val), &[], path.to_vec())
+                WriteZipperUntracked::new_with_node_and_cloned_path_internal(zipper_root_node, Some(zipper_root_val), path, path.len())
             }
         })
     }

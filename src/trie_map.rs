@@ -205,11 +205,11 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), path.len(), root_val, None)
+            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), path.len(), root_val)
+            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val)
         }
     }
 
@@ -223,11 +223,11 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().unwrap().borrow(), path, path.len(), root_val, None)
+            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().unwrap().borrow(), path, path.len(), 0, root_val, None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().unwrap().borrow(), path, path.len(), root_val)
+            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().unwrap().borrow(), path, path.len(), 0, root_val)
         }
     }
 
@@ -238,11 +238,11 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         let root_val = self.root_val.get_mut();
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], vec![], None)
+            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], 0, None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], vec![])
+            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], 0)
         }
     }
 
@@ -256,11 +256,11 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, vec![], None)
+            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, path.len(), 0, None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, vec![])
+            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, path.len(), 0)
         }
     }
 
@@ -269,7 +269,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
         let root_val = self.root_val.get_mut();
-        let z = WriteZipperCore::new_with_node_and_path_internal(root_node, Some(root_val), &[], vec![]);
+        let z = WriteZipperCore::new_with_node_and_path_internal(root_node, Some(root_val), &[], 0);
         z.into_zipper_head()
     }
 
