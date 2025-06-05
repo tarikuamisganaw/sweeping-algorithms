@@ -831,6 +831,48 @@ mod tests {
         drop(zh);
         assert_eq!(map.get([3, 194, 22]), Some(&()));
     }
+
+    /// Dance a bunch of readers and writers inside the same zipper head
+    #[test]
+    fn zipper_headb() {
+        let space = BytesTrieMap::<()>::new().into_zipper_head(&[]);
+
+        let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4,]) };
+        wz.descend_to(&[200, 0, 0, 0, 0, 0, 0, 0, 5]);
+        wz.set_value(());
+        drop(wz);
+
+        let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[4, 200, 0, 0, 0, 0, 0, 0, 0, 6,]) };
+        wz.descend_to(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 8, 192, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 9, 128]);
+        wz.set_value(());
+        wz.reset();
+        wz.descend_to(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 5, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 10]);
+        wz.set_value(());
+        drop(wz);
+
+        let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[4, 200, 0, 0, 0, 0, 0, 0, 0, 6, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4]) };
+        wz.descend_to(&[200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 8, 192, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 9, 128]);
+        wz.remove_value();
+        drop(wz);
+
+        let wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 9]) };
+        drop(wz);
+
+        let rz = unsafe{ space.read_zipper_at_borrowed_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 8]) };
+        drop(rz);
+
+        let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[4, 200, 0, 0, 0, 0, 0, 0, 0, 6, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4]) };
+        wz.descend_to(&[200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 5, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 10]);
+        wz.remove_value();
+        drop(wz);
+
+        let wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 10]) };
+        drop(wz);
+
+        let rz = unsafe{ space.read_zipper_at_borrowed_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 5]) };
+        drop(rz)
+    }
+
     #[test]
     fn hierarchical_zipper_heads1() {
         let mut map = BytesTrieMap::<isize>::new();
