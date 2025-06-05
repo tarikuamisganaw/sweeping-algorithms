@@ -1963,7 +1963,7 @@ impl<'k> KeyFields<'k> {
             }
         }
         if self.prefix_idx.capacity() < stack_depth {
-            self.prefix_idx = Vec::with_capacity(stack_depth);
+            self.prefix_idx.reserve(stack_depth.saturating_sub(self.prefix_idx.len()));
             self.origin_path.make_len();
         }
     }

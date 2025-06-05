@@ -1639,7 +1639,7 @@ pub(crate) mod read_zipper_core {
                 }
             }
             if self.ancestors.capacity() < stack_depth {
-                self.ancestors = Vec::with_capacity(stack_depth);
+                self.ancestors.reserve(stack_depth.saturating_sub(self.ancestors.len()));
             }
         }
     }
