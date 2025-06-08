@@ -1631,6 +1631,7 @@ pub(crate) mod read_zipper_core {
         }
         #[cold]
         fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) {
+            let path_len = path_len.max(self.origin_path.len());
             if self.prefix_buf.capacity() < path_len {
                 let was_unallocated = self.prefix_buf.capacity() == 0;
                 self.prefix_buf.reserve(path_len.saturating_sub(self.prefix_buf.len()));
@@ -1890,7 +1891,7 @@ pub(crate) mod read_zipper_core {
             let mut prefix_buf = Vec::with_capacity(EXPECTED_PATH_LEN);
             prefix_buf.extend(path);
             Self {
-                origin_path: SliceOrLen::Len(path.len()),
+                origin_path: SliceOrLen::new_owned(path.len()),
                 root_key_start: new_root_key_start,
                 root_val: val,
                 focus_node: node.as_tagged(),
@@ -1905,7 +1906,7 @@ pub(crate) mod read_zipper_core {
         pub(crate) fn make_static_path(mut self) -> ReadZipperCore<'a, 'static, V> {
             self.prepare_buffers();
             ReadZipperCore {
-                origin_path: SliceOrLen::Len(self.origin_path.len()),
+                origin_path: SliceOrLen::new_owned(self.origin_path.len()),
                 root_key_start: self.root_key_start,
                 root_val: self.root_val,
                 focus_node: self.focus_node,
@@ -2388,19 +2389,35 @@ impl<'a> From<&'a [u8]> for SliceOrLen<'a> {
     }
 }
 
+impl SliceOrLen<'static> {
+    #[inline]
+    pub fn new_owned(len: usize) -> Self {
+        if len == 0 {
+            Self::Slice(&[])
+        } else {
+            Self::Len(len)
+        }
+    }
+}
+
 #[allow(unused)]
 impl<'a> SliceOrLen<'a> {
     #[inline]
     pub fn len(&self) -> usize {
         match self {
             Self::Slice(slice) => slice.len(),
-            Self::Len(len) => *len,
+            Self::Len(len) => {
+                debug_assert!(*len > 0);
+                *len
+            },
         }
     }
     pub fn make_len(&mut self) {
-        match self {
-            Self::Slice(slice) => {*self = Self::Len(slice.len())},
-            Self::Len(_) => {},
+        if self.len() > 0 {
+            match self {
+                Self::Slice(slice) => {*self = Self::Len(slice.len())},
+                Self::Len(_) => {},
+            }
         }
     }
     #[inline]
@@ -2433,16 +2450,14 @@ impl<'a> SliceOrLen<'a> {
     }
     #[inline]
     pub fn set_slice(&mut self, slice: &'a[u8]) {
-        match self {
-            Self::Slice(slice_ref) => { *slice_ref = slice; },
-            Self::Len(_) => unreachable!(),
-        }
+        *self = Self::Slice(slice);
     }
     #[inline]
     pub fn set_len(&mut self, len: usize) {
-        match self {
-            Self::Slice(_) => unreachable!(),
-            Self::Len(len_ref) => { *len_ref = len; },
+        if len > 0 {
+            *self = Self::Len(len)
+        } else {
+            *self = Self::Slice(&[])
         }
     }
 }

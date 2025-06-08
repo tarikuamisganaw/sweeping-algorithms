@@ -1046,7 +1046,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
 
     /// Internal method to re-borrow a WriteZipperCore without the `'path` lifetime
     fn as_static_path_zipper(&mut self) -> &mut WriteZipperCore<'a, 'static, V> {
-        assert!(!self.key.origin_path.is_slice());
+        self.prepare_buffers();
+        debug_assert!(!self.key.origin_path.is_slice() || self.key.origin_path.len() == 0);
         unsafe{ &mut *(self as *mut WriteZipperCore<V>).cast() }
     }
 
@@ -1622,6 +1623,13 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     fn take_root_prefix_path(&mut self) -> Vec<u8> {
         let mut prefix_path = vec![];
         core::mem::swap(&mut self.key.prefix_buf, &mut prefix_path);
+
+        if !self.key.origin_path.is_slice() {
+            //This leaves the zipper with a potentially messed-up origin path, which is ok if we are ready to
+            // drop this zipper.  If, however, we want to continue using it, we need to make a new prefix_path
+            // that is initialized with the origin_path data, instead of setting it to a zero-length slice
+            self.key.origin_path.set_slice(&[]);
+        }
         prefix_path
     }
 
@@ -1773,7 +1781,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
         let mut key = if self.key.prefix_buf.len() > 0 {
             &self.key.prefix_buf[key_start..]
         } else {
-            self.key.origin_path.try_as_slice().unwrap_or(&[])
+            unsafe{ self.key.origin_path.as_slice_unchecked() }
         };
         //Explanation: This 2 is based on the fact that a WriteZipper's focus_stack holds the parent node
         // to the focus, so we must have a `node_key` unless the zipper is at the root, and the minimum
@@ -1906,14 +1914,9 @@ fn make_parents<V: Clone + Send + Sync>(path: &[u8], child_node: TrieNodeODRc<V>
 impl KeyFields<'static> {
     #[inline]
     fn new_cloned_path(path: &[u8], root_key_start: usize) -> Self {
-        let origin_path = if path.len() > 0 {
-            SliceOrLen::Len(path.len())
-        } else {
-            SliceOrLen::Slice(&[])
-        };
         let prefix_buf = path.to_vec();
         Self {
-            origin_path,
+            origin_path: SliceOrLen::new_owned(path.len()),
             root_key_start,
             prefix_buf,
             prefix_idx: vec![],
@@ -1934,7 +1937,7 @@ impl<'k> KeyFields<'k> {
     /// Local implementation of `origin_path`
     pub(crate) fn origin_path(&self) -> &[u8] {
         if self.prefix_buf.capacity() == 0 {
-            self.origin_path.as_slice()
+            unsafe{ self.origin_path.as_slice_unchecked() }
         } else {
             &self.prefix_buf
         }
@@ -1955,6 +1958,7 @@ impl<'k> KeyFields<'k> {
     }
     #[cold]
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) {
+        let path_len = path_len.max(self.origin_path.len());
         if self.prefix_buf.capacity() < path_len {
             let was_unallocated = self.prefix_buf.capacity() == 0;
             self.prefix_buf.reserve(path_len.saturating_sub(self.prefix_buf.len()));
@@ -1964,7 +1968,6 @@ impl<'k> KeyFields<'k> {
         }
         if self.prefix_idx.capacity() < stack_depth {
             self.prefix_idx.reserve(stack_depth.saturating_sub(self.prefix_idx.len()));
-            self.origin_path.make_len();
         }
     }
     /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
@@ -1979,11 +1982,7 @@ impl<'k> KeyFields<'k> {
         if self.prefix_buf.len() > 0 {
             &self.prefix_buf[key_start..]
         } else {
-            if self.origin_path.len() > 0 {
-                unsafe{ &self.origin_path.as_slice_unchecked()[key_start..] }
-            } else {
-                &[]
-            }
+            unsafe{ &self.origin_path.as_slice_unchecked()[key_start..] }
         }
     }
     /// Internal method similar to `self.node_key().len()`, but returns the number of chars that can be
