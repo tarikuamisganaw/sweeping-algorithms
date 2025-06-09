@@ -4,6 +4,7 @@ use core::cell::UnsafeCell;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
 use crate::zipper::*;
+use crate::zipper::zipper_priv::ZipperPriv;
 use crate::zipper_tracking::*;
 use crate::dense_byte_node::CellByteNode;
 
@@ -309,8 +310,10 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
             // has already been dismantled... So we are checking here in order to handle that situation gracefully
             if z.focus_stack.top().is_some() {
                 z.move_to_path(origin_path);
-                if !z.is_value() && z.child_count() == 0 {
-                    z.prune_path();
+                if z.try_borrow_focus().unwrap().node_is_empty() {
+                    if !z.is_value() && z.child_count() == 0 {
+                        z.prune_path();
+                    }
                 }
                 z.reset();
             }

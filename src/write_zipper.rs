@@ -1691,6 +1691,12 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
     ///
     /// This method does not move the zipper, but may cause [Self::path_exists] to return `false`
     pub(crate) fn prune_path(&mut self) {
+        //We need to make sure this path actually exists before trying to prune it, otherwise we may end
+        // up pruning the next upstream branch by mistake
+        if !self.focus_stack.top().unwrap().node_is_empty() && !self.path_exists() {
+            return
+        }
+
         //Reimplementation of KeyFields.origin_path(), to allow us to split the borrow
         let path_buf = if self.key.prefix_buf.capacity() == 0 {
             self.key.origin_path.as_slice()
