@@ -1621,6 +1621,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin> WriteZipperCore<'a, 'path, V> {
 
     #[inline]
     fn take_root_prefix_path(&mut self) -> Vec<u8> {
+        self.prepare_buffers();
+        self.reset();
         let mut prefix_path = vec![];
         core::mem::swap(&mut self.key.prefix_buf, &mut prefix_path);
 
@@ -2011,6 +2013,7 @@ impl<'k> KeyFields<'k> {
 mod tests {
     use crate::ring::AlgebraicStatus;
     use crate::trie_map::*;
+    use crate::utils::ByteMask;
     use crate::zipper::*;
 
     #[test]
@@ -3024,6 +3027,52 @@ mod tests {
         assert_eq!(rz.path(), b"");
         assert_eq!(rz.origin_path(), b"This path can take you anywhere.  Just close your eyes...");
         assert_eq!(rz.is_value(), true);
+    }
+
+    #[test]
+    fn write_zipper_prune_path_test1() {
+        let mut map = BytesTrieMap::<()>::new();
+        map.insert([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128], ());
+        map.insert([196, 34, 48, 49, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 196, 112, 97, 105, 114, 128, 129], ());
+        let mut wz = map.write_zipper();
+
+        //Sanity checking
+        wz.descend_to([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128]);
+        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.path_exists(), true);
+
+        //Now delete one of the paths
+        wz.remove_value(); //This remove should already perform a prune
+        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.path_exists(), false);
+
+        //Validate that it pruned up to the shared branching point
+        wz.move_to_path([196, 34, 48,]);
+        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.path_exists(), true);
+        assert_eq!(wz.child_count(), 1);
+        assert_eq!(wz.child_mask(), ByteMask::from(49));
+
+        //Move back to the deleted branch
+        wz.move_to_path([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128]);
+        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.path_exists(), false);
+
+        //Now run `prune_path`.  This `prune_path` should do nothing
+        wz.z.prune_path();
+        drop(wz);
+
+        //Now we should still see the branch we didn't prune
+        assert_eq!(map.val_count(), 1);
+        let mut rz = map.read_zipper();
+        rz.descend_to([196, 34, 48, 49, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 196, 112, 97, 105, 114, 128, 129]);
+        assert_eq!(rz.is_value(), true);
+        assert_eq!(rz.path_exists(), true);
+        rz.move_to_path([196, 34, 48,]);
+        assert_eq!(rz.is_value(), false);
+        assert_eq!(rz.path_exists(), true);
+        assert_eq!(rz.child_count(), 1);
+        assert_eq!(rz.child_mask(), ByteMask::from(49));
     }
 
     crate::zipper::zipper_moving_tests::zipper_moving_tests!(write_zipper,
