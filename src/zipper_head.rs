@@ -305,11 +305,15 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin> ZipperCreation<'trie, V> 
         let origin_path = z.take_root_prefix_path();
         drop(z);
         self.with_inner_core_z(|z| {
-            z.move_to_path(origin_path);
-            if !z.is_value() && z.child_count() == 0 {
-                z.prune_path();
+            //Sometimes people call `cleanup_write_zipper` in a drop method on a WZ wrapper, and the ZipperHead
+            // has already been dismantled... So we are checking here in order to handle that situation gracefully
+            if z.focus_stack.top().is_some() {
+                z.move_to_path(origin_path);
+                if !z.is_value() && z.child_count() == 0 {
+                    z.prune_path();
+                }
+                z.reset();
             }
-            z.reset();
         })
     }
 }
