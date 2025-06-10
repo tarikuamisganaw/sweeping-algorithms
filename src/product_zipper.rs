@@ -9,7 +9,10 @@ use zipper_priv::*;
 /// as many spaces as needed
 pub struct ProductZipper<'factor_z, 'trie, V: Clone + Send + Sync> {
     z: read_zipper_core::ReadZipperCore<'trie, 'static, V>,
+    /// All of the seconday factors beyond the primary factor
     secondaries: Vec<TrieRef<'trie, V>>,
+    /// The indices in the zipper's path that correspond to the start-point of each secondary factor,
+    /// which is conceptually the same as the end-point of each indexed factor
     factor_paths: Vec<usize>,
     /// We need to hang onto the zippers for the life of this object, so their trackers stay alive
     source_zippers: Vec<Box<dyn zipper_priv::ZipperReadOnlyPriv<'trie, V> + 'factor_z>>
@@ -76,7 +79,35 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
             self.source_zippers.push(Box::new(other_z));
         }
     }
+    /// Returns the number of factors composing the `ProductZipper`
+    ///
+    /// The minimum returned value will be 1 because the primary factor is counted.
+    pub fn factor_count(&self) -> usize {
+        self.secondaries.len() + 1
+    }
+    /// Returns the index of the factor containing the `ProductZipper` focus
+    ///
+    /// Returns `0` if the focus is in the primary factor.  The returned value will always be
+    /// `zipper.focus_factor() < zipper.factor_count()`.
+    pub fn focus_factor(&self) -> usize {
+        self.factor_paths.len()
+    }
+    /// Returns a slice of the path indices that represent the end-points of the portion of the path from each
+    /// factor
+    ///
+    /// The returned slice will have a length of [`focus_factor_idx`](Self::focus_factor_idx), so the factor
+    /// containing the current focus has will not be included.
+    ///
+    /// Indices will be offsets into the buffer returned by [path](ZipperMoving::path).  To get an offset into
+    /// [origin_path](ZipperAbsolutePath::origin_path), add the length of the prefix path from
+    /// [root_prefix_path](ZipperAbsolutePath::root_prefix_path).
+    pub fn path_indices(&self) -> &[usize] {
+        &self.factor_paths
+    }
     /// Reserves a path buffer of at least `len` bytes.  Will never shrink the path buffer
+    /// GOAT, this doesn't offer any value over the standard `reserve_buffers` method which is now implemented
+    /// on many zipper types
+    #[deprecated]
     pub fn reserve_path_buffer(&mut self, reserve_len: usize) {
         const AVG_BYTES_PER_NODE: usize = 8;
         self.reserve_buffers(reserve_len, (reserve_len / AVG_BYTES_PER_NODE) + 1);
@@ -697,6 +728,45 @@ mod tests {
             assert_eq!(moving_pz.child_count(), fresh_pz.child_count());
             assert_eq!(moving_pz.child_mask(), fresh_pz.child_mask());
         })
+    }
+
+    #[test]
+    fn product_zipper_inspection_test() {
+        let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arr".as_bytes(), "arrow".as_bytes(), "x".as_bytes()];
+        let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bo".as_bytes(), "bow".as_bytes(), "bat".as_bytes(), "bit".as_bytes()];
+        let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
+        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+
+        let mut pz = ProductZipper::new(l.read_zipper_at_borrowed_path(b"abcdefghijklm"), [r.read_zipper(), e.read_zipper()]);
+
+        assert_eq!(pz.factor_count(), 3);
+        assert_eq!(pz.focus_factor(), 0);
+        assert_eq!(pz.path_indices().len(), 0);
+        assert_eq!(pz.path(), b"");
+        assert_eq!(pz.origin_path(), b"abcdefghijklm");
+
+        assert!(pz.descend_to(b"nopqrstuvwxyz"));
+
+        assert_eq!(pz.focus_factor(), 0);
+        assert_eq!(pz.path(), b"nopqrstuvwxyz");
+        assert_eq!(pz.origin_path(), b"abcdefghijklmnopqrstuvwxyz");
+
+        assert!(pz.descend_to(b"AB"));
+
+        assert_eq!(pz.focus_factor(), 1);
+        assert_eq!(pz.path_indices()[0], 13);
+        assert_eq!(pz.path().len(), 15);
+        assert_eq!(pz.path(), b"nopqrstuvwxyzAB");
+        assert_eq!(pz.origin_path(), b"abcdefghijklmnopqrstuvwxyzAB");
+
+        pz.reset();
+        assert!(pz.descend_to(b"nopqrstuvwxyzboph"));
+        assert_eq!(pz.focus_factor(), 2);
+        assert_eq!(pz.path_indices()[0], 13);
+        assert_eq!(pz.path_indices()[1], 15);
+        assert_eq!(pz.path(), b"nopqrstuvwxyzboph");
     }
 
     crate::zipper::zipper_moving_tests::zipper_moving_tests!(product_zipper,
