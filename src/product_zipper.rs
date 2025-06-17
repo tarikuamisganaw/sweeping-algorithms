@@ -1,4 +1,5 @@
 
+use crate::{Allocator, GlobalAlloc};
 use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::zipper::*;
@@ -7,26 +8,26 @@ use zipper_priv::*;
 /// A [Zipper] type that moves through a Cartesian product space created by extending each value at the
 /// end of a path in a primary space with the root of a secondardary space, and doing it recursively for
 /// as many spaces as needed
-pub struct ProductZipper<'factor_z, 'trie, V: Clone + Send + Sync> {
-    z: read_zipper_core::ReadZipperCore<'trie, 'static, V>,
+pub struct ProductZipper<'factor_z, 'trie, V: Clone + Send + Sync, A: Allocator = GlobalAlloc> {
+    z: read_zipper_core::ReadZipperCore<'trie, 'static, V, A>,
     /// All of the seconday factors beyond the primary factor
-    secondaries: Vec<TrieRef<'trie, V>>,
+    secondaries: Vec<TrieRef<'trie, V, A>>,
     /// The indices in the zipper's path that correspond to the start-point of each secondary factor,
     /// which is conceptually the same as the end-point of each indexed factor
     factor_paths: Vec<usize>,
     /// We need to hang onto the zippers for the life of this object, so their trackers stay alive
-    source_zippers: Vec<Box<dyn zipper_priv::ZipperReadOnlyPriv<'trie, V> + 'factor_z>>
+    source_zippers: Vec<Box<dyn zipper_priv::ZipperReadOnlyPriv<'trie, V, A> + 'factor_z>>
 }
 
-impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 'trie, V> {
+impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin, A: Allocator> ProductZipper<'factor_z, 'trie, V, A> {
     /// Creates a new `ProductZipper` from the provided zippers
     ///
     /// WARNING: passing `other_zippers` that are not at node roots may lead to a panic.  This is
     /// an implementation issue, but would be very difficult to fix and may not be worth fixing.
     pub fn new<PrimaryZ, OtherZ, ZipperList>(mut primary_z: PrimaryZ, other_zippers: ZipperList) -> Self
         where
-        PrimaryZ: ZipperMoving + ZipperReadOnlySubtries<'trie, V> + 'factor_z,
-        OtherZ: ZipperReadOnlySubtries<'trie, V> + 'factor_z,
+        PrimaryZ: ZipperMoving + ZipperReadOnlySubtries<'trie, V, A> + 'factor_z,
+        OtherZ: ZipperReadOnlySubtries<'trie, V, A> + 'factor_z,
         ZipperList: IntoIterator<Item=OtherZ>,
     {
         let other_z_iter = other_zippers.into_iter();
@@ -38,7 +39,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
         //Get the core out of the primary zipper
         //This unwrap won't fail because all the types that implement `ZipperMoving` have cores
         let core_z = primary_z.take_core().unwrap();
-        source_zippers.push(Box::new(primary_z) as Box<dyn zipper_priv::ZipperReadOnlyPriv<V>>);
+        source_zippers.push(Box::new(primary_z) as Box<dyn zipper_priv::ZipperReadOnlyPriv<V, A>>);
 
         //Get TrieRefs for the remaining zippers
         for other_z in other_z_iter {
@@ -52,14 +53,14 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
     /// Creates a new `ProductZipper` from a single zipper, with the expectation that more zippers
     /// will be added using [new_factor]
     pub fn new_with_primary<PrimaryZ>(mut primary_z: PrimaryZ) -> Self
-        where PrimaryZ: ZipperMoving + ZipperReadOnlySubtries<'trie, V> + 'factor_z,
+        where PrimaryZ: ZipperMoving + ZipperReadOnlySubtries<'trie, V, A> + 'factor_z,
     {
         let mut source_zippers = Vec::new();
 
         //Get the core out of the primary zipper
         //This unwrap won't fail because all the types that implement `ZipperMoving` have cores
         let core_z = primary_z.take_core().unwrap();
-        source_zippers.push(Box::new(primary_z) as Box<dyn zipper_priv::ZipperReadOnlyPriv<V>>);
+        source_zippers.push(Box::new(primary_z) as Box<dyn zipper_priv::ZipperReadOnlyPriv<V, A>>);
 
         Self{z: core_z, factor_paths: Vec::new(), secondaries: vec![], source_zippers}
     }
@@ -69,7 +70,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
     /// WARNING: the same warning as above applies about passing other zippers that aren't at node roots
     pub fn new_factors<OtherZ, ZipperList>(&mut self, other_zippers: ZipperList)
         where
-        OtherZ: ZipperReadOnlySubtries<'trie, V> + 'factor_z,
+        OtherZ: ZipperReadOnlySubtries<'trie, V, A> + 'factor_z,
         ZipperList: IntoIterator<Item=OtherZ>,
     {
         let other_z_iter = other_zippers.into_iter();
@@ -187,7 +188,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ProductZipper<'factor_z, 
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ProductZipper<'_, '_, V, A> {
     fn at_root(&self) -> bool {
         self.path().len() == 0
     }
@@ -276,17 +277,17 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for ProductZipper<'_, '_, V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperValues<V> for ProductZipper<'_, '_, V, A> {
     fn value(&self) -> Option<&V> {
         self.get_value()
     }
 }
 
-impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'trie, V> for ProductZipper<'factor_z, 'trie, V> {
+impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'trie, V> for ProductZipper<'factor_z, 'trie, V, A> {
     fn get_value(&self) -> Option<&'trie V> { self.z.get_value() }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Zipper for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for ProductZipper<'_, '_, V, A> {
     fn path_exists(&self) -> bool {
         self.z.path_exists()
     }
@@ -309,28 +310,28 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for ProductZipper<'_, '_, V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ProductZipper<'_, '_, V, A> {
     fn is_shared(&self) -> bool { self.z.is_shared() }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for ProductZipper<'_, '_, V, A> {
     fn shared_addr(&self) -> Option<FocusAddr> { self.z.shared_addr() }
 }
 
-impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for ProductZipper<'_, '_, V, A> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin + Unpin> ZipperPathBuffer for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin + Unpin, A: Allocator> ZipperPathBuffer for ProductZipper<'_, '_, V, A> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperAbsolutePath for ProductZipper<'_, '_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for ProductZipper<'_, '_, V, A> {
     fn origin_path(&self) -> &[u8] { self.z.origin_path() }
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }

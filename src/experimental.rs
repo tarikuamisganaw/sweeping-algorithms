@@ -1,3 +1,5 @@
+
+use crate::Allocator;
 use crate::utils::ByteMask;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
@@ -106,7 +108,7 @@ impl<V: TrieValue> WriteZipperPriv<V> for NullZipper {
     }
 }
 
-impl <V : TrieValue> ZipperWriting<V> for NullZipper {
+impl <V: TrieValue, A: Allocator> ZipperWriting<V, A> for NullZipper {
     type ZipperHead<'z> = ZipperHead<'z, 'static, V> where Self: 'z;
 
     fn get_value_mut(&mut self) -> Option<&mut V> { None }
@@ -115,20 +117,20 @@ impl <V : TrieValue> ZipperWriting<V> for NullZipper {
     fn set_value(&mut self, _val: V) -> Option<V> { None }
     fn remove_value(&mut self) -> Option<V> { None }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { todo!() }
-    fn graft<Z: ZipperSubtries<V>>(&mut self, _read_zipper: &Z) {}
+    fn graft<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) {}
     fn graft_map(&mut self, _map: BytesTrieMap<V>) {}
-    fn join<Z: ZipperSubtries<V>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn join<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
     fn join_map(&mut self, _map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
-    fn join_into<Z: ZipperSubtries<V> + ZipperWriting<V>>(&mut self, _src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn join_into<Z: ZipperSubtries<V, A> + ZipperWriting<V, A>>(&mut self, _src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
     fn drop_head(&mut self, _byte_cnt: usize) -> bool where V: Lattice { false }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, _prefix: K) -> bool { false }
     fn remove_prefix(&mut self, _n: usize) -> bool { false }
-    fn meet<Z: ZipperSubtries<V>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
-    fn meet_2<'z, ZA: ZipperSubtries<V>, ZB: ZipperSubtries<V>>(&mut self, _rz_a: &ZA, _rz_b: &ZB) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
-    fn subtract<Z: ZipperSubtries<V>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus where V: DistributiveLattice { AlgebraicStatus::Element }
-    fn restrict<Z: ZipperSubtries<V>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus { AlgebraicStatus::Element }
-    fn restricting<Z: ZipperSubtries<V>>(&mut self, _read_zipper: &Z) -> bool { false }
+    fn meet<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn meet_2<'z, ZA: ZipperSubtries<V, A>, ZB: ZipperSubtries<V, A>>(&mut self, _rz_a: &ZA, _rz_b: &ZB) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn subtract<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus where V: DistributiveLattice { AlgebraicStatus::Element }
+    fn restrict<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus { AlgebraicStatus::Element }
+    fn restricting<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) -> bool { false }
     fn remove_branches(&mut self) -> bool { false }
-    fn take_map(&mut self) -> Option<BytesTrieMap<V>> { None }
+    fn take_map(&mut self) -> Option<BytesTrieMap<V, A>> { None }
     fn remove_unmasked_branches(&mut self, _mask: ByteMask) {}
 }

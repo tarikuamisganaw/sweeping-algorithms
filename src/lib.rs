@@ -1,5 +1,6 @@
 #![cfg_attr(feature = "nightly", allow(internal_features), feature(core_intrinsics))]
 #![cfg_attr(feature = "nightly", feature(portable_simd))]
+#![cfg_attr(feature = "nightly", feature(allocator_api))]
 
 #![doc = include_str!("../README.md")]
 
@@ -68,6 +69,36 @@ mod tiny_node;
 mod bridge_node;
 
 mod old_cursor;
+
+/// Wrapper around `std::alloc::Allocator` trait, shims to the `allocator_api` on nightly, does nothing on `stable`
+#[cfg(not(feature = "nightly"))]
+pub trait Allocator: Clone {}
+
+#[cfg(not(feature = "nightly"))]
+impl Allocator for () {}
+
+/// Wrapper around `std::alloc::Global`, shims to the `allocator_api` on nightly, does nothing on `stable`
+#[cfg(not(feature = "nightly"))]
+pub type GlobalAlloc = ();
+
+/// Instantiates the GlobalAlloc type, to work around the "type alias can't use a type alias as a constructor" error
+#[cfg(not(feature = "nightly"))]
+pub const fn global_alloc() -> GlobalAlloc {()}
+
+/// Wrapper around `std::alloc::Allocator` trait, shims to the `allocator_api` on nightly, does nothing on `stable`
+#[cfg(feature = "nightly")]
+pub trait Allocator: std::alloc::Allocator + Clone {}
+
+#[cfg(feature = "nightly")]
+impl<T> Allocator for T where T: std::alloc::Allocator + Clone {}
+
+/// Wrapper around `std::alloc::Global`, shims to the `allocator_api` on nightly, does nothing on `stable`
+#[cfg(feature = "nightly")]
+pub type GlobalAlloc = std::alloc::Global;
+
+/// Instantiates the GlobalAlloc type, to work around the "type alias can't use a type alias as a constructor" error
+#[cfg(feature = "nightly")]
+pub const fn global_alloc() -> GlobalAlloc {std::alloc::Global}
 
 /// A supertrait that encapsulates the bounds for a value that can be put in a [PathMap]
 pub trait TrieValue: Clone + Send + Sync + Unpin + 'static {}

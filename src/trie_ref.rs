@@ -2,6 +2,7 @@
 use core::slice;
 use std::mem::MaybeUninit;
 
+use crate::{global_alloc, Allocator, GlobalAlloc};
 use crate::utils::ByteMask;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::*;
@@ -12,14 +13,15 @@ use crate::zipper::zipper_priv::*;
 ///
 /// `TrieRef`s are like a read-only [Zipper] that can't move, but it is *much* smaller, cheaper to
 /// create, and cheaper to work with.
-pub struct TrieRef<'a, V: Clone + Send + Sync> {
+pub struct TrieRef<'a, V: Clone + Send + Sync, A: Allocator = GlobalAlloc> {
     focus_node: TaggedNodeRef<'a, V>,
-    val_or_key: ValRefOrKey<'a, V>
+    val_or_key: ValRefOrKey<'a, V>,
+    alloc: A
 }
 
 impl<V: Clone + Send + Sync> Default for TrieRef<'_, V> {
     fn default() -> Self {
-        Self::new_invalid()
+        Self::new_invalid_in(global_alloc())
     }
 }
 
@@ -47,20 +49,25 @@ impl<V> Clone for ValRefOrKey<'_, V> {
 }
 impl<V> Copy for ValRefOrKey<'_, V> {}
 
-impl<V: Clone + Send + Sync> Clone for TrieRef<'_, V> {
+impl<V: Clone + Send + Sync, A: Allocator> Clone for TrieRef<'_, V, A> {
     #[inline]
     fn clone(&self) -> Self {
-        *self
+        Self{
+            focus_node: self.focus_node,
+            val_or_key: self.val_or_key,
+            alloc: self.alloc.clone()
+        }
     }
 }
-impl<V: Clone + Send + Sync> Copy for TrieRef<'_, V> {}
+impl<V: Clone + Send + Sync, A: Allocator + Copy> Copy for TrieRef<'_, V, A> {}
 
-impl<'a, V: Clone + Send + Sync> TrieRef<'a, V> {
-    pub(crate) fn new_invalid() -> Self {
-        Self { focus_node: TaggedNodeRef::EmptyNode, val_or_key: ValRefOrKey { val_ref: (BAD_SENTINEL, None) } }
+impl<'a, V: Clone + Send + Sync, A: Allocator> TrieRef<'a, V, A> {
+    /// Makes a new sentinel that points to nothing.  THe allocator is just to keep the type system happy
+    pub(crate) fn new_invalid_in(alloc: A) -> Self {
+        Self { focus_node: TaggedNodeRef::EmptyNode, val_or_key: ValRefOrKey { val_ref: (BAD_SENTINEL, None) }, alloc }
     }
     /// Internal constructor
-    pub(crate) fn new_with_node_and_path(root_node: &'a dyn TrieNode<V>, root_val: Option<&'a V>, path: &[u8]) -> Self {
+    pub(crate) fn new_with_node_and_path_in(root_node: &'a dyn TrieNode<V>, root_val: Option<&'a V>, path: &[u8], alloc: A) -> Self {
         let (node, key, val) = node_along_path(root_node, path, root_val);
         let node_key_len = key.len();
         let val_or_key = if node_key_len > 0 && node_key_len <= MAX_NODE_KEY_BYTES {
@@ -79,7 +86,7 @@ impl<'a, V: Clone + Send + Sync> TrieRef<'a, V> {
             }
         };
 
-        Self { focus_node: node.as_tagged(), val_or_key }
+        Self { focus_node: node.as_tagged(), val_or_key, alloc }
     }
     /// Internal.  Checks if the `TrieRef` is valid, which is a prerequisite to see if it's pointing
     /// at an existing path
@@ -108,7 +115,7 @@ impl<'a, V: Clone + Send + Sync> TrieRef<'a, V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Zipper for TrieRef<'_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for TrieRef<'_, V, A> {
     fn path_exists(&self) -> bool {
         if self.is_valid() {
             let key = self.node_key();
@@ -140,22 +147,22 @@ impl<V: Clone + Send + Sync + Unpin> Zipper for TrieRef<'_, V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperValues<V> for TrieRef<'_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperValues<V> for TrieRef<'_, V, A> {
     fn value(&self) -> Option<&V> {
         self.get_value()
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperForking<V> for TrieRef<'_, V> {
-    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V> where Self: 'a;
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for TrieRef<'_, V, A> {
+    type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V, A> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal(self.focus_node.clone(), self.node_key(), 0, self.get_value());
+        let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal_in(self.focus_node.clone(), self.node_key(), 0, self.get_value(), self.alloc.clone());
         Self::ReadZipperT::new_forked_with_inner_zipper(core_z)
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperSubtries<V> for TrieRef<'_, V> {
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V>> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for TrieRef<'_, V, A> {
+    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> {
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
@@ -163,14 +170,14 @@ impl<V: Clone + Send + Sync + Unpin> ZipperSubtries<V> for TrieRef<'_, V> {
 
         let root_node = self.get_focus().into_option();
         if root_node.is_some() || root_val.is_some() {
-            Some(BytesTrieMap::new_with_root(root_node, root_val))
+            Some(BytesTrieMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
         } else {
             None
         }
     }
 }
 
-impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for TrieRef<'_, V> {
+impl<V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for TrieRef<'_, V, A> {
     type V = V;
 
     fn get_focus(&self) -> AbstractNodeRef<Self::V> {
@@ -201,7 +208,7 @@ impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for TrieRef<'_, V> {
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for TrieRef<'a, V> {
+impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, V> for TrieRef<'a, V, A> {
     #[inline]
     fn get_value(&self) -> Option<&'a V> {
         if self.is_valid() {
@@ -220,45 +227,45 @@ impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyValues<'a, V> for TrieRef
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlySubtries<'a, V> for TrieRef<'a, V> {
-    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V> {
+impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for TrieRef<'a, V, A> {
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
         if self.is_valid() {
             let path = path.as_ref();
             let node_key = self.node_key();
             if node_key.len() > 0 {
-                trie_ref_at_path(self.focus_node.borrow(), None, node_key, path)
+                trie_ref_at_path_in(self.focus_node.borrow(), None, node_key, path, self.alloc.clone())
             } else {
-                trie_ref_at_path(self.focus_node.borrow(), self.root_val(), &[], path)
+                trie_ref_at_path_in(self.focus_node.borrow(), self.root_val(), &[], path, self.alloc.clone())
             }
         } else {
-            TrieRef::new_invalid()
+            TrieRef::new_invalid_in(self.alloc.clone())
         }
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcrete for TrieRef<'_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for TrieRef<'_, V, A> {
     fn is_shared(&self) -> bool {
         false //We don't have enough info in the TrieRef to get back to the Rc header.  This may change in the future
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin> ZipperReadOnlyPriv<'a, V> for TrieRef<'a, V> {
+impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for TrieRef<'a, V, A> {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
         (self.focus_node.borrow(), self.node_key(), self.root_val())
     }
-    fn take_core(&mut self) -> Option<read_zipper_core::ReadZipperCore<'a, 'static, V>> {
+    fn take_core(&mut self) -> Option<read_zipper_core::ReadZipperCore<'a, 'static, V, A>> {
         None
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for TrieRef<'_, V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for TrieRef<'_, V, A> {
     fn shared_addr(&self) -> Option<FocusAddr> {
         read_zipper_core::read_zipper_shared_addr(self)
     }
 }
 
 /// Internal function to implement [ZipperReadOnly::trie_ref_at_path] for all the types that need it
-pub(crate) fn trie_ref_at_path<'a, 'paths, V: Clone + Send + Sync>(mut node: &'a dyn TrieNode<V>, root_val: Option<&'a V>, node_key: &'paths [u8], mut path: &'paths [u8]) -> TrieRef<'a, V> {
+pub(crate) fn trie_ref_at_path_in<'a, 'paths, V: Clone + Send + Sync, A: Allocator>(mut node: &'a dyn TrieNode<V>, root_val: Option<&'a V>, node_key: &'paths [u8], mut path: &'paths [u8], alloc: A) -> TrieRef<'a, V, A> {
 
     // A temporary buffer on the stack, if we need to assemble a combined key from both the `node_key` and `path`
     let mut temp_key_buf: [MaybeUninit<u8>; MAX_NODE_KEY_BYTES] = [MaybeUninit::uninit(); MAX_NODE_KEY_BYTES];
@@ -300,13 +307,13 @@ pub(crate) fn trie_ref_at_path<'a, 'paths, V: Clone + Send + Sync>(mut node: &'a
     //Descend the rest of the way along the path
     let (node, key, val) = node_along_path(node, path, root_val);
 
-    TrieRef::new_with_node_and_path(node, val, key)
+    TrieRef::new_with_node_and_path_in(node, val, key, alloc)
 }
 
 
 #[cfg(test)]
 mod tests {
-    use crate::{trie_map::BytesTrieMap, utils::ByteMask, zipper::*};
+    use crate::{global_alloc, trie_map::BytesTrieMap, utils::ByteMask, zipper::*};
 
     #[test]
     fn trie_ref_test1() {
@@ -349,40 +356,40 @@ mod tests {
         let map: BytesTrieMap<()> = keys.iter().map(|k| (k, ())).collect();
 
         // With the current node types, there likely isn't any reason the node would be split at "He"
-        let trie_ref = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"He");
+        let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().borrow(), map.root_val(), b"He", global_alloc());
         #[cfg(not(feature = "all_dense_nodes"))]
         assert_eq!(trie_ref.node_key(), b"He");
         assert_eq!(trie_ref.get_value(), None);
         assert_eq!(trie_ref.path_exists(), true);
 
         // "Hel" on the other hand was likely split into its own node
-        let trie_ref = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"Hel");
+        let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().borrow(), map.root_val(), b"Hel", global_alloc());
         assert_eq!(trie_ref.node_key().len(), 0);
         assert_eq!(trie_ref.get_value(), None);
         assert_eq!(trie_ref.path_exists(), true);
 
         // Make sure we get a value at a leaf
-        let trie_ref = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"Help");
+        let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().borrow(), map.root_val(), b"Help", global_alloc());
         assert_eq!(trie_ref.get_value(), Some(&()));
         assert_eq!(trie_ref.path_exists(), true);
 
         // Make sure we get a value in the middle of a path
-        let trie_ref = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"Hell");
+        let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().borrow(), map.root_val(), b"Hell", global_alloc());
         assert_eq!(trie_ref.get_value(), Some(&()));
         assert_eq!(trie_ref.path_exists(), true);
 
         // Try a path that doesn't exist
-        let trie_ref = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"Hi");
+        let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().borrow(), map.root_val(), b"Hi", global_alloc());
         assert_eq!(trie_ref.get_value(), None);
         assert_eq!(trie_ref.path_exists(), false);
 
         // Try a very long path that doesn't exist but is sure to blow the single-node path buffer
-        let trie_ref = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"Hello Mr. Washington, my name is John, but sometimes people call me Jack.  I live in Springfield.");
+        let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().borrow(), map.root_val(), b"Hello Mr. Washington, my name is John, but sometimes people call me Jack.  I live in Springfield.", global_alloc());
         assert_eq!(trie_ref.get_value(), None);
         assert_eq!(trie_ref.path_exists(), false);
 
         //Try using TrieRefs to descend a trie
-        let trie_ref0 = TrieRef::new_with_node_and_path(map.root().unwrap().borrow(), map.root_val(), b"H");
+        let trie_ref0 = TrieRef::new_with_node_and_path_in(map.root().unwrap().borrow(), map.root_val(), b"H", global_alloc());
         assert_eq!(trie_ref0.get_value(), None);
         assert_eq!(trie_ref0.path_exists(), true);
         assert_eq!(trie_ref0.child_count(), 1);

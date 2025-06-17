@@ -1,7 +1,8 @@
 use core::cell::UnsafeCell;
 use std::ptr::slice_from_raw_parts;
 use num_traits::{PrimInt, zero};
-use crate::morphisms::{new_map_from_ana, Catamorphism, TrieBuilder};
+use crate::{Allocator, GlobalAlloc, global_alloc};
+use crate::morphisms::{new_map_from_ana_in, Catamorphism, TrieBuilder};
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, Lattice, LatticeRef, DistributiveLattice, DistributiveLatticeRef, Quantale};
@@ -21,23 +22,103 @@ use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, L
 /// assert_eq!(map.get("two"), Some(&"2".to_string()));
 /// assert!(!map.contains("three"));
 /// ```
-pub struct BytesTrieMap<V: Clone + Send + Sync> {
+pub struct BytesTrieMap<
+    V: Clone + Send + Sync,
+    A: Allocator = GlobalAlloc,
+> {
     pub(crate) root: UnsafeCell<Option<TrieNodeODRc<V>>>,
     pub(crate) root_val: UnsafeCell<Option<V>>,
+    pub(crate) alloc: A,
 }
 
-unsafe impl<V: Clone + Send + Sync> Send for BytesTrieMap<V> {}
-unsafe impl<V: Clone + Send + Sync> Sync for BytesTrieMap<V> {}
+unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for BytesTrieMap<V, A> {}
+unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for BytesTrieMap<V, A> {}
 
-impl<V: Clone + Send + Sync + Unpin> Clone for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> Clone for BytesTrieMap<V, A> {
     fn clone(&self) -> Self {
         let root_ref = unsafe{ &*self.root.get() };
         let root_val_ref = unsafe{ &*self.root_val.get() };
-        Self::new_with_root(root_ref.clone(), root_val_ref.clone())
+        Self::new_with_root_in(root_ref.clone(), root_val_ref.clone(), self.alloc.clone())
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V, GlobalAlloc> {
+    /// Creates a new empty map
+    #[inline]
+    pub const fn new() -> Self {
+        Self::new_with_root_in(None, None, global_alloc())
+    }
+
+    /// Creates a new single-element pathmap
+    #[inline]
+    pub fn single<P: AsRef<[u8]>>(path: P, val: V) -> Self {
+        Self::from((path, val))
+    }
+
+    /// Creates a new `PathMap` by evaluating the specified anamorphism
+    ///
+    /// `alg_f`: `alg(w: W, val: &mut Option<V>, children: &mut ChildBuilder<W>, path: &[u8])`
+    /// generates the value downstream and downstream children from a path
+    ///
+    /// Setting the `val` option to `Some` within the closure sets the value at the current path.
+    ///
+    /// The example below creates a trie with binary tree, 3 levels deep, where each level has a 'L'
+    /// and an 'R' branch, and the leaves have a unit value.
+    /// ```
+    /// # use pathmap::trie_map::BytesTrieMap;
+    /// let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
+    ///     if idx > 0 {
+    ///         children.push(b"L", idx - 1);
+    ///         children.push(b"R", idx - 1);
+    ///     } else {
+    ///         *val = Some(());
+    ///     }
+    /// });
+    /// ```
+    pub fn new_from_ana<W, AlgF>(w: W, alg_f: AlgF) -> Self
+        where
+        V: 'static,
+        W: Default,
+        AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W, GlobalAlloc>, &[u8])
+    {
+        Self::new_from_ana_in(w, alg_f, global_alloc())
+    }
+
+    /// GOAT, this method doesn't belong here!
+    pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> Self {
+        // #[cfg(feature = "all_dense_nodes")]
+        // we can extremely efficiently generate ranges, but currently we're limited to range(0, BASE**j, k < BASE)
+        // let root = crate::dense_byte_node::_so_range(step as u8, 4);
+        // BytesTrieMap::<()>::new_with_root(root)
+        //fallback
+
+        //GOAT, this method is highly sub-optimal.  It should be possible to populate a range in log n time,
+        // rather than linear time.  Adam has already written code for this, but it's specific to the DenseByteNode
+        // and is commented out in that file
+        let mut new_map = Self::new();
+        let mut zipper = new_map.write_zipper();
+
+        let mut i = start;
+        let positive = step > zero();
+        loop {
+            if positive { if i >= stop { break } }
+            else { if i <= step { break } }
+            // println!("{}", i);
+            if BE { zipper.descend_to(i.to_be_bytes()); }
+            else { zipper.descend_to(i.to_le_bytes()); }
+            zipper.set_value(value.clone());
+            zipper.reset();
+
+            i += step;
+        }
+        drop(zipper);
+
+        new_map
+    }
+
+}
+
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     #[inline]
     pub(crate) fn root(&self) -> Option<&TrieNodeODRc<V>> {
         unsafe{ &*self.root.get() }.as_ref()
@@ -77,56 +158,42 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         *root_ref = Some(root);
     }
 
-    /// Creates a new empty map
+    /// Creates a new empty map in the specified allocator
     #[inline]
-    pub const fn new() -> Self {
-        Self::new_with_root(None, None)
+    pub const fn new_in(alloc: A) -> Self {
+        Self::new_with_root_in(None, None, alloc)
     }
 
-    /// Creates a new single-element pathmap
+    /// Creates a new single-element pathmap in the specified allocator
     #[inline]
-    pub fn single<P: AsRef<[u8]>>(path: P, val: V) -> Self {
-        Self::from((path, val))
+    pub fn single_in<P: AsRef<[u8]>>(path: P, val: V, alloc: A) -> Self {
+        let mut map = Self::new_in(alloc);
+        map.insert(path, val);
+        map
+    }
+
+    /// See [`new_from_ana`](Self::new_from_ana) for description of behavior
+    pub fn new_from_ana_in<W, AlgF>(w: W, alg_f: AlgF, alloc: A) -> Self
+        where
+        V: 'static,
+        W: Default,
+        AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W, A>, &[u8])
+    {
+        new_map_from_ana_in(w, alg_f, alloc)
     }
 
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
     #[inline]
-    pub(crate) const fn new_with_root(root_node: Option<TrieNodeODRc<V>>, root_val: Option<V>) -> Self {
+    pub(crate) const fn new_with_root_in(
+        root_node: Option<TrieNodeODRc<V>>,
+        root_val: Option<V>,
+        alloc: A
+    ) -> Self {
         Self {
             root: UnsafeCell::new(root_node),
             root_val: UnsafeCell::new(root_val),
+            alloc
         }
-    }
-
-    pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
-        // #[cfg(feature = "all_dense_nodes")]
-        // we can extremely efficiently generate ranges, but currently we're limited to range(0, BASE**j, k < BASE)
-        // let root = crate::dense_byte_node::_so_range(step as u8, 4);
-        // BytesTrieMap::<()>::new_with_root(root)
-        //fallback
-
-        //GOAT, this method is highly sub-optimal.  It should be possible to populate a range in log n time,
-        // rather than linear time.  Adam has already written code for this, but it's specific to the DenseByteNode
-        // and is commented out in that file
-        let mut new_map = Self::new();
-        let mut zipper = new_map.write_zipper();
-
-        let mut i = start;
-        let positive = step > zero();
-        loop {
-            if positive { if i >= stop { break } }
-            else { if i <= step { break } }
-            // println!("{}", i);
-            if BE { zipper.descend_to(i.to_be_bytes()); }
-            else { zipper.descend_to(i.to_le_bytes()); }
-            zipper.set_value(value.clone());
-            zipper.reset();
-
-            i += step;
-        }
-        drop(zipper);
-
-        new_map
     }
 
     /// Internal Method.  Removes and returns the root node and root_val from a BytesTrieMap
@@ -144,60 +211,31 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         (root_node, root_val)
     }
 
-    /// Creates a new `PathMap` by evaluating the specified anamorphism
-    ///
-    /// `alg_f`: `alg(w: W, val: &mut Option<V>, children: &mut ChildBuilder<W>, path: &[u8])`
-    /// generates the value downstream and downstream children from a path
-    ///
-    /// Setting the `val` option to `Some` within the closure sets the value at the current path.
-    ///
-    /// The example below creates a trie with binary tree, 3 levels deep, where each level has a 'L'
-    /// and an 'R' branch, and the leaves have a unit value.
-    /// ```
-    /// # use pathmap::trie_map::BytesTrieMap;
-    /// let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
-    ///     if idx > 0 {
-    ///         children.push(b"L", idx - 1);
-    ///         children.push(b"R", idx - 1);
-    ///     } else {
-    ///         *val = Some(());
-    ///     }
-    /// });
-    /// ```
-    pub fn new_from_ana<W, AlgF>(w: W, alg_f: AlgF) -> Self
-        where
-        V: 'static,
-        W: Default,
-        AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W>, &[u8])
-    {
-        new_map_from_ana(w, alg_f)
-    }
-
     /// Creates a new [TrieRef], referring to a position from the root of the `BytesTrieMap`
-    pub fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'_, V> {
+    pub fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'_, V, A> {
         self.ensure_root();
         let path = path.as_ref();
-        trie_ref_at_path(self.root().unwrap().borrow(), self.root_val(), &[], path)
+        trie_ref_at_path_in(self.root().unwrap().borrow(), self.root_val(), &[], path, self.alloc.clone())
     }
 
     /// Creates a new read-only [Zipper], starting at the root of a `BytesTrieMap`
-    pub fn read_zipper<'a>(&'a self) -> ReadZipperUntracked<'a, 'static, V> {
+    pub fn read_zipper<'a>(&'a self) -> ReadZipperUntracked<'a, 'static, V, A> {
         self.ensure_root();
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path_internal(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val, None)
+            ReadZipperUntracked::new_with_node_and_path_internal_in(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_path_internal(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val)
+            ReadZipperUntracked::new_with_node_and_path_internal_in(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val, self.alloc.clone())
         }
     }
 
     /// Creates a new read-only [Zipper], with the specified path from the root of the map; This method is much more
     /// efficient than [read_zipper_at_path](Self::read_zipper_at_path), but means the resulting zipper is bound by
     /// the `'path` lifetime
-    pub fn read_zipper_at_borrowed_path<'path>(&self, path: &'path[u8]) -> ReadZipperUntracked<'_, 'path, V> {
+    pub fn read_zipper_at_borrowed_path<'path>(&self, path: &'path[u8]) -> ReadZipperUntracked<'_, 'path, V, A> {
         self.ensure_root();
         let root_val = match path.len() == 0 {
             true => unsafe{ &*self.root_val.get() }.as_ref(),
@@ -205,16 +243,16 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, None)
+            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_path(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val)
+            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone())
         }
     }
 
     /// Creates a new read-only [Zipper], with the `path` specified from the root of the map
-    pub fn read_zipper_at_path<K: AsRef<[u8]>>(&self, path: K) -> ReadZipperUntracked<'_, 'static, V> {
+    pub fn read_zipper_at_path<K: AsRef<[u8]>>(&self, path: K) -> ReadZipperUntracked<'_, 'static, V, A> {
         self.ensure_root();
         let path = path.as_ref();
         let root_val = match path.len() == 0 {
@@ -223,31 +261,31 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().unwrap().borrow(), path, path.len(), 0, root_val, None)
+            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().borrow(), path, path.len(), 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path(self.root().unwrap().borrow(), path, path.len(), 0, root_val)
+            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().borrow(), path, path.len(), 0, root_val, self.alloc.clone())
         }
     }
 
     /// Creates a new [write zipper](ZipperWriting) starting at the root of a BytesTrieMap
-    pub fn write_zipper(&mut self) -> WriteZipperUntracked<'_, 'static, V> {
+    pub fn write_zipper(&mut self) -> WriteZipperUntracked<'_, 'static, V, A> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
         let root_val = self.root_val.get_mut();
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], 0, None)
+            WriteZipperUntracked::new_with_node_and_path_internal_in(root_node, Some(root_val), &[], 0, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path_internal(root_node, Some(root_val), &[], 0)
+            WriteZipperUntracked::new_with_node_and_path_internal_in(root_node, Some(root_val), &[], 0, self.alloc.clone())
         }
     }
 
     /// Creates a new [write zipper](ZipperWriting) with the specified path from the root of the map
-    pub fn write_zipper_at_path<'a, 'path>(&'a mut self, path: &'path[u8]) -> WriteZipperUntracked<'a, 'path, V> {
+    pub fn write_zipper_at_path<'a, 'path>(&'a mut self, path: &'path[u8]) -> WriteZipperUntracked<'a, 'path, V, A> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
         let root_val = match path.len() == 0 {
@@ -256,38 +294,38 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         };
         #[cfg(debug_assertions)]
         {
-            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, path.len(), 0, None)
+            WriteZipperUntracked::new_with_node_and_path_in(root_node, root_val, path, path.len(), 0, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            WriteZipperUntracked::new_with_node_and_path(root_node, root_val, path, path.len(), 0)
+            WriteZipperUntracked::new_with_node_and_path_in(root_node, root_val, path, path.len(), 0, self.alloc.clone())
         }
     }
 
     /// Creates a [ZipperHead] at the root of the map
-    pub fn zipper_head(&mut self) -> ZipperHead<'_, '_, V> {
+    pub fn zipper_head(&mut self) -> ZipperHead<'_, '_, V, A> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
         let root_val = self.root_val.get_mut();
-        let z = WriteZipperCore::new_with_node_and_path_internal(root_node, Some(root_val), &[], 0);
+        let z = WriteZipperCore::new_with_node_and_path_internal_in(root_node, Some(root_val), &[], 0, self.alloc.clone());
         z.into_zipper_head()
     }
 
     /// Transforms the map into a [Zipper], which is handy when you need to embed the zipper in another
     /// struct without a lifetime parameter
-    pub fn into_read_zipper<K: AsRef<[u8]>>(self, path: K) -> ReadZipperOwned<V> {
+    pub fn into_read_zipper<K: AsRef<[u8]>>(self, path: K) -> ReadZipperOwned<V, A> {
         ReadZipperOwned::new_with_map(self, path)
     }
 
     /// Transforms the map into a [WriteZipperOwned], which is handy when you need to embed the zipper
     /// in another struct without a lifetime parameter
-    pub fn into_write_zipper<K: AsRef<[u8]>>(self, path: K) -> WriteZipperOwned<V> {
+    pub fn into_write_zipper<K: AsRef<[u8]>>(self, path: K) -> WriteZipperOwned<V, A> {
         WriteZipperOwned::new_with_map(self, path)
     }
 
     /// Transforms the map into a [ZipperHead] that owns the map's contents.  This is handy when the
     /// ZipperHead needs to be part of another structure
-    pub fn into_zipper_head<K: AsRef<[u8]>>(self, path: K) -> ZipperHeadOwned<V> {
+    pub fn into_zipper_head<K: AsRef<[u8]>>(self, path: K) -> ZipperHeadOwned<V, A> {
         let path = path.as_ref();
         let mut wz = self.into_write_zipper(&path);
         if path.len() > 0 {
@@ -301,20 +339,6 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     /// NOTE: This is much less efficient than using the [read_zipper](Self::read_zipper) method
     pub fn iter<'a>(&'a self) -> impl Iterator<Item=(Vec<u8>, &'a V)> + 'a {
         self.read_zipper().into_iter()
-    }
-
-    /// Returns a [crate::old_cursor::PathMapCursor] to traverse all key-value pairs within the map. This
-    /// is more efficient than using [iter](Self::iter), but is not compatible with the [Iterator] trait
-    ///
-    /// WARNING: This API will be deprecated in favor of the [read_zipper](Self::read_zipper) method
-    pub fn cursor<'a>(&'a self) -> crate::old_cursor::PathMapCursor<'a, V> {
-        crate::old_cursor::PathMapCursor::new(self)
-    }
-
-    /// Returns an [crate::old_cursor::AllDenseCursor], which behaves exactly like a [crate::old_cursor::PathMapCursor],
-    /// but is only available with the `all_dense_nodes` feature.  This is mainly kept for benchmarking.
-    pub fn all_dense_cursor<'a>(&'a self) -> crate::old_cursor::AllDenseCursor<'a, V> {
-        crate::old_cursor::AllDenseCursor::new(self)
     }
 
     /// Returns `true` if the map contains a value at the specified key, otherwise returns `false`
@@ -429,12 +453,12 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
 
     /// Returns a new `BytesTrieMap` containing the union of the paths in `self` and the paths in `other`
     pub fn join(&self, other: &Self) -> Self where V: Lattice {
-        result_into_map(self.pjoin(other), self, other)
+        result_into_map(self.pjoin(other), self, other, self.alloc.clone())
     }
 
     /// Returns a new `BytesTrieMap` containing the intersection of the paths in `self` and the paths in `other`
     pub fn meet(&self, other: &Self) -> Self where V: Lattice {
-        result_into_map(self.pmeet(other), self, other)
+        result_into_map(self.pmeet(other), self, other, self.alloc.clone())
     }
 
     /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
@@ -450,14 +474,14 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
         let self_root = self.root();
         let other_root = other.root();
         if self_root.is_none() || other_root.is_none() {
-            Self::new()
+            Self::new_in(self.alloc.clone())
         } else {
             match self_root.unwrap().borrow().prestrict_dyn(other_root.unwrap().borrow()) {
-                AlgebraicResult::Element(new_root) => Self::new_with_root(Some(new_root), None),
-                AlgebraicResult::None => Self::new(),
+                AlgebraicResult::Element(new_root) => Self::new_with_root_in(Some(new_root), None, self.alloc.clone()),
+                AlgebraicResult::None => Self::new_in(self.alloc.clone()),
                 AlgebraicResult::Identity(mask) => {
                     debug_assert_eq!(mask, SELF_IDENT);
-                    Self::new_with_root(Some(self.root().cloned().unwrap()), None)
+                    Self::new_with_root_in(Some(self.root().cloned().unwrap()), None, self.alloc.clone())
                 }
             }
         }
@@ -485,7 +509,24 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
             AlgebraicResult::None => None,
         };
 
-        Self::new_with_root(subtracted_root_node, subtracted_root_val)
+        Self::new_with_root_in(subtracted_root_node, subtracted_root_val, self.alloc.clone())
+    }
+}
+
+
+impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
+    /// Returns a [crate::old_cursor::PathMapCursor] to traverse all key-value pairs within the map. This
+    /// is more efficient than using [iter](Self::iter), but is not compatible with the [Iterator] trait
+    ///
+    /// WARNING: This API will be deprecated in favor of the [read_zipper](Self::read_zipper) method
+    pub fn cursor<'a>(&'a self) -> crate::old_cursor::PathMapCursor<'a, V> {
+        crate::old_cursor::PathMapCursor::new(self)
+    }
+
+    /// Returns an [crate::old_cursor::AllDenseCursor], which behaves exactly like a [crate::old_cursor::PathMapCursor],
+    /// but is only available with the `all_dense_nodes` feature.  This is mainly kept for benchmarking.
+    pub fn all_dense_cursor<'a>(&'a self) -> crate::old_cursor::AllDenseCursor<'a, V> {
+        crate::old_cursor::AllDenseCursor::new(self)
     }
 }
 
@@ -508,10 +549,10 @@ impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> From<(K, V)> for BytesTrieM
 }
 
 /// Internal function to convert an AlgebraicResult (partial lattice result) into a BytesTrieMap
-fn result_into_map<V: Clone + Send + Sync + Unpin>(result: AlgebraicResult<BytesTrieMap<V>>, self_map: &BytesTrieMap<V>, other_map: &BytesTrieMap<V>) -> BytesTrieMap<V> {
+fn result_into_map<V: Clone + Send + Sync + Unpin, A: Allocator>(result: AlgebraicResult<BytesTrieMap<V, A>>, self_map: &BytesTrieMap<V, A>, other_map: &BytesTrieMap<V, A>, result_region: A) -> BytesTrieMap<V, A> {
     match result {
         AlgebraicResult::Element(new_map) => new_map,
-        AlgebraicResult::None => BytesTrieMap::new(),
+        AlgebraicResult::None => BytesTrieMap::new_in(result_region),
         AlgebraicResult::Identity(mask) => {
             if mask & SELF_IDENT > 0 {
                 self_map.clone()
@@ -523,7 +564,7 @@ fn result_into_map<V: Clone + Send + Sync + Unpin>(result: AlgebraicResult<Bytes
     }
 }
 
-impl<V: Clone + Lattice + Send + Sync + Unpin> Lattice for BytesTrieMap<V> {
+impl<V: Clone + Lattice + Send + Sync + Unpin, A: Allocator> Lattice for BytesTrieMap<V, A> {
     fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
         let joined_node = self.root().pjoin(&other.root());
         let joined_root_val = self.root_val().pjoin(&other.root_val());
@@ -540,7 +581,7 @@ impl<V: Clone + Lattice + Send + Sync + Unpin> Lattice for BytesTrieMap<V> {
                 _ => unreachable!()
             }
         }, |root_node, root_val| {
-            AlgebraicResult::Element(Self::new_with_root(root_node.flatten(), root_val.flatten()))
+            AlgebraicResult::Element(Self::new_with_root_in(root_node.flatten(), root_val.flatten(), self.alloc.clone()))
         })
     }
     fn join_into(&mut self, other: Self) -> AlgebraicStatus {
@@ -580,15 +621,16 @@ impl<V: Clone + Lattice + Send + Sync + Unpin> Lattice for BytesTrieMap<V> {
                 _ => unreachable!()
             }
         }, |root_node, root_val| {
-            AlgebraicResult::Element(Self::new_with_root(root_node.flatten(), root_val.flatten()))
+            AlgebraicResult::Element(Self::new_with_root_in(root_node.flatten(), root_val.flatten(), self.alloc.clone()))
         })
     }
-    fn bottom() -> Self {
-        BytesTrieMap::new()
-    }
+    //GOAT trash
+    // fn bottom() -> Self {
+    //     BytesTrieMap::new()
+    // }
 }
 
-impl<V: Clone + Send + Sync + Unpin + DistributiveLattice> DistributiveLattice for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin + DistributiveLattice, A: Allocator> DistributiveLattice for BytesTrieMap<V, A> {
     fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
         let subtract_node = self.root().psubtract(&other.root());
         let subtract_root_val = self.root_val().psubtract(&other.root_val());
@@ -605,12 +647,12 @@ impl<V: Clone + Send + Sync + Unpin + DistributiveLattice> DistributiveLattice f
                 _ => unreachable!()
             }
         }, |root_node, root_val| {
-            AlgebraicResult::Element(Self::new_with_root(root_node.flatten(), root_val.flatten()))
+            AlgebraicResult::Element(Self::new_with_root_in(root_node.flatten(), root_val.flatten(), self.alloc.clone()))
         })
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Quantale for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> Quantale for BytesTrieMap<V, A> {
     fn prestrict(&self, other: &Self) -> AlgebraicResult<Self> {
         if other.root_val().is_some() {
             return AlgebraicResult::Identity(SELF_IDENT)
@@ -618,11 +660,11 @@ impl<V: Clone + Send + Sync + Unpin> Quantale for BytesTrieMap<V> {
         match (self.root(), other.root()) {
             (Some(self_root), Some(other_root)) => {
                 match self_root.prestrict(other_root) {
-                    AlgebraicResult::Element(new_root) => AlgebraicResult::Element(Self::new_with_root(Some(new_root), None)),
+                    AlgebraicResult::Element(new_root) => AlgebraicResult::Element(Self::new_with_root_in(Some(new_root), None, self.alloc.clone())),
                     AlgebraicResult::Identity(mask) => {
                         debug_assert_eq!(mask, SELF_IDENT);
                         if self.root_val().is_some() {
-                            AlgebraicResult::Element(Self::new_with_root(Some(self_root.clone()), None))
+                            AlgebraicResult::Element(Self::new_with_root_in(Some(self_root.clone()), None, self.alloc.clone()))
                         } else {
                             AlgebraicResult::Identity(SELF_IDENT)
                         }

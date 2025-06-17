@@ -65,6 +65,7 @@ use core::convert::Infallible;
 use reusing_vec::ReusingQueue;
 
 use crate::utils::*;
+use crate::Allocator;
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::TrieNodeODRc;
 use crate::zipper;
@@ -633,7 +634,7 @@ impl<W> Stack<W> {
     }
 }
 
-pub(crate) fn new_map_from_ana_jumping<'a, V, WZ : ZipperWriting<V> + zipper::ZipperMoving, W, CoAlgF, I>(wz: &mut WZ, w: W, mut coalg_f: CoAlgF)
+pub(crate) fn new_map_from_ana_jumping<'a, V, A: Allocator, WZ: ZipperWriting<V, A> + zipper::ZipperMoving, W, CoAlgF, I>(wz: &mut WZ, w: W, mut coalg_f: CoAlgF)
 where
     V: 'static + Clone + Send + Sync + Unpin,
     W: Default,
@@ -862,21 +863,21 @@ fn into_cata_jumping_naive<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>
 }
 
 /// Internal function to generate a new root trie node from an anamorphism
-pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMap<V>
+pub(crate) fn new_map_from_ana_in<V, W, AlgF, A: Allocator>(w: W, mut alg_f: AlgF, alloc: A) -> BytesTrieMap<V, A>
     where
     V: 'static + Clone + Send + Sync + Unpin,
     W: Default,
-    AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W>, &[u8])
+    AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W, A>, &[u8])
 {
-    let mut stack = Vec::<(TrieBuilder<V, W>, usize)>::with_capacity(12);
+    let mut stack = Vec::<(TrieBuilder<V, W, A>, usize)>::with_capacity(12);
     let mut frame_idx = 0;
 
-    let mut new_map = BytesTrieMap::new();
+    let mut new_map = BytesTrieMap::new_in(alloc.clone());
     let mut z = new_map.write_zipper();
     let mut val = None;
 
     //The root is a special case
-    stack.push((TrieBuilder::<V, W>::new(), 0));
+    stack.push((TrieBuilder::<V, W, A>::new_in(alloc.clone()), 0));
     alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
     stack[frame_idx].0.finalize();
     if let Some(val) = core::mem::take(&mut val) {
@@ -920,7 +921,7 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
                     debug_assert!(frame_idx < stack.len());
                     frame_idx += 1;
                     if frame_idx == stack.len() {
-                        stack.push((TrieBuilder::<V, W>::new(), child_path_len));
+                        stack.push((TrieBuilder::<V, W, A>::new_in(alloc.clone()), child_path_len));
                     } else {
                         stack[frame_idx].0.reset();
                         stack[frame_idx].1 = child_path_len;
@@ -962,11 +963,12 @@ pub(crate) fn new_map_from_ana<V, W, AlgF>(w: W, mut alg_f: AlgF) -> BytesTrieMa
 //
 //GOAT, If we exposed an interface that allowed values to be set in bulk, (e.g. with a mask), we could
 // plumb it straight through to a node interface
-pub struct TrieBuilder<V: Clone + Send + Sync, W> {
+pub struct TrieBuilder<V: Clone + Send + Sync, W, A: Allocator> {
     child_mask: [u64; 4],
     cur_mask_word: usize,
     child_paths: ReusingQueue<Vec<u8>>,
     child_structs: ReusingQueue<WOrNode<V, W>>,
+    _alloc: A,
 }
 
 /// Internal structure 
@@ -985,14 +987,16 @@ impl<V: Clone + Send + Sync, W: Default> Default for WOrNode<V, W> {
     }
 }
 
-impl<V: Clone + Send + Sync, W: Default> TrieBuilder<V, W> {
+impl<V: Clone + Send + Sync, W: Default, A: Allocator> TrieBuilder<V, W, A> {
     /// Internal method to make a new empty `TrieBuilder`
-    fn new() -> Self {
+    fn new_in(alloc: A) -> Self {
         Self {
             child_mask: [0u64; 4],
             cur_mask_word: 0,
             child_paths: ReusingQueue::new(),
-            child_structs: ReusingQueue::new() }
+            child_structs: ReusingQueue::new(),
+            _alloc: alloc,
+        }
     }
     /// Internal method.  Clears a builder without freeing its memory
     fn reset(&mut self) {
@@ -1175,7 +1179,7 @@ impl<V: Clone + Send + Sync, W: Default> TrieBuilder<V, W> {
     ///
     /// WARNING: This method is incompatible with [Self::set_child_mask] and must follow the same
     /// rules as [Self::push_byte]
-    pub fn graft_at_byte<Z: ZipperSubtries<V>>(&mut self, byte: u8, read_zipper: &Z) {
+    pub fn graft_at_byte<Z: ZipperSubtries<V, A>>(&mut self, byte: u8, read_zipper: &Z) {
         let mask_word = (byte / 64) as usize;
         if mask_word < self.cur_mask_word {
             panic!("children must be pushed in sorted order")

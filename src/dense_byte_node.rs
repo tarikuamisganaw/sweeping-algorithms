@@ -1749,9 +1749,6 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     fn convert(other: OtherCf) -> Self {
         Self::from_cf(other)
     }
-    fn bottom() -> Self {
-        Self::default()
-    }
 }
 
 impl<V: Clone + Send + Sync + DistributiveLattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> HeteroDistributiveLattice<OtherCf> for Cf {
@@ -2139,9 +2136,6 @@ impl<V: Clone + Send + Sync + Lattice, Cf: CoFree<V=V>, OtherCf: CoFree<V=V>> He
     fn convert(other: ByteNode<OtherCf>) -> Self {
         let values = other.values.into_iter().map(|other_cf| Cf::convert(other_cf)).collect();
         Self::new_with_fields(other.mask, values)
-    }
-    fn bottom() -> Self {
-        Self::default()
     }
 }
 

@@ -1750,9 +1750,10 @@ impl<V: Lattice + Clone + Send + Sync> Lattice for Option<TrieNodeODRc<V>> {
             }
         }
     }
-    fn bottom() -> Self {
-        None
-    }
+    //GOAT trash
+    // fn bottom() -> Self {
+    //     None
+    // }
 }
 
 impl<V: Lattice + Clone + Send + Sync> LatticeRef for Option<&TrieNodeODRc<V>> {

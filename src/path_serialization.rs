@@ -3,6 +3,7 @@
 use libz_ng_sys::*;
 use crate::trie_map::BytesTrieMap;
 use crate::TrieValue;
+use crate::Allocator;
 use crate::zipper::{ZipperReadOnlyIteration, ZipperWriting};
 
 #[derive(Debug, Clone, Copy)]
@@ -88,13 +89,13 @@ pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperReadOnlyIteration<'a, V>, W
   })
 }
 
-pub fn deserialize_paths_<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read>(wz: WZ, source: R, v: V) -> std::io::Result<DeserializationStats> {
+pub fn deserialize_paths_<V: TrieValue, A: Allocator, WZ : ZipperWriting<V, A>, R: std::io::Read>(wz: WZ, source: R, v: V) -> std::io::Result<DeserializationStats> {
   deserialize_paths(wz, source, |_, _| v.clone())
 }
 
 /// Deserialize bytes that were serialized by `serialize_paths` under path `k`
 /// Returns the source input, total deserialized bytes (uncompressed), and total number of path insert attempts
-pub fn deserialize_paths<V : TrieValue, WZ : ZipperWriting<V>, R: std::io::Read, F: Fn(usize, &[u8]) -> V>(mut wz: WZ, mut source: R, fv: F) -> std::io::Result<DeserializationStats> {
+pub fn deserialize_paths<V : TrieValue, A: Allocator, WZ : ZipperWriting<V, A>, R: std::io::Read, F: Fn(usize, &[u8]) -> V>(mut wz: WZ, mut source: R, fv: F) -> std::io::Result<DeserializationStats> {
   use libz_ng_sys::*;
   const IN: usize = 1024;
   const OUT: usize = 2048;
