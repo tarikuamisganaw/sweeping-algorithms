@@ -5,6 +5,7 @@
 use crate::trie_map::BytesTrieMap;
 use crate::trie_node::{TaggedNodeRef, NODE_ITER_FINISHED};
 use crate::dense_byte_node::{DenseByteNode, OrdinaryCoFree, CoFree};
+use crate::GlobalAlloc;
 
 /// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
 /// returned reference may exist at a given time
@@ -71,11 +72,11 @@ impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
 pub struct ByteTrieNodeIter<'a, V: Clone + Send + Sync> {
     i: u8,
     w: u64,
-    btn: &'a DenseByteNode<V>
+    btn: &'a DenseByteNode<V, GlobalAlloc>
 }
 
 impl <'a, V: Clone + Send + Sync> ByteTrieNodeIter<'a, V> {
-    fn new(btn: &'a DenseByteNode<V>) -> Self {
+    fn new(btn: &'a DenseByteNode<V, GlobalAlloc>) -> Self {
         Self {
             i: 0,
             w: btn.mask.0[0],
@@ -85,9 +86,9 @@ impl <'a, V: Clone + Send + Sync> ByteTrieNodeIter<'a, V> {
 }
 
 impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
-    type Item = (u8, &'a OrdinaryCoFree<V>);
+    type Item = (u8, &'a OrdinaryCoFree<V, GlobalAlloc>);
 
-    fn next(&mut self) -> Option<(u8, &'a OrdinaryCoFree<V>)> {
+    fn next(&mut self) -> Option<(u8, &'a OrdinaryCoFree<V, GlobalAlloc>)> {
         loop {
             if self.w != 0 {
                 let wi = self.w.trailing_zeros() as u8;
@@ -248,7 +249,7 @@ impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
 
 pub struct PathMapCursor<'a, V: Clone + Send + Sync> {
     prefix_buf: Vec<u8>,
-    btnis: Vec<(TaggedNodeRef<'a, V>, u128, usize)>,
+    btnis: Vec<(TaggedNodeRef<'a, V, GlobalAlloc>, u128, usize)>,
 }
 
 impl <'a, V : Clone + Send + Sync + Unpin> PathMapCursor<'a, V> {

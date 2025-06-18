@@ -26,7 +26,7 @@ pub struct BytesTrieMap<
     V: Clone + Send + Sync,
     A: Allocator = GlobalAlloc,
 > {
-    pub(crate) root: UnsafeCell<Option<TrieNodeODRc<V>>>,
+    pub(crate) root: UnsafeCell<Option<TrieNodeODRc<V, A>>>,
     pub(crate) root_val: UnsafeCell<Option<V>>,
     pub(crate) alloc: A,
 }
@@ -120,7 +120,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V, GlobalAlloc> {
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     #[inline]
-    pub(crate) fn root(&self) -> Option<&TrieNodeODRc<V>> {
+    pub(crate) fn root(&self) -> Option<&TrieNodeODRc<V, A>> {
         unsafe{ &*self.root.get() }.as_ref()
     }
     #[inline]
@@ -132,7 +132,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         unsafe{ &mut *self.root_val.get() }
     }
     #[inline]
-    pub(crate) fn get_or_init_root_mut(&mut self) -> &mut TrieNodeODRc<V> {
+    pub(crate) fn get_or_init_root_mut(&mut self) -> &mut TrieNodeODRc<V, A> {
         self.ensure_root();
         self.root.get_mut().as_mut().unwrap()
     }
@@ -148,11 +148,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     #[cold]
     fn do_init_root(&self) {
         #[cfg(feature = "all_dense_nodes")]
-        let root = TrieNodeODRc::new(crate::dense_byte_node::DenseByteNode::<V>::new());
+        let root = TrieNodeODRc::new_in(crate::dense_byte_node::DenseByteNode::<V, A>::new_in(self.alloc.clone()), self.alloc.clone());
         #[cfg(feature = "bridge_nodes")]
-        let root = TrieNodeODRc::new(crate::bridge_node::BridgeNode::new_empty());
+        let root = TrieNodeODRc::new_in(crate::bridge_node::BridgeNode::new_empty(), self.alloc.clone());
         #[cfg(not(any(feature = "all_dense_nodes", feature = "bridge_nodes")))]
-        let root = TrieNodeODRc::new(crate::line_list_node::LineListNode::new());
+        let root = TrieNodeODRc::new_in(crate::line_list_node::LineListNode::new_in(self.alloc.clone()), self.alloc.clone());
 
         let root_ref = unsafe{ &mut *self.root.get() };
         *root_ref = Some(root);
@@ -185,7 +185,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
     #[inline]
     pub(crate) const fn new_with_root_in(
-        root_node: Option<TrieNodeODRc<V>>,
+        root_node: Option<TrieNodeODRc<V, A>>,
         root_val: Option<V>,
         alloc: A
     ) -> Self {
@@ -198,7 +198,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
 
     /// Internal Method.  Removes and returns the root node and root_val from a BytesTrieMap
     #[inline]
-    pub(crate) fn into_root(self) -> (Option<TrieNodeODRc<V>>, Option<V>) {
+    pub(crate) fn into_root(self) -> (Option<TrieNodeODRc<V, A>>, Option<V>) {
         let root_node = match self.root() {
             Some(root) => if !root.borrow().node_is_empty() {
                 self.root.into_inner()

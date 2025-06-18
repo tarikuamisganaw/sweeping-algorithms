@@ -967,17 +967,17 @@ pub struct TrieBuilder<V: Clone + Send + Sync, W, A: Allocator> {
     child_mask: [u64; 4],
     cur_mask_word: usize,
     child_paths: ReusingQueue<Vec<u8>>,
-    child_structs: ReusingQueue<WOrNode<V, W>>,
+    child_structs: ReusingQueue<WOrNode<V, W, A>>,
     _alloc: A,
 }
 
 /// Internal structure 
-enum WOrNode<V: Clone + Send + Sync, W> {
+enum WOrNode<V: Clone + Send + Sync, W, A: Allocator> {
     W(W),
-    Node(TrieNodeODRc<V>)
+    Node(TrieNodeODRc<V, A>)
 }
 
-impl<V: Clone + Send + Sync, W: Default> Default for WOrNode<V, W> {
+impl<V: Clone + Send + Sync, W: Default, A: Allocator> Default for WOrNode<V, W, A> {
     fn default() -> Self {
         //GOAT, the default impl here is mainly to facilitate core::mem::take, therefore, the default
         // should be the cheapest thing to create.  At some point that will be a TrieNodeODRc pointing
@@ -1013,7 +1013,7 @@ impl<V: Clone + Send + Sync, W: Default, A: Allocator> TrieBuilder<V, W, A> {
         }
     }
     /// Internal method to get the next child from the builder in the push order.  Used by the anamorphism
-    fn take_next(&mut self) -> Option<WOrNode<V, W>> {
+    fn take_next(&mut self) -> Option<WOrNode<V, W, A>> {
         self.child_structs.pop_front().map(|element| core::mem::take(element))
     }
     /// Internal method.  After [Self::take_next] returns `Some`, this method will return the first byte of the

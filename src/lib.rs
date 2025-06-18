@@ -72,7 +72,7 @@ mod old_cursor;
 
 /// Wrapper around `std::alloc::Allocator` trait, shims to the `allocator_api` on nightly, does nothing on `stable`
 #[cfg(not(feature = "nightly"))]
-pub trait Allocator: Clone {}
+pub trait Allocator: Clone + Send + Sync {}
 
 #[cfg(not(feature = "nightly"))]
 impl Allocator for () {}
@@ -87,10 +87,10 @@ pub const fn global_alloc() -> GlobalAlloc {()}
 
 /// Wrapper around `std::alloc::Allocator` trait, shims to the `allocator_api` on nightly, does nothing on `stable`
 #[cfg(feature = "nightly")]
-pub trait Allocator: std::alloc::Allocator + Clone {}
+pub trait Allocator: std::alloc::Allocator + Clone + Send + Sync {}
 
 #[cfg(feature = "nightly")]
-impl<T> Allocator for T where T: std::alloc::Allocator + Clone {}
+impl<T> Allocator for T where T: std::alloc::Allocator + Clone + Send + Sync {}
 
 /// Wrapper around `std::alloc::Global`, shims to the `allocator_api` on nightly, does nothing on `stable`
 #[cfg(feature = "nightly")]

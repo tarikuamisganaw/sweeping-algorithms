@@ -320,9 +320,9 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for Produc
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for ProductZipper<'_, '_, V, A> {
     type V = V;
-
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
-    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
+    type A = A;
+    fn get_focus(&self) -> AbstractNodeRef<Self::V, Self::A> { self.z.get_focus() }
+    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> { self.z.try_borrow_focus() }
 }
 
 impl<V: Clone + Send + Sync + Unpin + Unpin, A: Allocator> ZipperPathBuffer for ProductZipper<'_, '_, V, A> {

@@ -99,11 +99,14 @@ impl FullZipper {
 // Doesn't seem as lawful as the above, still maybe useful for testing
 struct NullZipper {}
 
-impl<V: TrieValue> WriteZipperPriv<V> for NullZipper {
-    fn take_focus(&mut self) -> Option<TrieNodeODRc<V>> {
+impl<V: TrieValue, A: Allocator> WriteZipperPriv<V, A> for NullZipper {
+    fn take_focus(&mut self) -> Option<TrieNodeODRc<V, A>> {
         None
     }
     fn take_root_prefix_path(&mut self) -> Vec<u8> {
+        unimplemented!()
+    }
+    fn alloc(&self) -> A {
         unimplemented!()
     }
 }
@@ -118,9 +121,9 @@ impl <V: TrieValue, A: Allocator> ZipperWriting<V, A> for NullZipper {
     fn remove_value(&mut self) -> Option<V> { None }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { todo!() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) {}
-    fn graft_map(&mut self, _map: BytesTrieMap<V>) {}
+    fn graft_map(&mut self, _map: BytesTrieMap<V, A>) {}
     fn join<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
-    fn join_map(&mut self, _map: BytesTrieMap<V>) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
+    fn join_map(&mut self, _map: BytesTrieMap<V, A>) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
     fn join_into<Z: ZipperSubtries<V, A> + ZipperWriting<V, A>>(&mut self, _src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { AlgebraicStatus::Element }
     fn drop_head(&mut self, _byte_cnt: usize) -> bool where V: Lattice { false }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, _prefix: K) -> bool { false }

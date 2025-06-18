@@ -95,7 +95,7 @@ pub fn deserialize_paths_<V: TrieValue, A: Allocator, WZ : ZipperWriting<V, A>, 
 
 /// Deserialize bytes that were serialized by `serialize_paths` under path `k`
 /// Returns the source input, total deserialized bytes (uncompressed), and total number of path insert attempts
-pub fn deserialize_paths<V : TrieValue, A: Allocator, WZ : ZipperWriting<V, A>, R: std::io::Read, F: Fn(usize, &[u8]) -> V>(mut wz: WZ, mut source: R, fv: F) -> std::io::Result<DeserializationStats> {
+pub fn deserialize_paths<V: TrieValue, A: Allocator, WZ : ZipperWriting<V, A>, R: std::io::Read, F: Fn(usize, &[u8]) -> V>(mut wz: WZ, mut source: R, fv: F) -> std::io::Result<DeserializationStats> {
   use libz_ng_sys::*;
   const IN: usize = 1024;
   const OUT: usize = 2048;
@@ -110,7 +110,7 @@ pub fn deserialize_paths<V : TrieValue, A: Allocator, WZ : ZipperWriting<V, A>, 
   let mut strm: z_stream = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
   let mut ret = unsafe { zng_inflateInit(&mut strm) };
   if ret != Z_OK { return Err(std::io::Error::new(std::io::ErrorKind::Other, "failed to init zlib-ng inflate")) }
-  let mut submap = BytesTrieMap::new();
+  let mut submap = BytesTrieMap::new_in(wz.alloc());
   let mut wz_buf = vec![];
   // if statement in loop that emulates goto for the many to many ibuffer-obuffer relation
   'reading: loop {

@@ -14,7 +14,7 @@ use crate::zipper::zipper_priv::*;
 /// `TrieRef`s are like a read-only [Zipper] that can't move, but it is *much* smaller, cheaper to
 /// create, and cheaper to work with.
 pub struct TrieRef<'a, V: Clone + Send + Sync, A: Allocator = GlobalAlloc> {
-    focus_node: TaggedNodeRef<'a, V>,
+    focus_node: TaggedNodeRef<'a, V, A>,
     val_or_key: ValRefOrKey<'a, V>,
     alloc: A
 }
@@ -67,7 +67,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieRef<'a, V, A> {
         Self { focus_node: TaggedNodeRef::EmptyNode, val_or_key: ValRefOrKey { val_ref: (BAD_SENTINEL, None) }, alloc }
     }
     /// Internal constructor
-    pub(crate) fn new_with_node_and_path_in(root_node: &'a dyn TrieNode<V>, root_val: Option<&'a V>, path: &[u8], alloc: A) -> Self {
+    pub(crate) fn new_with_node_and_path_in(root_node: &'a dyn TrieNode<V, A>, root_val: Option<&'a V>, path: &[u8], alloc: A) -> Self {
         let (node, key, val) = node_along_path(root_node, path, root_val);
         let node_key_len = key.len();
         let val_or_key = if node_key_len > 0 && node_key_len <= MAX_NODE_KEY_BYTES {
@@ -179,15 +179,15 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for Trie
 
 impl<V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for TrieRef<'_, V, A> {
     type V = V;
-
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> {
+    type A = A;
+    fn get_focus(&self) -> AbstractNodeRef<Self::V, Self::A> {
         if self.is_valid() {
             self.focus_node.get_node_at_key(self.node_key())
         } else {
             AbstractNodeRef::None
         }
     }
-    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> {
+    fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> {
         if self.is_valid() {
             let node_key = self.node_key();
             if node_key.len() == 0 {
@@ -250,7 +250,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for TrieRef<'_
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for TrieRef<'a, V, A> {
-    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V>, &'z [u8], Option<&'a V>) {
+    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) {
         (self.focus_node.borrow(), self.node_key(), self.root_val())
     }
     fn take_core(&mut self) -> Option<read_zipper_core::ReadZipperCore<'a, 'static, V, A>> {
@@ -265,7 +265,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for TrieRe
 }
 
 /// Internal function to implement [ZipperReadOnly::trie_ref_at_path] for all the types that need it
-pub(crate) fn trie_ref_at_path_in<'a, 'paths, V: Clone + Send + Sync, A: Allocator>(mut node: &'a dyn TrieNode<V>, root_val: Option<&'a V>, node_key: &'paths [u8], mut path: &'paths [u8], alloc: A) -> TrieRef<'a, V, A> {
+pub(crate) fn trie_ref_at_path_in<'a, 'paths, V: Clone + Send + Sync, A: Allocator>(mut node: &'a dyn TrieNode<V, A>, root_val: Option<&'a V>, node_key: &'paths [u8], mut path: &'paths [u8], alloc: A) -> TrieRef<'a, V, A> {
 
     // A temporary buffer on the stack, if we need to assemble a combined key from both the `node_key` and `path`
     let mut temp_key_buf: [MaybeUninit<u8>; MAX_NODE_KEY_BYTES] = [MaybeUninit::uninit(); MAX_NODE_KEY_BYTES];

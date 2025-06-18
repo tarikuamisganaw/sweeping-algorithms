@@ -160,7 +160,7 @@ impl<V: Clone + Send + Sync, A: Allocator> Drop for ZipperHead<'_, '_, V, A> {
 /// 2. Within `ZipperHeadOwned` there is a `WriteZipperOwned`, which needs to wrap its `WriteZipperCore`
 ///   in a `Box`.  This indirection is probably no big deal because the contents will likely be in cache,
 ///   but it ought to be measured nonetheless.
-pub struct ZipperHeadOwned<V: Clone + Send + Sync + 'static, A: Allocator = GlobalAlloc> {
+pub struct ZipperHeadOwned<V: Clone + Send + Sync + 'static, A: Allocator + 'static = GlobalAlloc> {
     z: std::sync::Mutex<WriteZipperOwned<V, A>>,
     tracker_paths: SharedTrackerPaths,
 }
@@ -195,7 +195,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperCreationPriv<'static, V
     }
 }
 
-impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreation<'trie, V, A> for Z where Z: ZipperCreationPriv<'trie, V, A> {
+impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperCreation<'trie, V, A> for Z where Z: ZipperCreationPriv<'trie, V, A> {
     fn read_zipper_at_borrowed_path<'a, 'path>(&'a self, path: &'path[u8]) -> Result<ReadZipperTracked<'a, 'path, V, A>, Conflict> where 'trie: 'a {
         let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)?;
         self.with_inner_core_z(|z| {
@@ -206,7 +206,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreat
             // lifetime.  We need to do this because the ZipperHead internally uses a WriteZipper, which must
             // remain &mut accessible.  Safety is upheld by the fact that the ZipperHead exclusivity runtime
             // logic makes sure conflicting paths aren't permitted, so we should not get aliased &mut borrows
-            let root_node: &'trie dyn TrieNode<V> = unsafe{ core::mem::transmute(root_node) };
+            let root_node: &'trie dyn TrieNode<V, A> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
             Ok(ReadZipperTracked::new_with_node_and_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone(), zipper_tracker))
         })
@@ -218,7 +218,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreat
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: The user is asserting that the paths won't conflict.
             // See identical code in `read_zipper_at_borrowed_path` for more discussion
-            let root_node: &'trie dyn TrieNode<V> = unsafe{ core::mem::transmute(root_node) };
+            let root_node: &'trie dyn TrieNode<V, A> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
 
             #[cfg(debug_assertions)]
@@ -241,7 +241,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreat
 
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: See identical code in `read_zipper_at_borrowed_path` for more discussion
-            let root_node: &'trie dyn TrieNode<V> = unsafe{ core::mem::transmute(root_node) };
+            let root_node: &'trie dyn TrieNode<V, A> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
 
             Ok(ReadZipperTracked::new_with_node_and_cloned_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone(), zipper_tracker))
@@ -255,7 +255,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreat
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: The user is asserting that the paths won't conflict.
             // See identical code in `read_zipper_at_borrowed_path` for more discussion
-            let root_node: &'trie dyn TrieNode<V> = unsafe{ core::mem::transmute(root_node) };
+            let root_node: &'trie dyn TrieNode<V, A> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
 
             #[cfg(debug_assertions)]
@@ -276,7 +276,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreat
         self.with_inner_core_z(|z| {
             let (zipper_root_node, zipper_root_val) = prepare_exclusive_write_path(z, path);
             //SAFETY: See similar code in `read_zipper_at_borrowed_path` for more discussion
-            let zipper_root_node: &'trie mut TrieNodeODRc<V> = unsafe{ &mut *(zipper_root_node as *mut _) };
+            let zipper_root_node: &'trie mut TrieNodeODRc<V, A> = unsafe{ &mut *(zipper_root_node as *mut _) };
             let zipper_root_val: &'trie mut Option<V> = unsafe{ &mut *(zipper_root_val as *mut _) };
 
             Ok(WriteZipperTracked::new_with_node_and_cloned_path_internal_in(zipper_root_node, Some(zipper_root_val), path, path.len(), z.alloc.clone(), zipper_tracker))
@@ -288,7 +288,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreat
             let (zipper_root_node, zipper_root_val) = prepare_exclusive_write_path(z, path);
             //SAFETY: The user is asserting that the paths won't conflict.
             // See similar code in `read_zipper_at_borrowed_path` for more discussion
-            let zipper_root_node: &'trie mut TrieNodeODRc<V> = unsafe{ &mut *(zipper_root_node as *mut _) };
+            let zipper_root_node: &'trie mut TrieNodeODRc<V, A> = unsafe{ &mut *(zipper_root_node as *mut _) };
             let zipper_root_val: &'trie mut Option<V> = unsafe{ &mut *(zipper_root_val as *mut _) };
 
             #[cfg(debug_assertions)]
@@ -333,7 +333,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator> ZipperCreat
 /// 3. The zipper focus doesn't exist, in which case we need to create it, and then follow one of the
 ///  other paths.
 /// 4. The target path is the zipper focus
-fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator>(z: &'a mut WriteZipperCore<V, A>, path: &[u8]) -> (&'a mut TrieNodeODRc<V>, &'a mut Option<V>)
+fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator>(z: &'a mut WriteZipperCore<V, A>, path: &[u8]) -> (&'a mut TrieNodeODRc<V, A>, &'a mut Option<V>)
 {
     //If we end up taking write zipper from the ZipperHead's root, we leave the focus_stack in an
     // undescended root state, so we need to fix it.
@@ -370,7 +370,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
                 //CASE 2
                 remaining_key = &remaining_key[consumed_bytes..];
 
-                let end_node = prepare_node_at_path_end(node, remaining_key);
+                let end_node = prepare_node_at_path_end(node, remaining_key, z.alloc.clone());
                 let cell_node = end_node.make_mut().as_tagged_mut().into_cell_node().unwrap();
                 let (exclusive_node, val) = cell_node.prepare_cf(last_path_byte);
 
@@ -382,6 +382,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
                 //CASE 3
 
                 //SAFETY: This is another "We need Polonius" case.  We're finished with the borrow if we get here.
+                let alloc = z.alloc.clone();
                 let z = unsafe{ &mut *z_ptr };
                 z.in_zipper_mut_static_result(
                     |node, key| {
@@ -390,10 +391,10 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
                                 make_cell_node(&mut remaining);
                                 remaining
                             } else {
-                                TrieNodeODRc::new(CellByteNode::new())
+                                TrieNodeODRc::new_in(CellByteNode::new_in(alloc.clone()), alloc)
                             }
                         } else {
-                            TrieNodeODRc::new(CellByteNode::new())
+                            TrieNodeODRc::new_in(CellByteNode::new_in(alloc.clone()), alloc)
                         };
                         node.node_set_branch(key, new_node)
                     },
@@ -420,7 +421,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
             swap_top_node(&mut z.focus_stack, &z.key, |mut existing_node| {
                 make_cell_node(&mut existing_node);
                 Some(existing_node)
-            });
+            }, z.alloc.clone());
         }
         let cell_node = z.focus_stack.top_mut().unwrap().as_tagged_mut().into_cell_node().unwrap();
         let (exclusive_node, val) = cell_node.prepare_cf(last_path_byte);
@@ -429,7 +430,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
 }
 
 /// Internal function.  Upgrades the node at the end of the `key` path to a CellByteNode
-fn prepare_node_at_path_end<'a, V: Clone + Send + Sync>(start_node: &'a mut TrieNodeODRc<V>, key: &[u8]) -> &'a mut TrieNodeODRc<V> {
+fn prepare_node_at_path_end<'a, V: Clone + Send + Sync, A: Allocator>(start_node: &'a mut TrieNodeODRc<V, A>, key: &[u8], alloc: A) -> &'a mut TrieNodeODRc<V, A> {
     let (remaining_key, mut node) = node_along_path_mut(start_node, key, false);
 
     //If remaining_key is non-zero length, split and upgrade the intervening node
@@ -437,7 +438,7 @@ fn prepare_node_at_path_end<'a, V: Clone + Send + Sync>(start_node: &'a mut Trie
         let node_ref = node.make_mut();
         let mut new_parent = match node_ref.take_node_at_key(remaining_key) {
             Some(downward_node) => downward_node,
-            None => TrieNodeODRc::new(CellByteNode::new())
+            None => TrieNodeODRc::new_in(CellByteNode::new_in(alloc.clone()), alloc)
         };
         make_cell_node(&mut new_parent);
         let result = node_ref.node_set_branch(remaining_key, new_parent);
