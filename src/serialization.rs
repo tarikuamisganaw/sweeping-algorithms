@@ -1504,28 +1504,35 @@ mod test {
 
     let trie_clone = trie.clone();
 
-    let path = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join(".tmp");
-    let _ = std::fs::create_dir(&path);
+    match std::env::var("CARGO_MANIFEST_DIR") {
+      Ok(manifest_dir) => {
+        let path = std::path::PathBuf::from(manifest_dir).join(".tmp");
+        let _ = std::fs::create_dir(&path);
 
-    let serialized =  write_trie(
-      format!("(file : \"{}\", module : \"{}\", line : \"{}\")", file!(), module_path!(), line!()),
-      trie.clone(),
-      |bs, v|{ v.extend_from_slice(bs); ValueSlice::Encode(
-        v
-      )}, &path
-    ).unwrap();
+        let serialized =  write_trie(
+          format!("(file : \"{}\", module : \"{}\", line : \"{}\")", file!(), module_path!(), line!()),
+          trie.clone(),
+          |bs, v|{ v.extend_from_slice(bs); ValueSlice::Encode(
+            v
+          )}, &path
+        ).unwrap();
 
-    let read = std::fs::File::open(serialized.zeroes_compressed_data_path).unwrap();
-    dbg_hex_line_numbers(&read, &path).unwrap();
+        let read = std::fs::File::open(serialized.zeroes_compressed_data_path).unwrap();
+        dbg_hex_line_numbers(&read, &path).unwrap();
 
-    let de_path = path.join(ZERO_COMPRESSED_HEX_DATA_FILENAME);
-    let de = deserialize_file(&de_path, |b|as_arc(b)).unwrap();
+        let de_path = path.join(ZERO_COMPRESSED_HEX_DATA_FILENAME);
+        let de = deserialize_file(&de_path, |b|as_arc(b)).unwrap();
 
-    let [src,de_] = [string_pathmap_as_btree_dbg(trie_clone), string_pathmap_as_btree_dbg(de)];
-    // println!("src : {src:#?}\n de_ : {de_:#?}");
+        let [src,de_] = [string_pathmap_as_btree_dbg(trie_clone), string_pathmap_as_btree_dbg(de)];
+        // println!("src : {src:#?}\n de_ : {de_:#?}");
 
-    core::assert!(src == de_);
-
+        core::assert!(src == de_);
+      }
+      _ => {
+        #[cfg(not(miri))]
+        panic!("Test should be running under Cargo")
+      }
+    }
   }
 
   // for doing test equality check
