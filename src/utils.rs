@@ -668,7 +668,7 @@ fn count_shared_cold(a: &[u8], b: &[u8]) -> usize {
     count_shared_reference(a, b)
 }
 
-#[cfg(target_feature="avx2")]
+#[cfg(all(target_feature="avx2", not(miri)))]
 #[inline(always)]
 fn count_shared_avx2(p: &[u8], q: &[u8]) -> usize {
     use core::arch::x86_64::*;
@@ -696,13 +696,13 @@ fn count_shared_avx2(p: &[u8], q: &[u8]) -> usize {
 }
 
 /// Returns the number of characters shared between two slices
-#[cfg(target_feature="avx2")]
+#[cfg(all(target_feature="avx2", not(miri)))]
 #[inline]
 pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     count_shared_avx2(a, b)
 }
 
-#[cfg(all(not(feature = "nightly"), target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(all(not(feature = "nightly"), target_arch = "aarch64", target_feature = "neon", not(miri)))]
 #[inline(always)]
 fn count_shared_neon(p: &[u8], q: &[u8]) -> usize {
     use core::arch::aarch64::*;
@@ -746,7 +746,7 @@ fn count_shared_neon(p: &[u8], q: &[u8]) -> usize {
     }
 }
 
-#[cfg(feature = "nightly")]
+#[cfg(all(feature = "nightly", not(miri)))]
 #[inline(always)]
 fn count_shared_simd(p: &[u8], q: &[u8]) -> usize {
     use std::simd::{u8x32, cmp::SimdPartialEq};
@@ -777,21 +777,21 @@ fn count_shared_simd(p: &[u8], q: &[u8]) -> usize {
     }
 }
 /// Returns the number of characters shared between two slices
-#[cfg(all(not(feature = "nightly"), target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(all(not(feature = "nightly"), target_arch = "aarch64", target_feature = "neon", not(miri)))]
 #[inline]
 pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     count_shared_neon(a, b)
 }
 
 /// Returns the number of characters shared between two slices
-#[cfg(all(feature = "nightly", target_arch = "aarch64", target_feature = "neon"))]
+#[cfg(all(feature = "nightly", target_arch = "aarch64", target_feature = "neon", not(miri)))]
 #[inline]
 pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     count_shared_simd(a, b)
 }
 
 /// Returns the number of characters shared between two slices
-#[cfg(all(not(target_feature="avx2"), not(target_feature="neon")))]
+#[cfg(any(all(not(target_feature="avx2"), not(target_feature="neon")), miri))]
 #[inline]
 pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
     count_shared_reference(a, b)
