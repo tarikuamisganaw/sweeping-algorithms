@@ -238,6 +238,9 @@ pub trait ZipperMoving: Zipper {
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
     /// moved otherwise returns `false`
+    ///
+    /// If there is a value at the focus, the zipper will descend to the next value or branch, however the
+    /// zipper will not descend further if this method is called with the focus already on a branch.
     fn descend_until(&mut self) -> bool {
         let mut descended = false;
         while self.child_count() == 1 {
@@ -430,7 +433,34 @@ pub trait ZipperIteration: ZipperMoving {
     ///
     /// Returns `true` if the zipper is positioned at the next value, or `false` if the zipper has
     /// encountered the root.
-    fn to_next_val(&mut self) -> bool;
+    fn to_next_val(&mut self) -> bool {
+        loop {
+            if self.descend_first_byte() {
+                if self.is_value() {
+                    return true
+                }
+                if self.descend_until() {
+                    if self.is_value() {
+                        return true
+                    }
+                }
+            } else {
+                'ascending: loop {
+                    if self.to_next_sibling_byte() {
+                        if self.is_value() {
+                            return true
+                        }
+                        break 'ascending
+                    } else {
+                        self.ascend_byte();
+                        if self.at_root() {
+                            return false
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /// Descends the zipper's focus `k`` bytes, following the first child at each branch, and continuing
     /// with depth-first exploration until a path that is `k` bytes from the focus has been found
@@ -1466,6 +1496,11 @@ pub(crate) mod read_zipper_core {
             if self.focus_iter_token == NODE_ITER_INVALID {
                 let cur_tok = self.focus_node.iter_token_for_path(self.node_key());
                 self.focus_iter_token = cur_tok;
+            }
+
+            if self.focus_iter_token == NODE_ITER_FINISHED {
+                self.regularize();
+                return false
             }
 
             let (mut new_tok, mut key_bytes, mut child_node, mut _value) = self.focus_node.next_items(self.focus_iter_token);
