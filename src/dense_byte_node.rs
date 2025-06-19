@@ -1104,7 +1104,7 @@ impl<V: Clone + Send + Sync, Cf: CoFree<V=V>> TrieNode<V> for ByteNode<Cf>
         (Some(sibling_key_char), cf.rec().map(|node| &*node.borrow()))
     }
 
-    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V> {
         if key.len() < 2 {
             if key.len() == 0 {
                 if !self.node_is_empty() {
@@ -1311,11 +1311,11 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for ByteNode<OrdinaryCoFree<V>>
         DENSE_BYTE_NODE_TAG
     }
     #[inline(always)]
-    fn as_tagged(&self) -> TaggedNodeRef<V> {
+    fn as_tagged(&self) -> TaggedNodeRef<'_, V> {
         TaggedNodeRef::DenseByteNode(self)
     }
     #[inline(always)]
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V> {
         TaggedNodeRefMut::DenseByteNode(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
@@ -1336,10 +1336,10 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for ByteNode<CellCoFree<V>> {
     fn tag(&self) -> usize {
         CELL_BYTE_NODE_TAG
     }
-    fn as_tagged(&self) -> TaggedNodeRef<V> {
+    fn as_tagged(&self) -> TaggedNodeRef<'_, V> {
         TaggedNodeRef::CellByteNode(self)
     }
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V> {
         TaggedNodeRefMut::CellByteNode(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {

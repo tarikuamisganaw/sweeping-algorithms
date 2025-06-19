@@ -606,7 +606,7 @@ pub(crate) mod zipper_priv {
         /// - `OwnedRc(TrieNodeODRc<V>)`
         /// We needed to make a brand new node to represent this position.  This is the worst case
         /// scenario for performance because allocation was necessary
-        fn get_focus(&self) -> AbstractNodeRef<Self::V>;
+        fn get_focus(&self) -> AbstractNodeRef<'_, Self::V>;
 
         /// Attemps to return a node at the zipper's focus.  Returns `None` if the focus is not
         /// on a node.
@@ -728,7 +728,7 @@ impl<Z> ZipperConcrete for &mut Z where Z: ZipperConcrete, Self: ZipperConcreteP
 
 impl<V: Clone + Send + Sync, Z> ZipperPriv for &mut Z where Z: ZipperPriv<V=V> {
     type V = V;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { (**self).get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { (**self).get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { (**self).try_borrow_focus() }
 }
 
@@ -838,7 +838,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for ReadZipperTracked<'_
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V> {
     type V = V;
 
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
@@ -982,7 +982,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for ReadZipperUntracked<
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V> {
     type V = V;
 
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
@@ -1181,7 +1181,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for ReadZipperOwned<V> {
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperOwned<V> {
     type V = V;
 
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
@@ -1658,7 +1658,7 @@ pub(crate) mod read_zipper_core {
     impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ReadZipperCore<'_, '_, V> {
         type V = V;
 
-        fn get_focus(&self) -> AbstractNodeRef<Self::V> {
+        fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> {
             self.focus_node.get_node_at_key(self.node_key())
         }
         fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> {

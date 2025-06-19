@@ -275,7 +275,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperTracked<'_, '_,
 
 impl<'a, 'path, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'path, V> {
     type V = V;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
@@ -425,7 +425,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperUntracked<'_, '
 
 impl<'a, 'k, V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k, V> {
     type V = V;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
@@ -608,7 +608,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperOwned<V> {
 
 impl<V: Clone + Send + Sync> zipper_priv::ZipperPriv for WriteZipperOwned<V> {
     type V = V;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 
@@ -920,7 +920,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperMoving for WriteZipperCore<'_, '_, V>
 impl<'a, 'k, V: Clone + Send + Sync > zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V> {
     type V = V;
 
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> {
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> {
         self.focus_stack.top().unwrap().get_node_at_key(self.key.node_key())
     }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> {

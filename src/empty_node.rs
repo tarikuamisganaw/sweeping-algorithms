@@ -140,7 +140,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for EmptyNode {
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V>>) {
         (None, None)
     }
-    fn get_node_at_key(&self, _key: &[u8]) -> AbstractNodeRef<V> {
+    fn get_node_at_key(&self, _key: &[u8]) -> AbstractNodeRef<'_, V> {
         AbstractNodeRef::None
     }
     fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V>> {
@@ -182,10 +182,10 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for EmptyNode {
     fn tag(&self) -> usize {
         EMPTY_NODE_TAG
     }
-    fn as_tagged(&self) -> TaggedNodeRef<V> {
+    fn as_tagged(&self) -> TaggedNodeRef<'_, V> {
         TaggedNodeRef::EmptyNode
     }
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V> {
         TaggedNodeRefMut::Unsupported
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {

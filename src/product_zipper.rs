@@ -322,7 +322,7 @@ impl<V: Clone + Send + Sync + Unpin> ZipperConcretePriv for ProductZipper<'_, '_
 impl<V: Clone + Send + Sync + Unpin> zipper_priv::ZipperPriv for ProductZipper<'_, '_, V> {
     type V = V;
 
-    fn get_focus(&self) -> AbstractNodeRef<Self::V> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V>> { self.z.try_borrow_focus() }
 }
 

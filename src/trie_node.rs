@@ -289,7 +289,7 @@ pub trait TrieNode<V: Clone + Send + Sync>: TrieNodeDowncast<V> + DynClone + cor
     /// If `key.len() == 0` this method will return a reference to or a clone of the node.
     ///
     /// If `self.node_is_empty() == true`, this method should return `AbstractNodeRef::None`
-    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V>;
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V>;
 
     /// Returns a node which is the the portion of the node rooted at `key`, or `None` if `key` does
     /// not specify a path within the node
@@ -336,10 +336,10 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync> {
     fn tag(&self) -> usize;
 
     /// Returns a [TaggedNodeRef] referencing this node
-    fn as_tagged(&self) -> TaggedNodeRef<V>;
+    fn as_tagged(&self) -> TaggedNodeRef<'_, V>;
 
     /// Returns a [TaggedNodeRefMut] referencing this node
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V>;
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V>;
 
     /// Migrates the contents of the node into a new CellByteNode.  After this method, `self` will be empty
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V>;
@@ -1073,7 +1073,7 @@ impl<'a, V: Clone + Send + Sync> TaggedNodeRef<'a, V> {
             Self::EmptyNode => <EmptyNode as TrieNode<V>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
         }
     }
-    pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
+    pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V> {
         match self {
             Self::DenseByteNode(node) => node.get_node_at_key(key),
             Self::LineListNode(node) => node.get_node_at_key(key),

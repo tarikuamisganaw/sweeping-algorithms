@@ -349,7 +349,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
     /// Returns a reference to a child or value in the specified slot.  This method is unsafe
     /// because it doesn't check if the slot is occupied and can never return [PayloadRef::None]
     #[inline]
-    unsafe fn payload_in_slot<const SLOT: usize>(&self) -> PayloadRef<V> {
+    unsafe fn payload_in_slot<const SLOT: usize>(&self) -> PayloadRef<'_, V> {
         match self.is_child_ptr::<SLOT>() {
             true => PayloadRef::Child(unsafe{ self.child_in_slot::<SLOT>() }),
             false => PayloadRef::Val(unsafe{ self.val_in_slot::<SLOT>() })
@@ -2200,7 +2200,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         }
     }
 
-    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V> {
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V> {
         debug_assert!(validate_node(self));
 
         //Zero-length key means clone this node
@@ -2545,11 +2545,11 @@ impl<V: Clone + Send + Sync> TrieNodeDowncast<V> for LineListNode<V> {
         LINE_LIST_NODE_TAG
     }
     #[inline(always)]
-    fn as_tagged(&self) -> TaggedNodeRef<V> {
+    fn as_tagged(&self) -> TaggedNodeRef<'_, V> {
         TaggedNodeRef::LineListNode(self)
     }
     #[inline(always)]
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V> {
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V> {
         TaggedNodeRefMut::LineListNode(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V> {
