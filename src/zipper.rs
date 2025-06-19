@@ -240,11 +240,11 @@ pub trait ZipperMoving: Zipper {
     /// moved otherwise returns `false`
     fn descend_until(&mut self) -> bool {
         let mut descended = false;
-        while self.child_count() < 2 {
-            if self.descend_first_byte() {
-                descended = true;
-            } else {
-                break
+        while self.child_count() == 1 {
+            descended = true;
+            self.descend_first_byte();
+            if self.is_value() {
+                break;
             }
         }
         descended
@@ -2500,6 +2500,12 @@ pub(crate) mod zipper_moving_tests {
                 }
 
                 #[test]
+                fn [<$z_name _zipper_descend_until_test1>]() {
+                    let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_DESCEND_UNTIL_TEST1_KEYS);
+                    crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, &[], crate::zipper::zipper_moving_tests::zipper_descend_until_test1)
+                }
+
+                #[test]
                 fn [<$z_name _zipper_ascend_until_test1>]() {
                     let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_ASCEND_UNTIL_TEST1_KEYS);
                     crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, &[], crate::zipper::zipper_moving_tests::zipper_ascend_until_test1)
@@ -2797,6 +2803,16 @@ pub(crate) mod zipper_moving_tests {
         assert!(!zip.descend_indexed_branch(1));
         assert_eq!(zip.is_value(), false);
         assert_eq!(zip.path(), b"0");
+    }
+
+    // Tests how descend_until treats values along paths
+    pub const ZIPPER_DESCEND_UNTIL_TEST1_KEYS: &[&[u8]] = &[b"a", b"ab", b"abCDEf", b"abCDEfGHi"];
+
+    pub fn zipper_descend_until_test1<Z: ZipperMoving>(mut zip: Z) {
+        for key in ZIPPER_DESCEND_UNTIL_TEST1_KEYS {
+            assert!(zip.descend_until());
+            assert_eq!(zip.path(), *key);
+        }
     }
 
     // Test a 3-way branch, so we definitely don't have a pair node
