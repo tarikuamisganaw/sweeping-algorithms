@@ -239,13 +239,16 @@ pub trait ZipperMoving: Zipper {
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
     /// moved otherwise returns `false`
+    ///
+    /// If there is a value at the focus, the zipper will descend to the next value or branch, however the
+    /// zipper will not descend further if this method is called with the focus already on a branch.
     fn descend_until(&mut self) -> bool {
         let mut descended = false;
-        while self.child_count() < 2 {
-            if self.descend_first_byte() {
-                descended = true;
-            } else {
-                break
+        while self.child_count() == 1 {
+            descended = true;
+            self.descend_first_byte();
+            if self.is_value() {
+                break;
             }
         }
         descended
@@ -431,7 +434,34 @@ pub trait ZipperIteration: ZipperMoving {
     ///
     /// Returns `true` if the zipper is positioned at the next value, or `false` if the zipper has
     /// encountered the root.
-    fn to_next_val(&mut self) -> bool;
+    fn to_next_val(&mut self) -> bool {
+        loop {
+            if self.descend_first_byte() {
+                if self.is_value() {
+                    return true
+                }
+                if self.descend_until() {
+                    if self.is_value() {
+                        return true
+                    }
+                }
+            } else {
+                'ascending: loop {
+                    if self.to_next_sibling_byte() {
+                        if self.is_value() {
+                            return true
+                        }
+                        break 'ascending
+                    } else {
+                        self.ascend_byte();
+                        if self.at_root() {
+                            return false
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     /// Descends the zipper's focus `k`` bytes, following the first child at each branch, and continuing
     /// with depth-first exploration until a path that is `k` bytes from the focus has been found
@@ -443,7 +473,9 @@ pub trait ZipperIteration: ZipperMoving {
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [to_next_k_path](ZipperIteration::to_next_k_path)
-    fn descend_first_k_path(&mut self, k: usize) -> bool;
+    fn descend_first_k_path(&mut self, k: usize) -> bool {
+        k_path_default_internal(self, k, self.path().len())
+    }
 
     /// Moves the zipper's focus to the next location with the same path length as the current focus,
     /// following a depth-first exploration from a common root `k` steps above the current focus
@@ -456,7 +488,35 @@ pub trait ZipperIteration: ZipperMoving {
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [descend_first_k_path](ZipperIteration::descend_first_k_path)
-    fn to_next_k_path(&mut self, k: usize) -> bool;
+    fn to_next_k_path(&mut self, k: usize) -> bool {
+        let base_idx = if self.path().len() >= k {
+            self.path().len() - k
+        } else {
+            return false
+        };
+        k_path_default_internal(self, k, base_idx)
+    }
+}
+
+/// The default implementation of both [ZipperIteration::to_next_k_path] and [ZipperIteration::descend_first_k_path]
+#[inline]
+fn k_path_default_internal<Z: ZipperMoving + ?Sized>(z: &mut Z, k: usize, base_idx: usize) -> bool {
+    loop {
+        if z.path().len() < base_idx + k {
+            while z.descend_first_byte() {
+                if z.path().len() == base_idx + k { return true }
+            }
+        }
+        if z.to_next_sibling_byte() {
+            if z.path().len() == base_idx + k { return true }
+            continue
+        }
+        while z.path().len() > base_idx {
+            z.ascend_byte();
+            if z.path().len() == base_idx { return false }
+            if z.to_next_sibling_byte() { break }
+        }
+    }
 }
 
 /// An interface for a [Zipper] to support accessing the full path buffer used to create the zipper
@@ -1474,6 +1534,11 @@ pub(crate) mod read_zipper_core {
                 self.focus_iter_token = cur_tok;
             }
 
+            if self.focus_iter_token == NODE_ITER_FINISHED {
+                self.regularize();
+                return false
+            }
+
             let (mut new_tok, mut key_bytes, mut child_node, mut _value) = self.focus_node.next_items(self.focus_iter_token);
             while new_tok != NODE_ITER_FINISHED {
                 //Check to see if the iter result has modified more than one byte
@@ -1750,7 +1815,7 @@ pub(crate) mod read_zipper_core {
             self.k_path_internal(k, self.prefix_buf.len())
         }
         fn to_next_k_path(&mut self, k: usize) -> bool {
-            let base_idx = if self.path_len() > k {
+            let base_idx = if self.path_len() >= k {
                 self.prefix_buf.len() - k
             } else {
                 self.origin_path.len()
@@ -2509,6 +2574,12 @@ pub(crate) mod zipper_moving_tests {
                 }
 
                 #[test]
+                fn [<$z_name _zipper_descend_until_test1>]() {
+                    let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_DESCEND_UNTIL_TEST1_KEYS);
+                    crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, &[], crate::zipper::zipper_moving_tests::zipper_descend_until_test1)
+                }
+
+                #[test]
                 fn [<$z_name _zipper_ascend_until_test1>]() {
                     let mut temp_store = $read_keys(crate::zipper::zipper_moving_tests::ZIPPER_ASCEND_UNTIL_TEST1_KEYS);
                     crate::zipper::zipper_moving_tests::run_test(&mut temp_store, $make_z, &[], crate::zipper::zipper_moving_tests::zipper_ascend_until_test1)
@@ -2806,6 +2877,16 @@ pub(crate) mod zipper_moving_tests {
         assert!(!zip.descend_indexed_branch(1));
         assert_eq!(zip.is_value(), false);
         assert_eq!(zip.path(), b"0");
+    }
+
+    // Tests how descend_until treats values along paths
+    pub const ZIPPER_DESCEND_UNTIL_TEST1_KEYS: &[&[u8]] = &[b"a", b"ab", b"abCDEf", b"abCDEfGHi"];
+
+    pub fn zipper_descend_until_test1<Z: ZipperMoving>(mut zip: Z) {
+        for key in ZIPPER_DESCEND_UNTIL_TEST1_KEYS {
+            assert!(zip.descend_until());
+            assert_eq!(zip.path(), *key);
+        }
     }
 
     // Test a 3-way branch, so we definitely don't have a pair node
