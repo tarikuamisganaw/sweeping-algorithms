@@ -7,6 +7,12 @@ use crate::trie_node::*;
 use crate::zipper::*;
 use crate::ring::{AlgebraicResult, AlgebraicStatus, COUNTER_IDENT, SELF_IDENT, Lattice, LatticeRef, DistributiveLattice, DistributiveLatticeRef, Quantale};
 
+#[cfg(not(miri))]
+use gxhash::gxhash128;
+
+#[cfg(miri)]
+fn gxhash128(data: &[u8], _seed: i64) -> u128 { xxhash_rust::const_xxh3::xxh3_128(data) }
+
 /// A map type that uses byte slices `&[u8]` as keys
 ///
 /// This type is implemented using some of the approaches explained in the
@@ -443,10 +449,10 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         unsafe {
         self.read_zipper().into_cata_cached(|bm, hs, mv, _| {
             let mut state = [0u8; 48];
-            state[0..16].clone_from_slice(gxhash::gxhash128(slice_from_raw_parts(bm.0.as_ptr() as *const u8, 32).as_ref().unwrap(), 0b0100110001110010000010011111010011100011010000101101111001100110i64).to_le_bytes().as_slice());
-            state[16..32].clone_from_slice(gxhash::gxhash128(slice_from_raw_parts(hs.as_ptr() as *const u8, 16*hs.len()).as_ref().unwrap(), 0b0111010001001011011011011111010110111011111101100110101100010000i64).to_le_bytes().as_slice());
+            state[0..16].clone_from_slice(gxhash128(slice_from_raw_parts(bm.0.as_ptr() as *const u8, 32).as_ref().unwrap(), 0b0100110001110010000010011111010011100011010000101101111001100110i64).to_le_bytes().as_slice());
+            state[16..32].clone_from_slice(gxhash128(slice_from_raw_parts(hs.as_ptr() as *const u8, 16*hs.len()).as_ref().unwrap(), 0b0111010001001011011011011111010110111011111101100110101100010000i64).to_le_bytes().as_slice());
             state[32..].clone_from_slice(mv.map(|v| vhash(v)).unwrap_or(Self::INVIS_HASH).to_le_bytes().as_slice());
-            gxhash::gxhash128(state.as_slice(), 0b0100001010101101111110010110100110000010011000100100100111110111i64)
+            gxhash128(state.as_slice(), 0b0100001010101101111110010110100110000010011000100100100111110111i64)
         })
         }
     }

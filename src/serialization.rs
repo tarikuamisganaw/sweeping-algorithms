@@ -6,7 +6,34 @@ use crate::{morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{ZipperMovi
 use crate::TrieValue;
 extern crate alloc;
 use alloc::collections::BTreeMap;
-use gxhash::{self, GxHasher};
+
+#[cfg(not(miri))]
+use gxhash::GxHasher;
+
+#[cfg(miri)]
+/// Just a simple XOR hasher so miri doesn't explode on all the tests that use GxHash
+struct GxHasher { state_lo: u64, state_hi: u64, }
+#[cfg(miri)]
+impl GxHasher {
+  pub fn with_seed(seed: u64) -> Self {
+    Self { state_lo: seed ^ 0xA5A5A5A5_A5A5A5A5, state_hi: !seed ^ 0x5A5A5A5A_5A5A5A5A, }
+  }
+  fn write_u8(&mut self, i: u8) {
+    self.state_lo = self.state_lo.wrapping_add(i as u64);
+    self.state_hi ^= (i as u64).rotate_left(11);
+    self.state_lo = self.state_lo.rotate_left(3);
+  }
+  fn write_u128(&mut self, i: u128) {
+    let low = i as u64;
+    let high = (i >> 64) as u64;
+    self.state_lo = self.state_lo.wrapping_add(low);
+    self.state_hi ^= high.rotate_left(17);
+    self.state_lo ^= high.rotate_left(9);
+  }
+  pub fn finish_u128(&self) -> u128 {
+    ((self.state_hi as u128) << 64) | self.state_lo as u128
+  }
+}
 
 macro_rules! hex { () => { b'A'..=b'F' | b'0'..=b'9'}; }
 
@@ -135,14 +162,14 @@ pub fn write_trie<C :Catamorphism<V> ,V: TrieValue>(
 
                             // with the exception of the hash, this is the basis of the "nil" node
                             let mut acc = Accumulator 
-                            { hash_idx    : (gxhash::GxHasher::with_seed(0).finish_u128(), ctx.count), // note we are not aumulating on this field, this is just a dummy
+                            { hash_idx    : (GxHasher::with_seed(0).finish_u128(), ctx.count), // note we are not aumulating on this field, this is just a dummy
                               max_len     : origin_path.len(),
                               val_count   : 0,
                               paths_count : 0,
                               jump_sub_slice
                             };
 
-                            let mut hasher = gxhash::GxHasher::with_seed(0); // the accumulation for the hash happens here
+                            let mut hasher = GxHasher::with_seed(0); // the accumulation for the hash happens here
 
                             for each in accumulators {
                               let Accumulator { mut hash_idx, max_len, val_count, paths_count, jump_sub_slice } = core::mem::replace(each, Ok(Accumulator::zeroed()))?;
@@ -368,7 +395,7 @@ fn write_node(
   debug_assert_eq!( context.entry.get(&value_hash), Some(&value_idx) );
   debug_assert_eq!( context.entry.get(&cont_hash),  Some(&cont_idx)  );
 
-  let mut hasher = gxhash::GxHasher::with_seed(0);
+  let mut hasher = GxHasher::with_seed(0);
   hasher.write_u8(tag as u8);
   hasher.write_u128(value_hash);
   hasher.write_u128(cont_hash);
@@ -426,7 +453,7 @@ fn hash_to_hex_string(h : u128)->String
 }
 
 // this being true means we need to add the nil hash to the map
-#[cfg(test)]#[test] fn gxhash_finish_zero_is_zero() { core::assert!(gxhash::GxHasher::with_seed(0).finish_u128() != 0) }
+#[cfg(test)]#[test] fn gxhash_finish_zero_is_zero() { core::assert!(GxHasher::with_seed(0).finish_u128() != 0) }
 
 type ChildMask = [u64;4];
 

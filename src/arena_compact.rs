@@ -76,6 +76,7 @@
 //!              [if (header&0x3f != 0) first_child: varint64]
 //!              [                      line_offset: varint64]
 //! ```
+use std::{io::Write, hash::Hasher};
 use crate::{
     morphisms::Catamorphism,
     utils::{BitMask, ByteMask, find_prefix_overlap},
@@ -86,8 +87,13 @@ use crate::{
     },
 };
 
+#[cfg(not(miri))]
 use gxhash::{GxHasher, HashMap, HashMapExt};
-use std::{io::Write, hash::Hasher};
+
+#[cfg(miri)]
+use xxhash_rust::xxh64::{Xxh64 as GxHasher};
+#[cfg(miri)]
+use std::collections::HashMap;
 
 /// The identifier of a node (branch node or line node)
 ///
