@@ -472,7 +472,9 @@ pub trait ZipperIteration: ZipperMoving {
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [to_next_k_path](ZipperIteration::to_next_k_path)
-    fn descend_first_k_path(&mut self, k: usize) -> bool;
+    fn descend_first_k_path(&mut self, k: usize) -> bool {
+        k_path_default_internal(self, k, self.path().len())
+    }
 
     /// Moves the zipper's focus to the next location with the same path length as the current focus,
     /// following a depth-first exploration from a common root `k` steps above the current focus
@@ -485,7 +487,35 @@ pub trait ZipperIteration: ZipperMoving {
     /// below the zipper's focus.  Although a typical cost is `order log n` or better.
     ///
     /// See: [descend_first_k_path](ZipperIteration::descend_first_k_path)
-    fn to_next_k_path(&mut self, k: usize) -> bool;
+    fn to_next_k_path(&mut self, k: usize) -> bool {
+        let base_idx = if self.path().len() >= k {
+            self.path().len() - k
+        } else {
+            return false
+        };
+        k_path_default_internal(self, k, base_idx)
+    }
+}
+
+/// The default implementation of both [ZipperIteration::to_next_k_path] and [ZipperIteration::descend_first_k_path]
+#[inline]
+fn k_path_default_internal<Z: ZipperMoving + ?Sized>(z: &mut Z, k: usize, base_idx: usize) -> bool {
+    loop {
+        if z.path().len() < base_idx + k {
+            while z.descend_first_byte() {
+                if z.path().len() == base_idx + k { return true }
+            }
+        }
+        if z.to_next_sibling_byte() {
+            if z.path().len() == base_idx + k { return true }
+            continue
+        }
+        while z.path().len() > base_idx {
+            z.ascend_byte();
+            if z.path().len() == base_idx { return false }
+            if z.to_next_sibling_byte() { break }
+        }
+    }
 }
 
 /// An interface for a [Zipper] to support accessing the full path buffer used to create the zipper
@@ -1779,7 +1809,7 @@ pub(crate) mod read_zipper_core {
             self.k_path_internal(k, self.prefix_buf.len())
         }
         fn to_next_k_path(&mut self, k: usize) -> bool {
-            let base_idx = if self.path_len() > k {
+            let base_idx = if self.path_len() >= k {
                 self.prefix_buf.len() - k
             } else {
                 self.origin_path.len()
