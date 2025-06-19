@@ -28,6 +28,8 @@ pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperReadOnlyIteration<'a, V>, W
   const CHUNK: usize = 4096; // not tuned yet
   let mut buffer = [0u8; CHUNK];
   #[allow(invalid_value)] //Squish the warning about a Null function ptr, because zlib uses a default allocator if the the ptr is NULL
+  //I filed https://github.com/rust-lang/libz-sys/issues/243 to track this issue, and I confirmed the easy fix works, but I didn't submit
+  // a PR because their build and validation process is very confusing.
   let mut strm: z_stream = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
   let mut ret = unsafe { zng_deflateInit(&mut strm, 7) };
   if ret != Z_OK { panic!("init failed") }
@@ -182,6 +184,7 @@ mod test {
   use crate::zipper::{ZipperIteration, ZipperMoving};
   use super::*;
 
+  #[cfg(not(miri))] // miri really hates the zlib-ng-sys C API
   #[test]
   fn path_serialize_deserialize() {
     let mut btm = BytesTrieMap::new();
@@ -215,6 +218,7 @@ mod test {
     }
   }
 
+  #[cfg(not(miri))] // miri really hates the zlib-ng-sys C API
   #[test]
   fn path_serialize_deserialize_blow_out_buffer() {
     for zeros in 0..10 {
@@ -255,6 +259,7 @@ mod test {
     }
   }
 
+  #[cfg(not(miri))] // miri really hates the zlib-ng-sys C API
   #[test]
   fn path_serialize_deserialize_values() {
     let mut btm = BytesTrieMap::new();

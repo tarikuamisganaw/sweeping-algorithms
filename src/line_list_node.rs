@@ -3152,11 +3152,6 @@ mod tests {
 //GOAT, implement IntoIterator on PathMap
 
 //GOAT, the following tests appear to leak memory, when running under miri:
-// * test write_zipper::tests::write_zipper_drop_head_long_key_test ... ok
-// * test write_zipper::tests::write_zipper_drop_head_test1 ... ok
-// * test write_zipper::tests::write_zipper_drop_head_test2 ... ok
-// * test write_zipper::tests::write_zipper_insert_prefix_test ... ok
-// * test write_zipper::tests::write_zipper_remove_prefix_test ... ok
 // * test write_zipper::tests::write_zipper_test_zipper_conversion ... ok
 
 //GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957
