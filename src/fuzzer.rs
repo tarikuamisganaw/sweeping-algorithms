@@ -4,12 +4,16 @@ use rand::Rng;
 use rand_distr::{Pert, Distribution};
 use std::marker::PhantomData;
 use std::ptr::null;
-use gxhash::{HashMap, HashMapExt};
 use rand::distr::{Iter, Uniform};
 use crate::TrieValue;
 use crate::utils::{BitMask, ByteMask};
 use crate::zipper::{ReadZipperUntracked, Zipper, ZipperReadOnlyIteration, ZipperMoving, ZipperReadOnlyValues};
 
+#[cfg(not(miri))]
+use gxhash::{GxHasher, HashMap, HashMapExt};
+
+#[cfg(miri)]
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Histogram<T : std::cmp::Eq + std::hash::Hash> {

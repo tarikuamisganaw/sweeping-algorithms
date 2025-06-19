@@ -35,6 +35,9 @@ slim_ptrs = [] # Enables use of a 64-Byte inter-node pointer type (TrieNodeODRc)
 arena_compact = ["dep:memmap2"]
 act_counters = ["arena_compact"] # LP: Question: Why isn't this code enabled by just counters + arena_compact???
 
+[target.'cfg(miri)'.dependencies]
+xxhash-rust = { version = "0.8.15", features = ["xxh64", "xxh3", "const_xxh3"] } # Replacement for gxhash running under miri
+
 [dev-dependencies]
 paste = "1.0"
 divan = "0.1.14"

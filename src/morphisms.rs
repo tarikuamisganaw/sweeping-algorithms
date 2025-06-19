@@ -60,7 +60,6 @@
 //! In general, the ordinary methods should be preferred unless sife-effects are necessary, because many
 //! operations produce structural sharing so the ordinary `factored` methods will likely be more efficient.
 //!
-use gxhash::HashMap;
 use core::convert::Infallible;
 use reusing_vec::ReusingQueue;
 
@@ -69,6 +68,12 @@ use crate::trie_map::BytesTrieMap;
 use crate::trie_node::TrieNodeODRc;
 use crate::zipper;
 use crate::zipper::*;
+
+#[cfg(not(miri))]
+use gxhash::HashMap;
+
+#[cfg(miri)]
+use std::collections::HashMap;
 
 /// Provides methods to perform a catamorphism on types that can reference or contain a trie
 pub trait Catamorphism<V> {
