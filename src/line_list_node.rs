@@ -770,7 +770,8 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
     /// replaced value if there was one.
     ///
     /// See [trie_node::TrieNode::node_set_val] for deeper explanation of behavior
-    fn set_payload_abstract<const IS_CHILD: bool>(&mut self, key: &[u8], mut payload: ValOrChildUnion<V>) -> Result<(Option<ValOrChildUnion<V>>, bool), TrieNodeODRc<V>> where V: Clone {
+    #[inline]
+    fn set_payload_abstract<const IS_CHILD: bool>(&mut self, key: &[u8], mut payload: ValOrChildUnion<V>) -> Result<(Option<ValOrChild<V>>, bool), TrieNodeODRc<V>> where V: Clone {
 
         // A local function to either set a child or a branch on a downstream node
         let set_payload_recursive = |child: &mut dyn TrieNode<V>, node_key, payload: ValOrChildUnion<V>| {
@@ -780,7 +781,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
             } else {
                 let val = unsafe{ payload.into_val() };
                 return child.node_set_val(node_key, val).map(|(ret_val, _)| {
-                    let ret_val = ret_val.map(|val| val.into());
+                    let ret_val = ret_val.map(|val| ValOrChild::Val(val));
                     (ret_val, true)
                 })
             }
@@ -789,7 +790,7 @@ impl<V: Clone + Send + Sync> LineListNode<V> {
         //If we already have a payload at the key, then replace it
         if let Some(node_payload) = self.get_payload_exact_key_mut::<IS_CHILD>(key) {
             core::mem::swap(&mut payload, node_payload);
-            return Ok((Some(payload), false));
+            return Ok((Some(ValOrChild::from_union::<IS_CHILD>(payload)), false));
         }
 
         //If this node is empty, insert the new key-payload into slot_0
@@ -1723,7 +1724,7 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>> {
         self.set_payload_abstract::<false>(key, val.into()).map(|(result, created_subnode)| {
-            (result.map(|payload| unsafe{ payload.into_val() }), created_subnode)
+            (result.map(|payload| payload.into_val() ), created_subnode)
         })
     }
 
@@ -2459,7 +2460,8 @@ impl<V: Clone + Send + Sync> TrieNode<V> for LineListNode<V> {
         //The final case is to construct a brand new node from the remaining parts of the key after we have
         // discarded what we can discard and then merged together what's left.  And then call this function
         // recursively on the newly merged nodes
-        let chop_bytes = byte_cnt.min(key0_len).min(key1_len);
+        let chop_bytes = key0_len.min(key1_len);
+        debug_assert!(chop_bytes <= byte_cnt);
         debug_assert!(chop_bytes > 0);
         let new_key0 = &key0[chop_bytes-1..];
         let new_key1 = &key1[chop_bytes-1..];

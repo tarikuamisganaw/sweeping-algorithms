@@ -444,6 +444,12 @@ impl<V: Clone + Send + Sync> ValOrChild<V> {
             _ => panic!()
         }
     }
+    pub fn from_union<const IS_CHILD: bool>(union: ValOrChildUnion<V>) -> Self {
+        match IS_CHILD {
+            true => Self::Child(unsafe{ union.into_child() }),
+            false => Self::Val(unsafe{ union.into_val() })
+        }
+    }
 }
 
 pub union ValOrChildUnion<V: Clone + Send + Sync> {
