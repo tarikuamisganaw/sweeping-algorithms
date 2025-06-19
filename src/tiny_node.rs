@@ -269,7 +269,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
         panic!();
     }
-    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V, A> {
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {
         //I don't think there is a set of circumstances that can give us an empty TinyRefNode
         debug_assert!(!self.node_is_empty());
 
@@ -324,10 +324,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
     fn tag(&self) -> usize {
         unreachable!()
     }
-    fn as_tagged(&self) -> TaggedNodeRef<V, A> {
+    fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::TinyRefNode(self)
     }
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V, A> {
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         panic!()
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {

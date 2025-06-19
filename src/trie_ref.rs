@@ -180,7 +180,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for Trie
 impl<V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for TrieRef<'_, V, A> {
     type V = V;
     type A = A;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V, Self::A> {
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V, Self::A> {
         if self.is_valid() {
             self.focus_node.get_node_at_key(self.node_key())
         } else {

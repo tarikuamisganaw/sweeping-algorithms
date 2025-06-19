@@ -280,7 +280,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperT
 impl<'a, 'path, V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for WriteZipperTracked<'a, 'path, V, A> {
     type V = V;
     type A = A;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V, Self::A> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V, Self::A> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> { self.z.try_borrow_focus() }
 }
 
@@ -432,7 +432,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperU
 impl<'a, 'k, V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for WriteZipperUntracked<'a, 'k, V, A> {
     type V = V;
     type A = A;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V, Self::A> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V, Self::A> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> { self.z.try_borrow_focus() }
 }
 
@@ -617,7 +617,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperO
 impl<V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for WriteZipperOwned<V, A> {
     type V = V;
     type A = A;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V, Self::A> { self.z.get_focus() }
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V, Self::A> { self.z.get_focus() }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> { self.z.try_borrow_focus() }
 }
 
@@ -940,7 +940,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperC
 impl<'a, 'k, V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for WriteZipperCore<'a, 'k, V, A> {
     type V = V;
     type A = A;
-    fn get_focus(&self) -> AbstractNodeRef<Self::V, Self::A> {
+    fn get_focus(&self) -> AbstractNodeRef<'_, Self::V, Self::A> {
         self.focus_stack.top().unwrap().get_node_at_key(self.key.node_key())
     }
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> {

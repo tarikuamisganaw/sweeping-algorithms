@@ -290,7 +290,7 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// If `key.len() == 0` this method will return a reference to or a clone of the node.
     ///
     /// If `self.node_is_empty() == true`, this method should return `AbstractNodeRef::None`
-    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V, A>;
+    fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A>;
 
     /// Returns a node which is the the portion of the node rooted at `key`, or `None` if `key` does
     /// not specify a path within the node
@@ -337,10 +337,10 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
     fn tag(&self) -> usize;
 
     /// Returns a [TaggedNodeRef] referencing this node
-    fn as_tagged(&self) -> TaggedNodeRef<V, A>;
+    fn as_tagged(&self) -> TaggedNodeRef<'_, V, A>;
 
     /// Returns a [TaggedNodeRefMut] referencing this node
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<V, A>;
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A>;
 
     /// Migrates the contents of the node into a new CellByteNode.  After this method, `self` will be empty
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A>;
@@ -1074,7 +1074,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRef<'a, V, A> {
             Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
         }
     }
-    pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<V, A> {
+    pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {
         match self {
             Self::DenseByteNode(node) => node.get_node_at_key(key),
             Self::LineListNode(node) => node.get_node_at_key(key),
@@ -1313,28 +1313,30 @@ mod opaque_dyn_rc_trie_node {
             let new_node = crate::line_list_node::LineListNode::new_in(alloc.clone());
             Self::new_in(new_node, alloc)
         }
-        #[cfg(feature = "nightly")]
-        #[inline]
-        pub(crate) fn new_from_arc<'odb>(arc: Arc<dyn TrieNode<V, A> + 'odb, A>) -> Self
-            where V: 'odb
-        {
-            let inner = arc as Arc<dyn TrieNode<V, A>, A>;
-            //SAFETY NOTE: The key to making this abstraction safe is the bound on this method,
-            // such that it's impossible to create this wrapper around a concrete type unless the
-            // same lifetime can bound both the trait's type parameter and the type itself
-            unsafe { Self(core::mem::transmute(inner)) }
-        }
-        #[cfg(not(feature = "nightly"))]
-        #[inline]
-        pub(crate) fn new_from_arc<'odb>(arc: Arc<dyn TrieNode<V, A> + 'odb>) -> Self
-            where V: 'odb
-        {
-            let inner = arc as Arc<dyn TrieNode<V, A>>;
-            //SAFETY NOTE: The key to making this abstraction safe is the bound on this method,
-            // such that it's impossible to create this wrapper around a concrete type unless the
-            // same lifetime can bound both the trait's type parameter and the type itself
-            unsafe { Self(core::mem::transmute(inner)) }
-        }
+        //GOAT, Seems like we don't use this impl anymore
+        // #[cfg(feature = "nightly")]
+        // #[inline]
+        // pub(crate) fn new_from_arc<'odb>(arc: Arc<dyn TrieNode<V, A> + 'odb, A>) -> Self
+        //     where V: 'odb
+        // {
+        //     let inner = arc as Arc<dyn TrieNode<V, A>, A>;
+        //     //SAFETY NOTE: The key to making this abstraction safe is the bound on this method,
+        //     // such that it's impossible to create this wrapper around a concrete type unless the
+        //     // same lifetime can bound both the trait's type parameter and the type itself
+        //     unsafe { Self(core::mem::transmute(inner)) }
+        // }
+        //GOAT, Seems like we don't use this impl anymore
+        // #[cfg(not(feature = "nightly"))]
+        // #[inline]
+        // pub(crate) fn new_from_arc<'odb>(arc: Arc<dyn TrieNode<V, A> + 'odb>) -> Self
+        //     where V: 'odb
+        // {
+        //     let inner = arc as Arc<dyn TrieNode<V, A>>;
+        //     //SAFETY NOTE: The key to making this abstraction safe is the bound on this method,
+        //     // such that it's impossible to create this wrapper around a concrete type unless the
+        //     // same lifetime can bound both the trait's type parameter and the type itself
+        //     unsafe { Self(core::mem::transmute(inner)) }
+        // }
         #[inline]
         pub(crate) fn refcount(&self) -> usize {
             Arc::strong_count(&self.0)
