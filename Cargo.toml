@@ -7,6 +7,7 @@ exclude = ["benches/", "pathmap-book/", ".*"]
 
 [dependencies]
 maybe-dangling = "0.1.1"
+stable_deref_trait = "1.2.0"
 dyn-clone = "1.0.17"
 local-or-heap = "0.1.0"
 reusing-vec = {version = "0.2.0", features = ["smallvec"]}
@@ -16,7 +17,7 @@ mutcursor = {version = "0.4"}
 num-traits = "0.2"
 tikv-jemallocator = {version = "0.6.0", optional = true}
 gxhash = {version="3.5", git="https://github.com/ogxd/gxhash"} # for dag_serialization
-libz-ng-sys = "1" # for any serialzation
+libz-ng-sys = {version = "1" } # for any serialzation
 rand_distr = { version = "0.5.1", optional = true }
 rand = { version = "0.9.0", optional = true }
 memmap2 = { version="0.9.5", optional = true }

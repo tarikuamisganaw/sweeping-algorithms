@@ -1454,6 +1454,14 @@ impl<V: Clone + Send + Sync, A: Allocator> Default for OrdinaryCoFree<V, A> {
     }
 }
 
+impl<V: Clone + Send + Sync, A: Allocator> OrdinaryCoFree<V, A> {
+    fn both_mut_refs(&mut self) -> (&mut Option<TrieNodeODRc<V, A>>, &mut Option<V>) {
+        let rec = &mut self.rec;
+        let val = &mut self.value;
+        (rec, val)
+    }
+}
+
 impl<V: Clone + Send + Sync, A: Allocator> CoFree for OrdinaryCoFree<V, A> {
     type V = V;
     type A = A;
@@ -1521,21 +1529,25 @@ impl<V: Clone + Send + Sync, A: Allocator> CoFree for OrdinaryCoFree<V, A> {
     }
 }
 
-use core::cell::UnsafeCell;
+use maybe_dangling::MaybeDangling;
 use core::pin::Pin;
 
 #[derive(Debug)]
-pub struct CellCoFree<V: Clone + Send + Sync, A: Allocator>(Pin<Box<CellCoFreeInsides<V, A>>>);
+pub struct CellCoFree<V: Clone + Send + Sync, A: Allocator>(MaybeDangling<Pin<Box<OrdinaryCoFree<V, A>>>>);
+
+unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for CellCoFree<V, A> {}
+unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for CellCoFree<V, A> {}
 
 impl<V: Clone + Send + Sync, A: Allocator> Default for CellCoFree<V, A> {
     fn default() -> Self {
-        Self(Box::pin(CellCoFreeInsides::new(None, None)))
+        Self(MaybeDangling::new(Box::pin(OrdinaryCoFree::new(None, None))))
     }
 }
 
 impl<V: Clone + Send + Sync, A: Allocator> Clone for CellCoFree<V, A> {
     fn clone(&self) -> Self {
-        Self(Box::pin((*self.0).clone()))
+        let cloned = (&*self.0 as &OrdinaryCoFree<V, A>).clone();
+        Self(MaybeDangling::new(Box::pin(cloned)))
     }
 }
 
@@ -1556,8 +1568,8 @@ impl<V: Clone + Send + Sync, A: Allocator> CoFree for CellCoFree<V, A> {
     type V = V;
     type A = A;
     fn new(rec: Option<TrieNodeODRc<V, A>>, val: Option<V>) -> Self {
-        let insides = CellCoFreeInsides::new(rec, val);
-        Self(Box::pin(insides))
+        let insides = OrdinaryCoFree::new(rec, val);
+        Self(MaybeDangling::new(Box::pin(insides)))
     }
     fn from_cf<OtherCf: CoFree<V=Self::V, A=Self::A>>(cf: OtherCf) -> Self {
         let (rec, val) = cf.into_both();
@@ -1576,7 +1588,7 @@ impl<V: Clone + Send + Sync, A: Allocator> CoFree for CellCoFree<V, A> {
         unsafe{ self.0.as_mut().get_unchecked_mut() }.take_rec()
     }
     fn into_rec(self) -> Option<TrieNodeODRc<V, A>> {
-        unsafe{ Pin::into_inner_unchecked(self.0) }.take_rec()
+        unsafe{ Pin::into_inner_unchecked(MaybeDangling::into_inner(self.0)) }.take_rec()
     }
     fn set_rec(&mut self, node: TrieNodeODRc<V, A>) {
         unsafe{ self.0.as_mut().get_unchecked_mut() }.set_rec(node)
@@ -1612,113 +1624,7 @@ impl<V: Clone + Send + Sync, A: Allocator> CoFree for CellCoFree<V, A> {
         unsafe{ self.0.as_mut().get_unchecked_mut() }.both_mut()
     }
     fn into_both(self) -> (Option<TrieNodeODRc<V, A>>, Option<V>) {
-        unsafe{ Pin::into_inner_unchecked(self.0) }.into_both()
-    }
-}
-
-#[derive(Debug)]
-struct CellCoFreeInsides<V: Clone + Send + Sync, A: Allocator> {
-    rec: UnsafeCell<Option<TrieNodeODRc<V, A>>>,
-    value: UnsafeCell<Option<V>>
-}
-
-impl<V: Clone + Send + Sync, A: Allocator> Default for CellCoFreeInsides<V, A> {
-    fn default() -> Self {
-        Self {rec: UnsafeCell::new(None), value: UnsafeCell::new(None)}
-    }
-}
-
-unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for CellCoFreeInsides<V, A> {}
-unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for CellCoFreeInsides<V, A> {}
-
-impl<V: Clone + Send + Sync, A: Allocator> Clone for CellCoFreeInsides<V, A> {
-    fn clone(&self) -> Self {
-        Self {
-            rec: UnsafeCell::new(self.rec().cloned()),
-            value: UnsafeCell::new(self.val().cloned()),
-        }
-    }
-}
-
-impl<V: Clone + Send + Sync, A: Allocator> CellCoFreeInsides<V, A> {
-    fn both_mut_refs(&mut self) -> (&mut Option<TrieNodeODRc<V, A>>, &mut Option<V>) {
-        let rec = unsafe{ &mut *self.rec.get() };
-        let val = unsafe{ &mut *self.value.get() };
-        (rec, val)
-    }
-}
-
-impl<V: Clone + Send + Sync, A: Allocator> CoFree for CellCoFreeInsides<V, A> {
-    type V = V;
-    type A = A;
-    fn new(rec: Option<TrieNodeODRc<V, A>>, val: Option<V>) -> Self {
-        Self {
-            rec: UnsafeCell::new(rec),
-            value: UnsafeCell::new(val)
-        }
-    }
-    fn from_cf<OtherCf: CoFree<V=Self::V, A=Self::A>>(cf: OtherCf) -> Self {
-        let (rec, val) = cf.into_both();
-        Self::new(rec, val)
-    }
-    fn rec(&self) -> Option<&TrieNodeODRc<V, A>> {
-        unsafe{ &*self.rec.get() }.as_ref()
-    }
-    fn has_rec(&self) -> bool {
-        unsafe{ &*self.rec.get() }.is_some()
-    }
-    fn rec_mut(&mut self) -> Option<&mut TrieNodeODRc<V, A>> {
-        unsafe{ &mut *self.rec.get() }.as_mut()
-    }
-    fn take_rec(&mut self) -> Option<TrieNodeODRc<V, A>> {
-        core::mem::take(&mut self.rec).into_inner()
-    }
-    fn into_rec(self) -> Option<TrieNodeODRc<V, A>> {
-        self.rec.into_inner()
-    }
-    fn set_rec(&mut self, node: TrieNodeODRc<V, A>) {
-        self.rec = UnsafeCell::new(Some(node))
-    }
-    fn set_rec_option(&mut self, rec: Option<TrieNodeODRc<V, A>>) {
-        self.rec = UnsafeCell::new(rec)
-    }
-    fn swap_rec(&mut self, node: TrieNodeODRc<V, A>) -> Option<TrieNodeODRc<V, A>> {
-        let mut old_child = UnsafeCell::new(Some(node));
-        core::mem::swap(&mut old_child, &mut self.rec);
-        old_child.into_inner()
-    }
-    fn val(&self) -> Option<&V> {
-        unsafe{ &*self.value.get() }.as_ref()
-    }
-    fn has_val(&self) -> bool {
-        unsafe{ &*self.value.get() }.is_some()
-    }
-    fn val_mut(&mut self) -> Option<&mut V> {
-        unsafe{ &mut *self.value.get() }.as_mut()
-    }
-    fn take_val(&mut self) -> Option<V> {
-        core::mem::take(&mut self.value).into_inner()
-    }
-    fn set_val(&mut self, val: V) {
-        self.value = UnsafeCell::new(Some(val))
-    }
-    fn set_val_option(&mut self, val: Option<V>) {
-        self.value = UnsafeCell::new(val)
-    }
-    fn swap_val(&mut self, val: V) -> Option<V> {
-        let mut old_val = UnsafeCell::new(Some(val));
-        core::mem::swap(&mut old_val, &mut self.value);
-        old_val.into_inner()
-    }
-    fn both_mut(&mut self) -> (Option<&mut TrieNodeODRc<V, A>>, Option<&mut V>) {
-        let rec = unsafe{ &mut *self.rec.get() }.as_mut();
-        let val = unsafe{ &mut *self.value.get() }.as_mut();
-        (rec, val)
-    }
-    fn into_both(self) -> (Option<TrieNodeODRc<V, A>>, Option<V>) {
-        let rec = self.rec.into_inner();
-        let val = self.value.into_inner();
-        (rec, val)
+        unsafe{ Pin::into_inner_unchecked(MaybeDangling::into_inner(self.0)) }.into_both()
     }
 }
 

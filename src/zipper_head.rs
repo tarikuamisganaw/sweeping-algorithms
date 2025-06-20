@@ -306,17 +306,17 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
     fn cleanup_write_zipper<ChildZ: ZipperWriting<V, A> + ZipperAbsolutePath>(&self, mut z: ChildZ) {
         let origin_path = z.take_root_prefix_path();
         drop(z);
-        self.with_inner_core_z(|z| {
+        self.with_inner_core_z(|inner_z| {
             //Sometimes people call `cleanup_write_zipper` in a drop method on a WZ wrapper, and the ZipperHead
             // has already been dismantled... So we are checking here in order to handle that situation gracefully
-            if z.focus_stack.top().is_some() {
-                z.move_to_path(origin_path);
-                if z.try_borrow_focus().unwrap().node_is_empty() {
-                    if !z.is_value() && z.child_count() == 0 {
-                        z.prune_path();
+            if inner_z.focus_stack.top().is_some() {
+                inner_z.move_to_path(origin_path);
+                if inner_z.try_borrow_focus().unwrap().node_is_empty() {
+                    if !inner_z.is_value() && inner_z.child_count() == 0 {
+                        inner_z.prune_path();
                     }
                 }
-                z.reset();
+                inner_z.reset();
             }
         })
     }
@@ -351,7 +351,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
         let stack_root = z.focus_stack.root_mut().unwrap();
         make_cell_node(stack_root);
         let root_val = z.root_val.as_mut().unwrap();
-        return (stack_root, root_val)
+        return (stack_root, unsafe{ &mut **root_val })
     }
 
     //Otherwise we need to walk to the end of the path

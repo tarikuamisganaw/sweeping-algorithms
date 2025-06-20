@@ -1081,6 +1081,10 @@ pub struct ReadZipperOwned<V: Clone + Send + Sync + 'static, A: Allocator + 'sta
     // [WriteZipperOwned::into_map] method.  This box effectively provides a fence, ensuring that the
     // `&mut` references to the `map` and the `prefix_path` are totally gone before we access `map`.
     // But I would like to find a zero-cost way to accomplish the same thing without the indirection.
+    //
+    // UPDATE: I could give the ReadZipperCore the same ptr treatment that I did to WriteZipper with the
+    // WZNodePtr, although it's likely easier for the ReadZipperCore because we don't have to worry about
+    // mutability and the constraints of the MutCursorRootedVec
     z: Box<ReadZipperCore<'static, 'static, V, A>>,
 }
 
