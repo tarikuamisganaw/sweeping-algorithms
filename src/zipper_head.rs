@@ -350,7 +350,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin>(z: &'a mut W
         let stack_root = z.focus_stack.root_mut().unwrap();
         make_cell_node(stack_root);
         let root_val = z.root_val.as_mut().unwrap();
-        return (stack_root, root_val)
+        return (stack_root, unsafe{ &mut **root_val })
     }
 
     //Otherwise we need to walk to the end of the path
