@@ -264,11 +264,18 @@ impl SharedTrackerPaths {
         self.with_paths(try_add_reader_internal)
     }
 
+    /// Adds a new reader without checking to see whether it conflicts with existing writers
     fn add_reader_unchecked(&self, path: &[u8]) {
         let add_reader = |paths: &mut TrackerPaths| {
             let mut writer = paths.read_paths.write_zipper_at_path(path);
-            let cnt = writer.get_value_mut().unwrap();
-            *cnt = unsafe { NonZero::new_unchecked(cnt.get() + 1) }
+            match writer.get_value_mut() {
+                Some(cnt) => {
+                    *cnt = unsafe { NonZero::new_unchecked(cnt.get() + 1) };
+                },
+                None => {
+                    writer.set_value(unsafe { NonZero::new_unchecked(1) });
+                }
+            }
         };
 
         self.with_paths(add_reader)
@@ -302,6 +309,16 @@ impl<M: TrackingMode> core::fmt::Debug for ZipperTracker<M> {
     }
 }
 
+impl<M: TrackingMode> ZipperTracker<M> {
+    /// Destroy a `ZipperTracker` without invoking Drop code to release the lock
+    fn dismantle(self) -> (SharedTrackerPaths, Vec<u8>) {
+        let tracker_shell = core::mem::ManuallyDrop::new(self);
+        let all_paths = unsafe { core::ptr::read(&tracker_shell.all_paths) };
+        let this_path = unsafe { core::ptr::read(&tracker_shell.this_path) };
+        (all_paths, this_path)
+    }
+}
+
 impl ZipperTracker<TrackingRead> {
     /// Create a new `ZipperTracker` to track a read zipper
     pub fn new(shared_paths: SharedTrackerPaths, path: &[u8]) -> Result<Self, Conflict> {
@@ -309,14 +326,6 @@ impl ZipperTracker<TrackingRead> {
         Ok(Self {
             all_paths: shared_paths,
             this_path: path.to_vec(),
-            _is_tracking: PhantomData,
-        })
-    }
-    fn with_owned_path(shared_paths: SharedTrackerPaths, path: Vec<u8>) -> Result<Self, Conflict> {
-        shared_paths.try_add_reader(&path)?;
-        Ok(Self {
-            all_paths: shared_paths,
-            this_path: path,
             _is_tracking: PhantomData,
         })
     }
@@ -333,12 +342,15 @@ impl ZipperTracker<TrackingWrite> {
         })
     }
     /// Consumes the writer tracker, and returns a new reader tracker with the same path
-    pub fn into_reader(mut self) -> ZipperTracker<TrackingRead> {
-        let all_paths = self.all_paths.clone();
-        let this_path = core::mem::take(&mut self.this_path);
+    pub fn into_reader(self) -> ZipperTracker<TrackingRead> {
+        let (all_paths, this_path) = self.dismantle();
+        //We add the reader lock first before removing the writer, so there is no chance another thread will
+        // grab a writer in between.
+        all_paths.add_reader_unchecked(&this_path);
         Self::remove_lock(&all_paths, &this_path);
-        core::mem::forget(self);
-        ZipperTracker::<TrackingRead>::with_owned_path(all_paths, this_path).unwrap()
+        ZipperTracker::<TrackingRead> {
+            all_paths, this_path, _is_tracking: PhantomData
+        }
     }
 }
 

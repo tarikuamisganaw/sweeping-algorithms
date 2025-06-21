@@ -3041,7 +3041,7 @@ mod tests {
         assert_eq!(rz.path(), b"  The only limit is yourself.");
         assert_eq!(rz.origin_path(), b"You can do anything with Zombocom.  The only limit is yourself.");
 
-        // Make sure ReadZippers off a ZipperHead have the right origin_path
+        // Make sure WriteZippers off a ZipperHead have the right origin_path
         let mut wz = zh.write_zipper_at_exclusive_path(b"This path can take you anywhere.  Just close your eyes...").unwrap();
         assert_eq!(wz.path(), b"");
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes...");
