@@ -80,6 +80,19 @@ fn superdense_get(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
+fn superdense_drop_head(bencher: Bencher, n: u64) {
+
+    bencher.with_inputs(|| {
+        let mut map = BytesTrieMap::new();
+        for i in 0..n { map.insert(prefix_key(&i), i); }
+        map
+    }).bench_local_values(|mut map| {
+        let mut wz = map.write_zipper();
+        wz.drop_head(1);
+    });
+}
+
+#[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
 fn superdense_meet(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;

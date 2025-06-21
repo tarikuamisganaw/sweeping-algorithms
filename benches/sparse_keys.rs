@@ -93,6 +93,25 @@ fn sparse_val_count_bench(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
+fn binary_drop_head(bencher: Bencher, n: u64) {
+
+    let mut r = StdRng::seed_from_u64(1);
+    let keys: Vec<Vec<u8>> = (0..n).into_iter().map(|_| {
+        let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
+        (0..len).into_iter().map(|_| r.random::<u8>()).collect()
+    }).collect();
+
+    bencher.with_inputs(|| {
+        let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in 0..n { map.insert(&keys[i as usize], i); }
+        map
+    }).bench_local_values(|mut map| {
+        let mut wz = map.write_zipper();
+        wz.drop_head(5);
+    });
+}
+
+#[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_meet(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;

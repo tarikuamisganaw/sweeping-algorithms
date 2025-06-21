@@ -78,6 +78,21 @@ fn binary_val_count_bench(bencher: Bencher, n: u64) {
 }
 
 #[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
+fn binary_drop_head(bencher: Bencher, n: u64) {
+
+    let keys = make_keys(n as usize, 1);
+
+    bencher.with_inputs(|| {
+        let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+        for i in 0..n { map.insert(&keys[i as usize], i); }
+        map
+    }).bench_local_values(|mut map| {
+        let mut wz = map.write_zipper();
+        wz.drop_head(5);
+    });
+}
+
+#[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn binary_meet(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;
