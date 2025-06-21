@@ -760,9 +760,9 @@ unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for WriteZipperCore<'_, '
 unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for WriteZipperCore<'_, '_, V, A> {}
 
 /// Internal type to adapt to the needs of [MutCursorRootedVec].  Should only be used inside WriteZipper
-pub(crate) struct WZNodePtr<'a, V, A: Allocator>(*mut TrieNodeODRc<V, A>, core::marker::PhantomData<&'a mut V>);
+pub(crate) struct WZNodePtr<'a, V: Clone + Send + Sync, A: Allocator>(*mut TrieNodeODRc<V, A>, core::marker::PhantomData<&'a mut V>);
 
-impl<'a, V, A: Allocator> WZNodePtr<'a, V, A> {
+impl<'a, V: Clone + Send + Sync, A: Allocator> WZNodePtr<'a, V, A> {
     fn new(node_ref: &'a mut TrieNodeODRc<V, A>) -> Self {
         Self(node_ref, PhantomData)
     }
@@ -771,18 +771,18 @@ impl<'a, V, A: Allocator> WZNodePtr<'a, V, A> {
     }
 }
 
-impl<'a, V, A: Allocator> DerefMut for WZNodePtr<'a, V, A> {
+impl<'a, V: Clone + Send + Sync, A: Allocator> DerefMut for WZNodePtr<'a, V, A> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe{ &mut *self.0 }
     }
 }
-impl<'a, V, A: Allocator> Deref for WZNodePtr<'a, V, A> {
+impl<'a, V: Clone + Send + Sync, A: Allocator> Deref for WZNodePtr<'a, V, A> {
     type Target = TrieNodeODRc<V, A>;
     fn deref(&self) -> &Self::Target {
         unsafe{ &*self.0 }
     }
 }
-unsafe impl<V, A: Allocator> stable_deref_trait::StableDeref for WZNodePtr<'_, V, A> {}
+unsafe impl<V: Clone + Send + Sync, A: Allocator> stable_deref_trait::StableDeref for WZNodePtr<'_, V, A> {}
 
 /// The part of the zipper that contains the path and key-related fields.  So it can be borrowed separately
 ///
