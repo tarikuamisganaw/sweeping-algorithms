@@ -7,10 +7,28 @@ def parse_divan_output(text):
 
     # Match benchmark row lines
     row_re = re.compile(
-        r"^[│╰├ ]*[├╰]─\s+\(([^)]+)\)\s+([\d.]+)\s*(\w+)\s+│\s+([\d.]+)\s*(\w+)\s+│\s+([\d.]+)\s*(\w+)\s+│\s+([\d.]+)\s*(\w+)\s+│\s+(\d+)\s+│\s+(\d+)"
+        r"""^[│╰├ ]*[├╰]─\s*
+            (?P<case>.+?)\s+
+            (?P<fastest_val>[\d.]+)\s+(?P<fastest_unit>\S+)\s*│\s*
+            (?P<slowest_val>[\d.]+)\s+(?P<slowest_unit>\S+)\s*│\s*
+            (?P<median_val>[\d.]+)\s+(?P<median_unit>\S+)\s*│\s*
+            (?P<mean_val>[\d.]+)\s+(?P<mean_unit>\S+)\s*│\s*
+            (?P<samples>\d+)\s*│\s*
+            (?P<iters>\d+)
+        """,
+        re.VERBOSE
     )
     # Match group header line
-    group_re = re.compile(r"^[│╰├ ]*[├╰]─\s+([\w\d_]+)")
+    group_re = re.compile(
+        r"^[│╰├ ]*[├╰]─\s+([^\s│]+)\s+│"
+    )
+    header_re = re.compile(
+        r"""^
+        \s*?([A-Za-z0-9_]+)
+        \s+fastest\s+│\s*slowest\s+│\s*median\s+│\s*mean\s+│\s*samples\s+│\s*iters
+        """,
+        re.VERBOSE
+    )
 
     lines = text.strip().splitlines()
 
@@ -23,6 +41,10 @@ def parse_divan_output(text):
             current_group = group_match.group(1).strip()
             continue
 
+        header_match = header_re.match(line)
+        if header_match:
+            current_group = header_match.group(1).strip()
+
         row_match = row_re.match(line)
         if row_match:
             (case, fastest_val, fastest_unit,
@@ -32,7 +54,7 @@ def parse_divan_output(text):
              samples, iters) = row_match.groups()
 
             def to_ns(val, unit):
-                scale = {'ns': 1, 'µs': 1e3, 'us': 1e3, 'ms': 1e6}
+                scale = {'ns': 1, 'µs': 1e3, 'us': 1e3, 'ms': 1e6, 's': 1e9}
                 return float(val) * scale[unit]
 
             results[(current_group, case)] = {
@@ -81,11 +103,19 @@ def compare_fields(base, other, field_name):
             }
     return results
 
+def case_sort_key(case):
+    try:
+        return (0, float(case))  # numeric values come first
+    except (ValueError, TypeError):
+        return (1, str(case))    # non-numeric values come after, sorted as strings
+
 def render_divan_table(data):
-    # Sort by group then case
+    # Group and sort
     grouped = defaultdict(list)
     for (group, case), stats in data.items():
         grouped[group].append((case, stats))
+    for group in grouped:
+        grouped[group].sort(key=lambda item: case_sort_key(item[0]))
 
     (_, first_record) = next(iter(grouped.values()))[0]
     lines = []
@@ -99,11 +129,11 @@ def render_divan_table(data):
         lines.append("                                  fastest  │      slowest │       median │         mean │")
 
     # Content
-    for group in sorted(grouped.keys()):
+    for group in grouped.keys():
         lines.append(f"├─ {group:<32}        │{'':14}│{'':14}│{'':14}│{'':8}│")
         group_items = grouped[group]
 
-        for i, (case, stats) in enumerate(sorted(group_items)):
+        for i, (case, stats) in enumerate(group_items):
             prefix = "│  ╰─" if i == len(group_items) - 1 else "│  ├─"
 
             if 'base' in stats:
@@ -141,6 +171,8 @@ def colorize_percentage(val: float) -> str:
 
 def format_ns(ns):
     abs_ns = abs(ns)
+    if abs_ns > 1e9:
+        return f"{ns/1e9:.2f} s"
     if abs_ns > 1e6:
         return f"{ns/1e6:.2f} ms"
     if abs_ns > 1e3:
