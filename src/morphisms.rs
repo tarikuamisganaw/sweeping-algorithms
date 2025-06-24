@@ -1119,70 +1119,71 @@ impl<V: Clone + Send + Sync, W: Default, A: Allocator> TrieBuilder<V, W, A> {
 
         self.push_byte(sub_path[0], w);
     }
-    /// Behaves like [push](Self::push), but will tolerate inputs in any order, and inputs and with
-    /// overlapping initial bytes
-    ///
-    /// DISCUSSION: This method is handy when you are generating paths composed of data types that can't be
-    /// cleanly separated at byte boundaries; for example UTF-8 encoded `char`s.  This method saves you the
-    /// extra work of handling the case where different structures encode with the same initial byte, and of
-    /// concerning yourself with partial encoding generally.
-    ///
-    /// This method is much higher overhead than the ordinary `push` method, and also it introduces
-    /// some ambiguity in the order in which the closure is run for the children.  Specifically it means that
-    /// the same path location in the trie may be visited multiple times, and you cannot rely on closure
-    /// execution proceeding in a strictly depth-first order.  Furthermore, the closure order may not match
-    /// the traversal order of the completed trie.
-    ///
-    /// NOTE: Because a given location may be visited multiple times, values set by later-running closures
-    /// will overwrite a value set by an earlier closure running at the same path.
-    ///
-    /// NOTE: If you push twice to an identical path within the same closure execution, the second push will
-    /// overwrite the first.
-    ///
-    /// NOTE: use of this method will preclude any automatic multi-threading of the anamorphism on downstream
-    /// paths.
-    pub fn tolerant_push(&mut self, sub_path: &[u8], w: W) {
-        let byte = match sub_path.get(0) {
-            Some(byte) => byte,
-            None => return
-        };
+//GOAT WIP
+//     /// Behaves like [push](Self::push), but will tolerate inputs in any order, and inputs and with
+//     /// overlapping initial bytes
+//     ///
+//     /// DISCUSSION: This method is handy when you are generating paths composed of data types that can't be
+//     /// cleanly separated at byte boundaries; for example UTF-8 encoded `char`s.  This method saves you the
+//     /// extra work of handling the case where different structures encode with the same initial byte, and of
+//     /// concerning yourself with partial encoding generally.
+//     ///
+//     /// This method is much higher overhead than the ordinary `push` method, and also it introduces
+//     /// some ambiguity in the order in which the closure is run for the children.  Specifically it means that
+//     /// the same path location in the trie may be visited multiple times, and you cannot rely on closure
+//     /// execution proceeding in a strictly depth-first order.  Furthermore, the closure order may not match
+//     /// the traversal order of the completed trie.
+//     ///
+//     /// NOTE: Because a given location may be visited multiple times, values set by later-running closures
+//     /// will overwrite a value set by an earlier closure running at the same path.
+//     ///
+//     /// NOTE: If you push twice to an identical path within the same closure execution, the second push will
+//     /// overwrite the first.
+//     ///
+//     /// NOTE: use of this method will preclude any automatic multi-threading of the anamorphism on downstream
+//     /// paths.
+//     pub fn tolerant_push(&mut self, sub_path: &[u8], w: W) {
+//         let byte = match sub_path.get(0) {
+//             Some(byte) => byte,
+//             None => return
+//         };
 
-        //Find the index in the `child_structs` vec based on the initial byte
-        let mask_word = (byte / 64) as usize;
-        let byte_remainder = byte % 64;
-        let mut byte_index = 0;
-        for i in 0..mask_word {
-            byte_index += self.child_mask[i].count_ones();
-        }
-        if byte_remainder > 0 {
-            byte_index += (self.child_mask[mask_word] & 0xFFFFFFFFFFFFFFFF >> (64-byte_remainder)).count_ones();
-        }
+//         //Find the index in the `child_structs` vec based on the initial byte
+//         let mask_word = (byte / 64) as usize;
+//         let byte_remainder = byte % 64;
+//         let mut byte_index = 0;
+//         for i in 0..mask_word {
+//             byte_index += self.child_mask[i].count_ones();
+//         }
+//         if byte_remainder > 0 {
+//             byte_index += (self.child_mask[mask_word] & 0xFFFFFFFFFFFFFFFF >> (64-byte_remainder)).count_ones();
+//         }
 
-        let mask_delta = 1u64 << (byte % 64);
-        let collision = self.child_mask[mask_word] & mask_delta > 0;
-        self.child_mask[mask_word] |= mask_delta;
+//         let mask_delta = 1u64 << (byte % 64);
+//         let collision = self.child_mask[mask_word] & mask_delta > 0;
+//         self.child_mask[mask_word] |= mask_delta;
 
-//GOAT, my thinking on the data structure changes
-//For the paths, we should go back to storing the whole path, and use the first byte for association.  No need
-// to keep the index association
-//For the W array, we ought to just push the Ws in, in the order we want.  Since we always iterate the W vec
-//If we want to support direct-push of values, we ought to have a separate value mask
-//There should be two value vecs.  One for direct values of the current node, and one for values associated
-// with downstream children / paths.  (we could even piggy-back the downstream value on the path)
+// //GOAT, my thinking on the data structure changes
+// //For the paths, we should go back to storing the whole path, and use the first byte for association.  No need
+// // to keep the index association
+// //For the W array, we ought to just push the Ws in, in the order we want.  Since we always iterate the W vec
+// //If we want to support direct-push of values, we ought to have a separate value mask
+// //There should be two value vecs.  One for direct values of the current node, and one for values associated
+// // with downstream children / paths.  (we could even piggy-back the downstream value on the path)
 
-//GOAT, THE W vec should have the string pairs hanging off each element.  So the W vec is `Vec<(W, Vec<(Vec<u8>, W)>)>`
-//GOAT, Actually the W needs to be an Option<W>, and at that point, we may as well split the 
+// //GOAT, THE W vec should have the string pairs hanging off each element.  So the W vec is `Vec<(W, Vec<(Vec<u8>, W)>)>`
+// //GOAT, Actually the W needs to be an Option<W>, and at that point, we may as well split the 
 
-//GOAT options:
-// 1. Make one vec that holds length-1 children, and another that holds lenth > 1,
-//     
+// //GOAT options:
+// // 1. Make one vec that holds length-1 children, and another that holds lenth > 1,
+// //     
 
-//GOAT!!! Vec<(Option<W>, Vec<(Vec<u8>, W)>)>
-//GOAT!!! ReusingQueue<SmallVec<(Vec<u8>, W)>>
+// //GOAT!!! Vec<(Option<W>, Vec<(Vec<u8>, W)>)>
+// //GOAT!!! ReusingQueue<SmallVec<(Vec<u8>, W)>>
 
-        //GOAT, we need to reset self.cur_mask_word, scanning the whole child_mask, because any child byte may have been added
-        // self.cur_mask_word = mask_word;
-    }
+//         //GOAT, we need to reset self.cur_mask_word, scanning the whole child_mask, because any child byte may have been added
+//         // self.cur_mask_word = mask_word;
+//     }
     /// Returns the child mask from the `TrieBuilder`, representing paths that have been pushed so far
     pub fn child_mask(&self) -> [u64; 4] {
         self.child_mask
@@ -1982,38 +1983,39 @@ mod tests {
         }
     }
 
-    #[test]
-    fn ana_test5() {
-        let _btm = BytesTrieMap::<&str>::new_from_ana(GREETINGS, |string_slice, val, children, _path| {
+    //GOAT WIP
+    // #[test]
+    // fn ana_test5() {
+    //     let _btm = BytesTrieMap::<&str>::new_from_ana(GREETINGS, |string_slice, val, children, _path| {
 
-            fn split_key(in_str: &str) -> (&str, &str) {
-                let det = in_str.find(',').unwrap_or(usize::MAX);
-                if det == 0 {
-                    ("", &in_str[1..])
-                } else if det == usize::MAX {
-                    ("", in_str)
-                } else {
-                    (&in_str[0..det], &in_str[det+1..])
-                }
-            }
+    //         fn split_key(in_str: &str) -> (&str, &str) {
+    //             let det = in_str.find(',').unwrap_or(usize::MAX);
+    //             if det == 0 {
+    //                 ("", &in_str[1..])
+    //             } else if det == usize::MAX {
+    //                 ("", in_str)
+    //             } else {
+    //                 (&in_str[0..det], &in_str[det+1..])
+    //             }
+    //         }
 
-            if string_slice.len() == 1 {
-                let (_, split_val) = split_key(string_slice[0]);
-                *val = Some(split_val);
-            } else {
-                for i in 0..string_slice.len() {
-                    let (key, _) = split_key(string_slice[0]);
-                    children.tolerant_push(key.as_bytes(), &string_slice[i..i+1]);
-                }
-            }
-        });
+    //         if string_slice.len() == 1 {
+    //             let (_, split_val) = split_key(string_slice[0]);
+    //             *val = Some(split_val);
+    //         } else {
+    //             for i in 0..string_slice.len() {
+    //                 let (key, _) = split_key(string_slice[0]);
+    //                 children.tolerant_push(key.as_bytes(), &string_slice[i..i+1]);
+    //             }
+    //         }
+    //     });
 
-        let mut rz = _btm.read_zipper();
-        while let Some(language) = rz.to_next_get_value() {
-            //GOAT, this feature (and therefore this test) is WIP
-            println!("language: {}, greeting: {}", language, std::str::from_utf8(rz.path()).unwrap());
-        }
-    }
+    //     let mut rz = _btm.read_zipper();
+    //     while let Some(language) = rz.to_next_get_value() {
+    //         //GOAT, this feature (and therefore this test) is WIP
+    //         println!("language: {}, greeting: {}", language, std::str::from_utf8(rz.path()).unwrap());
+    //     }
+    // }
 
     #[test]
     fn apo_test1() {
