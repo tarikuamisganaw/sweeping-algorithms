@@ -124,14 +124,13 @@ This will run `cargo bench` 10 times with the filter `my_benchmark_filter`, and 
 """
     )
     parser.add_argument('--runs', type=int, default=5, help='Number of times to run `cargo bench` (default: 5)')
-    parser.add_argument('bench_args', nargs=argparse.REMAINDER)
-    args = parser.parse_args()
+    (args, bench_args) = parser.parse_known_args()
 
     results = []
 
     for i in range(args.runs):
         print(f"Run {i+1}/{args.runs}...")
-        proc = subprocess.run(['cargo', 'bench'] + args.bench_args,
+        proc = subprocess.run(['cargo', 'bench'] + bench_args,
                                capture_output=True, text=True)
         if proc.returncode != 0:
             print(proc.stderr, file=sys.stderr)
