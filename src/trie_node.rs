@@ -344,6 +344,15 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
 
     /// Migrates the contents of the node into a new CellByteNode.  After this method, `self` will be empty
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A>;
+
+    /// Returns the node as a [`DenseByteNode`]; must be called when the node type is known
+    unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A>;
+
+    /// Returns the node as a [`LineListNode`]; must be called when the node type is known
+    unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A>;
+
+    /// Returns the node as a [`CellByteNode`]; must be called when the node type is known
+    unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A>;
 }
 
 /// Special sentinel token value indicating iteration of a node has not been initialized
@@ -794,6 +803,18 @@ mod tagged_node_ref {
                 Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
             }
         }
+        #[inline]
+        pub fn from_dense(node: &'a DenseByteNode<V, A>) -> Self {
+            TaggedNodeRef::DenseByteNode(node)
+        }
+        #[inline]
+        pub fn from_list(node: &'a LineListNode<V, A>) -> Self {
+            TaggedNodeRef::LineListNode(node)
+        }
+        #[inline]
+        pub fn from_cell(node: &'a CellByteNode<V, A>) -> Self {
+            TaggedNodeRef::CellByteNode(node)
+        }
     }
 
     /// A mutable reference to a node with a concrete type
@@ -817,6 +838,50 @@ mod tagged_node_ref {
                 Self::CellByteNode(node) => node as &mut dyn TrieNode<V, A>,
                 Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
+        }
+        #[inline]
+        pub fn tag(&self) -> usize {
+            match self {
+                Self::DenseByteNode(_) => DENSE_BYTE_NODE_TAG,
+                Self::LineListNode(_) => LINE_LIST_NODE_TAG,
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => node as &mut dyn TrieNode<V, A>,
+                Self::CellByteNode(_) => CELL_BYTE_NODE_TAG,
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        #[inline(always)]
+        pub unsafe fn into_dense_unchecked(self) -> &'a mut DenseByteNode<V, A> {
+            match self {
+                Self::DenseByteNode(node) => node,
+                _ => unsafe { unreachable_unchecked() }
+            }
+        }
+        #[inline(always)]
+        pub unsafe fn into_list_unchecked(self) -> &'a mut LineListNode<V, A> {
+            match self {
+                Self::LineListNode(node) => node,
+                _ => unsafe { unreachable_unchecked() }
+            }
+        }
+        #[inline(always)]
+        pub unsafe fn into_cell_unchecked(self) -> &'a mut CellByteNode<V, A> {
+            match self {
+                Self::CellByteNode(node) => node,
+                _ => unsafe { unreachable_unchecked() }
+            }
+        }
+        #[inline(always)]
+        pub fn from_dense(node: &'a mut DenseByteNode<V, A>) -> Self {
+            TaggedNodeRefMut::DenseByteNode(node)
+        }
+        #[inline(always)]
+        pub fn from_list(node: &'a mut LineListNode<V, A>) -> Self {
+            TaggedNodeRefMut::LineListNode(node)
+        }
+        #[inline(always)]
+        pub fn from_cell(node: &'a mut CellByteNode<V, A>) -> Self {
+            TaggedNodeRefMut::CellByteNode(node)
         }
     }
 
@@ -1224,6 +1289,29 @@ mod tagged_node_ref {
         pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
             Self { ptr, phantom: PhantomData }
         }
+        #[inline]
+        pub fn from_node<T>(node: &T) -> Self
+        where T: 'a + TrieNode<V, A>,
+        {
+            let tag = node.tag() as usize;
+            Self{ ptr: SlimNodePtr::from_raw_parts((node as *const T).cast_mut(), tag), phantom: PhantomData }
+        }
+        /// GOAT, we need these specific (non-generic) constructors to keep the same API for dyn dispatch.
+        /// We can delete them after we remove dyn dispatch
+        #[inline]
+        pub fn from_dense(node: &DenseByteNode<V, A>) -> Self {
+            Self{ ptr: SlimNodePtr::from_raw_parts((node as *const DenseByteNode<V, A>).cast_mut(), DENSE_BYTE_NODE_TAG), phantom: PhantomData }
+        }
+        #[inline]
+        pub fn from_list(node: &LineListNode<V, A>) -> Self {
+            Self{ ptr: SlimNodePtr::from_raw_parts((node as *const LineListNode<V, A>).cast_mut(), LINE_LIST_NODE_TAG), phantom: PhantomData }
+        }
+        #[inline]
+        pub fn from_cell(node: &CellByteNode<V, A>) -> Self {
+            Self{ ptr: SlimNodePtr::from_raw_parts((node as *const CellByteNode<V, A>).cast_mut(), CELL_BYTE_NODE_TAG), phantom: PhantomData }
+        }
+
+
         //GOAT dead code
         // #[inline]
         // unsafe fn from_raw_parts(ptr: *mut core::sync::atomic::AtomicU32, tag: usize) -> Self {
@@ -1505,9 +1593,23 @@ mod tagged_node_ref {
             Self { ptr, phantom: PhantomData }
         }
         #[inline]
-        pub fn from_list_node(node: &mut LineListNode<V, A>) -> Self {
+        pub fn from_dense(node: &mut DenseByteNode<V, A>) -> Self {
+            Self { ptr: SlimNodePtr::from_raw_parts(node, DENSE_BYTE_NODE_TAG), phantom: PhantomData }
+        }
+        #[inline]
+        pub fn from_list(node: &mut LineListNode<V, A>) -> Self {
             Self { ptr: SlimNodePtr::from_raw_parts(node, LINE_LIST_NODE_TAG), phantom: PhantomData }
         }
+        #[inline]
+        pub fn from_cell(node: &mut CellByteNode<V, A>) -> Self {
+            Self { ptr: SlimNodePtr::from_raw_parts(node, CELL_BYTE_NODE_TAG), phantom: PhantomData }
+        }
+        #[inline]
+        pub fn tag(&self) -> usize {
+            let (_, tag) = self.ptr.get_raw_parts();
+            tag
+        }
+
         //GOAT dead code
         // #[inline]
         // unsafe fn from_raw_parts(ptr: *mut core::sync::atomic::AtomicU32, tag: usize) -> Self {
@@ -1532,7 +1634,6 @@ mod tagged_node_ref {
         pub fn into_dyn(self) -> &'a mut dyn TrieNode<V, A> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
-                EMPTY_NODE_TAG => unreachable!(),
                 DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() },
                 LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() },
                 CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() },
@@ -1543,7 +1644,6 @@ mod tagged_node_ref {
         pub fn node_get_child_mut(self, key: &[u8]) -> Option<(usize, &'a mut TrieNodeODRc<V, A>)> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
-                EMPTY_NODE_TAG => unreachable!(),
                 DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_get_child_mut(key),
                 LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_get_child_mut(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_get_child_mut(key),
@@ -1558,7 +1658,6 @@ mod tagged_node_ref {
         pub fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
-                EMPTY_NODE_TAG => unreachable!(),
                 DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_set_val(key, val),
                 LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_set_val(key, val),
                 CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_set_val(key, val),
@@ -1571,7 +1670,6 @@ mod tagged_node_ref {
         pub fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> Result<bool, TrieNodeODRc<V, A>> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
-                EMPTY_NODE_TAG => unreachable!(),
                 DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_set_branch(key, new_node),
                 LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_set_branch(key, new_node),
                 CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_set_branch(key, new_node),
@@ -1588,7 +1686,6 @@ mod tagged_node_ref {
         pub fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
-                EMPTY_NODE_TAG => unreachable!(),
                 DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.join_into_dyn(other),
                 LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.join_into_dyn(other),
                 CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.join_into_dyn(other),
@@ -1596,7 +1693,15 @@ mod tagged_node_ref {
             }
         }
 
-        // fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice;
+        pub fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.drop_head_dyn(byte_cnt),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.drop_head_dyn(byte_cnt),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.drop_head_dyn(byte_cnt),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         #[inline(always)]
         pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V, A>> {
@@ -1613,6 +1718,24 @@ mod tagged_node_ref {
                 LINE_LIST_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() } ),
                 _ => None
             }
+        }
+        #[inline(always)]
+        pub unsafe fn into_dense_unchecked(self) -> &'a mut DenseByteNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            debug_assert_eq!(tag, DENSE_BYTE_NODE_TAG);
+            unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }
+        }
+        #[inline(always)]
+        pub unsafe fn into_list_unchecked(self) -> &'a mut LineListNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            debug_assert_eq!(tag, LINE_LIST_NODE_TAG);
+            unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }
+        }
+        #[inline(always)]
+        pub unsafe fn into_cell_unchecked(self) -> &'a mut CellByteNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            debug_assert_eq!(tag, CELL_BYTE_NODE_TAG);
+            unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }
         }
         pub fn convert_to_cell_node(self) -> TrieNodeODRc<V, A> {
             let (ptr, tag) = self.ptr.get_raw_parts();

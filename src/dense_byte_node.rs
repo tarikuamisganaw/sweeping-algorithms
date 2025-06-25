@@ -2,6 +2,7 @@
 use core::fmt::{Debug, Formatter};
 use core::ptr;
 use std::collections::HashMap;
+use std::hint::unreachable_unchecked;
 
 use crate::Allocator;
 use crate::ring::*;
@@ -1177,12 +1178,13 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
     }
 
     fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
-        let other_node = other.as_tagged();
-        match other_node {
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+        match other.tag() {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other.as_dense_unchecked() };
                 self.pjoin(other_dense_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
-            TaggedNodeRef::LineListNode(other_list_node) => {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe{ other.as_list_unchecked() };
                 let mut new_node = self.clone();
                 let status = new_node.merge_from_list_node(other_list_node);
                 AlgebraicResult::from_status(status, || TrieNodeODRc::new_in(new_node, self.alloc.clone()))
@@ -1194,24 +1196,29 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
                 new_node.merge_payload(other_bridge_node.key(), other_bridge_node.is_child_ptr(), other_bridge_node.clone_payload());
                 TrieNodeODRc::new(new_node)
             },
-            TaggedNodeRef::CellByteNode(other_byte_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_byte_node = unsafe{ other.as_cell_unchecked() };
                 self.pjoin(other_byte_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
-            TaggedNodeRef::EmptyNode => {
+            EMPTY_NODE_TAG => {
                 AlgebraicResult::Identity(SELF_IDENT)
-            }
+            },
+            _ => unsafe{ std::hint::unreachable_unchecked() }
         }
     }
 
     fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
-        let other_node = other.make_mut().as_tagged_mut();
-        let status = match other_node {
-            TaggedNodeRefMut::DenseByteNode(other_dense_node) => {
+        let mut other_mut = other.make_mut();
+        let other_node = other_mut.as_tagged_mut();
+        let status = match other_node.tag() {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other_node.into_dense_unchecked() };
                 let mut taken_node = DenseByteNode::<V, A>::new_in(self.alloc.clone());
                 core::mem::swap(other_dense_node, &mut taken_node);
                 self.join_into(taken_node)
             },
-            TaggedNodeRefMut::LineListNode(other_list_node) => {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe{ other_node.into_list_unchecked() };
                 //GOAT, optimization opportunity to take the contents from the list, rather than cloning
                 // them, to turn around and drop the ListNode and free them / decrement the refcounts
                 self.merge_from_list_node(other_list_node)
@@ -1220,12 +1227,13 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             TaggedNodeRefMut::BridgeNode(_other_bridge_node) => {
                 unimplemented!()
             },
-            TaggedNodeRefMut::CellByteNode(other_byte_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_byte_node = unsafe{ other_node.into_cell_unchecked() };
                 let mut taken_node = CellByteNode::<V, A>::new_in(self.alloc.clone());
                 core::mem::swap(other_byte_node, &mut taken_node);
                 self.join_into(taken_node)
             },
-            TaggedNodeRefMut::Unsupported => unreachable!()
+            _ => { unsafe{ unreachable_unchecked() } }
         };
         (status, Ok(()))
     }
@@ -1275,62 +1283,71 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
     }
 
     fn pmeet_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
-        let other_node = other.as_tagged();
-        match other_node {
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+        match other.tag() {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe { other.as_dense_unchecked() };
                 self.pmeet(other_dense_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
-            TaggedNodeRef::LineListNode(other_list_node) => {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe { other.as_list_unchecked() };
                 other_list_node.pmeet_dyn(self).invert_identity()
             },
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
                 other_bridge_node.pmeet_dyn(self).invert_identity()
             },
-            TaggedNodeRef::CellByteNode(other_byte_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_byte_node = unsafe { other.as_cell_unchecked() };
                 self.pmeet(other_byte_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
-            TaggedNodeRef::EmptyNode => AlgebraicResult::None
+            EMPTY_NODE_TAG => AlgebraicResult::None,
+            _ => unsafe{ unreachable_unchecked() }
         }
     }
 
     fn psubtract_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
-        let other_node = other.as_tagged();
-        match other_node {
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+        match other.tag() {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe { other.as_dense_unchecked() };
                 self.psubtract(other_dense_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
-            TaggedNodeRef::LineListNode(other_list_node) => {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe { other.as_list_unchecked() };
                 self.psubtract_abstract(other_list_node)
             },
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
                 self.psubtract_abstract(other_bridge_node)
             },
-            TaggedNodeRef::CellByteNode(other_byte_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_byte_node = unsafe { other.as_cell_unchecked() };
                 self.psubtract(other_byte_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
-            TaggedNodeRef::EmptyNode => AlgebraicResult::Identity(SELF_IDENT),
+            EMPTY_NODE_TAG => AlgebraicResult::Identity(SELF_IDENT),
+            _ => unsafe{ unreachable_unchecked() }
         }
     }
 
     fn prestrict_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
-        let other_node = other.as_tagged();
-        match other_node {
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+        match other.tag() {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe { other.as_dense_unchecked() };
                 self.prestrict(other_dense_node).map(|node| TrieNodeODRc::new_in(node, self.alloc.clone()))
             },
-            TaggedNodeRef::LineListNode(other_list_node) => {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe { other.as_list_unchecked() };
                 self.prestrict_abstract(other_list_node)
             },
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
                 self.prestrict_abstract(other_bridge_node)
             },
-            TaggedNodeRef::CellByteNode(other_byte_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_byte_node = unsafe { other.as_cell_unchecked() };
                 self.prestrict(other_byte_node).map(|node| TrieNodeODRc::new_in(node, self.alloc.clone()))
             },
-            TaggedNodeRef::EmptyNode => AlgebraicResult::None,
+            EMPTY_NODE_TAG => AlgebraicResult::None,
+            _ => unsafe{ unreachable_unchecked() }
         }
     }
     fn clone_self(&self) -> TrieNodeODRc<V, A> {
@@ -1345,11 +1362,11 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<O
     }
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        TaggedNodeRef::DenseByteNode(self)
+        TaggedNodeRef::from_dense(self)
     }
     #[inline(always)]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::DenseByteNode(self)
+        TaggedNodeRefMut::from_dense(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         let mut replacement_node = CellByteNode::<V, A>::with_capacity_in(self.values.len(), self.alloc.clone());
@@ -1362,6 +1379,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<O
         }
         TrieNodeODRc::new_in(replacement_node, self.alloc.clone())
     }
+    unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A> {
+        self
+    }
+    unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A> {
+        unreachable!()
+    }
+    unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
+        unreachable!()
+    }
 }
 
 impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<CellCoFree<V, A>, A> {
@@ -1370,14 +1396,23 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<C
         CELL_BYTE_NODE_TAG
     }
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        TaggedNodeRef::CellByteNode(self)
+        TaggedNodeRef::from_cell(self)
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::CellByteNode(self)
+        TaggedNodeRefMut::from_cell(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         //Already is a cell_node, and that fact should have been detected before calling this method
         unreachable!()
+    }
+    unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A> {
+        unreachable!()
+    }
+    unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A> {
+        unreachable!()
+    }
+    unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
+        self
     }
 }
 

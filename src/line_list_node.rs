@@ -8,7 +8,7 @@ use crate::utils::{BitMask, ByteMask, find_prefix_overlap};
 use crate::Allocator;
 use crate::trie_node::*;
 use crate::ring::*;
-use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
+use crate::dense_byte_node::{DenseByteNode, CellByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
 use crate::tiny_node::TinyRefNode;
 
 /// A LineListNode stores up to 2 children in a single cache line
@@ -2556,6 +2556,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for LineListNo
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         self.convert_to_dense::<CellCoFree<V, A>>(3)
+    }
+    unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A> {
+        unreachable!()
+    }
+    unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A> {
+        self
+    }
+    unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
+        unreachable!()
     }
 }
 
