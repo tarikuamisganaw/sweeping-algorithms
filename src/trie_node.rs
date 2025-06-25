@@ -757,7 +757,6 @@ mod tagged_node_ref {
     pub enum TaggedNodeRef<'a, V: Clone + Send + Sync, A: Allocator> {
         DenseByteNode(&'a DenseByteNode<V, A>),
         LineListNode(&'a LineListNode<V, A>),
-        TinyRefNode(&'a TinyRefNode<'a, V, A>),
         #[cfg(feature = "bridge_nodes")]
         BridgeNode(&'a BridgeNode<V>),
         CellByteNode(&'a CellByteNode<V, A>),
@@ -770,7 +769,6 @@ mod tagged_node_ref {
             match self {
                 Self::DenseByteNode(node) => Self::DenseByteNode(node),
                 Self::LineListNode(node) => Self::LineListNode(node),
-                Self::TinyRefNode(node) => Self::TinyRefNode(node),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => Self::BridgeNode(node),
                 Self::CellByteNode(node) => Self::CellByteNode(node),
@@ -792,7 +790,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node as &dyn TrieNode<V, A>,
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node as &dyn TrieNode<V, A>,
-                Self::TinyRefNode(node) => node as &dyn TrieNode<V, A>,
                 Self::CellByteNode(node) => node as &dyn TrieNode<V, A>,
                 Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
             }
@@ -845,7 +842,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => write!(f, "{node:?}"),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => write!(f, "{node:?}"),
-                Self::TinyRefNode(node) => write!(f, "{node:?}"),
                 Self::CellByteNode(node) => write!(f, "{node:?}"),
                 Self::EmptyNode => write!(f, "{EmptyNode:?}"),
             }
@@ -860,7 +856,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::TinyRefNode(node) => *node as &dyn TrieNode<V, A>,
                 Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
                 Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
             }
@@ -872,7 +867,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.node_key_overlap(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_key_overlap(key),
-                Self::TinyRefNode(node) => node.node_key_overlap(key),
                 Self::CellByteNode(node) => node.node_key_overlap(key),
                 Self::EmptyNode => 0
             }
@@ -883,7 +877,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.node_contains_partial_key(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_contains_partial_key(key),
-                Self::TinyRefNode(node) => node.node_contains_partial_key(key),
                 Self::CellByteNode(node) => node.node_contains_partial_key(key),
                 Self::EmptyNode => false
             }
@@ -895,7 +888,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.node_get_child(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_get_child(key),
-                Self::TinyRefNode(node) => node.node_get_child(key),
                 Self::CellByteNode(node) => node.node_get_child(key),
                 Self::EmptyNode => None,
             }
@@ -913,7 +905,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.node_contains_val(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_contains_val(key),
-                Self::TinyRefNode(node) => node.node_contains_val(key),
                 Self::CellByteNode(node) => node.node_contains_val(key),
                 Self::EmptyNode => false,
             }
@@ -924,7 +915,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.node_get_val(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_get_val(key),
-                Self::TinyRefNode(node) => node.node_get_val(key),
                 Self::CellByteNode(node) => node.node_get_val(key),
                 Self::EmptyNode => None,
             }
@@ -951,7 +941,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.new_iter_token(),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.new_iter_token(),
-                Self::TinyRefNode(node) => node.new_iter_token(),
                 Self::CellByteNode(node) => node.new_iter_token(),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::new_iter_token(&crate::empty_node::EMPTY_NODE),
             }
@@ -963,7 +952,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.iter_token_for_path(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.iter_token_for_path(key),
-                Self::TinyRefNode(node) => node.iter_token_for_path(key),
                 Self::CellByteNode(node) => node.iter_token_for_path(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::iter_token_for_path(&crate::empty_node::EMPTY_NODE, key),
             }
@@ -975,7 +963,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.next_items(token),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.next_items(token),
-                Self::TinyRefNode(node) => node.next_items(token),
                 Self::CellByteNode(node) => node.next_items(token),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::next_items(&crate::empty_node::EMPTY_NODE, token),
             }
@@ -992,7 +979,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.node_first_val_depth_along_key(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_first_val_depth_along_key(key),
-                Self::TinyRefNode(node) => node.node_first_val_depth_along_key(key),
                 Self::CellByteNode(node) => node.node_first_val_depth_along_key(key),
                 Self::EmptyNode => None,
             }
@@ -1004,7 +990,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.nth_child_from_key(key, n),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.nth_child_from_key(key, n),
-                Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
                 Self::CellByteNode(node) => node.nth_child_from_key(key, n),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::nth_child_from_key(&crate::empty_node::EMPTY_NODE, key, n),
             }
@@ -1015,7 +1000,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.first_child_from_key(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.first_child_from_key(key),
-                Self::TinyRefNode(node) => node.first_child_from_key(key),
                 Self::CellByteNode(node) => node.first_child_from_key(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::first_child_from_key(&crate::empty_node::EMPTY_NODE, key),
             }
@@ -1027,7 +1011,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.count_branches(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.count_branches(key),
-                Self::TinyRefNode(node) => node.count_branches(key),
                 Self::CellByteNode(node) => node.count_branches(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::count_branches(&crate::empty_node::EMPTY_NODE, key),
             }
@@ -1039,7 +1022,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.node_branches_mask(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_branches_mask(key),
-                Self::TinyRefNode(node) => node.node_branches_mask(key),
                 Self::CellByteNode(node) => node.node_branches_mask(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&crate::empty_node::EMPTY_NODE, key),
             }
@@ -1051,7 +1033,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.is_leaf(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.is_leaf(key),
-                Self::TinyRefNode(node) => node.is_leaf(key),
                 Self::CellByteNode(node) => node.is_leaf(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&crate::empty_node::EMPTY_NODE, key),
             }
@@ -1062,7 +1043,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.prior_branch_key(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.prior_branch_key(key),
-                Self::TinyRefNode(node) => node.prior_branch_key(key),
                 Self::CellByteNode(node) => node.prior_branch_key(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::prior_branch_key(&crate::empty_node::EMPTY_NODE, key),
             }
@@ -1073,7 +1053,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.get_sibling_of_child(key, next),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.get_sibling_of_child(key, next),
-                Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
                 Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
             }
@@ -1084,7 +1063,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.get_node_at_key(key),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.get_node_at_key(key),
-                Self::TinyRefNode(node) => node.get_node_at_key(key),
                 Self::CellByteNode(node) => node.get_node_at_key(key),
                 Self::EmptyNode => EmptyNode.get_node_at_key(key),
             }
@@ -1111,7 +1089,6 @@ mod tagged_node_ref {
                 Self::LineListNode(_) => None,
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(_) => None,
-                Self::TinyRefNode(_) => None,
                 Self::CellByteNode(_) => None,
                 Self::EmptyNode => None,
             }
@@ -1126,7 +1103,6 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => Some(node),
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(_) => None,
-                Self::TinyRefNode(_) => None,
                 Self::CellByteNode(_) => None,
                 Self::EmptyNode => None,
             }
@@ -1139,7 +1115,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(_) => None,
                 Self::LineListNode(_) => None,
                 Self::BridgeNode(node) => Some(node),
-                Self::TinyRefNode(_) => None,
                 Self::CellByteNode(_) => None,
                 Self::EmptyNode(_) => None,
             }

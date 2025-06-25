@@ -1194,9 +1194,6 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
                 new_node.merge_payload(other_bridge_node.key(), other_bridge_node.is_child_ptr(), other_bridge_node.clone_payload());
                 TrieNodeODRc::new(new_node)
             },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                tiny_node.pjoin_dyn(self)
-            },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.pjoin(other_byte_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
@@ -1290,9 +1287,6 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
                 other_bridge_node.pmeet_dyn(self).invert_identity()
             },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                tiny_node.pmeet_dyn(self).invert_identity()
-            },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.pmeet(other_byte_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
@@ -1313,9 +1307,6 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
                 self.psubtract_abstract(other_bridge_node)
             },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                self.psubtract_abstract(tiny_node)
-            },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.psubtract(other_byte_node).map(|new_node| TrieNodeODRc::new_in(new_node, self.alloc.clone()))
             },
@@ -1335,9 +1326,6 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
                 self.prestrict_abstract(other_bridge_node)
-            },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                self.prestrict_abstract(tiny_node)
             },
             TaggedNodeRef::CellByteNode(other_byte_node) => {
                 self.prestrict(other_byte_node).map(|node| TrieNodeODRc::new_in(node, self.alloc.clone()))

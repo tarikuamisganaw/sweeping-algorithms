@@ -2312,9 +2312,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             TaggedNodeRef::BridgeNode(_other_bridge_node) => {
                 unimplemented!()
             },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                tiny_node.pjoin_dyn(self)
-            },
             TaggedNodeRef::CellByteNode(other_dense_node) => {
                 let mut new_node = other_dense_node.clone();
                 match new_node.merge_from_list_node(self) {
@@ -2344,10 +2341,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(_other_bridge_node) => {
                 unimplemented!()
-            },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                let other_tiny_node = tiny_node.into_list_node().unwrap();
-                merge_into_list_nodes(self, &other_tiny_node)
             },
             TaggedNodeRef::CellByteNode(other_dense_node) => {
                 let mut new_node = other_dense_node.clone();

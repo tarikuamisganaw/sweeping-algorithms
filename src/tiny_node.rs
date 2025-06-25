@@ -325,7 +325,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
         unreachable!()
     }
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        TaggedNodeRef::TinyRefNode(self)
+        unreachable!()
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         panic!()
