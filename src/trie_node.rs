@@ -742,6 +742,13 @@ pub use tagged_node_ref::TaggedNodeRef;
 pub use tagged_node_ref::TaggedNodeRefMut;
 
 #[cfg(not(feature = "slim_ptrs"))]
+pub type NodeRefMut<'a, V, A> = &'a mut dyn TrieNode<V, A>;
+
+//GOAT, `NodeRefMut` can be eliminated, since there is no point in two identical types once `slim_ptrs` is main-line
+#[cfg(feature = "slim_ptrs")]
+pub type NodeRefMut<'a, V, A> = TaggedNodeRefMut<'a, V, A>;
+
+#[cfg(not(feature = "slim_ptrs"))]
 mod tagged_node_ref {
     use super::*;
     use crate::empty_node::EmptyNode;
@@ -1466,6 +1473,14 @@ mod tagged_node_ref {
             let (_, tag) = self.ptr.get_raw_parts();
             tag == CELL_BYTE_NODE_TAG
         }
+        #[inline]
+        pub fn as_list(&self) -> Option<&'a LineListNode<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                LINE_LIST_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() } ),
+                _ => None
+            }
+        }
     }
 
     pub struct TaggedNodeRefMut<'a, V: Clone + Send + Sync, A: Allocator> {
@@ -1514,6 +1529,10 @@ mod tagged_node_ref {
         pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
             Self { ptr, phantom: PhantomData }
         }
+        #[inline]
+        pub fn from_list_node(node: &mut LineListNode<V, A>) -> Self {
+            Self { ptr: SlimNodePtr::from_raw_parts(node, LINE_LIST_NODE_TAG), phantom: PhantomData }
+        }
         //GOAT dead code
         // #[inline]
         // unsafe fn from_raw_parts(ptr: *mut core::sync::atomic::AtomicU32, tag: usize) -> Self {
@@ -1557,6 +1576,40 @@ mod tagged_node_ref {
             }
         }
 
+        // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A>;
+
+        // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
+
+        pub fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                EMPTY_NODE_TAG => unreachable!(),
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_set_val(key, val),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_set_val(key, val),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_set_val(key, val),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
+
+        // fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
+
+        pub fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> Result<bool, TrieNodeODRc<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                EMPTY_NODE_TAG => unreachable!(),
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_set_branch(key, new_node),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_set_branch(key, new_node),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_set_branch(key, new_node),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
+
+        // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
+
+        // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
+
+        // fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V, A>>;
+
         pub fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
@@ -1567,6 +1620,8 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
+
+        // fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice;
 
         #[inline(always)]
         pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V, A>> {
