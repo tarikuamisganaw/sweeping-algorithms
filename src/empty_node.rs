@@ -188,11 +188,9 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for EmptyNode 
     fn tag(&self) -> usize {
         EMPTY_NODE_TAG
     }
-    #[cfg(not(feature = "slim_ptrs"))]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::empty_node()
     }
-    #[cfg(not(feature = "slim_ptrs"))]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         TaggedNodeRefMut::Unsupported
     }

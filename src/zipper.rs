@@ -790,7 +790,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for Read
     fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ReadZipperTracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperMoving for ReadZipperTracked<'trie, '_, V, A> {
     fn at_root(&self) -> bool { self.z.at_root() }
     fn reset(&mut self) { self.z.reset() }
     #[inline]
@@ -812,11 +812,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ReadZipperTr
     fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, V> for ReadZipperTracked<'a, '_, V, A> {
-    fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyValues<'trie, V> for ReadZipperTracked<'trie, '_, V, A> {
+    fn get_value(&self) -> Option<&'trie V> { self.z.get_value() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for ReadZipperTracked<'a, '_, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperTracked<'a, '_, V, A> {
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { self.z.trie_ref_at_path(path) }
 }
 
@@ -824,10 +824,10 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipper
     fn is_shared(&self) -> bool { self.z.is_shared() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for ReadZipperTracked<'a, '_, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyPriv<'a, V, A> for ReadZipperTracked<'a, '_, V, A> {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> {
-        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::EmptyNode, &[], 0, None, self.z.alloc.clone());
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::empty_node(), &[], 0, None, self.z.alloc.clone());
         core::mem::swap(&mut temp_core, &mut self.z);
         Some(temp_core.make_static_path())
     }
@@ -845,23 +845,23 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for R
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperPathBuffer for ReadZipperTracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperPathBuffer for ReadZipperTracked<'trie, '_, V, A> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperIteration for ReadZipperTracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperIteration for ReadZipperTracked<'trie, '_, V, A> {
     fn to_next_val(&mut self) -> bool { self.z.to_next_val() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyIteration<'a, V> for ReadZipperTracked<'a, '_, V, A> {
-    fn to_next_get_value(&mut self) -> Option<&'a V> { self.z.to_next_get_value() }
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyIteration<'trie, V> for ReadZipperTracked<'trie, '_, V, A> {
+    fn to_next_get_value(&mut self) -> Option<&'trie V> { self.z.to_next_get_value() }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for ReadZipperTracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperAbsolutePath for ReadZipperTracked<'trie, '_, V, A> {
     fn origin_path(&self) -> &[u8] { self.z.origin_path() }
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
@@ -882,7 +882,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> ReadZipperTracked<
 //GOAT!!!! UNsound!!!!  I realized I drop the zipper_tracker here...  Which allows the iterator to
 // continue to access the fields after the lock has been released!!!!!   FIX THIS!!!!
 
-impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> std::iter::IntoIterator for ReadZipperTracked<'a, 'path, V, A> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> std::iter::IntoIterator for ReadZipperTracked<'a, 'path, V, A> {
     type Item = (Vec<u8>, &'a V);
     type IntoIter = ReadZipperIter<'a, 'path, V, A>;
 
@@ -934,7 +934,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for Read
     fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ReadZipperUntracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperMoving for ReadZipperUntracked<'trie, '_, V, A> {
     fn at_root(&self) -> bool { self.z.at_root() }
     fn reset(&mut self) { self.z.reset() }
     #[inline]
@@ -956,11 +956,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ReadZipperUn
     fn to_next_step(&mut self) -> bool { self.z.to_next_step() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, V> for ReadZipperUntracked<'a, '_, V, A> {
-    fn get_value(&self) -> Option<&'a V> { self.z.get_value() }
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyValues<'trie, V> for ReadZipperUntracked<'trie, '_, V, A> {
+    fn get_value(&self) -> Option<&'trie V> { self.z.get_value() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for ReadZipperUntracked<'a, '_, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperUntracked<'a, '_, V, A> {
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { self.z.trie_ref_at_path(path) }
 }
 
@@ -968,10 +968,10 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipper
     fn is_shared(&self) -> bool { self.z.is_shared() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for ReadZipperUntracked<'a, '_, V, A>{
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyPriv<'a, V, A> for ReadZipperUntracked<'a, '_, V, A>{
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> {
-        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::EmptyNode, &[], 0, None, self.z.alloc.clone());
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::empty_node(), &[], 0, None, self.z.alloc.clone());
         core::mem::swap(&mut temp_core, &mut self.z);
         Some(temp_core.make_static_path())
     }
@@ -989,28 +989,28 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for R
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperPathBuffer for ReadZipperUntracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperPathBuffer for ReadZipperUntracked<'trie, '_, V, A> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperIteration for ReadZipperUntracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperIteration for ReadZipperUntracked<'trie, '_, V, A> {
     fn to_next_val(&mut self) -> bool { self.z.to_next_val() }
     fn descend_first_k_path(&mut self, k: usize) -> bool { self.z.descend_first_k_path(k) }
     fn to_next_k_path(&mut self, k: usize) -> bool { self.z.to_next_k_path(k) }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyIteration<'a, V> for ReadZipperUntracked<'a, '_, V, A> {
-    fn to_next_get_value(&mut self) -> Option<&'a V> { self.z.to_next_get_value() }
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyIteration<'trie, V> for ReadZipperUntracked<'trie, '_, V, A> {
+    fn to_next_get_value(&mut self) -> Option<&'trie V> { self.z.to_next_get_value() }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for ReadZipperUntracked<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperAbsolutePath for ReadZipperUntracked<'trie, '_, V, A> {
     fn origin_path(&self) -> &[u8] { self.z.origin_path() }
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
 
-impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> ReadZipperUntracked<'a, 'path, V, A> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ReadZipperUntracked<'a, 'path, V, A> {
     /// See [ReadZipperCore::new_with_node_and_path]
     #[cfg(debug_assertions)]
     pub(crate) fn new_with_node_and_path_in(root_node: &'a dyn TrieNode<V, A>, path: &'path [u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
@@ -1061,7 +1061,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> ReadZipperUntracke
 //GOAT!!!! UNsound!!!!  I realized I drop the zipper_tracker here...  Which allows the iterator to
 // continue to access the fields after the lock has been released!!!!!   FIX THIS!!!!
 
-impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> std::iter::IntoIterator for ReadZipperUntracked<'a, 'path, V, A> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> std::iter::IntoIterator for ReadZipperUntracked<'a, 'path, V, A> {
     type Item = (Vec<u8>, &'a V);
     type IntoIter = ReadZipperIter<'a, 'path, V, A>;
 
@@ -1175,7 +1175,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipper
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for ReadZipperOwned<V, A> where Self: 'a {
     fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> {
-        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::EmptyNode, &[], 0, None, self.z.alloc.clone());
+        let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::empty_node(), &[], 0, None, self.z.alloc.clone());
         core::mem::swap(&mut temp_core, &mut self.z);
         Some(temp_core.make_static_path())
     }
@@ -1321,7 +1321,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ReadZipperCore<'_, '_, V, A> {
+    impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperMoving for ReadZipperCore<'trie, '_, V, A> {
         fn at_root(&self) -> bool {
             self.prefix_buf.len() <= self.origin_path.len()
         }
@@ -1384,7 +1384,7 @@ pub(crate) mod read_zipper_core {
             self.focus_iter_token = NODE_ITER_INVALID;
             if let Some((_consumed_byte_cnt, next_node)) = self.focus_node.node_get_child(self.node_key()) {
                 let next_node = next_node.borrow();
-                self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
+                self.ancestors.push((self.focus_node, self.focus_iter_token, self.prefix_buf.len()));
                 self.focus_node = next_node.as_tagged();
                 return true;
             }
@@ -1687,7 +1687,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperPathBuffer for ReadZipperCore<'_, '_, V, A> {
+    impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperPathBuffer for ReadZipperCore<'trie, '_, V, A> {
         unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] {
             if self.prefix_buf.capacity() > 0 {
                 assert!(len <= self.prefix_buf.capacity());
@@ -1720,8 +1720,8 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, V> for ReadZipperCore<'a, '_, V, A> {
-        fn get_value(&self) -> Option<&'a V> {
+    impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyValues<'trie, V> for ReadZipperCore<'trie, '_, V, A> {
+        fn get_value(&self) -> Option<&'trie V> {
             let key = self.node_key();
             if key.len() > 0 {
                 self.focus_node.node_get_val(key)
@@ -1735,7 +1735,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for ReadZipperCore<'a, '_, V, A> {
+    impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperCore<'a, '_, V, A> {
         fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
             let path = path.as_ref();
             trie_ref_at_path_in(self.focus_node.borrow(), self.root_val, self.node_key(), path, self.alloc.clone())
@@ -1805,7 +1805,7 @@ pub(crate) mod read_zipper_core {
     //
     //Then I need to port all the iter() conveniences over to use that new method
 
-    impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperIteration for ReadZipperCore<'_, '_, V, A> {
+    impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperIteration for ReadZipperCore<'trie, '_, V, A> {
         fn to_next_val(&mut self) -> bool {
             self.to_next_get_value().is_some()
         }
@@ -1831,7 +1831,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyIteration<'a, V> for ReadZipperCore<'a, '_, V, A> {
+    impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyIteration<'a, V> for ReadZipperCore<'a, '_, V, A> {
         fn to_next_get_value(&mut self) -> Option<&'a V> {
             self.prepare_buffers();
             loop {
@@ -1897,7 +1897,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for ReadZipperCore<'_, '_, V, A> {
+    impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperAbsolutePath for ReadZipperCore<'trie, '_, V, A> {
         fn origin_path(&self) -> &[u8] {
             if self.prefix_buf.capacity() > 0 {
                 &self.prefix_buf
@@ -1914,7 +1914,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> ReadZipperCore<'a, 'path, V, A> {
+    impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ReadZipperCore<'a, 'path, V, A> {
 
         /// Creates a new zipper, with a path relative to a node
         ///
@@ -2383,7 +2383,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> std::iter::IntoIterator for ReadZipperCore<'a, 'path, V, A> {
+    impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> std::iter::IntoIterator for ReadZipperCore<'a, 'path, V, A> {
         type Item = (Vec<u8>, &'a V);
         type IntoIter = ReadZipperIter<'a, 'path, V, A>;
 
@@ -2431,7 +2431,7 @@ pub struct ReadZipperIter<'a, 'path, V: Clone + Send + Sync, A: Allocator = Glob
     zipper: Option<ReadZipperCore<'a, 'path, V, A>>,
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> Iterator for ReadZipperIter<'a, '_, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> Iterator for ReadZipperIter<'a, '_, V, A> {
     type Item = (Vec<u8>, &'a V);
 
     fn next(&mut self) -> Option<(Vec<u8>, &'a V)> {
