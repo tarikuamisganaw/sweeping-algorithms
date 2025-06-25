@@ -1,3 +1,4 @@
+#![allow(warnings)] 
 
 use crate::Allocator;
 use crate::utils::ByteMask;
