@@ -9,7 +9,6 @@ use arrayvec::ArrayVec;
 use crate::utils::ByteMask;
 use crate::Allocator;
 use crate::dense_byte_node::*;
-use crate::empty_node::EmptyNode;
 use crate::ring::*;
 use crate::tiny_node::TinyRefNode;
 use crate::line_list_node::LineListNode;
@@ -336,9 +335,11 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
     /// Returns the tag associated with the node type
     fn tag(&self) -> usize;
 
+    #[cfg(not(feature = "slim_ptrs"))]
     /// Returns a [TaggedNodeRef] referencing this node
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A>;
 
+    #[cfg(not(feature = "slim_ptrs"))]
     /// Returns a [TaggedNodeRefMut] referencing this node
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A>;
 
@@ -738,462 +739,609 @@ pub(crate) const DENSE_BYTE_NODE_TAG: usize = 1;
 pub(crate) const LINE_LIST_NODE_TAG: usize = 2;
 pub(crate) const CELL_BYTE_NODE_TAG: usize = 3;
 
-/// A reference to a node with a concrete type
-pub enum TaggedNodeRef<'a, V: Clone + Send + Sync, A: Allocator> {
-    DenseByteNode(&'a DenseByteNode<V, A>),
-    LineListNode(&'a LineListNode<V, A>),
-    TinyRefNode(&'a TinyRefNode<'a, V, A>),
-    #[cfg(feature = "bridge_nodes")]
-    BridgeNode(&'a BridgeNode<V>),
-    CellByteNode(&'a CellByteNode<V, A>),
-    EmptyNode,
-}
-impl<V: Clone + Send + Sync, A: Allocator> Clone for TaggedNodeRef<'_, V, A> {
-    fn clone(&self) -> Self {
-        //Ugh!  This manual impl is so we can implement `Copy` without a bound on `V: Copy`
-        //But hopefully there is a way to do this without so much boilerplate (or unsafe either)
-        match self {
-            Self::DenseByteNode(node) => Self::DenseByteNode(node),
-            Self::LineListNode(node) => Self::LineListNode(node),
-            Self::TinyRefNode(node) => Self::TinyRefNode(node),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => Self::BridgeNode(node),
-            Self::CellByteNode(node) => Self::CellByteNode(node),
-            Self::EmptyNode => Self::EmptyNode,
+pub use tagged_node_ref::TaggedNodeRef;
+pub use tagged_node_ref::TaggedNodeRefMut;
+
+#[cfg(not(feature = "slim_ptrs"))]
+mod tagged_node_ref {
+    use super::*;
+    use crate::empty_node::EmptyNode;
+
+    /// A reference to a node with a concrete type
+    pub enum TaggedNodeRef<'a, V: Clone + Send + Sync, A: Allocator> {
+        DenseByteNode(&'a DenseByteNode<V, A>),
+        LineListNode(&'a LineListNode<V, A>),
+        TinyRefNode(&'a TinyRefNode<'a, V, A>),
+        #[cfg(feature = "bridge_nodes")]
+        BridgeNode(&'a BridgeNode<V>),
+        CellByteNode(&'a CellByteNode<V, A>),
+        EmptyNode,
+    }
+    impl<V: Clone + Send + Sync, A: Allocator> Clone for TaggedNodeRef<'_, V, A> {
+        fn clone(&self) -> Self {
+            //Ugh!  This manual impl is so we can implement `Copy` without a bound on `V: Copy`
+            //But hopefully there is a way to do this without so much boilerplate (or unsafe either)
+            match self {
+                Self::DenseByteNode(node) => Self::DenseByteNode(node),
+                Self::LineListNode(node) => Self::LineListNode(node),
+                Self::TinyRefNode(node) => Self::TinyRefNode(node),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => Self::BridgeNode(node),
+                Self::CellByteNode(node) => Self::CellByteNode(node),
+                Self::EmptyNode => Self::EmptyNode,
+            }
+        }
+    }
+    impl<V: Clone + Send + Sync, A: Allocator> Copy for TaggedNodeRef<'_, V, A> {}
+
+    impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRef<'a, V, A> {
+        #[inline]
+        pub fn empty_node() -> Self {
+            Self::EmptyNode
+        }
+        #[inline]
+        pub fn into_dyn(self) -> &'a dyn TrieNode<V, A> {
+            match self {
+                Self::DenseByteNode(node) => node as &dyn TrieNode<V, A>,
+                Self::LineListNode(node) => node as &dyn TrieNode<V, A>,
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node as &dyn TrieNode<V, A>,
+                Self::TinyRefNode(node) => node as &dyn TrieNode<V, A>,
+                Self::CellByteNode(node) => node as &dyn TrieNode<V, A>,
+                Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+            }
+        }
+    }
+
+    /// A mutable reference to a node with a concrete type
+    pub enum TaggedNodeRefMut<'a, V: Clone + Send + Sync, A: Allocator> {
+        DenseByteNode(&'a mut DenseByteNode<V, A>),
+        LineListNode(&'a mut LineListNode<V, A>),
+        #[cfg(feature = "bridge_nodes")]
+        BridgeNode(&'a mut BridgeNode<V, A>),
+        CellByteNode(&'a mut CellByteNode<V, A>),
+        Unsupported,
+    }
+
+    impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
+        #[inline]
+        pub fn into_dyn(self) -> &'a mut dyn TrieNode<V, A> {
+            match self {
+                Self::DenseByteNode(node) => node as &mut dyn TrieNode<V, A>,
+                Self::LineListNode(node) => node as &mut dyn TrieNode<V, A>,
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node as &mut dyn TrieNode<V, A>,
+                Self::CellByteNode(node) => node as &mut dyn TrieNode<V, A>,
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+    }
+
+    //NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
+    impl<V: Clone + Send + Sync, A: Allocator> core::fmt::Debug for TaggedNodeRefMut<'_, V, A> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::DenseByteNode(node) => write!(f, "{node:?}"),
+                Self::LineListNode(node) => write!(f, "{node:?}"),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => write!(f, "{node:?}"),
+                Self::CellByteNode(node) => write!(f, "{node:?}"),
+                Self::Unsupported => write!(f, "Unsupported node type"),
+            }
+        }
+    }
+
+    //NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
+    impl<V: Clone + Send + Sync, A: Allocator> core::fmt::Debug for TaggedNodeRef<'_, V, A> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::DenseByteNode(node) => write!(f, "{node:?}"),
+                Self::LineListNode(node) => write!(f, "{node:?}"),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => write!(f, "{node:?}"),
+                Self::TinyRefNode(node) => write!(f, "{node:?}"),
+                Self::CellByteNode(node) => write!(f, "{node:?}"),
+                Self::EmptyNode => write!(f, "{EmptyNode:?}"),
+            }
+        }
+    }
+
+    impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRef<'a, V, A> {
+        #[inline]
+        pub fn borrow(&self) -> &'a dyn TrieNode<V, A> {
+            match self {
+                Self::DenseByteNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::TinyRefNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+            }
+        }
+        #[inline]
+        pub fn node_key_overlap(&self, key: &[u8]) -> usize {
+            match self {
+                Self::DenseByteNode(node) => node.node_key_overlap(key),
+                Self::LineListNode(node) => node.node_key_overlap(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.node_key_overlap(key),
+                Self::TinyRefNode(node) => node.node_key_overlap(key),
+                Self::CellByteNode(node) => node.node_key_overlap(key),
+                Self::EmptyNode => 0
+            }
+        }
+        pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_contains_partial_key(key),
+                Self::LineListNode(node) => node.node_contains_partial_key(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.node_contains_partial_key(key),
+                Self::TinyRefNode(node) => node.node_contains_partial_key(key),
+                Self::CellByteNode(node) => node.node_contains_partial_key(key),
+                Self::EmptyNode => false
+            }
+        }
+        #[inline(always)]
+        pub fn node_get_child(&self, key: &[u8]) -> Option<(usize, &'a TrieNodeODRc<V, A>)> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_child(key),
+                Self::LineListNode(node) => node.node_get_child(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.node_get_child(key),
+                Self::TinyRefNode(node) => node.node_get_child(key),
+                Self::CellByteNode(node) => node.node_get_child(key),
+                Self::EmptyNode => None,
+            }
+        }
+
+        // fn node_get_child_and_val_mut<'a>(&'a mut self, key: &[u8]) -> Option<(usize, Option<&'a mut V>, Option<&'a mut TrieNodeODRc<V>>)>;
+
+        // fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
+
+        // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V>;
+
+        pub fn node_contains_val(&self, key: &[u8]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_contains_val(key),
+                Self::LineListNode(node) => node.node_contains_val(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.node_contains_val(key),
+                Self::TinyRefNode(node) => node.node_contains_val(key),
+                Self::CellByteNode(node) => node.node_contains_val(key),
+                Self::EmptyNode => false,
+            }
+        }
+        pub fn node_get_val(&self, key: &[u8]) -> Option<&'a V> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_val(key),
+                Self::LineListNode(node) => node.node_get_val(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.node_get_val(key),
+                Self::TinyRefNode(node) => node.node_get_val(key),
+                Self::CellByteNode(node) => node.node_get_val(key),
+                Self::EmptyNode => None,
+            }
+        }
+
+        // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
+
+        // fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>>;
+
+        // fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
+
+        // fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>>;
+
+        // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
+
+        // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
+
+        // fn node_is_empty(&self) -> bool;
+
+        #[inline(always)]
+        pub fn new_iter_token(&self) -> u128 {
+            match self {
+                Self::DenseByteNode(node) => node.new_iter_token(),
+                Self::LineListNode(node) => node.new_iter_token(),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.new_iter_token(),
+                Self::TinyRefNode(node) => node.new_iter_token(),
+                Self::CellByteNode(node) => node.new_iter_token(),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::new_iter_token(&crate::empty_node::EMPTY_NODE),
+            }
+        }
+        #[inline(always)]
+        pub fn iter_token_for_path(&self, key: &[u8]) -> u128 {
+            match self {
+                Self::DenseByteNode(node) => node.iter_token_for_path(key),
+                Self::LineListNode(node) => node.iter_token_for_path(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.iter_token_for_path(key),
+                Self::TinyRefNode(node) => node.iter_token_for_path(key),
+                Self::CellByteNode(node) => node.iter_token_for_path(key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::iter_token_for_path(&crate::empty_node::EMPTY_NODE, key),
+            }
+        }
+        #[inline(always)]
+        pub fn next_items(&self, token: u128) -> (u128, &'a[u8], Option<&'a TrieNodeODRc<V, A>>, Option<&'a V>) {
+            match self {
+                Self::DenseByteNode(node) => node.next_items(token),
+                Self::LineListNode(node) => node.next_items(token),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.next_items(token),
+                Self::TinyRefNode(node) => node.next_items(token),
+                Self::CellByteNode(node) => node.next_items(token),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::next_items(&crate::empty_node::EMPTY_NODE, token),
+            }
+        }
+
+        // fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
+
+        // #[cfg(feature = "counters")]
+        // fn item_count(&self) -> usize;
+
+        pub fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize> {
+            match self {
+                Self::DenseByteNode(node) => node.node_first_val_depth_along_key(key),
+                Self::LineListNode(node) => node.node_first_val_depth_along_key(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.node_first_val_depth_along_key(key),
+                Self::TinyRefNode(node) => node.node_first_val_depth_along_key(key),
+                Self::CellByteNode(node) => node.node_first_val_depth_along_key(key),
+                Self::EmptyNode => None,
+            }
+        }
+
+        pub fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&'a dyn TrieNode<V, A>>) {
+            match self {
+                Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
+                Self::LineListNode(node) => node.nth_child_from_key(key, n),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.nth_child_from_key(key, n),
+                Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
+                Self::CellByteNode(node) => node.nth_child_from_key(key, n),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::nth_child_from_key(&crate::empty_node::EMPTY_NODE, key, n),
+            }
+        }
+        pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<&'a dyn TrieNode<V, A>>) {
+            match self {
+                Self::DenseByteNode(node) => node.first_child_from_key(key),
+                Self::LineListNode(node) => node.first_child_from_key(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.first_child_from_key(key),
+                Self::TinyRefNode(node) => node.first_child_from_key(key),
+                Self::CellByteNode(node) => node.first_child_from_key(key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::first_child_from_key(&crate::empty_node::EMPTY_NODE, key),
+            }
+        }
+        #[inline(always)]
+        pub fn count_branches(&self, key: &[u8]) -> usize {
+            match self {
+                Self::DenseByteNode(node) => node.count_branches(key),
+                Self::LineListNode(node) => node.count_branches(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.count_branches(key),
+                Self::TinyRefNode(node) => node.count_branches(key),
+                Self::CellByteNode(node) => node.count_branches(key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::count_branches(&crate::empty_node::EMPTY_NODE, key),
+            }
+        }
+        #[inline(always)]
+        pub fn node_branches_mask(&self, key: &[u8]) -> ByteMask {
+            match self {
+                Self::DenseByteNode(node) => node.node_branches_mask(key),
+                Self::LineListNode(node) => node.node_branches_mask(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.node_branches_mask(key),
+                Self::TinyRefNode(node) => node.node_branches_mask(key),
+                Self::CellByteNode(node) => node.node_branches_mask(key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&crate::empty_node::EMPTY_NODE, key),
+            }
+        }
+        #[inline(always)]
+        pub fn is_leaf(&self, key: &[u8]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.is_leaf(key),
+                Self::LineListNode(node) => node.is_leaf(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.is_leaf(key),
+                Self::TinyRefNode(node) => node.is_leaf(key),
+                Self::CellByteNode(node) => node.is_leaf(key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&crate::empty_node::EMPTY_NODE, key),
+            }
+        }
+        pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+            match self {
+                Self::DenseByteNode(node) => node.prior_branch_key(key),
+                Self::LineListNode(node) => node.prior_branch_key(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.prior_branch_key(key),
+                Self::TinyRefNode(node) => node.prior_branch_key(key),
+                Self::CellByteNode(node) => node.prior_branch_key(key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::prior_branch_key(&crate::empty_node::EMPTY_NODE, key),
+            }
+        }
+        pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&'a dyn TrieNode<V, A>>) {
+            match self {
+                Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
+                Self::LineListNode(node) => node.get_sibling_of_child(key, next),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.get_sibling_of_child(key, next),
+                Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
+                Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
+            }
+        }
+        pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {
+            match self {
+                Self::DenseByteNode(node) => node.get_node_at_key(key),
+                Self::LineListNode(node) => node.get_node_at_key(key),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(node) => node.get_node_at_key(key),
+                Self::TinyRefNode(node) => node.get_node_at_key(key),
+                Self::CellByteNode(node) => node.get_node_at_key(key),
+                Self::EmptyNode => EmptyNode.get_node_at_key(key),
+            }
+        }
+
+        // fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
+
+        // fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
+
+        // fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
+
+        // fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
+
+        // fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
+
+        // fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice;
+
+        // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
+
+        #[inline(always)]
+        pub fn as_dense(&self) -> Option<&'a DenseByteNode<V, A>> {
+            match self {
+                Self::DenseByteNode(node) => Some(node),
+                Self::LineListNode(_) => None,
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => None,
+                Self::TinyRefNode(_) => None,
+                Self::CellByteNode(_) => None,
+                Self::EmptyNode => None,
+            }
+        }
+
+        // fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
+
+        #[inline(always)]
+        pub fn as_list(&self) -> Option<&'a LineListNode<V, A>> {
+            match self {
+                Self::DenseByteNode(_) => None,
+                Self::LineListNode(node) => Some(node),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => None,
+                Self::TinyRefNode(_) => None,
+                Self::CellByteNode(_) => None,
+                Self::EmptyNode => None,
+            }
+        }
+
+        #[cfg(feature = "bridge_nodes")]
+        #[inline(always)]
+        pub fn as_bridge(&self) -> Option<&'a BridgeNode<V, A>> {
+            match self {
+                Self::DenseByteNode(_) => None,
+                Self::LineListNode(_) => None,
+                Self::BridgeNode(node) => Some(node),
+                Self::TinyRefNode(_) => None,
+                Self::CellByteNode(_) => None,
+                Self::EmptyNode(_) => None,
+            }
+        }
+
+        // fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
+
+        // fn as_tagged(&self) -> TaggedNodeRef<V>;
+
+        // fn clone_self(&self) -> TrieNodeODRc<V>;
+
+        #[inline(always)]
+        pub fn is_cell_node(&self) -> bool {
+            match self {
+                Self::CellByteNode(_) => true,
+                _ => false
+            }
+        }
+    }
+
+    impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
+        #[inline(always)]
+        pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V, A>> {
+            match self {
+                Self::DenseByteNode(node) => Some(node),
+                Self::LineListNode(_) => None,
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => None,
+                Self::CellByteNode(_) => None,
+                Self::Unsupported => None,
+            }
+        }
+        #[inline(always)]
+        pub fn into_list(self) -> Option<&'a mut LineListNode<V, A>> {
+            match self {
+                Self::LineListNode(node) => Some(node),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => None,
+                Self::DenseByteNode(_) => None,
+                Self::CellByteNode(_) => None,
+                Self::Unsupported => None,
+            }
+        }
+        #[inline(always)]
+        pub fn into_cell_node(self) -> Option<&'a mut CellByteNode<V, A>> {
+            match self {
+                Self::CellByteNode(node) => Some(node),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => None,
+                Self::DenseByteNode(_) => None,
+                Self::LineListNode(_) => None,
+                Self::Unsupported => None,
+            }
         }
     }
 }
-impl<V: Clone + Send + Sync, A: Allocator> Copy for TaggedNodeRef<'_, V, A> {}
 
-impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRef<'a, V, A> {
-    #[cfg(feature = "slim_ptrs")]
-    #[inline]
-    unsafe fn from_raw_parts(ptr: *mut core::sync::atomic::AtomicU32, tag: usize) -> Self {
-        match tag {
-            EMPTY_NODE_TAG => Self::EmptyNode,
-            DENSE_BYTE_NODE_TAG => Self::DenseByteNode(&*ptr.cast()),
-            LINE_LIST_NODE_TAG => Self::LineListNode(&*ptr.cast()),
-            CELL_BYTE_NODE_TAG => Self::CellByteNode(&*ptr.cast()),
-            _ => unreachable_unchecked()
-        }
-    }
-    #[inline]
-    pub fn into_dyn(self) -> &'a dyn TrieNode<V, A> {
-        match self {
-            Self::DenseByteNode(node) => node as &dyn TrieNode<V, A>,
-            Self::LineListNode(node) => node as &dyn TrieNode<V, A>,
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node as &dyn TrieNode<V, A>,
-            Self::TinyRefNode(node) => node as &dyn TrieNode<V, A>,
-            Self::CellByteNode(node) => node as &dyn TrieNode<V, A>,
-            Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
-        }
-    }
-}
+#[cfg(feature = "slim_ptrs")]
+mod tagged_node_ref {
+    use core::marker::PhantomData;
+    use crate::trie_node::slim_node_ptr::SlimNodePtr;
+    use super::*;
 
-/// A mutable reference to a node with a concrete type
-pub enum TaggedNodeRefMut<'a, V: Clone + Send + Sync, A: Allocator> {
-    DenseByteNode(&'a mut DenseByteNode<V, A>),
-    LineListNode(&'a mut LineListNode<V, A>),
-    #[cfg(feature = "bridge_nodes")]
-    BridgeNode(&'a mut BridgeNode<V, A>),
-    CellByteNode(&'a mut CellByteNode<V, A>),
-    Unsupported,
-}
+    pub struct TaggedNodeRef<'a, V: Clone + Send + Sync, A: Allocator> {
+        ptr: SlimNodePtr<V, A>,
+        phantom: PhantomData<&'a V>
+    }
 
-impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
-    #[cfg(feature = "slim_ptrs")]
-    #[inline]
-    unsafe fn from_raw_parts(ptr: *mut core::sync::atomic::AtomicU32, tag: usize) -> Self {
-        match tag {
-            DENSE_BYTE_NODE_TAG => Self::DenseByteNode(&mut *ptr.cast()),
-            LINE_LIST_NODE_TAG => Self::LineListNode(&mut *ptr.cast()),
-            CELL_BYTE_NODE_TAG => Self::CellByteNode(&mut *ptr.cast()),
-            _ => { panic!("Invalid Tag: {tag}") } //GOAT put this back to unreachable_unchecked()
+    impl<V: Clone + Send + Sync, A: Allocator> Clone for TaggedNodeRef<'_, V, A> {
+        fn clone(&self) -> Self {
+            //Ugh!  This manual impl is so we can implement `Copy` without a bound on `V: Copy`
+            //But hopefully there is a way to do this without so much boilerplate (or unsafe either)
+            Self{ ptr: self.ptr, phantom: PhantomData }
         }
     }
-    #[inline]
-    pub fn into_dyn(self) -> &'a mut dyn TrieNode<V, A> {
-        match self {
-            Self::DenseByteNode(node) => node as &mut dyn TrieNode<V, A>,
-            Self::LineListNode(node) => node as &mut dyn TrieNode<V, A>,
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node as &mut dyn TrieNode<V, A>,
-            Self::CellByteNode(node) => node as &mut dyn TrieNode<V, A>,
-            Self::Unsupported => unsafe{ unreachable_unchecked() },
-        }
-    }
-}
+    impl<V: Clone + Send + Sync, A: Allocator> Copy for TaggedNodeRef<'_, V, A> {}
 
-//NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
-impl<V: Clone + Send + Sync, A: Allocator> core::fmt::Debug for TaggedNodeRefMut<'_, V, A> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::DenseByteNode(node) => write!(f, "{node:?}"),
-            Self::LineListNode(node) => write!(f, "{node:?}"),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => write!(f, "{node:?}"),
-            Self::CellByteNode(node) => write!(f, "{node:?}"),
-            Self::Unsupported => write!(f, "Unsupported node type"),
-        }
-    }
-}
-
-//NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
-impl<V: Clone + Send + Sync, A: Allocator> core::fmt::Debug for TaggedNodeRef<'_, V, A> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::DenseByteNode(node) => write!(f, "{node:?}"),
-            Self::LineListNode(node) => write!(f, "{node:?}"),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => write!(f, "{node:?}"),
-            Self::TinyRefNode(node) => write!(f, "{node:?}"),
-            Self::CellByteNode(node) => write!(f, "{node:?}"),
-            Self::EmptyNode => write!(f, "{EmptyNode:?}"),
-        }
-    }
-}
-
-impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRef<'a, V, A> {
-    #[inline]
-    pub fn borrow(&self) -> &'a dyn TrieNode<V, A> {
-        match self {
-            Self::DenseByteNode(node) => *node as &dyn TrieNode<V, A>,
-            Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => *node as &dyn TrieNode<V, A>,
-            Self::TinyRefNode(node) => *node as &dyn TrieNode<V, A>,
-            Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
-            Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
-        }
-    }
-    #[inline]
-    pub fn node_key_overlap(&self, key: &[u8]) -> usize {
-        match self {
-            Self::DenseByteNode(node) => node.node_key_overlap(key),
-            Self::LineListNode(node) => node.node_key_overlap(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.node_key_overlap(key),
-            Self::TinyRefNode(node) => node.node_key_overlap(key),
-            Self::CellByteNode(node) => node.node_key_overlap(key),
-            Self::EmptyNode => 0
-        }
-    }
-    pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
-        match self {
-            Self::DenseByteNode(node) => node.node_contains_partial_key(key),
-            Self::LineListNode(node) => node.node_contains_partial_key(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.node_contains_partial_key(key),
-            Self::TinyRefNode(node) => node.node_contains_partial_key(key),
-            Self::CellByteNode(node) => node.node_contains_partial_key(key),
-            Self::EmptyNode => false
-        }
-    }
-    #[inline(always)]
-    pub fn node_get_child(&self, key: &[u8]) -> Option<(usize, &'a TrieNodeODRc<V, A>)> {
-        match self {
-            Self::DenseByteNode(node) => node.node_get_child(key),
-            Self::LineListNode(node) => node.node_get_child(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.node_get_child(key),
-            Self::TinyRefNode(node) => node.node_get_child(key),
-            Self::CellByteNode(node) => node.node_get_child(key),
-            Self::EmptyNode => None,
+    //NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
+    impl<V: Clone + Send + Sync, A: Allocator> core::fmt::Debug for TaggedNodeRef<'_, V, A> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            core::fmt::Debug::fmt(&self.ptr, f)
         }
     }
 
-    // fn node_get_child_and_val_mut<'a>(&'a mut self, key: &[u8]) -> Option<(usize, Option<&'a mut V>, Option<&'a mut TrieNodeODRc<V>>)>;
+    //GOAT, dead code, hopefully
+    // //GOAT, hopefully this is temporary
+    // impl<'a, V: Clone + Send + Sync + 'a, A: Allocator + 'a> core::ops::Deref for TaggedNodeRef<'a, V, A> {
+    //     type Target = dyn TrieNode<V, A> + 'a;
+    //     fn deref(&self) -> &Self::Target {
+    //         let (ptr, tag) = self.ptr.get_raw_parts();
+    //         match tag {
+    //             EMPTY_NODE_TAG => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+    //             DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() },
+    //             LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() },
+    //             CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() },
+    //             _ => unsafe{ unreachable_unchecked() }
+    //         }
+    //     }
+    // }
 
-    // fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
-
-    // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V>;
-
-    pub fn node_contains_val(&self, key: &[u8]) -> bool {
-        match self {
-            Self::DenseByteNode(node) => node.node_contains_val(key),
-            Self::LineListNode(node) => node.node_contains_val(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.node_contains_val(key),
-            Self::TinyRefNode(node) => node.node_contains_val(key),
-            Self::CellByteNode(node) => node.node_contains_val(key),
-            Self::EmptyNode => false,
+    impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRef<'a, V, A> {
+        #[inline]
+        pub(crate) fn empty_node() -> Self {
+            Self { ptr: SlimNodePtr::from_raw_parts(core::ptr::without_provenance_mut::<usize>(0xBAADF00D), EMPTY_NODE_TAG), phantom: PhantomData }
         }
-    }
-    pub fn node_get_val(&self, key: &[u8]) -> Option<&'a V> {
-        match self {
-            Self::DenseByteNode(node) => node.node_get_val(key),
-            Self::LineListNode(node) => node.node_get_val(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.node_get_val(key),
-            Self::TinyRefNode(node) => node.node_get_val(key),
-            Self::CellByteNode(node) => node.node_get_val(key),
-            Self::EmptyNode => None,
+        #[inline]
+        pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
+            Self { ptr, phantom: PhantomData }
         }
-    }
-
-    // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
-
-    // fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>>;
-
-    // fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
-
-    // fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>>;
-
-    // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
-
-    // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
-
-    // fn node_is_empty(&self) -> bool;
-
-    #[inline(always)]
-    pub fn new_iter_token(&self) -> u128 {
-        match self {
-            Self::DenseByteNode(node) => node.new_iter_token(),
-            Self::LineListNode(node) => node.new_iter_token(),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.new_iter_token(),
-            Self::TinyRefNode(node) => node.new_iter_token(),
-            Self::CellByteNode(node) => node.new_iter_token(),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::new_iter_token(&crate::empty_node::EMPTY_NODE),
+        //GOAT dead code
+        // #[inline]
+        // unsafe fn from_raw_parts(ptr: *mut core::sync::atomic::AtomicU32, tag: usize) -> Self {
+        //     match tag {
+        //         EMPTY_NODE_TAG => Self::EmptyNode,
+        //         DENSE_BYTE_NODE_TAG => Self::DenseByteNode(&*ptr.cast()),
+        //         LINE_LIST_NODE_TAG => Self::LineListNode(&*ptr.cast()),
+        //         CELL_BYTE_NODE_TAG => Self::CellByteNode(&*ptr.cast()),
+        //         _ => unreachable_unchecked()
+        //     }
+        // }
+        /// Consumes the `TaggedNodeRef` and returns a dyn ptr
+        ///
+        /// GOAT: Hopefully we can deprecate this soon
+        #[inline]
+        pub fn into_dyn(self) -> &'a dyn TrieNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                EMPTY_NODE_TAG => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+                DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() },
+                LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() },
+                CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() },
+                _ => unsafe{ unreachable_unchecked() }
+            }
         }
-    }
-    #[inline(always)]
-    pub fn iter_token_for_path(&self, key: &[u8]) -> u128 {
-        match self {
-            Self::DenseByteNode(node) => node.iter_token_for_path(key),
-            Self::LineListNode(node) => node.iter_token_for_path(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.iter_token_for_path(key),
-            Self::TinyRefNode(node) => node.iter_token_for_path(key),
-            Self::CellByteNode(node) => node.iter_token_for_path(key),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::iter_token_for_path(&crate::empty_node::EMPTY_NODE, key),
-        }
-    }
-    #[inline(always)]
-    pub fn next_items(&self, token: u128) -> (u128, &'a[u8], Option<&'a TrieNodeODRc<V, A>>, Option<&'a V>) {
-        match self {
-            Self::DenseByteNode(node) => node.next_items(token),
-            Self::LineListNode(node) => node.next_items(token),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.next_items(token),
-            Self::TinyRefNode(node) => node.next_items(token),
-            Self::CellByteNode(node) => node.next_items(token),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::next_items(&crate::empty_node::EMPTY_NODE, token),
+        #[inline]
+        pub fn is_cell_node(&self) -> bool {
+            let (_, tag) = self.ptr.get_raw_parts();
+            tag == CELL_BYTE_NODE_TAG
         }
     }
 
-    // fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
+    pub struct TaggedNodeRefMut<'a, V: Clone + Send + Sync, A: Allocator> {
+        ptr: SlimNodePtr<V, A>,
+        phantom: PhantomData<&'a mut V>
+    }
 
-    // #[cfg(feature = "counters")]
-    // fn item_count(&self) -> usize;
-
-    pub fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize> {
-        match self {
-            Self::DenseByteNode(node) => node.node_first_val_depth_along_key(key),
-            Self::LineListNode(node) => node.node_first_val_depth_along_key(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.node_first_val_depth_along_key(key),
-            Self::TinyRefNode(node) => node.node_first_val_depth_along_key(key),
-            Self::CellByteNode(node) => node.node_first_val_depth_along_key(key),
-            Self::EmptyNode => None,
+    //NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
+    impl<V: Clone + Send + Sync, A: Allocator> core::fmt::Debug for TaggedNodeRefMut<'_, V, A> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            core::fmt::Debug::fmt(&self.ptr, f)
         }
     }
 
-    pub fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&'a dyn TrieNode<V, A>>) {
-        match self {
-            Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
-            Self::LineListNode(node) => node.nth_child_from_key(key, n),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.nth_child_from_key(key, n),
-            Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
-            Self::CellByteNode(node) => node.nth_child_from_key(key, n),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::nth_child_from_key(&crate::empty_node::EMPTY_NODE, key, n),
+    //GOAT, hopefully dead
+    // //GOAT, hopefully this is temporary
+    // impl<'a, V: Clone + Send + Sync + 'a, A: Allocator + 'a> core::ops::Deref for TaggedNodeRefMut<'a, V, A> {
+    //     type Target = dyn TrieNode<V, A> + 'a;
+    //     fn deref(&self) -> &Self::Target {
+    //         let (ptr, tag) = self.ptr.get_raw_parts();
+    //         match tag {
+    //             EMPTY_NODE_TAG => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+    //             DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() },
+    //             LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() },
+    //             CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() },
+    //             _ => unsafe{ unreachable_unchecked() }
+    //         }
+    //     }
+    // }
+    // //GOAT, hopefully this is temporary
+    // impl<'a, V: Clone + Send + Sync + 'a, A: Allocator + 'a> core::ops::DerefMut for TaggedNodeRefMut<'a, V, A> {
+    //     fn deref_mut(&mut self) -> &mut Self::Target {
+    //         let (ptr, tag) = self.ptr.get_raw_parts();
+    //         match tag {
+    //             EMPTY_NODE_TAG => unreachable!(),
+    //             DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() },
+    //             LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() },
+    //             CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() },
+    //             _ => unsafe{ unreachable_unchecked() }
+    //         }
+    //     }
+    // }
+
+    impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
+        #[inline]
+        pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
+            Self { ptr, phantom: PhantomData }
         }
-    }
-    pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<&'a dyn TrieNode<V, A>>) {
-        match self {
-            Self::DenseByteNode(node) => node.first_child_from_key(key),
-            Self::LineListNode(node) => node.first_child_from_key(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.first_child_from_key(key),
-            Self::TinyRefNode(node) => node.first_child_from_key(key),
-            Self::CellByteNode(node) => node.first_child_from_key(key),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::first_child_from_key(&crate::empty_node::EMPTY_NODE, key),
-        }
-    }
-    #[inline(always)]
-    pub fn count_branches(&self, key: &[u8]) -> usize {
-        match self {
-            Self::DenseByteNode(node) => node.count_branches(key),
-            Self::LineListNode(node) => node.count_branches(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.count_branches(key),
-            Self::TinyRefNode(node) => node.count_branches(key),
-            Self::CellByteNode(node) => node.count_branches(key),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::count_branches(&crate::empty_node::EMPTY_NODE, key),
-        }
-    }
-    #[inline(always)]
-    pub fn node_branches_mask(&self, key: &[u8]) -> ByteMask {
-        match self {
-            Self::DenseByteNode(node) => node.node_branches_mask(key),
-            Self::LineListNode(node) => node.node_branches_mask(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.node_branches_mask(key),
-            Self::TinyRefNode(node) => node.node_branches_mask(key),
-            Self::CellByteNode(node) => node.node_branches_mask(key),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&crate::empty_node::EMPTY_NODE, key),
-        }
-    }
-    #[inline(always)]
-    pub fn is_leaf(&self, key: &[u8]) -> bool {
-        match self {
-            Self::DenseByteNode(node) => node.is_leaf(key),
-            Self::LineListNode(node) => node.is_leaf(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.is_leaf(key),
-            Self::TinyRefNode(node) => node.is_leaf(key),
-            Self::CellByteNode(node) => node.is_leaf(key),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&crate::empty_node::EMPTY_NODE, key),
-        }
-    }
-    pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
-        match self {
-            Self::DenseByteNode(node) => node.prior_branch_key(key),
-            Self::LineListNode(node) => node.prior_branch_key(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.prior_branch_key(key),
-            Self::TinyRefNode(node) => node.prior_branch_key(key),
-            Self::CellByteNode(node) => node.prior_branch_key(key),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::prior_branch_key(&crate::empty_node::EMPTY_NODE, key),
-        }
-    }
-    pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&'a dyn TrieNode<V, A>>) {
-        match self {
-            Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
-            Self::LineListNode(node) => node.get_sibling_of_child(key, next),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.get_sibling_of_child(key, next),
-            Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
-            Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
-            Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
-        }
-    }
-    pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {
-        match self {
-            Self::DenseByteNode(node) => node.get_node_at_key(key),
-            Self::LineListNode(node) => node.get_node_at_key(key),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(node) => node.get_node_at_key(key),
-            Self::TinyRefNode(node) => node.get_node_at_key(key),
-            Self::CellByteNode(node) => node.get_node_at_key(key),
-            Self::EmptyNode => EmptyNode.get_node_at_key(key),
-        }
-    }
-
-    // fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
-
-    // fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
-
-    // fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
-
-    // fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
-
-    // fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
-
-    // fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice;
-
-    // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
-
-    #[inline(always)]
-    pub fn as_dense(&self) -> Option<&'a DenseByteNode<V, A>> {
-        match self {
-            Self::DenseByteNode(node) => Some(node),
-            Self::LineListNode(_) => None,
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(_) => None,
-            Self::TinyRefNode(_) => None,
-            Self::CellByteNode(_) => None,
-            Self::EmptyNode => None,
-        }
-    }
-
-    // fn as_dense_mut(&mut self) -> Option<&mut DenseByteNode<V>>;
-
-    #[inline(always)]
-    pub fn as_list(&self) -> Option<&'a LineListNode<V, A>> {
-        match self {
-            Self::DenseByteNode(_) => None,
-            Self::LineListNode(node) => Some(node),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(_) => None,
-            Self::TinyRefNode(_) => None,
-            Self::CellByteNode(_) => None,
-            Self::EmptyNode => None,
-        }
-    }
-
-    #[cfg(feature = "bridge_nodes")]
-    #[inline(always)]
-    pub fn as_bridge(&self) -> Option<&'a BridgeNode<V, A>> {
-        match self {
-            Self::DenseByteNode(_) => None,
-            Self::LineListNode(_) => None,
-            Self::BridgeNode(node) => Some(node),
-            Self::TinyRefNode(_) => None,
-            Self::CellByteNode(_) => None,
-            Self::EmptyNode(_) => None,
-        }
-    }
-
-    // fn as_list_mut(&mut self) -> Option<&mut LineListNode<V>>;
-
-    // fn as_tagged(&self) -> TaggedNodeRef<V>;
-
-    // fn clone_self(&self) -> TrieNodeODRc<V>;
-
-    #[inline(always)]
-    pub fn is_cell_node(&self) -> bool {
-        match self {
-            Self::CellByteNode(_) => true,
-            _ => false
-        }
-    }
-}
-
-impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
-    #[inline(always)]
-    pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V, A>> {
-        match self {
-            Self::DenseByteNode(node) => Some(node),
-            Self::LineListNode(_) => None,
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(_) => None,
-            Self::CellByteNode(_) => None,
-            Self::Unsupported => None,
-        }
-    }
-    #[inline(always)]
-    pub fn into_list(self) -> Option<&'a mut LineListNode<V, A>> {
-        match self {
-            Self::LineListNode(node) => Some(node),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(_) => None,
-            Self::DenseByteNode(_) => None,
-            Self::CellByteNode(_) => None,
-            Self::Unsupported => None,
-        }
-    }
-    #[inline(always)]
-    pub fn into_cell_node(self) -> Option<&'a mut CellByteNode<V, A>> {
-        match self {
-            Self::CellByteNode(node) => Some(node),
-            #[cfg(feature = "bridge_nodes")]
-            Self::BridgeNode(_) => None,
-            Self::DenseByteNode(_) => None,
-            Self::LineListNode(_) => None,
-            Self::Unsupported => None,
+        //GOAT dead code
+        // #[inline]
+        // unsafe fn from_raw_parts(ptr: *mut core::sync::atomic::AtomicU32, tag: usize) -> Self {
+        //     match tag {
+        //         DENSE_BYTE_NODE_TAG => Self::DenseByteNode(&mut *ptr.cast()),
+        //         LINE_LIST_NODE_TAG => Self::LineListNode(&mut *ptr.cast()),
+        //         CELL_BYTE_NODE_TAG => Self::CellByteNode(&mut *ptr.cast()),
+        //         _ => { panic!("Invalid Tag: {tag}") } //GOAT put this back to unreachable_unchecked()
+        //     }
+        // }
+        /// GOAT: Hopefully we can deprecate this soon
+        #[inline]
+        pub fn into_dyn(self) -> &'a mut dyn TrieNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                EMPTY_NODE_TAG => unreachable!(),
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() },
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() },
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() },
+                _ => unsafe{ unreachable_unchecked() }
+            }
         }
     }
 }
@@ -1257,13 +1405,12 @@ pub(crate) fn node_along_path_mut<'a, 'k, V: Clone + Send + Sync, A: Allocator>(
 ///
 /// Returns `true` if the node was upgraded and `false` if it already was a CellByteNode
 pub(crate) fn make_cell_node<V: Clone + Send + Sync, A: Allocator>(node: &mut TrieNodeODRc<V, A>) -> bool {
-    match node.borrow().as_tagged() {
-        TaggedNodeRef::CellByteNode(_) => false,
-        _ => {
-            let replacement = node.make_mut().convert_to_cell_node();
-            *node = replacement;
-            true
-        },
+    if !node.as_tagged().is_cell_node() {
+        let replacement = node.make_mut().convert_to_cell_node();
+        *node = replacement;
+        true
+    } else {
+        false
     }
 }
 
@@ -1277,6 +1424,7 @@ mod opaque_dyn_rc_trie_node {
     use std::sync::Arc;
     use super::TrieNode;
     use crate::Allocator;
+    use super::TaggedNodeRef;
 
     //TODO_FUTURE: make a type alias within the trait to refer to this type, as soon as
     // https://github.com/rust-lang/rust/issues/29661 is addressed
@@ -1356,6 +1504,10 @@ mod opaque_dyn_rc_trie_node {
         #[inline]
         pub(crate) fn as_arc(&self) -> &Arc<dyn TrieNode<V, A>, A> {
             &self.0
+        }
+        #[inline]
+        pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
+            self.borrow().as_tagged()
         }
         #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
@@ -1489,12 +1641,11 @@ mod slim_node_ptr {
         // they could both be based on the same tagged 64bit pointer
         #[inline]
         pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-            let (unpacked_ptr, tag) = self.get_raw_parts();
-            unsafe{ TaggedNodeRef::from_raw_parts(unpacked_ptr, tag) }
+            TaggedNodeRef::from_slim_ptr(*self)
         }
         #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
-            self.as_tagged().borrow()
+            self.as_tagged().into_dyn()
         }
         #[inline]
         pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
@@ -1589,7 +1740,7 @@ mod opaque_dyn_rc_trie_node {
     use crate::line_list_node::LineListNode;
     use super::slim_node_ptr::SlimNodePtr;
 
-    use super::{TaggedNodeRefMut, TrieNode, EMPTY_NODE_TAG, DENSE_BYTE_NODE_TAG, LINE_LIST_NODE_TAG, CELL_BYTE_NODE_TAG};
+    use super::{TaggedNodeRef, TaggedNodeRefMut, TrieNode, EMPTY_NODE_TAG, DENSE_BYTE_NODE_TAG, LINE_LIST_NODE_TAG, CELL_BYTE_NODE_TAG};
 
     /// TrieNodeODRc = TrieNode Opaque Dynamic RefCounting Pointer
     ///
@@ -1749,6 +1900,10 @@ mod opaque_dyn_rc_trie_node {
             Self::new_in(new_node, alloc)
         }
         #[inline]
+        pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
+            self.ptr.as_tagged()
+        }
+        #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
             self.ptr.borrow()
         }
@@ -1767,7 +1922,7 @@ mod opaque_dyn_rc_trie_node {
             unsafe{ &*ptr }.load(Acquire) as usize
         }
         #[inline]
-        pub(crate) fn make_mut(&mut self) -> &mut (dyn TrieNode<V, A> + 'static) {
+        pub(crate) fn make_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
             let (ptr, _tag) = self.ptr.get_raw_parts();
 
             if unsafe{ &*ptr }.compare_exchange(1, 0, Acquire, Relaxed).is_err() {
@@ -1782,11 +1937,9 @@ mod opaque_dyn_rc_trie_node {
                 unsafe{ &*ptr }.store(1, Release);
             }
 
-            // As with `get_mut()`, the unsafety is ok because our reference was
-            // either unique to begin with, or became one upon cloning the contents.
-            let (unpacked_ptr, tag) = self.ptr.get_raw_parts();
-            let tagged: TaggedNodeRefMut<'_, V, A> = unsafe{ TaggedNodeRefMut::from_raw_parts(unpacked_ptr, tag) };
-            unsafe{ core::mem::transmute(tagged.into_dyn()) }
+            // We are now clear to copy the inner pointer because our reference was either unique
+            // to begin with, or became unique upon cloning the contents.
+            TaggedNodeRefMut::from_slim_ptr(self.ptr)
         }
     }
 }

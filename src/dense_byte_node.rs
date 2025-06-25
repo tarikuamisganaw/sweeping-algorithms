@@ -1355,10 +1355,12 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<O
     fn tag(&self) -> usize {
         DENSE_BYTE_NODE_TAG
     }
+    #[cfg(not(feature = "slim_ptrs"))]
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::DenseByteNode(self)
     }
+    #[cfg(not(feature = "slim_ptrs"))]
     #[inline(always)]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         TaggedNodeRefMut::DenseByteNode(self)
@@ -1381,9 +1383,11 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<C
     fn tag(&self) -> usize {
         CELL_BYTE_NODE_TAG
     }
+    #[cfg(not(feature = "slim_ptrs"))]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::CellByteNode(self)
     }
+    #[cfg(not(feature = "slim_ptrs"))]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         TaggedNodeRefMut::CellByteNode(self)
     }

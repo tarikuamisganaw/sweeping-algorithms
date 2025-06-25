@@ -2544,10 +2544,12 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for LineListNo
     fn tag(&self) -> usize {
         LINE_LIST_NODE_TAG
     }
+    #[cfg(not(feature = "slim_ptrs"))]
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::LineListNode(self)
     }
+    #[cfg(not(feature = "slim_ptrs"))]
     #[inline(always)]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         TaggedNodeRefMut::LineListNode(self)
