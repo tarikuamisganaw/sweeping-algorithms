@@ -1441,8 +1441,7 @@ mod slim_node_ptr {
     #[repr(align(8))]
     pub(super) struct SlimNodePtr<V: Clone + Send + Sync, A: Allocator> {
         ptr: NonNull<AtomicU32>,
-        phantom: PhantomData<V>,
-        pub(super) alloc: A,
+        phantom: PhantomData<(V, A)>,
     }
 
     unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for SlimNodePtr<V, A> {}
@@ -1454,12 +1453,10 @@ mod slim_node_ptr {
             Self{
                 ptr: self.ptr,
                 phantom: PhantomData,
-                alloc: self.alloc.clone(),
             }
         }
     }
-
-    impl<V: Clone + Send + Sync, A: Allocator + Copy> Copy for SlimNodePtr<V, A> {}
+    impl<V: Clone + Send + Sync, A: Allocator> Copy for SlimNodePtr<V, A> {}
 
     impl<V, A: Allocator> core::fmt::Debug for SlimNodePtr<V, A>
     where
@@ -1479,13 +1476,12 @@ mod slim_node_ptr {
             (unpacked_ptr, tag)
         }
         #[inline]
-        pub(super) fn from_raw_parts<T>(ptr: *mut T, tag: usize, alloc: A) -> Self {
+        pub(super) fn from_raw_parts<T>(ptr: *mut T, tag: usize) -> Self {
             let packed_addr = pack(ptr, 0, false, 7).addr() | (tag << 59);
             let packed_ptr = ptr.with_addr(packed_addr);
             Self{
                 ptr: unsafe{ NonNull::new_unchecked(packed_ptr.cast()) },
                 phantom: PhantomData,
-                alloc,
             }
         }
         //GOAT, next we can try to get rid of the TaggedNodeRef too, although TaggedNodeRef
@@ -1597,10 +1593,12 @@ mod opaque_dyn_rc_trie_node {
 
     /// TrieNodeODRc = TrieNode Opaque Dynamic RefCounting Pointer
     ///
-    /// The `TrieNodeODRc` type is a transparent wrapper around a [SlimNodePtr], however, `SlimNodePtr`
-    /// does not adjust refcounts while `TrieNodeODRc` does.
-    #[repr(transparent)]
-    pub struct TrieNodeODRc<V: Clone + Send + Sync, A: Allocator> (SlimNodePtr<V, A>);
+    /// The `TrieNodeODRc` type is a wrapper around a [SlimNodePtr], however, `SlimNodePtr` does not
+    ///  adjust refcounts while `TrieNodeODRc` does.
+    pub struct TrieNodeODRc<V: Clone + Send + Sync, A: Allocator> {
+        ptr: SlimNodePtr<V, A>,
+        alloc: A
+    }
 
     impl<V: Clone + Send + Sync, A: Allocator> Clone for TrieNodeODRc<V, A> {
         /// Increases the node refcount.  See the implementation of Arc::clone in the stdlib
@@ -1619,10 +1617,10 @@ mod opaque_dyn_rc_trie_node {
             // another must already provide any required synchronization.
             //
             // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
-            let (ptr, _tag) = self.0.get_raw_parts();
+            let (ptr, _tag) = self.ptr.get_raw_parts();
             let _old_size = unsafe{ &*ptr }.fetch_add(1, Relaxed);
 
-            Self(self.0.clone())
+            Self{ ptr: self.ptr.clone(), alloc: self.alloc.clone() }
         }
     }
 
@@ -1633,7 +1631,7 @@ mod opaque_dyn_rc_trie_node {
         /// Decrements the refcount, and deletes the node if the refcount reaches 0
         #[inline]
         fn drop(&mut self) {
-            let (ptr, tag) = self.0.get_raw_parts();
+            let (ptr, tag) = self.ptr.get_raw_parts();
             if tag == EMPTY_NODE_TAG {
                 return
             }
@@ -1683,7 +1681,7 @@ mod opaque_dyn_rc_trie_node {
             let refcount = unsafe{ &*ptr }.load(Acquire);
             debug_assert_eq!(refcount, 0);
 
-            drop_inner_in::<V, A>(ptr, tag, self.0.alloc.clone());
+            drop_inner_in::<V, A>(ptr, tag, self.alloc.clone());
         }
     }
 
@@ -1719,7 +1717,7 @@ mod opaque_dyn_rc_trie_node {
     V: Clone + Send + Sync
     {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            core::fmt::Debug::fmt(&self.0, f)
+            core::fmt::Debug::fmt(&self.ptr, f)
         }
     }
 
@@ -1738,7 +1736,7 @@ mod opaque_dyn_rc_trie_node {
             };
             #[cfg(feature = "nightly")]
             let boxed = Box::into_raw(Box::new_in(node, alloc.clone()));
-            Self(SlimNodePtr::from_raw_parts(boxed, tag, alloc))
+            Self{ ptr: SlimNodePtr::from_raw_parts(boxed, tag), alloc }
         }
         /// Creates a new `TrieNodeODRc` that references a node that exists in memory (ie. not a sentinel for EmptyNode),
         /// but contains no values or onward links
@@ -1752,25 +1750,25 @@ mod opaque_dyn_rc_trie_node {
         }
         #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
-            self.0.borrow()
+            self.ptr.borrow()
         }
         #[inline]
         pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
-            self.0.as_ptr()
+            self.ptr.as_ptr()
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
         #[inline]
         pub fn ptr_eq(&self, other: &Self) -> bool {
-            self.0.ptr_eq(&other.0)
+            self.ptr.ptr_eq(&other.ptr)
         }
         #[inline]
         pub(crate) fn refcount(&self) -> usize {
-            let (ptr, _tag) = self.0.get_raw_parts();
+            let (ptr, _tag) = self.ptr.get_raw_parts();
             unsafe{ &*ptr }.load(Acquire) as usize
         }
         #[inline]
         pub(crate) fn make_mut(&mut self) -> &mut (dyn TrieNode<V, A> + 'static) {
-            let (ptr, _tag) = self.0.get_raw_parts();
+            let (ptr, _tag) = self.ptr.get_raw_parts();
 
             if unsafe{ &*ptr }.compare_exchange(1, 0, Acquire, Relaxed).is_err() {
                 // Another pointer exists, so we must clone.
@@ -1786,7 +1784,7 @@ mod opaque_dyn_rc_trie_node {
 
             // As with `get_mut()`, the unsafety is ok because our reference was
             // either unique to begin with, or became one upon cloning the contents.
-            let (unpacked_ptr, tag) = self.0.get_raw_parts();
+            let (unpacked_ptr, tag) = self.ptr.get_raw_parts();
             let tagged: TaggedNodeRefMut<'_, V, A> = unsafe{ TaggedNodeRefMut::from_raw_parts(unpacked_ptr, tag) };
             unsafe{ core::mem::transmute(tagged.into_dyn()) }
         }
