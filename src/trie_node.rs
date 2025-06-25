@@ -1428,49 +1428,29 @@ mod opaque_dyn_rc_trie_node {
 /// https://www.ralfj.de/blog/2022/04/11/provenance-exposed.html
 /// https://github.com/irrustible/ointers/blob/main/src/lib.rs
 #[cfg(feature = "slim_ptrs")]
-mod opaque_dyn_rc_trie_node {
+mod slim_node_ptr {
     use core::marker::PhantomData;
     use core::ptr::NonNull;
-    use core::sync::atomic::{AtomicU32, Ordering::Acquire, Ordering::Relaxed, Ordering::Release};
+    use core::sync::atomic::AtomicU32;
     use crate::Allocator;
-    use crate::dense_byte_node::{DenseByteNode, CellByteNode};
-    use crate::line_list_node::LineListNode;
-
-    use super::{TaggedNodeRef, TaggedNodeRefMut, TrieNode, EMPTY_NODE_TAG, DENSE_BYTE_NODE_TAG, LINE_LIST_NODE_TAG, CELL_BYTE_NODE_TAG};
+    use super::{TaggedNodeRef, TrieNode};
 
     #[cfg(all(not(target_pointer_width="64")))]
     compile_error!("slim_ptrs is only compatible with 64-bit architectures");
 
     #[repr(align(8))]
-    pub struct TrieNodeODRc<V: Clone + Send + Sync, A: Allocator> {
+    pub(super) struct SlimNodePtr<V: Clone + Send + Sync, A: Allocator> {
         ptr: NonNull<AtomicU32>,
         phantom: PhantomData<V>,
-        alloc: A,
+        pub(super) alloc: A,
     }
 
-    unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for TrieNodeODRc<V, A> {}
-    unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for TrieNodeODRc<V, A> {}
+    unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for SlimNodePtr<V, A> {}
+    unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for SlimNodePtr<V, A> {}
 
-    impl<V: Clone + Send + Sync, A: Allocator> Clone for TrieNodeODRc<V, A> {
-        /// Increases the node refcount.  See the implementation of Arc::clone in the stdlib
+    impl<V: Clone + Send + Sync, A: Allocator> Clone for SlimNodePtr<V, A> {
         #[inline]
         fn clone(&self) -> Self {
-            //NOTE: This explanation copied verbatim from the Arc implementation in stdlib
-            // -------------------------------------------------------------------------------
-            // Using a relaxed ordering is alright here, as knowledge of the
-            // original reference prevents other threads from erroneously deleting
-            // the object.
-            //
-            // As explained in the [Boost documentation][1], Increasing the
-            // reference counter can always be done with memory_order_relaxed: New
-            // references to an object can only be formed from an existing
-            // reference, and passing an existing reference from one thread to
-            // another must already provide any required synchronization.
-            //
-            // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
-            let (ptr, _tag) = self.get_raw_parts();
-            let _old_size = unsafe{ &*ptr }.fetch_add(1, Relaxed);
-
             Self{
                 ptr: self.ptr,
                 phantom: PhantomData,
@@ -1479,94 +1459,9 @@ mod opaque_dyn_rc_trie_node {
         }
     }
 
-    /// We want to saturate at this refcount.  So if we ever see this value, we stop decrementing
-    const MAX_REFCOUNT: u32 = 0x7FFFFFFF;
+    impl<V: Clone + Send + Sync, A: Allocator + Copy> Copy for SlimNodePtr<V, A> {}
 
-    impl<V: Clone + Send + Sync, A: Allocator> Drop for TrieNodeODRc<V, A> {
-        /// Decrements the refcount, and deletes the node if the refcount reaches 0
-        #[inline]
-        fn drop(&mut self) {
-            let (ptr, tag) = self.get_raw_parts();
-            if tag == EMPTY_NODE_TAG {
-                return
-            }
-
-            //NOTE: This explanation copied verbatim from the Arc implementation in stdlib
-            // -------------------------------------------------------------------------------
-
-            // Because `fetch_sub` is already atomic, we do not need to synchronize
-            // with other threads unless we are going to delete the object. This
-            // same logic applies to the below `fetch_sub` to the `weak` count.
-            if unsafe{ &*ptr }.fetch_sub(1, Release) != 1 {
-                return;
-            }
-
-//GOAT, deal with saturation
-            // This fence is needed to prevent reordering of use of the data and
-            // deletion of the data. Because it is marked `Release`, the decreasing
-            // of the reference count synchronizes with this `Acquire` fence. This
-            // means that use of the data happens before decreasing the reference
-            // count, which happens before this fence, which happens before the
-            // deletion of the data.
-            //
-            // As explained in the [Boost documentation][1],
-            //
-            // > It is important to enforce any possible access to the object in one
-            // > thread (through an existing reference) to *happen before* deleting
-            // > the object in a different thread. This is achieved by a "release"
-            // > operation after dropping a reference (any access to the object
-            // > through this reference must obviously happened before), and an
-            // > "acquire" operation before deleting the object.
-            //
-            // In particular, while the contents of an Arc are usually immutable, it's
-            // possible to have interior writes to something like a Mutex<T>. Since a
-            // Mutex is not acquired when it is deleted, we can't rely on its
-            // synchronization logic to make writes in thread A visible to a destructor
-            // running in thread B.
-            //
-            // Also note that the Acquire fence here could probably be replaced with an
-            // Acquire load, which could improve performance in highly-contended
-            // situations. See [2].
-            //
-            // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
-            // [2]: (https://github.com/rust-lang/rust/pull/41714)
-
-            //The fence from Arc is overkill here, so we'll go with an Acquire load
-            //Code from Arc with macro expanded: fence(Acquire);
-            let refcount = unsafe{ &*ptr }.load(Acquire);
-            debug_assert_eq!(refcount, 0);
-
-            drop_inner_in::<V, A>(ptr, tag, self.alloc.clone());
-        }
-    }
-
-    #[cfg(feature = "nightly")]
-    #[inline]
-    fn drop_inner_in<V: Clone + Send + Sync, A: Allocator>(ptr: *mut AtomicU32, tag: usize, alloc: A) {
-        //Convert the pointer back into a box, so it will drop
-        match tag {
-            EMPTY_NODE_TAG => {},
-            DENSE_BYTE_NODE_TAG => unsafe { let _ = Box::<DenseByteNode<V, A>, A>::from_raw_in(ptr.cast(), alloc); },
-            LINE_LIST_NODE_TAG => unsafe { let _ = Box::<LineListNode<V, A>, A>::from_raw_in(ptr.cast(), alloc); },
-            CELL_BYTE_NODE_TAG => unsafe { let _ = Box::<CellByteNode<V, A>, A>::from_raw_in(ptr.cast(), alloc); },
-            _ => unsafe{ core::hint::unreachable_unchecked() }
-        };
-    }
-
-    #[cfg(not(feature = "nightly"))]
-    #[inline]
-    fn drop_inner_in<V: Clone + Send + Sync, A: Allocator>(ptr: *mut AtomicU32, tag: usize, _alloc: A) {
-        //Convert the pointer back into a box, so it will drop
-        match tag {
-            EMPTY_NODE_TAG => {},
-            DENSE_BYTE_NODE_TAG => unsafe { let _ = Box::<DenseByteNode<V, A>>::from_raw(ptr.cast()); },
-            LINE_LIST_NODE_TAG => unsafe { let _ = Box::<LineListNode<V, A>>::from_raw(ptr.cast()); },
-            CELL_BYTE_NODE_TAG => unsafe { let _ = Box::<CellByteNode<V, A>>::from_raw(ptr.cast()); },
-            _ => unsafe{ core::hint::unreachable_unchecked() }
-        };
-    }
-
-    impl<V, A: Allocator> core::fmt::Debug for TrieNodeODRc<V, A>
+    impl<V, A: Allocator> core::fmt::Debug for SlimNodePtr<V, A>
     where
     for<'a> &'a dyn TrieNode<V, A>: core::fmt::Debug,
     V: Clone + Send + Sync
@@ -1576,40 +1471,7 @@ mod opaque_dyn_rc_trie_node {
         }
     }
 
-    //GOAT, default may be unneeded
-    // impl<V: Clone + Send + Sync, A: Allocator> Default for TrieNodeODRc<V, A> {
-    //     /// Default creates an empty node
-    //     fn default() -> Self {
-    //         Self::from_raw_parts(core::ptr::without_provenance_mut::<usize>(0xBAADF00D), EMPTY_NODE_TAG)
-    //     }
-    // }
-
-    impl<V: Clone + Send + Sync, A: Allocator> TrieNodeODRc<V, A> {
-        #[inline]
-        pub(crate) fn new_in<'odb, T>(node: T, alloc: A) -> Self
-        where T: 'odb + TrieNode<V, A>,
-        V: 'odb
-        {
-            let tag = node.tag() as usize;
-            #[cfg(not(feature = "nightly"))]
-            let boxed = {
-                let _ = alloc;
-                Box::into_raw(Box::new(node))
-            };
-            #[cfg(feature = "nightly")]
-            let boxed = Box::into_raw(Box::new_in(node, alloc.clone()));
-            Self::from_raw_parts(boxed, tag, alloc)
-        }
-        /// Creates a new `TrieNodeODRc` that references a node that exists in memory (ie. not a sentinel for EmptyNode),
-        /// but contains no values or onward links
-        ///
-        /// This method is needed because it's impossible to get a mutable reference to the EmptyNode, but WriteZippers
-        /// carry a mutable reference ato the node at their root
-        #[inline]
-        pub(crate) fn new_allocated_in(_child_cnt_capacity: usize, _val_cnt_capacity: usize, alloc: A) -> Self {
-            let new_node = crate::line_list_node::LineListNode::new_in(alloc.clone());
-            Self::new_in(new_node, alloc)
-        }
+    impl<V: Clone + Send + Sync, A: Allocator> SlimNodePtr<V, A> {
         #[inline]
         pub(crate) fn get_raw_parts(&self) -> (*mut AtomicU32, usize) {
             let tag = (self.ptr.addr().get() >> 59) & 0xF;
@@ -1617,7 +1479,7 @@ mod opaque_dyn_rc_trie_node {
             (unpacked_ptr, tag)
         }
         #[inline]
-        fn from_raw_parts<T>(ptr: *mut T, tag: usize, alloc: A) -> Self {
+        pub(super) fn from_raw_parts<T>(ptr: *mut T, tag: usize, alloc: A) -> Self {
             let packed_addr = pack(ptr, 0, false, 7).addr() | (tag << 59);
             let packed_ptr = ptr.with_addr(packed_addr);
             Self{
@@ -1630,7 +1492,7 @@ mod opaque_dyn_rc_trie_node {
         // has a lifetime bound and doesn't count borrows, so it's a different type.  But maybe
         // they could both be based on the same tagged 64bit pointer
         #[inline]
-        pub(crate) fn as_tagged(&self) -> TaggedNodeRef<V, A> {
+        pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
             let (unpacked_ptr, tag) = self.get_raw_parts();
             unsafe{ TaggedNodeRef::from_raw_parts(unpacked_ptr, tag) }
         }
@@ -1647,33 +1509,6 @@ mod opaque_dyn_rc_trie_node {
         #[inline]
         pub fn ptr_eq(&self, other: &Self) -> bool {
             self.ptr == other.ptr
-        }
-        #[inline]
-        pub(crate) fn refcount(&self) -> usize {
-            let (ptr, _tag) = self.get_raw_parts();
-            unsafe{ &*ptr }.load(Acquire) as usize
-        }
-        #[inline]
-        pub(crate) fn make_mut(&mut self) -> &mut (dyn TrieNode<V, A> + 'static) {
-            let (ptr, _tag) = self.get_raw_parts();
-
-            if unsafe{ &*ptr }.compare_exchange(1, 0, Acquire, Relaxed).is_err() {
-                // Another pointer exists, so we must clone.
-                let cloned_node = self.borrow().clone_self();
-
-                //The decrement of the old `self` refcount will happen at this assignment
-                *self = cloned_node;
-
-            } else {
-                // We were the sole reference so bump back up the  ref count.
-                unsafe{ &*ptr }.store(1, Release);
-            }
-
-            // As with `get_mut()`, the unsafety is ok because our reference was
-            // either unique to begin with, or became one upon cloning the contents.
-            let (unpacked_ptr, tag) = self.get_raw_parts();
-            let tagged: TaggedNodeRefMut<'_, V, A> = unsafe{ TaggedNodeRefMut::from_raw_parts(unpacked_ptr, tag) };
-            unsafe{ core::mem::transmute(tagged.into_dyn()) }
         }
     }
 
@@ -1746,6 +1581,214 @@ mod opaque_dyn_rc_trie_node {
         } else {
             // We need to extend the sign bit.
             packed.with_addr((((base << v as usize) as isize) >> v as usize) as usize)
+        }
+    }
+}
+
+#[cfg(feature = "slim_ptrs")]
+mod opaque_dyn_rc_trie_node {
+    use core::sync::atomic::{AtomicU32, Ordering::Acquire, Ordering::Relaxed, Ordering::Release};
+    use crate::Allocator;
+    use crate::dense_byte_node::{DenseByteNode, CellByteNode};
+    use crate::line_list_node::LineListNode;
+    use super::slim_node_ptr::SlimNodePtr;
+
+    use super::{TaggedNodeRefMut, TrieNode, EMPTY_NODE_TAG, DENSE_BYTE_NODE_TAG, LINE_LIST_NODE_TAG, CELL_BYTE_NODE_TAG};
+
+    /// TrieNodeODRc = TrieNode Opaque Dynamic RefCounting Pointer
+    ///
+    /// The `TrieNodeODRc` type is a transparent wrapper around a [SlimNodePtr], however, `SlimNodePtr`
+    /// does not adjust refcounts while `TrieNodeODRc` does.
+    #[repr(transparent)]
+    pub struct TrieNodeODRc<V: Clone + Send + Sync, A: Allocator> (SlimNodePtr<V, A>);
+
+    impl<V: Clone + Send + Sync, A: Allocator> Clone for TrieNodeODRc<V, A> {
+        /// Increases the node refcount.  See the implementation of Arc::clone in the stdlib
+        #[inline]
+        fn clone(&self) -> Self {
+            //NOTE: This explanation copied verbatim from the Arc implementation in stdlib
+            // -------------------------------------------------------------------------------
+            // Using a relaxed ordering is alright here, as knowledge of the
+            // original reference prevents other threads from erroneously deleting
+            // the object.
+            //
+            // As explained in the [Boost documentation][1], Increasing the
+            // reference counter can always be done with memory_order_relaxed: New
+            // references to an object can only be formed from an existing
+            // reference, and passing an existing reference from one thread to
+            // another must already provide any required synchronization.
+            //
+            // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
+            let (ptr, _tag) = self.0.get_raw_parts();
+            let _old_size = unsafe{ &*ptr }.fetch_add(1, Relaxed);
+
+            Self(self.0.clone())
+        }
+    }
+
+    /// We want to saturate at this refcount.  So if we ever see this value, we stop decrementing
+    const MAX_REFCOUNT: u32 = 0x7FFFFFFF;
+
+    impl<V: Clone + Send + Sync, A: Allocator> Drop for TrieNodeODRc<V, A> {
+        /// Decrements the refcount, and deletes the node if the refcount reaches 0
+        #[inline]
+        fn drop(&mut self) {
+            let (ptr, tag) = self.0.get_raw_parts();
+            if tag == EMPTY_NODE_TAG {
+                return
+            }
+
+            //NOTE: This explanation copied verbatim from the Arc implementation in stdlib
+            // -------------------------------------------------------------------------------
+
+            // Because `fetch_sub` is already atomic, we do not need to synchronize
+            // with other threads unless we are going to delete the object. This
+            // same logic applies to the below `fetch_sub` to the `weak` count.
+            if unsafe{ &*ptr }.fetch_sub(1, Release) != 1 {
+                return;
+            }
+
+//GOAT, deal with saturation
+            // This fence is needed to prevent reordering of use of the data and
+            // deletion of the data. Because it is marked `Release`, the decreasing
+            // of the reference count synchronizes with this `Acquire` fence. This
+            // means that use of the data happens before decreasing the reference
+            // count, which happens before this fence, which happens before the
+            // deletion of the data.
+            //
+            // As explained in the [Boost documentation][1],
+            //
+            // > It is important to enforce any possible access to the object in one
+            // > thread (through an existing reference) to *happen before* deleting
+            // > the object in a different thread. This is achieved by a "release"
+            // > operation after dropping a reference (any access to the object
+            // > through this reference must obviously happened before), and an
+            // > "acquire" operation before deleting the object.
+            //
+            // In particular, while the contents of an Arc are usually immutable, it's
+            // possible to have interior writes to something like a Mutex<T>. Since a
+            // Mutex is not acquired when it is deleted, we can't rely on its
+            // synchronization logic to make writes in thread A visible to a destructor
+            // running in thread B.
+            //
+            // Also note that the Acquire fence here could probably be replaced with an
+            // Acquire load, which could improve performance in highly-contended
+            // situations. See [2].
+            //
+            // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
+            // [2]: (https://github.com/rust-lang/rust/pull/41714)
+
+            //The fence from Arc is overkill here, so we'll go with an Acquire load
+            //Code from Arc with macro expanded: fence(Acquire);
+            let refcount = unsafe{ &*ptr }.load(Acquire);
+            debug_assert_eq!(refcount, 0);
+
+            drop_inner_in::<V, A>(ptr, tag, self.0.alloc.clone());
+        }
+    }
+
+    #[cfg(feature = "nightly")]
+    #[inline]
+    fn drop_inner_in<V: Clone + Send + Sync, A: Allocator>(ptr: *mut AtomicU32, tag: usize, alloc: A) {
+        //Convert the pointer back into a box, so it will drop
+        match tag {
+            EMPTY_NODE_TAG => {},
+            DENSE_BYTE_NODE_TAG => unsafe { let _ = Box::<DenseByteNode<V, A>, A>::from_raw_in(ptr.cast(), alloc); },
+            LINE_LIST_NODE_TAG => unsafe { let _ = Box::<LineListNode<V, A>, A>::from_raw_in(ptr.cast(), alloc); },
+            CELL_BYTE_NODE_TAG => unsafe { let _ = Box::<CellByteNode<V, A>, A>::from_raw_in(ptr.cast(), alloc); },
+            _ => unsafe{ core::hint::unreachable_unchecked() }
+        };
+    }
+
+    #[cfg(not(feature = "nightly"))]
+    #[inline]
+    fn drop_inner_in<V: Clone + Send + Sync, A: Allocator>(ptr: *mut AtomicU32, tag: usize, _alloc: A) {
+        //Convert the pointer back into a box, so it will drop
+        match tag {
+            EMPTY_NODE_TAG => {},
+            DENSE_BYTE_NODE_TAG => unsafe { let _ = Box::<DenseByteNode<V, A>>::from_raw(ptr.cast()); },
+            LINE_LIST_NODE_TAG => unsafe { let _ = Box::<LineListNode<V, A>>::from_raw(ptr.cast()); },
+            CELL_BYTE_NODE_TAG => unsafe { let _ = Box::<CellByteNode<V, A>>::from_raw(ptr.cast()); },
+            _ => unsafe{ core::hint::unreachable_unchecked() }
+        };
+    }
+
+    impl<V, A: Allocator> core::fmt::Debug for TrieNodeODRc<V, A>
+    where
+    for<'a> &'a dyn TrieNode<V, A>: core::fmt::Debug,
+    V: Clone + Send + Sync
+    {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            core::fmt::Debug::fmt(&self.0, f)
+        }
+    }
+
+    impl<V: Clone + Send + Sync, A: Allocator> TrieNodeODRc<V, A> {
+        #[inline]
+        pub(crate) fn new_in<'odb, T>(node: T, alloc: A) -> Self
+        where
+        T: 'odb + TrieNode<V, A>,
+        V: 'odb
+        {
+            let tag = node.tag() as usize;
+            #[cfg(not(feature = "nightly"))]
+            let boxed = {
+                let _ = alloc;
+                Box::into_raw(Box::new(node))
+            };
+            #[cfg(feature = "nightly")]
+            let boxed = Box::into_raw(Box::new_in(node, alloc.clone()));
+            Self(SlimNodePtr::from_raw_parts(boxed, tag, alloc))
+        }
+        /// Creates a new `TrieNodeODRc` that references a node that exists in memory (ie. not a sentinel for EmptyNode),
+        /// but contains no values or onward links
+        ///
+        /// This method is needed because it's impossible to get a mutable reference to the EmptyNode, but WriteZippers
+        /// carry a mutable reference ato the node at their root
+        #[inline]
+        pub(crate) fn new_allocated_in(_child_cnt_capacity: usize, _val_cnt_capacity: usize, alloc: A) -> Self {
+            let new_node = crate::line_list_node::LineListNode::new_in(alloc.clone());
+            Self::new_in(new_node, alloc)
+        }
+        #[inline]
+        pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
+            self.0.borrow()
+        }
+        #[inline]
+        pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
+            self.0.as_ptr()
+        }
+        /// Returns `true` if both internal Rc ptrs point to the same object
+        #[inline]
+        pub fn ptr_eq(&self, other: &Self) -> bool {
+            self.0.ptr_eq(&other.0)
+        }
+        #[inline]
+        pub(crate) fn refcount(&self) -> usize {
+            let (ptr, _tag) = self.0.get_raw_parts();
+            unsafe{ &*ptr }.load(Acquire) as usize
+        }
+        #[inline]
+        pub(crate) fn make_mut(&mut self) -> &mut (dyn TrieNode<V, A> + 'static) {
+            let (ptr, _tag) = self.0.get_raw_parts();
+
+            if unsafe{ &*ptr }.compare_exchange(1, 0, Acquire, Relaxed).is_err() {
+                // Another pointer exists, so we must clone.
+                let cloned_node = self.borrow().clone_self();
+
+                //The decrement of the old `self` refcount will happen at this assignment
+                *self = cloned_node;
+
+            } else {
+                // We were the sole reference so bump back up the  ref count.
+                unsafe{ &*ptr }.store(1, Release);
+            }
+
+            // As with `get_mut()`, the unsafety is ok because our reference was
+            // either unique to begin with, or became one upon cloning the contents.
+            let (unpacked_ptr, tag) = self.0.get_raw_parts();
+            let tagged: TaggedNodeRefMut<'_, V, A> = unsafe{ TaggedNodeRefMut::from_raw_parts(unpacked_ptr, tag) };
+            unsafe{ core::mem::transmute(tagged.into_dyn()) }
         }
     }
 }
