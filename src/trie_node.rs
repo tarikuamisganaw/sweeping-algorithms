@@ -1702,12 +1702,12 @@ mod tagged_node_ref {
 
         /// GOAT: Hopefully we can deprecate this soon
         #[inline]
-        pub fn into_dyn(self) -> &'a mut dyn TrieNode<V, A> {
+        pub fn into_dyn(self) -> &'a mut (dyn TrieNode<V, A> + 'static) {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
-                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() },
-                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() },
-                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() },
+                DENSE_BYTE_NODE_TAG => unsafe{ core::mem::transmute(&mut *ptr.cast::<DenseByteNode<V, A>>() as &'a mut (dyn TrieNode<V, A>)) },
+                LINE_LIST_NODE_TAG => unsafe{ core::mem::transmute(&mut *ptr.cast::<LineListNode<V, A>>() as &'a mut (dyn TrieNode<V, A>)) },
+                CELL_BYTE_NODE_TAG => unsafe{ core::mem::transmute(&mut *ptr.cast::<CellByteNode<V, A>>() as &'a mut (dyn TrieNode<V, A>)) },
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1750,9 +1750,25 @@ mod tagged_node_ref {
 
         // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
 
-        // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
+        pub fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask) {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_remove_unmasked_branches(key, mask),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_remove_unmasked_branches(key, mask),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_remove_unmasked_branches(key, mask),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
-        // fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V, A>>;
+        pub fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.take_node_at_key(key),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.take_node_at_key(key),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.take_node_at_key(key),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         pub fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
             let (ptr, tag) = self.ptr.get_raw_parts();
@@ -1787,6 +1803,14 @@ mod tagged_node_ref {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
                 LINE_LIST_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() } ),
+                _ => None
+            }
+        }
+        #[inline(always)]
+        pub fn into_cell_node(self) -> Option<&'a mut CellByteNode<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                CELL_BYTE_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() } ),
                 _ => None
             }
         }

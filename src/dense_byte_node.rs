@@ -680,7 +680,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         debug_assert!(key.len() == 1);
         let cf = self.get_mut(key[0]).unwrap();
         *cf.rec_mut().unwrap() = new_node;
-        cf.rec_mut().unwrap().make_mut()
+        cf.rec_mut().unwrap().make_mut().into_dyn()
     }
     fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {
         //DISCUSSION: This function appears overly complicated primarily because it needs to track

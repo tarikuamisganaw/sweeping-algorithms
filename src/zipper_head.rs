@@ -142,7 +142,7 @@ impl<'trie, V: Clone + Send + Sync, A: Allocator> ZipperCreationPriv<'trie, V, A
 
 impl<V: Clone + Send + Sync, A: Allocator> Drop for ZipperHead<'_, '_, V, A> {
     fn drop(&mut self) {
-        self.with_inner_core_z(|z| z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut()))
+        self.with_inner_core_z(|z| z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut().into_dyn()))
     }
 }
 
@@ -199,7 +199,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
     fn read_zipper_at_borrowed_path<'a, 'path>(&'a self, path: &'path[u8]) -> Result<ReadZipperTracked<'a, 'path, V, A>, Conflict> where 'trie: 'a {
         let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)?;
         self.with_inner_core_z(|z| {
-            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut().into_dyn());
 
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: I am effectively taking items bound by `z`'s lifetime and lifting them up to the `'trie`
@@ -213,7 +213,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
     }
     unsafe fn read_zipper_at_borrowed_path_unchecked<'a, 'path>(&'a self, path: &'path[u8]) -> ReadZipperUntracked<'a, 'path, V, A> where 'trie: 'a {
         self.with_inner_core_z(|z| {
-            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut().into_dyn());
 
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: The user is asserting that the paths won't conflict.
@@ -237,7 +237,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
         let path = path.as_ref();
         let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)?;
         self.with_inner_core_z(|z| {
-            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut().into_dyn());
 
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: See identical code in `read_zipper_at_borrowed_path` for more discussion
@@ -250,7 +250,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
     unsafe fn read_zipper_at_path_unchecked<'a, K: AsRef<[u8]>>(&'a self, path: K) -> ReadZipperUntracked<'a, 'static, V, A> where 'trie: 'a {
         let path = path.as_ref();
         self.with_inner_core_z(|z| {
-            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+            z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut().into_dyn());
 
             let (root_node, root_val) = z.splitting_borrow_focus();
             //SAFETY: The user is asserting that the paths won't conflict.
@@ -337,7 +337,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
 {
     //If we end up taking write zipper from the ZipperHead's root, we leave the focus_stack in an
     // undescended root state, so we need to fix it.
-    z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+    z.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut().into_dyn());
 
     let node_key_start = z.key.node_key_start();
 
@@ -371,7 +371,7 @@ fn prepare_exclusive_write_path<'a, V: Clone + Send + Sync + Unpin, A: Allocator
                 remaining_key = &remaining_key[consumed_bytes..];
 
                 let end_node = prepare_node_at_path_end(node, remaining_key, z.alloc.clone());
-                let cell_node = end_node.make_mut().as_tagged_mut().into_cell_node().unwrap();
+                let cell_node = end_node.make_mut().into_cell_node().unwrap();
                 let (exclusive_node, val) = cell_node.prepare_cf(last_path_byte);
 
                 z.key.prefix_buf.truncate(original_path_len);
@@ -435,7 +435,7 @@ fn prepare_node_at_path_end<'a, V: Clone + Send + Sync, A: Allocator>(start_node
 
     //If remaining_key is non-zero length, split and upgrade the intervening node
     if remaining_key.len() > 0 {
-        let node_ref = node.make_mut();
+        let mut node_ref = node.make_mut();
         let mut new_parent = match node_ref.take_node_at_key(remaining_key) {
             Some(downward_node) => downward_node,
             None => TrieNodeODRc::new_in(CellByteNode::new_in(alloc.clone()), alloc)

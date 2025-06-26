@@ -1019,7 +1019,7 @@ impl <'a, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'a, 'sta
     /// See [WriteZipperUntracked::new_with_node_and_path_internal]
     pub(crate) fn new_with_node_and_cloned_path_internal_in(root_node: &'a mut TrieNodeODRc<V, A>, root_val: Option<&'a mut Option<V>>, path: &[u8], root_key_start: usize, alloc: A) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(WZNodePtr::new(root_node));
-        focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+        focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
         debug_assert!((path.len()-root_key_start == 0) != (root_val.is_none())); //We must have either a node_path or a root_val, but never both
         Self {
             key: KeyFields::new_cloned_path(path, root_key_start),
@@ -1041,7 +1041,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
     /// See [WriteZipperUntracked::new_with_node_and_path_internal]
     pub(crate) fn new_with_node_and_path_internal_in(root_node: &'a mut TrieNodeODRc<V, A>, root_val: Option<&'a mut Option<V>>, path: &'path [u8], root_key_start: usize, alloc: A) -> Self {
         let mut focus_stack = MutCursorRootedVec::new(WZNodePtr::new(root_node));
-        focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+        focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
         debug_assert!((path.len()-root_key_start == 0) != (root_val.is_none())); //We must have either a node_path or a root_val, but never both
         Self {
             key: KeyFields::new(path, root_key_start),
@@ -1584,7 +1584,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                 self.focus_stack.to_root();
                 let stack_root = self.focus_stack.root_mut().unwrap();
                 **stack_root = TrieNodeODRc::new_allocated_in(0, 0, self.alloc.clone());
-                self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+                self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
                 true
             }
         }
@@ -1648,7 +1648,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             self.focus_stack.backtrack();
             let stack_root = self.focus_stack.root_mut().unwrap();
             core::mem::swap(&mut **stack_root, &mut replacement_node);
-            self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+            self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
             if !replacement_node.borrow().node_is_empty() {
                 Some(replacement_node)
             } else {
@@ -1708,7 +1708,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                     self.focus_stack.to_root();
                     let stack_root = self.focus_stack.root_mut().unwrap();
                     **stack_root = src;
-                    self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+                    self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
                 }
             },
             None => { self.remove_branches(); }
@@ -1823,7 +1823,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                     self.key.root_key_start += root_slice.len() - key.len();
                 }
                 self.focus_stack.replace_root(WZNodePtr::new(node));
-                self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+                self.focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
             }
         }
     }
@@ -1846,7 +1846,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
         }
 
         //Step until we get to the end of the key or find a leaf node
-        self.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut());
+        self.focus_stack.advance_if_empty_twostep(|root| root, |root| root.make_mut().into_dyn());
         while Self::descend_step_internal(&mut self.focus_stack, &mut self.key.prefix_idx, &mut key, &mut key_start) { }
     }
 
@@ -1859,7 +1859,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                     *key_start += consumed_byte_cnt;
                     prefix_idx.push(*key_start);
                     *key = &key[consumed_byte_cnt..];
-                    Some(next_node.make_mut())
+                    Some(next_node.make_mut().into_dyn())
                 } else {
                     None
                 }
@@ -1895,12 +1895,12 @@ pub(crate) fn replace_top_node<'cursor, V: Clone + Send + Sync, A: Allocator>(fo
         Some(parent_node) => {
             let parent_key = key.parent_key();
             parent_node.node_replace_child(parent_key, replacement_node);
-            focus_stack.advance(|node| node.node_get_child_mut(parent_key).map(|(_, child_node)| child_node.make_mut()));
+            focus_stack.advance(|node| node.node_get_child_mut(parent_key).map(|(_, child_node)| child_node.make_mut().into_dyn()));
         },
         None => {
             let stack_root = focus_stack.root_mut().unwrap();
             **stack_root = replacement_node;
-            focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+            focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
         }
     }
 }
@@ -1920,7 +1920,7 @@ pub(crate) fn swap_top_node<'cursor, V: Clone + Send + Sync, A: Allocator, F>(fo
                 Some(replacement_node) => { parent_node.node_set_branch(parent_key, replacement_node).unwrap(); },
                 None => {},
             }
-            focus_stack.advance(|node| node.node_get_child_mut(parent_key).map(|(_, child_node)| child_node.make_mut()));
+            focus_stack.advance(|node| node.node_get_child_mut(parent_key).map(|(_, child_node)| child_node.make_mut().into_dyn()));
         },
         None => {
             let stack_root = focus_stack.root_mut().unwrap();
@@ -1930,7 +1930,7 @@ pub(crate) fn swap_top_node<'cursor, V: Clone + Send + Sync, A: Allocator, F>(fo
                 Some(replacement_node) => { **stack_root = replacement_node; },
                 None => { },
             }
-            focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut()));
+            focus_stack.advance_from_root_twostep(|root| Some(root), |root| Some(root.make_mut().into_dyn()));
         }
     }
 }
