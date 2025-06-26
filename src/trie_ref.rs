@@ -61,10 +61,10 @@ impl<V: Clone + Send + Sync, A: Allocator> Clone for TrieRef<'_, V, A> {
 }
 impl<V: Clone + Send + Sync, A: Allocator + Copy> Copy for TrieRef<'_, V, A> {}
 
-impl<'a, V: Clone + Send + Sync, A: Allocator> TrieRef<'a, V, A> {
+impl<'a, V: Clone + Send + Sync + 'a, A: Allocator + 'a> TrieRef<'a, V, A> {
     /// Makes a new sentinel that points to nothing.  THe allocator is just to keep the type system happy
     pub(crate) fn new_invalid_in(alloc: A) -> Self {
-        Self { focus_node: TaggedNodeRef::EmptyNode, val_or_key: ValRefOrKey { val_ref: (BAD_SENTINEL, None) }, alloc }
+        Self { focus_node: TaggedNodeRef::empty_node(), val_or_key: ValRefOrKey { val_ref: (BAD_SENTINEL, None) }, alloc }
     }
     /// Internal constructor
     pub(crate) fn new_with_node_and_path_in(root_node: &'a dyn TrieNode<V, A>, root_val: Option<&'a V>, path: &[u8], alloc: A) -> Self {
@@ -208,7 +208,7 @@ impl<V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for TrieRef<'
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, V> for TrieRef<'a, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyValues<'a, V> for TrieRef<'a, V, A> {
     #[inline]
     fn get_value(&self) -> Option<&'a V> {
         if self.is_valid() {
@@ -227,7 +227,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, 
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for TrieRef<'a, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for TrieRef<'a, V, A> {
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
         if self.is_valid() {
             let path = path.as_ref();

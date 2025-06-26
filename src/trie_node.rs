@@ -815,6 +815,38 @@ mod tagged_node_ref {
         pub fn from_cell(node: &'a CellByteNode<V, A>) -> Self {
             TaggedNodeRef::CellByteNode(node)
         }
+        #[inline]
+        pub fn tag(&self) -> usize {
+            match self {
+                Self::DenseByteNode(_) => DENSE_BYTE_NODE_TAG,
+                Self::LineListNode(_) => LINE_LIST_NODE_TAG,
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => node as &mut dyn TrieNode<V, A>,
+                Self::CellByteNode(_) => CELL_BYTE_NODE_TAG,
+                Self::EmptyNode => EMPTY_NODE_TAG,
+            }
+        }
+        #[inline(always)]
+        pub unsafe fn as_dense_unchecked(&self) -> &'a DenseByteNode<V, A> {
+            match self {
+                Self::DenseByteNode(node) => node,
+                _ => unsafe { unreachable_unchecked() }
+            }
+        }
+        #[inline(always)]
+        pub unsafe fn as_list_unchecked(&self) -> &'a LineListNode<V, A> {
+            match self {
+                Self::LineListNode(node) => node,
+                _ => unsafe { unreachable_unchecked() }
+            }
+        }
+        #[inline(always)]
+        pub unsafe fn as_cell_unchecked(&self) -> &'a CellByteNode<V, A> {
+            match self {
+                Self::CellByteNode(node) => node,
+                _ => unsafe { unreachable_unchecked() }
+            }
+        }
     }
 
     /// A mutable reference to a node with a concrete type
@@ -1310,6 +1342,11 @@ mod tagged_node_ref {
         pub fn from_cell(node: &CellByteNode<V, A>) -> Self {
             Self{ ptr: SlimNodePtr::from_raw_parts((node as *const CellByteNode<V, A>).cast_mut(), CELL_BYTE_NODE_TAG), phantom: PhantomData }
         }
+        #[inline]
+        pub fn tag(&self) -> usize {
+            let (_ptr, tag) = self.ptr.get_raw_parts();
+            tag
+        }
 
 
         //GOAT dead code
@@ -1537,12 +1574,46 @@ mod tagged_node_ref {
             tag == CELL_BYTE_NODE_TAG
         }
         #[inline]
+        pub fn as_dense(&self) -> Option<&'a DenseByteNode<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() } ),
+                _ => None
+            }
+        }
+        #[inline]
         pub fn as_list(&self) -> Option<&'a LineListNode<V, A>> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
                 LINE_LIST_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() } ),
                 _ => None
             }
+        }
+        #[inline]
+        pub fn as_cell(&self) -> Option<&'a CellByteNode<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                CELL_BYTE_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() } ),
+                _ => None
+            }
+        }
+        #[inline]
+        pub unsafe fn as_dense_unchecked(&self) -> &'a DenseByteNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            debug_assert_eq!(tag, DENSE_BYTE_NODE_TAG);
+            unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }
+        }
+        #[inline]
+        pub unsafe fn as_list_unchecked(&self) -> &'a LineListNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            debug_assert_eq!(tag, LINE_LIST_NODE_TAG);
+            unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }
+        }
+        #[inline]
+        pub unsafe fn as_cell_unchecked(&self) -> &'a CellByteNode<V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            debug_assert_eq!(tag, CELL_BYTE_NODE_TAG);
+            unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }
         }
     }
 
@@ -2040,9 +2111,11 @@ mod slim_node_ptr {
                 phantom: PhantomData,
             }
         }
-        //GOAT, next we can try to get rid of the TaggedNodeRef too, although TaggedNodeRef
-        // has a lifetime bound and doesn't count borrows, so it's a different type.  But maybe
-        // they could both be based on the same tagged 64bit pointer
+        #[inline]
+        pub(crate) fn tag(&self) -> usize {
+            let (_, tag) = self.get_raw_parts();
+            tag
+        }
         #[inline]
         pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
             TaggedNodeRef::from_slim_ptr(*self)
@@ -2306,6 +2379,10 @@ mod opaque_dyn_rc_trie_node {
         #[inline]
         pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
             self.ptr.as_tagged()
+        }
+        #[inline]
+        pub(crate) fn tag(&self) -> usize {
+            self.ptr.tag()
         }
         #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {

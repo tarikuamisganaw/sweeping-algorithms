@@ -191,10 +191,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for EmptyNode 
         EMPTY_NODE_TAG
     }
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        TaggedNodeRef::empty_node()
+        unreachable!()
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::Unsupported
+        unreachable!()
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         unreachable!() //If we end up hitting this, we should change it at the call site

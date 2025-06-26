@@ -19,7 +19,7 @@ pub struct ProductZipper<'factor_z, 'trie, V: Clone + Send + Sync, A: Allocator 
     source_zippers: Vec<Box<dyn zipper_priv::ZipperReadOnlyPriv<'trie, V, A> + 'factor_z>>
 }
 
-impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin, A: Allocator> ProductZipper<'factor_z, 'trie, V, A> {
+impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ProductZipper<'factor_z, 'trie, V, A> {
     /// Creates a new `ProductZipper` from the provided zippers
     ///
     /// WARNING: passing `other_zippers` that are not at node roots may lead to a panic.  This is
@@ -188,7 +188,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin, A: Allocator> ProductZipp
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ProductZipper<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperMoving for ProductZipper<'_, 'trie, V, A> {
     fn at_root(&self) -> bool {
         self.path().len() == 0
     }
@@ -277,19 +277,19 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ProductZippe
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperIteration for ProductZipper<'_, '_, V, A> { } //Use the default impl for all methods
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperIteration for ProductZipper<'_, 'trie, V, A> { } //Use the default impl for all methods
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperValues<V> for ProductZipper<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperValues<V> for ProductZipper<'_, 'trie, V, A> {
     fn value(&self) -> Option<&V> {
         self.get_value()
     }
 }
 
-impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'trie, V> for ProductZipper<'factor_z, 'trie, V, A> {
+impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyValues<'trie, V> for ProductZipper<'factor_z, 'trie, V, A> {
     fn get_value(&self) -> Option<&'trie V> { self.z.get_value() }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for ProductZipper<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper for ProductZipper<'_, 'trie, V, A> {
     fn path_exists(&self) -> bool {
         self.z.path_exists()
     }
@@ -327,13 +327,13 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for P
     fn try_borrow_focus(&self) -> Option<&dyn TrieNode<Self::V, Self::A>> { self.z.try_borrow_focus() }
 }
 
-impl<V: Clone + Send + Sync + Unpin + Unpin, A: Allocator> ZipperPathBuffer for ProductZipper<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperPathBuffer for ProductZipper<'_, 'trie, V, A> {
     unsafe fn origin_path_assert_len(&self, len: usize) -> &[u8] { unsafe{ self.z.origin_path_assert_len(len) } }
     fn prepare_buffers(&mut self) { self.z.prepare_buffers() }
     fn reserve_buffers(&mut self, path_len: usize, stack_depth: usize) { self.z.reserve_buffers(path_len, stack_depth) }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for ProductZipper<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperAbsolutePath for ProductZipper<'_, 'trie, V, A> {
     fn origin_path(&self) -> &[u8] { self.z.origin_path() }
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }

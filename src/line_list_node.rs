@@ -2293,14 +2293,16 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
 
     fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         debug_assert!(validate_node(self));
-        match other.as_tagged() {
-            TaggedNodeRef::LineListNode(other_list_node) => {
+        match other.tag() {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe{ other.as_list_unchecked() };
                 match merge_list_nodes(self, other_list_node) {
                     Ok(joined_list_node) => joined_list_node.map(|node| TrieNodeODRc::new_in(node, self.alloc.clone())),
                     Err(joined_dense_node) => joined_dense_node.map(|node| TrieNodeODRc::new_in(node, self.alloc.clone())),
                 }
             },
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other.as_dense_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 match new_node.merge_from_list_node(self) {
                     AlgebraicStatus::None => unreachable!(), //Joining a non-empty node with another non-empty node should never produce an empty node
@@ -2312,7 +2314,8 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             TaggedNodeRef::BridgeNode(_other_bridge_node) => {
                 unimplemented!()
             },
-            TaggedNodeRef::CellByteNode(other_dense_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other.as_dense_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 match new_node.merge_from_list_node(self) {
                     AlgebraicStatus::None => unreachable!(), //Joining a non-empty node with another non-empty node should never produce an empty node
@@ -2320,19 +2323,23 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                     AlgebraicStatus::Element => AlgebraicResult::Element(TrieNodeODRc::new_in(new_node, self.alloc.clone()))
                 }
             },
-            TaggedNodeRef::EmptyNode => {
+            EMPTY_NODE_TAG => {
                 AlgebraicResult::Identity(SELF_IDENT)
-            }
+            },
+            _ => unsafe{ unreachable_unchecked() }
         }
     }
 
     fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
         debug_assert!(validate_node(self));
-        match other.borrow().as_tagged() {
-            TaggedNodeRef::LineListNode(other_list_node) => {
+        let other_node = other.as_tagged();
+        match other_node.tag() {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe{ other_node.as_list_unchecked() };
                 merge_into_list_nodes(self, other_list_node)
             },
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other_node.as_dense_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 let status = new_node.merge_from_list_node(self);
                 debug_assert!(!status.is_none());
@@ -2342,13 +2349,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             TaggedNodeRef::BridgeNode(_other_bridge_node) => {
                 unimplemented!()
             },
-            TaggedNodeRef::CellByteNode(other_dense_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other_node.as_cell_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 let status = new_node.merge_from_list_node(self);
                 debug_assert!(!status.is_none());
                 (AlgebraicStatus::Element, Err(TrieNodeODRc::new_in(new_node, self.alloc.clone())))
             },
-            TaggedNodeRef::EmptyNode => (AlgebraicStatus::Identity, Ok(()))
+            EMPTY_NODE_TAG => (AlgebraicStatus::Identity, Ok(())),
+            _ => unsafe{ unreachable_unchecked() }
         }
     }
 
@@ -2548,11 +2557,11 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for LineListNo
     }
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        TaggedNodeRef::LineListNode(self)
+        TaggedNodeRef::from_list(self)
     }
     #[inline(always)]
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::LineListNode(self)
+        TaggedNodeRefMut::from_list(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         self.convert_to_dense::<CellCoFree<V, A>>(3)
@@ -2768,7 +2777,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok((None, false)));
         let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
-        if let TaggedNodeRef::DenseByteNode(_) = replacement_node.borrow().as_tagged() { } else { panic!("expected node would be a byte node"); }
+        assert_eq!(replacement_node.borrow().tag(), DENSE_BYTE_NODE_TAG);// else { panic!("expected node would be a byte node"); }
         let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
         let child_node = child_node.borrow();
         assert_eq!(bytes_used, 1);
