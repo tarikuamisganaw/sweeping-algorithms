@@ -8,6 +8,7 @@ use crate::ring::*;
 use crate::utils::ByteMask;
 use crate::dense_byte_node::{DenseByteNode, CellByteNode};
 use crate::line_list_node::LineListNode;
+use crate::tiny_node::TinyRefNode;
 
 pub(crate) static EMPTY_NODE: EmptyNode = EmptyNode;
 
@@ -206,6 +207,9 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for EmptyNode 
         unreachable!()
     }
     unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
+        unreachable!()
+    }
+    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<V, A> {
         unreachable!()
     }
 }

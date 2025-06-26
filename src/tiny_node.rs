@@ -324,10 +324,10 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
 impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNode<'_, V, A> {
     #[inline]
     fn tag(&self) -> usize {
-        unreachable!()
+        TINY_REF_NODE_TAG
     }
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        unreachable!()
+        TaggedNodeRef::from_tiny(self)
     }
     fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         unreachable!()
@@ -343,6 +343,9 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
     }
     unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
         unreachable!()
+    }
+    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<V, A> {
+        self
     }
 }
 

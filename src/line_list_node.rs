@@ -2323,6 +2323,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                     AlgebraicStatus::Element => AlgebraicResult::Element(TrieNodeODRc::new_in(new_node, self.alloc.clone()))
                 }
             },
+            TINY_REF_NODE_TAG => {
+                let tiny_node = unsafe{ other.as_tiny_unchecked() };
+                tiny_node.pjoin_dyn(self)
+            }
             EMPTY_NODE_TAG => {
                 AlgebraicResult::Identity(SELF_IDENT)
             },
@@ -2569,10 +2573,14 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for LineListNo
     unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A> {
         unreachable!()
     }
+    #[inline(always)]
     unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A> {
         self
     }
     unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
+        unreachable!()
+    }
+    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<V, A> {
         unreachable!()
     }
 }

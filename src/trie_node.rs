@@ -353,6 +353,8 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
 
     /// Returns the node as a [`CellByteNode`]; must be called when the node type is known
     unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A>;
+
+    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<V, A>;
 }
 
 /// Special sentinel token value indicating iteration of a node has not been initialized
@@ -746,6 +748,7 @@ pub(crate) const EMPTY_NODE_TAG: usize = 0;
 pub(crate) const DENSE_BYTE_NODE_TAG: usize = 1;
 pub(crate) const LINE_LIST_NODE_TAG: usize = 2;
 pub(crate) const CELL_BYTE_NODE_TAG: usize = 3;
+pub(crate) const TINY_REF_NODE_TAG: usize = 4;
 
 pub use tagged_node_ref::TaggedNodeRef;
 pub use tagged_node_ref::TaggedNodeRefMut;
@@ -1343,6 +1346,10 @@ mod tagged_node_ref {
             Self{ ptr: SlimNodePtr::from_raw_parts((node as *const CellByteNode<V, A>).cast_mut(), CELL_BYTE_NODE_TAG), phantom: PhantomData }
         }
         #[inline]
+        pub fn from_tiny(node: &TinyRefNode<V, A>) -> Self {
+            Self{ ptr: SlimNodePtr::from_raw_parts((node as *const TinyRefNode<V, A>).cast_mut(), TINY_REF_NODE_TAG), phantom: PhantomData }
+        }
+        #[inline]
         pub fn tag(&self) -> usize {
             let (_ptr, tag) = self.ptr.get_raw_parts();
             tag
@@ -1370,6 +1377,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() },
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() },
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() },
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() },
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1382,6 +1390,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() },
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() },
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() },
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() },
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1396,6 +1405,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.node_key_overlap(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.node_key_overlap(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.node_key_overlap(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.node_key_overlap(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1407,6 +1417,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.node_get_child(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.node_get_child(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.node_get_child(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.node_get_child(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1420,6 +1431,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.node_contains_val(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.node_contains_val(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.node_contains_val(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.node_contains_val(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1431,6 +1443,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.node_get_val(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.node_get_val(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.node_get_val(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.node_get_val(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1445,6 +1458,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.new_iter_token(),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.new_iter_token(),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.new_iter_token(),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.new_iter_token(),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1456,6 +1470,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.iter_token_for_path(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.iter_token_for_path(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.iter_token_for_path(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.iter_token_for_path(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1467,6 +1482,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.next_items(token),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.next_items(token),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.next_items(token),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.next_items(token),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1485,6 +1501,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.nth_child_from_key(key, n),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.nth_child_from_key(key, n),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.nth_child_from_key(key, n),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.nth_child_from_key(key, n),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1496,6 +1513,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.first_child_from_key(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.first_child_from_key(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.first_child_from_key(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.first_child_from_key(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1508,6 +1526,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.count_branches(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.count_branches(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.count_branches(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.count_branches(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1519,6 +1538,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.node_branches_mask(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.node_branches_mask(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.node_branches_mask(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.node_branches_mask(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1532,6 +1552,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.prior_branch_key(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.prior_branch_key(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.prior_branch_key(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.prior_branch_key(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1543,6 +1564,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.get_sibling_of_child(key, next),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.get_sibling_of_child(key, next),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.get_sibling_of_child(key, next),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.get_sibling_of_child(key, next),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1554,6 +1576,7 @@ mod tagged_node_ref {
                 DENSE_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }.get_node_at_key(key),
                 LINE_LIST_NODE_TAG => unsafe{ &*ptr.cast::<LineListNode<V, A>>() }.get_node_at_key(key),
                 CELL_BYTE_NODE_TAG => unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }.get_node_at_key(key),
+                TINY_REF_NODE_TAG => unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }.get_node_at_key(key),
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
@@ -1614,6 +1637,12 @@ mod tagged_node_ref {
             let (ptr, tag) = self.ptr.get_raw_parts();
             debug_assert_eq!(tag, CELL_BYTE_NODE_TAG);
             unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }
+        }
+        #[inline]
+        pub unsafe fn as_tiny_unchecked(&self) -> &'a TinyRefNode<'a, V, A> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            debug_assert_eq!(tag, TINY_REF_NODE_TAG);
+            unsafe{ &mut *ptr.cast::<TinyRefNode<V, A>>() }
         }
     }
 
