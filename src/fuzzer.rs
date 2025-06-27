@@ -283,21 +283,16 @@ impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&Re
     unreachable!()
   }
 }
-fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Choice2<u8, Categorical<u8, Uniform<usize>>, T, Degenerate<T>, Degenerate<bool>> {
+fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Choice2<u8, Categorical<u8, Uniform<usize>>, T, Mapped<Option<T>, T, Degenerate<Option<T>>, fn (Option<T>) -> T>, Degenerate<bool>> {
   let bm = rz.child_mask();
   let options: Vec<u8> = bm.iter().collect();
   let noptions = options.len();
 
-  //GOAT!!  The `std::mem::MaybeUninit::uninit().assume_init()` is guaranteed to be UB, and it was here was causing a SIGTRAP.
-  // I am guessing we probably want to return a degenerate distribution from this entire function if we can't
-  // compose one of the arguments to the Choice2 distribution.  If that's not possible, then the Choice2 could
-  // be modified to hold options for the downstream distributions.
-  //
-  //A third option is to bound `T` by `Default`
   Choice2 {
     db: Degenerate{ element: noptions > 0 },
-    dx: Categorical{ elements: options, ed: Uniform::try_from(0..noptions).unwrap() },
-    dy: Degenerate{ element: rz.get_value().cloned().unwrap() },
+    // safety: Uniform stores integers, and while you can't sample from lower=upper=0, the memory is valid
+    dx: Categorical{ elements: options, ed: Uniform::try_from(0..noptions).unwrap_or(unsafe { std::mem::MaybeUninit::zeroed().assume_init() }) },
+    dy: Mapped{ d: Degenerate{ element: rz.get_value().cloned() }, f: |v| v.unwrap(), pd: PhantomData::default() },
     pd: PhantomData::default()
   }
 }
