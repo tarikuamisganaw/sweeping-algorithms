@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use crate::trie_map::BytesTrieMap;
 use rand::Rng;
-use rand_distr::{Pert, Distribution};
+use rand_distr::Distribution;
 use std::marker::PhantomData;
 use std::ptr::null;
 use rand::distr::{Iter, Uniform};
@@ -10,7 +10,7 @@ use crate::utils::{BitMask, ByteMask};
 use crate::zipper::{ReadZipperUntracked, Zipper, ZipperReadOnlyIteration, ZipperMoving, ZipperReadOnlyValues};
 
 #[cfg(not(miri))]
-use gxhash::{GxHasher, HashMap, HashMapExt};
+use gxhash::{HashMap, HashMapExt};
 
 #[cfg(miri)]
 use std::collections::HashMap;
@@ -132,7 +132,7 @@ impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&
     (self.fay)(&mut a).expect("fay returns at least once per fa call")
   }
 
-  fn sample_iter<R>(self, rng: R) -> Iter<Self, R, Y> where R : Rng, Self : Sized {
+  fn sample_iter<R>(self, _rng: R) -> Iter<Self, R, Y> where R : Rng, Self : Sized {
     panic!("This function returning a concrete object makes it impossible to override the iterator behavior")
   }
 }
@@ -140,7 +140,7 @@ impl <X, DX : Distribution<X> + Clone, A : Clone, Y, FA : Fn(X) -> A, FAY : Fn(&
 #[derive(Clone)]
 pub struct Degenerate<T : Clone> { pub element: T }
 impl <T : Clone> Distribution<T> for Degenerate<T> {
-  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> T {
+  fn sample<R: Rng + ?Sized>(&self, _rng: &mut R) -> T {
     self.element.clone()
   }
 }
@@ -198,7 +198,7 @@ pub struct UniformTrie<T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, Val
 impl <T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> Distribution<BytesTrieMap<T>> for UniformTrie<T, PathD, ValueD> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BytesTrieMap<T> {
     let mut btm = BytesTrieMap::new();
-    for i in 0..self.size {
+    for _ in 0..self.size {
       btm.insert(&self.pd.sample(rng)[..], self.vd.sample(rng));
     }
     btm
@@ -247,7 +247,7 @@ impl <T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntrack
     (rz.path().to_vec(), rz.get_value().unwrap().clone())
   }
 }
-fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Categorical<u8, Uniform<usize>> {
+pub fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Categorical<u8, Uniform<usize>> {
   let bm = rz.child_mask();
   Categorical{ elements: bm.iter().collect(), ed: Uniform::try_from(0..bm.count_bits()).unwrap() }
 }
@@ -258,7 +258,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, Option<T>) {
     use crate::morphisms::Catamorphism;
     // it's much cheaper to draw many samples at once, but the current Distribution API is broken
-    let size = Catamorphism::into_cata_cached(self.source.clone(), |_: &ByteMask, ws: &mut [usize], mv: Option<&T>, path: &[u8]| {
+    let size = Catamorphism::into_cata_cached(self.source.clone(), |_: &ByteMask, ws: &mut [usize], _mv: Option<&T>, _path: &[u8]| {
       ws.iter().sum::<usize>() + 1
     });
     let target = rng.random_range(0..size);
@@ -280,10 +280,9 @@ impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&Re
         Err(s) => { return (rz.path().to_vec(), s) }
       }
     }
-    unreachable!()
   }
 }
-fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Choice2<u8, Categorical<u8, Uniform<usize>>, T, Mapped<Option<T>, T, Degenerate<Option<T>>, fn (Option<T>) -> T>, Degenerate<bool>> {
+pub fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Choice2<u8, Categorical<u8, Uniform<usize>>, T, Mapped<Option<T>, T, Degenerate<Option<T>>, fn (Option<T>) -> T>, Degenerate<bool>> {
   let bm = rz.child_mask();
   let options: Vec<u8> = bm.iter().collect();
   let noptions = options.len();
@@ -301,10 +300,9 @@ fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> C
 #[cfg(test)]
 mod tests {
   use std::hint::black_box;
-  use std::time::Instant;
   use rand::rngs::StdRng;
   use rand::SeedableRng;
-  use rand_distr::{Exp, Normal, Triangular, Uniform};
+  use rand_distr::{Triangular, Uniform};
   use crate::fuzzer::*;
   use crate::ring::Lattice;
   use crate::zipper::{ZipperWriting, ZipperSubtries};
@@ -334,57 +332,111 @@ mod tests {
 
   #[test]
   fn fair_trie_value() {
-    const samples: usize = 100000;
-    let mut rng = StdRng::from_seed([0; 32]);
-    let btm = BytesTrieMap::from_iter([("abc", 0), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
+    #[cfg(not(miri))]
+    const SAMPLES: usize = 100000;
+    #[cfg(miri)]
+    const SAMPLES: usize = 100;
+    let rng = StdRng::from_seed([0; 32]);
+
+    let pairs = &[("abc", 0), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)];
+    let btm = BytesTrieMap::from_iter(pairs.iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = FairTrieValue{ source: btm };
-    let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| v).take(6*samples));
-    let achieved: Vec<usize> = hist.table().into_iter().map(|(k, c)|
-      ((c as f64)/((samples/100) as f64)).round() as usize).collect();
-    achieved.into_iter().for_each(|c| assert_eq!(c, 100));
+    let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| v).take(pairs.len()*SAMPLES));
+    let achieved: Vec<usize> = hist.table().into_iter().map(|(_k, c)|
+      ((c as f64)/((SAMPLES/100) as f64)).round() as usize).collect();
+
+    achieved.into_iter().for_each(|c| {
+      let err_bar = ((5-SAMPLES.ilog10()).pow(2)*2) as usize;
+      assert!(c >= 100-err_bar);
+      assert!(c <= 100+err_bar);
+    });
   }
 
   #[test]
-  fn descend_first_trie_value() {
-    const samples: usize = 100000;
-    let mut rng = StdRng::from_seed([0; 32]);
-    let btm = BytesTrieMap::from_iter([("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
+  fn fuzzer_descend_first_trie_value() {
+    #[cfg(not(miri))]
+    const SAMPLES: usize = 100000;
+    #[cfg(miri)]
+    const SAMPLES: usize = 800;
+    let rng = StdRng::from_seed([0; 32]);
+
+    let pairs = &[("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)];
+    let btm = BytesTrieMap::from_iter(pairs.iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = DescendFirstTrieValue{ source: btm, policy: unbiased_descend_first_policy };
-    let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*samples));
+    let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*SAMPLES));
     // println!("{:?}", hist.table());
     let achieved: Vec<(i32, i32)> = hist.table().into_iter().map(|(k, c)|
-      (*k, ((c as f64)/((samples/10) as f64)).round() as i32)).collect();
-    assert_eq!(&achieved[..], &[(3, 5), (2, 5), (5, 10), (4, 10), (0, 15), (1, 15)]);
+      (*k, ((c as f64)/((SAMPLES/10) as f64)).round() as i32)).collect();
+
+    //The ultimate order is down the particular random number sequence, but we know that
+    // "ax" and "ay" should each get roughly 5, sample-normalized
+    // "A1" and "A2" should each get roughly 10,
+    // "abc" and "abd" should each get about 15.
+    assert!(achieved[0].0 == 2 || achieved[0].0 == 3);
+    assert!(achieved[1].0 == 2 || achieved[1].0 == 3);
+    assert!(achieved[0].1 == 5 && achieved[1].1 == 5);
+    assert!(achieved[2].0 == 4 || achieved[2].0 == 5);
+    assert!(achieved[3].0 == 4 || achieved[3].0 == 5);
+    assert!(achieved[2].1 == 10 && achieved[3].1 == 10);
+    assert!(achieved[4].0 == 0 || achieved[4].0 == 1);
+    assert!(achieved[5].0 == 0 || achieved[5].0 == 1);
+    assert!(achieved[4].1 == 15 && achieved[5].1 == 15);
   }
 
   #[test]
   fn descend_last_trie_value() {
-    const samples: usize = 100000;
-    let mut rng = StdRng::from_seed([0; 32]);
+    #[cfg(not(miri))]
+    const SAMPLES: usize = 100000;
+    #[cfg(miri)]
+    const SAMPLES: usize = 800;
+
+    let rng = StdRng::from_seed([0; 32]);
     let btm = BytesTrieMap::from_iter([("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = DescendTriePath{ source: btm, policy: unbiased_descend_last_policy, ph: Default::default() };
-    let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*samples));
+    let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*SAMPLES));
     // println!("{:?}", hist.table());
     let achieved: Vec<(i32, i32)> = hist.table().into_iter().map(|(k, c)|
-        (*k, ((c as f64)/((samples/10) as f64)).round() as i32)).collect();
-    assert_eq!(&achieved[..], &[(3, 5), (2, 5), (5, 10), (4, 10), (10, 15), (1, 15)]);
+        (*k, ((c as f64)/((SAMPLES/10) as f64)).round() as i32)).collect();
+
+    //The ultimate order is down the particular random number sequence, but we know that
+    // "ax" and "ay" should each get roughly 5, sample-normalized
+    // "A1" and "A2" should each get roughly 10,
+    // "abcd" and "abd" should each get about 15.
+    assert!(achieved[0].0 == 2 || achieved[0].0 == 3);
+    assert!(achieved[1].0 == 2 || achieved[1].0 == 3);
+    assert!(achieved[0].1 == 5 && achieved[1].1 == 5);
+    assert!(achieved[2].0 == 4 || achieved[2].0 == 5);
+    assert!(achieved[3].0 == 4 || achieved[3].0 == 5);
+    assert!(achieved[2].1 == 10 && achieved[3].1 == 10);
+    assert!(achieved[4].0 == 10 || achieved[4].0 == 1);
+    assert!(achieved[5].0 == 10 || achieved[5].0 == 1);
+    assert!(achieved[4].1 == 15 && achieved[5].1 == 15);
   }
 
   #[test]
   fn fair_trie_path() {
-    const samples: usize = 100000;
-    let mut rng = StdRng::from_seed([0; 32]);
+    #[cfg(not(miri))]
+    const SAMPLES: usize = 100000;
+    #[cfg(miri)]
+    const SAMPLES: usize = 100;
+
+    let rng = StdRng::from_seed([0; 32]);
     let btm = BytesTrieMap::from_iter([("abc", 0), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = FairTriePath{ source: btm };
-    let hist = Histogram::from(stv.sample_iter(rng).map(|(p, _)| p).take(10*samples));
-    let achieved: Vec<usize> = hist.table().into_iter().map(|(k, c)|
-      ((c as f64)/((samples/100) as f64)).round() as usize).collect();
-    achieved.into_iter().for_each(|c| assert_eq!(c, 100));
+    let hist = Histogram::from(stv.sample_iter(rng).map(|(p, _)| p).take(10*SAMPLES));
+    let achieved: Vec<usize> = hist.table().into_iter().map(|(_k, c)|
+      ((c as f64)/((SAMPLES/100) as f64)).round() as usize).collect();
+
+    achieved.into_iter().for_each(|c| {
+      let err_bar = ((5-SAMPLES.ilog10()).pow(2)*2) as usize;
+      assert!(c >= 100-err_bar);
+      assert!(c <= 100+err_bar);
+    });
   }
 
   #[test]
   fn resample_trie() {
-    const samples: usize = 10;
+    const SAMPLES: usize = 10;
     let mut rng = StdRng::from_seed([0; 32]);
     let mut btm = BytesTrieMap::new();
     let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz",
@@ -415,7 +467,7 @@ mod tests {
       fa: |(a, c), sm| {
         a.join_into(sm);
         *c += 1;
-        if *c == samples { Some(std::mem::take(a)) } else { None }
+        if *c == SAMPLES { Some(std::mem::take(a)) } else { None }
       }, pd: PhantomData::default()
     };
 
@@ -432,17 +484,17 @@ mod tests {
 
   #[test]
   fn remove_bug_reproduction() {
-    const ntries: usize = 10;
-    const npaths: usize = 10;
-    const nremoves: usize = 10;
+    const N_TRIES: usize = 10;
+    const N_PATHS: usize = 10;
+    const N_REMOVES: usize = 10;
     let rng = StdRng::from_seed([0; 32]);
     let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
       ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default()} }, p: |x| !x.is_empty(), pd: PhantomData::default() };
-    let trie_fuzzer = UniformTrie { size: npaths, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
+    let trie_fuzzer = UniformTrie { size: N_PATHS, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
 
-    trie_fuzzer.sample_iter(rng.clone()).take(ntries).for_each(|mut trie| {
+    trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|mut trie| {
       // println!("let mut btm = BytesTrieMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
-      path_fuzzer.clone().sample_iter(rng.clone()).take(nremoves).for_each(|path| {
+      path_fuzzer.clone().sample_iter(rng.clone()).take(N_REMOVES).for_each(|path| {
         // println!("btm.remove({:?}.as_bytes());", String::from_utf8(path.clone()).unwrap());
         trie.remove(path);
       });
@@ -452,41 +504,65 @@ mod tests {
 
   #[test]
   fn monte_carlo_pi() {
-    const samples: usize = 100000;
+    #[cfg(not(miri))]
+    const SAMPLES: usize = 100000;
+    #[cfg(miri)]
+    const SAMPLES: usize = 100;
+
     let rng = StdRng::from_seed([0; 32]);
     let sx = Uniform::new(0.0, 1.0).unwrap();
     let sy = Uniform::new(0.0, 1.0).unwrap();
     let sxy = Product2 { dx: sx, dy: sy, f: |x, y| (x, y), pd: PhantomData::default() };
     let spi = Concentrated { dx: sxy, z: (0, 0), fa: |i_o, (x, y)| {
       if x*x + y*y < 1.0 { i_o.0 += 1 } else { i_o.1 += 1 }
-      if i_o.0 + i_o.1 > samples { Some(4f64*(i_o.0 as f64/(i_o.0 + i_o.1) as f64)) } else { None }
+      if i_o.0 + i_o.1 > SAMPLES { Some(4f64*(i_o.0 as f64/(i_o.0 + i_o.1) as f64)) } else { None }
     }, pd: Default::default() };
 
-    spi.sample_iter(rng).take(10).for_each(|api| assert!(3.13 < api && api < 3.15) );
+    spi.sample_iter(rng).take(10).for_each(|api| {
+      let err_bar = 3.5f64 / (SAMPLES as f64).sqrt();
+      // println!("3.14159±{err_bar} vs {api}");
+      assert!(std::f64::consts::PI-err_bar <= api && std::f64::consts::PI+err_bar >= api)
+    });
   }
 
   #[test]
   fn categorical_samples() {
-    const samples: usize = 1000;
+    #[cfg(not(miri))]
+    const SAMPLES: usize = 1000;
+    #[cfg(miri)]
+    const SAMPLES: usize = 141;
+
     let rng = StdRng::from_seed([0; 32]);
     let expected = [('b', 2usize), ('a', 10), ('c', 29), ('d', 100)];
     let cd = ratios(expected.into_iter());
-    let hist = Histogram::from(cd.sample_iter(rng).take(samples*(10+2+29+100)));
+    let hist = Histogram::from(cd.sample_iter(rng).take(SAMPLES*(10+2+29+100)));
     let achieved: Vec<(char, usize)> = hist.table().into_iter().map(|(k, c)|
-      (*k, ((c as f64)/(samples as f64)).round() as usize)).collect();
+      (*k, ((c as f64)/(SAMPLES as f64)).round() as usize)).collect();
     assert_eq!(&expected[..], &achieved[..]);
   }
 
   #[test]
   fn zipper_basic_0() {
-    const ntries: usize = 100;
-    const npaths: usize = 100;
-    const ndescends: usize = 100;
+    #[cfg(not(miri))]
+    const N_TRIES: usize = 100;
+    #[cfg(miri)]
+    const N_TRIES: usize = 10;
+
+    #[cfg(not(miri))]
+    const N_PATHS: usize = 100;
+    #[cfg(miri)]
+    const N_PATHS: usize = 10;
+
+    #[cfg(not(miri))]
+    const N_DESCENDS: usize = 100;
+    #[cfg(miri)]
+    const N_DESCENDS: usize = 10;
+
     let rng = StdRng::from_seed([0; 32]);
     let rng_ = StdRng::from_seed([!0; 32]);
     let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
       ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default()} }, p: |x| !x.is_empty(), pd: PhantomData::default() };
-    let trie_fuzzer = UniformTrie { size: npaths, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
+    let trie_fuzzer = UniformTrie { size: N_PATHS, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
 
     // ACTION := DESCEND_TO p | ASCEND i
     // { RZ.descend_to(p); RZ.ascend(p.len()) } =:= {}  
@@ -497,20 +573,20 @@ mod tests {
     // { RZ = TRIE.read_zipper(); ACT(RZ); RZ.reset() } =:= { RZ = TRIE.read_zipper(); } 
     // { RZ.reset(); RZ.descend_to(p) } =:= { RZ.move_to(p); } 
 
-    trie_fuzzer.sample_iter(rng.clone()).take(ntries).for_each(|mut trie| {
+    trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|trie| {
       // println!("let mut btm = BytesTrieMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
       let mut rz = trie.read_zipper();
-      path_fuzzer.clone().sample_iter(rng.clone()).take(ndescends).for_each(|path| {
+      path_fuzzer.clone().sample_iter(rng.clone()).take(N_DESCENDS).for_each(|path| {
         rz.descend_to(&path[..]);
         assert_eq!(rz.get_value(), trie.get(&path[..]));
-        path_fuzzer.clone().sample_iter(rng_.clone()).take(ndescends).for_each(|path| {
+        path_fuzzer.clone().sample_iter(rng_.clone()).take(N_DESCENDS).for_each(|path| {
           rz.descend_to(&path[..]);
           rz.ascend(path.len());
         });
         assert_eq!(rz.path(), &path[..]);
         assert_eq!(rz.get_value(), trie.get(&path[..]));
-        path_fuzzer.clone().sample_iter(rng_.clone()).take(ndescends).for_each(|path| {
-          println!("prev {:?}", rz.path());
+        path_fuzzer.clone().sample_iter(rng_.clone()).take(N_DESCENDS).for_each(|path| {
+          // println!("prev {:?}", rz.path());
           rz.move_to_path(&path[..]);
           assert_eq!(rz.path(), &path[..]);
           assert_eq!(rz.get_value(), trie.get(&path[..]));
