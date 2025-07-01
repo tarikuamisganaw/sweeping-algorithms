@@ -170,6 +170,27 @@ fn superdense_cursor(bencher: Bencher, n: u64) {
     });
 }
 
+#[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
+fn superdense_k_path_iter(bencher: Bencher, n: u64) {
+
+    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    for i in 0..n {
+        map.insert(&i.to_be_bytes()[..][6..], i);
+    }
+
+    //Benchmark the zipper's iterator
+    bencher.bench_local(|| {
+        let mut zipper = map.read_zipper();
+        let mut count = 1;
+
+        zipper.descend_first_k_path(2);
+        while zipper.to_next_k_path(2) {
+            count += 1;
+        }
+        assert_eq!(count, n);
+    });
+}
+
 #[cfg(feature = "all_dense_nodes")]
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_all_dense_cursor(bencher: Bencher, n: u64) {
