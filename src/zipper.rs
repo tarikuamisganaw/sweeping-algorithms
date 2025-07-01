@@ -1843,7 +1843,7 @@ pub(crate) mod read_zipper_core {
                 let (new_tok, key_bytes, child_node, value) = if self.focus_iter_token != NODE_ITER_FINISHED {
                     self.focus_node.next_items(self.focus_iter_token)
                 } else {
-                    (NODE_ITER_FINISHED, &[] as &[u8], None, None)
+                    (NODE_ITER_FINISHED, &[][..] as &[u8], None, None)
                 };
 
                 if new_tok != NODE_ITER_FINISHED {
@@ -3404,7 +3404,7 @@ pub(crate) mod zipper_iteration_tests {
     const ZIPPER_ITER_TEST2_COUNT: usize = 32;
     pub fn zipper_iter_test2_paths() -> Vec<Vec<u8>> {
         (0usize..ZIPPER_ITER_TEST2_COUNT).into_iter().map(|i| {
-            [b"in" as &[u8], &i.to_be_bytes()[..]].concat()
+            [b"in", &i.to_be_bytes()[..]].concat()
         }).collect()
     }
 

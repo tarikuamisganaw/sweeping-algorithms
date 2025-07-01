@@ -760,9 +760,9 @@ pub type NodeRefMut<'a, V, A> = &'a mut dyn TrieNode<V, A>;
 #[cfg(feature = "slim_ptrs")]
 pub type NodeRefMut<'a, V, A> = TaggedNodeRefMut<'a, V, A>;
 
-#[cfg(not(feature = "slim_ptrs"))]
 mod tagged_node_ref {
     use super::*;
+    use super::slim_node_ptr::SlimNodePtr;
     use crate::empty_node::EmptyNode;
 
     /// A reference to a node with a concrete type
@@ -772,6 +772,7 @@ mod tagged_node_ref {
         #[cfg(feature = "bridge_nodes")]
         BridgeNode(&'a BridgeNode<V>),
         CellByteNode(&'a CellByteNode<V, A>),
+        TinyRefNode(&'a TinyRefNode<'a, V, A>),
         EmptyNode,
     }
     impl<V: Clone + Send + Sync, A: Allocator> Clone for TaggedNodeRef<'_, V, A> {
@@ -784,6 +785,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => Self::BridgeNode(node),
                 Self::CellByteNode(node) => Self::CellByteNode(node),
+                Self::TinyRefNode(node) => Self::TinyRefNode(node),
                 Self::EmptyNode => Self::EmptyNode,
             }
         }
@@ -796,6 +798,18 @@ mod tagged_node_ref {
             Self::EmptyNode
         }
         #[inline]
+        pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
+            let (ptr, tag) = ptr.get_raw_parts();
+            match tag {
+                EMPTY_NODE_TAG => Self::EmptyNode,//&crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+                DENSE_BYTE_NODE_TAG => Self::DenseByteNode(unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }),
+                LINE_LIST_NODE_TAG => Self::LineListNode(unsafe{ &*ptr.cast::<LineListNode<V, A>>() }),
+                CELL_BYTE_NODE_TAG => Self::CellByteNode(unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }),
+                TINY_REF_NODE_TAG => Self::TinyRefNode(unsafe{ &*ptr.cast::<TinyRefNode<V, A>>() }),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
+        #[inline]
         pub fn into_dyn(self) -> &'a dyn TrieNode<V, A> {
             match self {
                 Self::DenseByteNode(node) => node as &dyn TrieNode<V, A>,
@@ -803,6 +817,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node as &dyn TrieNode<V, A>,
                 Self::CellByteNode(node) => node as &dyn TrieNode<V, A>,
+                Self::TinyRefNode(node) => node as &dyn TrieNode<V, A>,
                 Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
             }
         }
@@ -826,6 +841,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(_) => node as &mut dyn TrieNode<V, A>,
                 Self::CellByteNode(_) => CELL_BYTE_NODE_TAG,
+                Self::TinyRefNode(_) => TINY_REF_NODE_TAG,
                 Self::EmptyNode => EMPTY_NODE_TAG,
             }
         }
@@ -863,15 +879,37 @@ mod tagged_node_ref {
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
+        //GOAT, this is temporary
         #[inline]
-        pub fn into_dyn(self) -> &'a mut dyn TrieNode<V, A> {
+        pub fn into_dyn(self) -> &'a mut (dyn TrieNode<V, A> + 'static) {
             match self {
-                Self::DenseByteNode(node) => node as &mut dyn TrieNode<V, A>,
-                Self::LineListNode(node) => node as &mut dyn TrieNode<V, A>,
-                #[cfg(feature = "bridge_nodes")]
-                Self::BridgeNode(node) => node as &mut dyn TrieNode<V, A>,
-                Self::CellByteNode(node) => node as &mut dyn TrieNode<V, A>,
+                Self::DenseByteNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
+                Self::LineListNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
+                Self::CellByteNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
                 Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        /// GOAT, this is definitely trash.  It's here to keep the same usage pattern for the
+        /// dyn dispatch and the table dispatch, but it does ABSOLUTELY NOTHING.  So when it's
+        /// time to remove it, we ought to delete it, and then delete it from every location from
+        /// which it's called
+        #[inline]
+        pub fn as_tagged_mut<'tmp: 'a>(&'tmp mut self) -> TaggedNodeRefMut<'tmp, V, A> {
+            match self {
+                Self::DenseByteNode(node) => Self::DenseByteNode(node),
+                Self::LineListNode(node) => Self::LineListNode(node),
+                Self::CellByteNode(node) => Self::CellByteNode(node),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        #[inline]
+        pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
+            let (ptr, tag) = ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => Self::DenseByteNode(unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }),
+                LINE_LIST_NODE_TAG => Self::LineListNode(unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }),
+                CELL_BYTE_NODE_TAG => Self::CellByteNode(unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }),
+                _ => unsafe{ unreachable_unchecked() }
             }
         }
         #[inline]
@@ -943,12 +981,17 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => write!(f, "{node:?}"),
                 Self::CellByteNode(node) => write!(f, "{node:?}"),
+                Self::TinyRefNode(node) => write!(f, "{node:?}"),
                 Self::EmptyNode => write!(f, "{EmptyNode:?}"),
             }
         }
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRef<'a, V, A> {
+        #[inline]
+        pub fn from_tiny(node: &'a TinyRefNode<V, A>) -> Self {
+            Self::TinyRefNode(node)
+        }
         #[inline]
         pub fn borrow(&self) -> &'a dyn TrieNode<V, A> {
             match self {
@@ -957,6 +1000,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => *node as &dyn TrieNode<V, A>,
                 Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::TinyRefNode(node) => *node as &dyn TrieNode<V, A>,
                 Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
             }
         }
@@ -968,6 +1012,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_key_overlap(key),
                 Self::CellByteNode(node) => node.node_key_overlap(key),
+                Self::TinyRefNode(node) => node.node_key_overlap(key),
                 Self::EmptyNode => 0
             }
         }
@@ -978,6 +1023,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_contains_partial_key(key),
                 Self::CellByteNode(node) => node.node_contains_partial_key(key),
+                Self::TinyRefNode(node) => node.node_contains_partial_key(key),
                 Self::EmptyNode => false
             }
         }
@@ -989,6 +1035,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_get_child(key),
                 Self::CellByteNode(node) => node.node_get_child(key),
+                Self::TinyRefNode(node) => node.node_get_child(key),
                 Self::EmptyNode => None,
             }
         }
@@ -1006,6 +1053,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_contains_val(key),
                 Self::CellByteNode(node) => node.node_contains_val(key),
+                Self::TinyRefNode(node) => node.node_contains_val(key),
                 Self::EmptyNode => false,
             }
         }
@@ -1016,6 +1064,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_get_val(key),
                 Self::CellByteNode(node) => node.node_get_val(key),
+                Self::TinyRefNode(node) => node.node_get_val(key),
                 Self::EmptyNode => None,
             }
         }
@@ -1042,6 +1091,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.new_iter_token(),
                 Self::CellByteNode(node) => node.new_iter_token(),
+                Self::TinyRefNode(node) => node.new_iter_token(),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::new_iter_token(&crate::empty_node::EMPTY_NODE),
             }
         }
@@ -1053,6 +1103,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.iter_token_for_path(key),
                 Self::CellByteNode(node) => node.iter_token_for_path(key),
+                Self::TinyRefNode(node) => node.iter_token_for_path(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::iter_token_for_path(&crate::empty_node::EMPTY_NODE, key),
             }
         }
@@ -1064,6 +1115,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.next_items(token),
                 Self::CellByteNode(node) => node.next_items(token),
+                Self::TinyRefNode(node) => node.next_items(token),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::next_items(&crate::empty_node::EMPTY_NODE, token),
             }
         }
@@ -1080,6 +1132,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_first_val_depth_along_key(key),
                 Self::CellByteNode(node) => node.node_first_val_depth_along_key(key),
+                Self::TinyRefNode(node) => node.node_first_val_depth_along_key(key),
                 Self::EmptyNode => None,
             }
         }
@@ -1091,6 +1144,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.nth_child_from_key(key, n),
                 Self::CellByteNode(node) => node.nth_child_from_key(key, n),
+                Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::nth_child_from_key(&crate::empty_node::EMPTY_NODE, key, n),
             }
         }
@@ -1101,6 +1155,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.first_child_from_key(key),
                 Self::CellByteNode(node) => node.first_child_from_key(key),
+                Self::TinyRefNode(node) => node.first_child_from_key(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::first_child_from_key(&crate::empty_node::EMPTY_NODE, key),
             }
         }
@@ -1112,6 +1167,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.count_branches(key),
                 Self::CellByteNode(node) => node.count_branches(key),
+                Self::TinyRefNode(node) => node.count_branches(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::count_branches(&crate::empty_node::EMPTY_NODE, key),
             }
         }
@@ -1123,6 +1179,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.node_branches_mask(key),
                 Self::CellByteNode(node) => node.node_branches_mask(key),
+                Self::TinyRefNode(node) => node.node_branches_mask(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&crate::empty_node::EMPTY_NODE, key),
             }
         }
@@ -1134,6 +1191,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.is_leaf(key),
                 Self::CellByteNode(node) => node.is_leaf(key),
+                Self::TinyRefNode(node) => node.is_leaf(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&crate::empty_node::EMPTY_NODE, key),
             }
         }
@@ -1144,6 +1202,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.prior_branch_key(key),
                 Self::CellByteNode(node) => node.prior_branch_key(key),
+                Self::TinyRefNode(node) => node.prior_branch_key(key),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::prior_branch_key(&crate::empty_node::EMPTY_NODE, key),
             }
         }
@@ -1154,6 +1213,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.get_sibling_of_child(key, next),
                 Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
+                Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
             }
         }
@@ -1164,6 +1224,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => node.get_node_at_key(key),
                 Self::CellByteNode(node) => node.get_node_at_key(key),
+                Self::TinyRefNode(node) => node.get_node_at_key(key),
                 Self::EmptyNode => EmptyNode.get_node_at_key(key),
             }
         }
@@ -1190,6 +1251,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(_) => None,
                 Self::CellByteNode(_) => None,
+                Self::TinyRefNode(_) => None,
                 Self::EmptyNode => None,
             }
         }
@@ -1204,6 +1266,7 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(_) => None,
                 Self::CellByteNode(_) => None,
+                Self::TinyRefNode(_) => None,
                 Self::EmptyNode => None,
             }
         }
@@ -1216,6 +1279,7 @@ mod tagged_node_ref {
                 Self::LineListNode(_) => None,
                 Self::BridgeNode(node) => Some(node),
                 Self::CellByteNode(_) => None,
+                Self::TinyRefNode(_) => None,
                 Self::EmptyNode(_) => None,
             }
         }
@@ -1269,10 +1333,88 @@ mod tagged_node_ref {
                 Self::Unsupported => None,
             }
         }
+
+        pub fn node_get_child_mut(self, key: &[u8]) -> Option<(usize, &'a mut TrieNodeODRc<V, A>)> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_child_mut(key),
+                Self::LineListNode(node) => node.node_get_child_mut(key),
+                Self::CellByteNode(node) => node.node_get_child_mut(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A>;
+
+        // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
+
+        pub fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
+            match self {
+                Self::DenseByteNode(node) => node.node_set_val(key, val),
+                Self::LineListNode(node) => node.node_set_val(key, val),
+                Self::CellByteNode(node) => node.node_set_val(key, val),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
+
+        pub fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> Result<bool, TrieNodeODRc<V, A>> {
+            match self {
+                Self::DenseByteNode(node) => node.node_set_branch(key, new_node),
+                Self::LineListNode(node) => node.node_set_branch(key, new_node),
+                Self::CellByteNode(node) => node.node_set_branch(key, new_node),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
+
+        pub fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask) {
+            match self {
+                Self::DenseByteNode(node) => node.node_remove_unmasked_branches(key, mask),
+                Self::LineListNode(node) => node.node_remove_unmasked_branches(key, mask),
+                Self::CellByteNode(node) => node.node_remove_unmasked_branches(key, mask),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        pub fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V, A>> {
+            match self {
+                Self::DenseByteNode(node) => node.take_node_at_key(key),
+                Self::LineListNode(node) => node.take_node_at_key(key),
+                Self::CellByteNode(node) => node.take_node_at_key(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        pub fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
+            match self {
+                Self::DenseByteNode(node) => node.join_into_dyn(other),
+                Self::LineListNode(node) => node.join_into_dyn(other),
+                Self::CellByteNode(node) => node.join_into_dyn(other),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        pub fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice {
+            match self {
+                Self::DenseByteNode(node) => node.drop_head_dyn(byte_cnt),
+                Self::LineListNode(node) => node.drop_head_dyn(byte_cnt),
+                Self::CellByteNode(node) => node.drop_head_dyn(byte_cnt),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        pub fn convert_to_cell_node(self) -> TrieNodeODRc<V, A> {
+            match self {
+                Self::DenseByteNode(node) => node.convert_to_cell_node(),
+                Self::LineListNode(node) => node.convert_to_cell_node(),
+                Self::CellByteNode(node) => node.convert_to_cell_node(),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
     }
 }
 
-#[cfg(feature = "slim_ptrs")]
+#[cfg(false)]
 mod tagged_node_ref {
     use core::marker::PhantomData;
     use crate::trie_node::slim_node_ptr::SlimNodePtr;
@@ -1346,7 +1488,7 @@ mod tagged_node_ref {
             Self{ ptr: SlimNodePtr::from_raw_parts((node as *const CellByteNode<V, A>).cast_mut(), CELL_BYTE_NODE_TAG), phantom: PhantomData }
         }
         #[inline]
-        pub fn from_tiny(node: &TinyRefNode<V, A>) -> Self {
+        pub fn from_tiny(node: &'a TinyRefNode<V, A>) -> Self {
             Self{ ptr: SlimNodePtr::from_raw_parts((node as *const TinyRefNode<V, A>).cast_mut(), TINY_REF_NODE_TAG), phantom: PhantomData }
         }
         #[inline]
@@ -1725,6 +1867,7 @@ mod tagged_node_ref {
         /// dyn dispatch and the table dispatch, but it does ABSOLUTELY NOTHING.  So when it's
         /// time to remove it, we ought to delete it, and then delete it from every location from
         /// which it's called
+        #[inline]
         pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
             Self { ptr: self.ptr, phantom: PhantomData }
         }
