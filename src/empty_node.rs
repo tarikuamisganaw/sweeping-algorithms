@@ -36,7 +36,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     // fn node_contains_children_exclusive(&self, _keys: &[&[u8]]) -> bool {
     //     true
     // }
-    fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A> {
+    fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) {
         unreachable!() //Should not be called unless it's known that the node being replaced exists
     }
     fn node_get_payloads<'node, 'res>(&'node self, _keys: &[(&[u8], bool)], _results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {

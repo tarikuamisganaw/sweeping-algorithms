@@ -1,7 +1,4 @@
 
-use core::ops::{Deref, DerefMut};
-use std::marker::PhantomData;
-
 use maybe_dangling::MaybeDangling;
 
 use crate::{Allocator, GlobalAlloc};

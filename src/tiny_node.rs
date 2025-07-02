@@ -156,7 +156,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     //     }
     //     keys.binary_search(&self.key()).is_ok()
     // }
-    fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A> { unreachable!() }
+    fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) { unreachable!() }
     fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {
         //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
         // node types.  But currently there is no path to call it.

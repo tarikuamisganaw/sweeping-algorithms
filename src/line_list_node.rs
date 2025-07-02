@@ -1645,11 +1645,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
     //     }
     //     true
     // }
-    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A> {
+    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) {
         let (consumed_bytes, child_node) = self.get_child_mut(key).unwrap();
         debug_assert!(consumed_bytes == key.len());
         *child_node = new_node;
-        child_node.make_mut().into_dyn()
     }
     fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {
         //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional

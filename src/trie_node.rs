@@ -87,7 +87,7 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// may panic if the node does not already contain a child node at the specified key.
     ///
     /// QUESTION: Does this method have a strong purpose, or can it be superseded by node_set_branch?
-    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A>;
+    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>);
 
     /// Retrieves multiple values or child links from the node, associated with elements from `keys`,
     /// and places them into the respective element in `results`
@@ -1385,7 +1385,7 @@ mod tagged_node_ref {
 
         // fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
 
-        pub fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A> {
+        pub fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) {
             match self {
                 Self::DenseByteNode(node) => node.node_replace_child(key, new_node),
                 Self::LineListNode(node) => node.node_replace_child(key, new_node),
