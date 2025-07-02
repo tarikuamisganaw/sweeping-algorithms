@@ -354,7 +354,7 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
     /// Returns the node as a [`CellByteNode`]; must be called when the node type is known
     unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A>;
 
-    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<V, A>;
+    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<'_, V, A>;
 }
 
 /// Special sentinel token value indicating iteration of a node has not been initialized
@@ -1300,6 +1300,15 @@ mod tagged_node_ref {
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
+        #[inline]
+        pub fn borrow(&self) -> &dyn TrieNode<V, A> {
+            match self {
+                Self::DenseByteNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
         #[inline(always)]
         pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V, A>> {
             match self {
@@ -1333,8 +1342,187 @@ mod tagged_node_ref {
                 Self::Unsupported => None,
             }
         }
+        #[inline]
+        pub fn as_cell_node(&mut self) -> Option<&mut CellByteNode<V, A>> {
+            match self {
+                Self::CellByteNode(node) => Some(node),
+                #[cfg(feature = "bridge_nodes")]
+                Self::BridgeNode(_) => None,
+                Self::DenseByteNode(_) => None,
+                Self::LineListNode(_) => None,
+                Self::Unsupported => None,
+            }
+        }
+        #[inline]
+        pub fn node_key_overlap(&self, key: &[u8]) -> usize {
+            match self {
+                Self::DenseByteNode(node) => node.node_key_overlap(key),
+                Self::LineListNode(node) => node.node_key_overlap(key),
+                Self::CellByteNode(node) => node.node_key_overlap(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_contains_partial_key(key),
+                Self::LineListNode(node) => node.node_contains_partial_key(key),
+                Self::CellByteNode(node) => node.node_contains_partial_key(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
 
-        pub fn node_get_child_mut(self, key: &[u8]) -> Option<(usize, &'a mut TrieNodeODRc<V, A>)> {
+        #[inline]
+        pub fn node_get_child(&self, key: &[u8]) -> Option<(usize, &TrieNodeODRc<V, A>)> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_child(key),
+                Self::LineListNode(node) => node.node_get_child(key),
+                Self::CellByteNode(node) => node.node_get_child(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_get_child_and_val_mut<'a>(&'a mut self, key: &[u8]) -> Option<(usize, Option<&'a mut V>, Option<&'a mut TrieNodeODRc<V>>)>;
+
+        // fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>)>;
+
+        pub fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A> {
+            match self {
+                Self::DenseByteNode(node) => node.node_replace_child(key, new_node),
+                Self::LineListNode(node) => node.node_replace_child(key, new_node),
+                Self::CellByteNode(node) => node.node_replace_child(key, new_node),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        pub fn node_contains_val(&self, key: &[u8]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_contains_val(key),
+                Self::LineListNode(node) => node.node_contains_val(key),
+                Self::CellByteNode(node) => node.node_contains_val(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        pub fn node_get_val(&self, key: &[u8]) -> Option<&V> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_val(key),
+                Self::LineListNode(node) => node.node_get_val(key),
+                Self::CellByteNode(node) => node.node_get_val(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        pub fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_val_mut(key),
+                Self::LineListNode(node) => node.node_get_val_mut(key),
+                Self::CellByteNode(node) => node.node_get_val_mut(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>>;
+
+        pub fn node_remove_val(&mut self, key: &[u8]) -> Option<V> {
+            match self {
+                Self::DenseByteNode(node) => node.node_remove_val(key),
+                Self::LineListNode(node) => node.node_remove_val(key),
+                Self::CellByteNode(node) => node.node_remove_val(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>>;
+
+        pub fn node_remove_all_branches(&mut self, key: &[u8]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_remove_all_branches(key),
+                Self::LineListNode(node) => node.node_remove_all_branches(key),
+                Self::CellByteNode(node) => node.node_remove_all_branches(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
+
+        pub fn node_is_empty(&self) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_is_empty(),
+                Self::LineListNode(node) => node.node_is_empty(),
+                Self::CellByteNode(node) => node.node_is_empty(),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        // fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
+
+        // #[cfg(feature = "counters")]
+        // fn item_count(&self) -> usize;
+
+        pub fn node_first_val_depth_along_key(&self, key: &[u8]) -> Option<usize> {
+            match self {
+                Self::DenseByteNode(node) => node.node_first_val_depth_along_key(key),
+                Self::LineListNode(node) => node.node_first_val_depth_along_key(key),
+                Self::CellByteNode(node) => node.node_first_val_depth_along_key(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        #[inline(always)]
+        pub fn count_branches(&self, key: &[u8]) -> usize {
+            match self {
+                Self::DenseByteNode(node) => node.count_branches(key),
+                Self::LineListNode(node) => node.count_branches(key),
+                Self::CellByteNode(node) => node.count_branches(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        #[inline(always)]
+        pub fn node_branches_mask(&self, key: &[u8]) -> ByteMask {
+            match self {
+                Self::DenseByteNode(node) => node.node_branches_mask(key),
+                Self::LineListNode(node) => node.node_branches_mask(key),
+                Self::CellByteNode(node) => node.node_branches_mask(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        #[inline(always)]
+        pub fn is_leaf(&self, key: &[u8]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.is_leaf(key),
+                Self::LineListNode(node) => node.is_leaf(key),
+                Self::CellByteNode(node) => node.is_leaf(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        pub fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+            match self {
+                Self::DenseByteNode(node) => node.prior_branch_key(key),
+                Self::LineListNode(node) => node.prior_branch_key(key),
+                Self::CellByteNode(node) => node.prior_branch_key(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+        pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {
+            match self {
+                Self::DenseByteNode(node) => node.get_node_at_key(key),
+                Self::LineListNode(node) => node.get_node_at_key(key),
+                Self::CellByteNode(node) => node.get_node_at_key(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        pub fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_child_mut(key),
+                Self::LineListNode(node) => node.node_get_child_mut(key),
+                Self::CellByteNode(node) => node.node_get_child_mut(key),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        /// Similar to [`TaggedNodeRefMut::node_get_child_mut`], but consumes the `TaggedNodeRefMut`, and returns the child node, or None
+        pub fn node_into_child_mut(self, key: &[u8]) -> Option<(usize, &'a mut TrieNodeODRc<V, A>)> {
             match self {
                 Self::DenseByteNode(node) => node.node_get_child_mut(key),
                 Self::LineListNode(node) => node.node_get_child_mut(key),
@@ -1409,6 +1597,14 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.convert_to_cell_node(),
                 Self::CellByteNode(node) => node.convert_to_cell_node(),
                 Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
+
+        #[inline]
+        pub fn is_cell_node(&self) -> bool {
+            match self {
+                Self::CellByteNode(_) => true,
+                _ => false
             }
         }
     }
@@ -2052,7 +2248,7 @@ pub(crate) fn node_along_path_mut<'a, 'k, V: Clone + Send + Sync, A: Allocator>(
     //Step until we get to the end of the key or find a leaf node
     let mut node_ptr: *mut TrieNodeODRc<V, A> = node; //Work-around for lack of polonius
     if key.len() > 0 {
-        while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_get_child_mut(key) {
+        while let Some((consumed_byte_cnt, next_node)) = node.make_mut().node_into_child_mut(key) {
             if consumed_byte_cnt < key.len() || !stop_early {
                 node = next_node;
                 node_ptr = node;
@@ -2256,7 +2452,7 @@ mod slim_node_ptr {
     use core::ptr::NonNull;
     use core::sync::atomic::AtomicU32;
     use crate::Allocator;
-    use super::{TaggedNodeRef, TrieNode};
+    use super::{TaggedNodeRef, TaggedNodeRefMut, TrieNode};
 
     #[cfg(all(not(target_pointer_width="64")))]
     compile_error!("slim_ptrs is only compatible with 64-bit architectures");
@@ -2315,6 +2511,10 @@ mod slim_node_ptr {
         #[inline]
         pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
             TaggedNodeRef::from_slim_ptr(*self)
+        }
+        #[inline]
+        pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
+            TaggedNodeRefMut::from_slim_ptr(*self)
         }
         #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
@@ -2575,6 +2775,10 @@ mod opaque_dyn_rc_trie_node {
         #[inline]
         pub(crate) fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
             self.ptr.as_tagged()
+        }
+        #[inline]
+        pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
+            self.ptr.as_tagged_mut()
         }
         #[inline]
         pub(crate) fn tag(&self) -> usize {
