@@ -303,32 +303,33 @@ impl BTMOctree {
     }
 
     fn insert_rec(wz: &mut WriteZipperUntracked<Vec<Point3<f64>>>, p: Point3<f64>, bounds: AABB<f64>, depth: usize) {
-        // this is stupid; the empty vec only used for matching at the next level
-        // with zippers we can be at locations not in the trie yet, which the Octree couldn't
         if let Some(points) = wz.get_value_mut() {
             if points.len() < LEAF_CAPACITY || depth >= MAX_DEPTH {
                 points.push(p);
             } else {
-                // safety: while the vec may move, the memory it points will not as the above is the only thing that touches it
-                for &old_p in unsafe { std::mem::ManuallyDrop::new(std::ptr::read(points)) }.iter() {
+                let ps = wz.remove_value().unwrap();
+                for &old_p in ps.iter() {
                     let idx = Octree::child_index(bounds.center(), old_p);
                     let child_bounds = Octree::child(&bounds, idx);
                     wz.descend_to_byte(idx as u8);
-                    wz.get_value_or_insert_with(|| vec![]);
                     Self::insert_rec(wz, old_p, child_bounds, depth + 1);
                     wz.ascend_byte();
                 }
-                wz.remove_value();
 
                 Self::insert_rec(wz, p, bounds, depth);
             }
         } else {
-            let idx = Octree::child_index(bounds.center(), p);
-            let child_bounds = Octree::child(&bounds, idx);
-            wz.descend_to_byte(idx as u8);
-            wz.get_value_or_insert_with(|| vec![]);
-            Self::insert_rec(wz, p, child_bounds, depth + 1); // this is stupid; it's only used for matching at the next level
-            wz.ascend_byte();
+            if depth >= MAX_DEPTH || wz.child_count() == 0 {
+                if wz.is_value() { wz.get_value_mut().unwrap().push(p); }
+                else { wz.set_value(vec![p]); }
+                // wz.get_value_or_insert_with(|| vec![]).push(p);  GOAT!
+            } else {
+                let idx = Octree::child_index(bounds.center(), p);
+                let child_bounds = Octree::child(&bounds, idx);
+                wz.descend_to_byte(idx as u8);
+                Self::insert_rec(wz, p, child_bounds, depth + 1);
+                wz.ascend_byte();
+            }
         }
     }
 
@@ -350,12 +351,10 @@ impl BTMOctree {
             }
         }
 
-        for idx in 0..8 {
-            // we can just iterate over existing paths instead of checking every item
-            if rz.descend_to_byte(idx as u8) {
-                let child_bounds = Octree::child(&bounds, idx as usize);
-                if !Self::query_rec(rz, child_bounds, query, f) { return false }
-            }
+        for idx in rz.child_mask().iter() {
+            let child_bounds = Octree::child(&bounds, idx as usize);
+            rz.descend_to_byte(idx);
+            if !Self::query_rec(rz, child_bounds, query, f) { return false }
             rz.ascend_byte();
         }
 
@@ -396,19 +395,16 @@ impl BTMOctree {
 
         // Compute distance for each existing child and visit nearest first.
         // Collect (dist2, idx)
-        let mut order: Vec<(f64, usize)> = Vec::with_capacity(8);
-        let bm = rz.child_mask();
-        // we can just iterate over the btm instead of checking
-        for idx in 0..8 {
-            if bm.test_bit(idx as u8) {
-                let child_bounds = Octree::child(&bounds, idx);
-                order.push((Octree::boundary_d2(&child_bounds, query), idx));
-            }
-        }
+        let mut order: Vec<(f64, u8)> = Vec::with_capacity(8);
+        rz.child_mask().iter().for_each(|idx| {
+            let child_bounds = Octree::child(&bounds, idx as usize);
+            order.push((Octree::boundary_d2(&child_bounds, query), idx));
+        });
+        
         order.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         for &(_, idx) in &order {
-            let child_bounds = Octree::child(&bounds, idx);
-            rz.descend_to_byte(idx as u8);
+            let child_bounds = Octree::child(&bounds, idx as usize);
+            rz.descend_to_byte(idx);
             Self::knn_rec(rz, child_bounds, query, k, best);
             rz.ascend_byte();
         }
