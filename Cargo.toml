@@ -8,7 +8,6 @@ exclude = ["benches/", "pathmap-book/", ".*"]
 
 [dependencies]
 maybe-dangling = "0.1.1"
-stable_deref_trait = "1.2.0"
 dyn-clone = "1.0.17"
 local-or-heap = "0.1.0"
 reusing-vec = {version = "0.2.0", features = ["smallvec"]}

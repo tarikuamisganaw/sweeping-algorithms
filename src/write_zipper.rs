@@ -758,32 +758,6 @@ pub(crate) struct WriteZipperCore<'a, 'k, V: Clone + Send + Sync, A: Allocator> 
 unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for WriteZipperCore<'_, '_, V, A> {}
 unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for WriteZipperCore<'_, '_, V, A> {}
 
-///GOAT.  I think the WZNodePtr can go away, now that I ended up creating an internal object, [MutNodeStack], making it unnecessary
-/// Internal type to adapt to the needs of [MutCursorRootedVec].  Should only be used inside WriteZipper
-pub(crate) struct WZNodePtr<'a, V: Clone + Send + Sync, A: Allocator>(*mut TrieNodeODRc<V, A>, core::marker::PhantomData<&'a mut V>);
-
-impl<'a, V: Clone + Send + Sync, A: Allocator> WZNodePtr<'a, V, A> {
-    fn new(node_ref: &'a mut TrieNodeODRc<V, A>) -> Self {
-        Self(node_ref, PhantomData)
-    }
-    fn into_mut(self) -> &'a mut TrieNodeODRc<V, A> {
-        unsafe{ &mut *self.0 }
-    }
-}
-
-impl<'a, V: Clone + Send + Sync, A: Allocator> DerefMut for WZNodePtr<'a, V, A> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe{ &mut *self.0 }
-    }
-}
-impl<'a, V: Clone + Send + Sync, A: Allocator> Deref for WZNodePtr<'a, V, A> {
-    type Target = TrieNodeODRc<V, A>;
-    fn deref(&self) -> &Self::Target {
-        unsafe{ &*self.0 }
-    }
-}
-unsafe impl<V: Clone + Send + Sync, A: Allocator> stable_deref_trait::StableDeref for WZNodePtr<'_, V, A> {}
-
 /// The part of the zipper that contains the path and key-related fields.  So it can be borrowed separately
 ///
 /// For a more complete description of the meaning of the fields, see [read_zipper_core::ReadZipperCore::new_with_node_and_path]
@@ -2068,6 +2042,7 @@ impl<'k> KeyFields<'k> {
 
 use mut_node_stack::MutNodeStack;
 mod mut_node_stack {
+    use smallvec::{SmallVec, smallvec};
     use core::ptr::NonNull;
     use crate::Allocator;
     use super::{TaggedNodeRefMut, TrieNodeODRc};
@@ -2075,13 +2050,13 @@ mod mut_node_stack {
     /// See [mutcursor::MutCursorRootedVec] for discussion about behavior
     pub struct MutNodeStack<'a, V: Clone + Send + Sync, A: Allocator> {
         root: Option<NonNull<TrieNodeODRc<V, A>>>,
-        stack: Vec<TaggedNodeRefMut<'a, V, A>>,
+        stack: SmallVec<[TaggedNodeRefMut<'a, V, A>; 1]>,
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> MutNodeStack<'a, V, A> {
         #[inline]
         pub fn new(root: &'a mut TrieNodeODRc<V, A>) -> Self {
-            Self { root: Some(NonNull::from(root)), stack: vec![] }
+            Self { root: Some(NonNull::from(root)), stack: smallvec![] }
         }
         #[inline]
         pub fn top(&self) -> Option<&TaggedNodeRefMut<'a, V, A>> {
