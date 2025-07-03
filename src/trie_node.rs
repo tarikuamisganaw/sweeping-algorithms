@@ -337,7 +337,6 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
 }
 
 /// Implements methods to get the concrete type from a dynamic TrieNode
-//GOAT, see if this trait can be eliminated once we no longer need to do dyn dispatch
 pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
     /// Returns the tag associated with the node type
     fn tag(&self) -> usize;
@@ -350,17 +349,6 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
 
     /// Migrates the contents of the node into a new CellByteNode.  After this method, `self` will be empty
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A>;
-
-    /// Returns the node as a [`DenseByteNode`]; must be called when the node type is known
-    unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A>;
-
-    /// Returns the node as a [`LineListNode`]; must be called when the node type is known
-    unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A>;
-
-    /// Returns the node as a [`CellByteNode`]; must be called when the node type is known
-    unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A>;
-
-    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<'_, V, A>;
 }
 
 /// Special sentinel token value indicating iteration of a node has not been initialized

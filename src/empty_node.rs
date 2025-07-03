@@ -6,9 +6,6 @@ use crate::Allocator;
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::utils::ByteMask;
-use crate::dense_byte_node::{DenseByteNode, CellByteNode};
-use crate::line_list_node::LineListNode;
-use crate::tiny_node::TinyRefNode;
 
 pub(crate) static EMPTY_NODE: EmptyNode = EmptyNode;
 
@@ -199,17 +196,5 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for EmptyNode 
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         unreachable!() //If we end up hitting this, we should change it at the call site
-    }
-    unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A> {
-        unreachable!()
-    }
-    unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A> {
-        unreachable!()
-    }
-    unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
-        unreachable!()
-    }
-    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<V, A> {
-        unreachable!()
     }
 }

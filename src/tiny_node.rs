@@ -14,8 +14,6 @@ use std::collections::HashMap;
 use crate::utils::{ByteMask, find_prefix_overlap};
 use crate::Allocator;
 use crate::trie_node::*;
-use crate::dense_byte_node::{DenseByteNode, CellByteNode};
-use crate::line_list_node::LineListNode;
 use crate::ring::*;
 
 /// A borrowed reference to a payload with a key stored elsewhere, contained in 16 Bytes
@@ -335,18 +333,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         unreachable!()
-    }
-    unsafe fn as_dense_unchecked(&self) -> &DenseByteNode<V, A> {
-        unreachable!()
-    }
-    unsafe fn as_list_unchecked(&self) -> &LineListNode<V, A> {
-        unreachable!()
-    }
-    unsafe fn as_cell_unchecked(&self) -> &CellByteNode<V, A> {
-        unreachable!()
-    }
-    unsafe fn as_tiny_unchecked(&self) -> &TinyRefNode<V, A> {
-        self
     }
 }
 
