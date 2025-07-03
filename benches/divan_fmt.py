@@ -93,6 +93,8 @@ def compare_fields(base, other, field_name):
     for (key, base_record) in base.items():
         if field_name in base_record:
             base_val = base_record[field_name]
+            if key not in other:
+                continue
             other_val = other[key][field_name]
             diff = other_val - base_val
             results[key] = {
