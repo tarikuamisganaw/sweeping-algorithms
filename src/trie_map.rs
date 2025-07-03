@@ -221,7 +221,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     pub fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'_, V, A> {
         self.ensure_root();
         let path = path.as_ref();
-        trie_ref_at_path_in(self.root().unwrap().borrow(), self.root_val(), &[], path, self.alloc.clone())
+        trie_ref_at_path_in(self.root().unwrap().as_tagged(), self.root_val(), &[], path, self.alloc.clone())
     }
 
     /// Creates a new read-only [Zipper], starting at the root of a `BytesTrieMap`
@@ -249,11 +249,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone(), None)
+            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().as_tagged(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone())
+            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().as_tagged(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone())
         }
     }
 
@@ -267,11 +267,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().borrow(), path, path.len(), 0, root_val, self.alloc.clone(), None)
+            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().as_tagged(), path, path.len(), 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().borrow(), path, path.len(), 0, root_val, self.alloc.clone())
+            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().as_tagged(), path, path.len(), 0, root_val, self.alloc.clone())
         }
     }
 

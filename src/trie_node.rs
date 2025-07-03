@@ -563,13 +563,13 @@ pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, A: Allocator, Merge
     AlgebraicResult::Element(merge_f(&mut result_payloads[..]))
 }
 
-pub(crate) fn node_count_branches_recursive<V: Clone + Send + Sync, A: Allocator>(node: &dyn TrieNode<V, A>, key: &[u8]) -> usize {
+pub(crate) fn node_count_branches_recursive<V: Clone + Send + Sync, A: Allocator>(node: TaggedNodeRef<V, A>, key: &[u8]) -> usize {
     if key.len() == 0 {
         return node.count_branches(b"");
     }
     match node.node_get_child(key) {
         Some((consumed_bytes, child_node)) => {
-            let child_node = child_node.borrow();
+            let child_node = child_node.as_tagged();
             if key.len() >= consumed_bytes {
                 child_node.count_branches(&key[consumed_bytes..])
             } else {
@@ -654,7 +654,7 @@ pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: 
                 PayloadRef::Child(self_link) => {
                     match other_node.get_node_at_key(keys[idx].0).into_option() {
                         Some(other_onward_node) => {
-                            let result = self_link.borrow().pmeet_dyn(other_onward_node.as_tagged());
+                            let result = self_link.as_tagged().pmeet_dyn(other_onward_node.as_tagged());
                             FatAlgebraicResult::from_binary_op_result(result, self_link, &other_onward_node)
                                 .map(|child| ValOrChild::Child(child))
                         },
@@ -815,6 +815,7 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
+        ///GOAT, we an hopefully get rid of this
         #[inline]
         pub fn into_dyn(self) -> &'a dyn TrieNode<V, A> {
             match self {
@@ -915,6 +916,16 @@ mod tagged_node_ref {
                 Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
+        /// GOAT, Make this a zero-cost method
+        #[inline]
+        pub fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
+            match self {
+                Self::DenseByteNode(node) => TaggedNodeRef::DenseByteNode(node),
+                Self::LineListNode(node) => TaggedNodeRef::LineListNode(node),
+                Self::CellByteNode(node) => TaggedNodeRef::CellByteNode(node),
+                Self::Unsupported => unsafe{ unreachable_unchecked() },
+            }
+        }
         #[inline]
         pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
             let (ptr, tag) = ptr.get_raw_parts();
@@ -1005,6 +1016,7 @@ mod tagged_node_ref {
         pub fn from_tiny(node: &'a TinyRefNode<V, A>) -> Self {
             Self::TinyRefNode(node)
         }
+//GOAT here next
         #[inline]
         pub fn borrow(&self) -> &'a dyn TrieNode<V, A> {
             match self {
@@ -1257,8 +1269,6 @@ mod tagged_node_ref {
             }
         }
 
-        // fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
-
         pub fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
             match self {
                 Self::DenseByteNode(node) => node.pjoin_dyn(other),
@@ -1268,8 +1278,6 @@ mod tagged_node_ref {
                 Self::EmptyNode => EmptyNode.pjoin_dyn(other),
             }
         }
-
-        // fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
         pub fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
             match self {
@@ -1367,6 +1375,7 @@ mod tagged_node_ref {
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
+//GOAT here next
         #[inline]
         pub fn borrow(&self) -> &dyn TrieNode<V, A> {
             match self {
@@ -2292,13 +2301,13 @@ pub(crate) fn val_count_below_node<V: Clone + Send + Sync, A: Allocator>(node: &
         match cache.get(&ptr) {
             Some(cached) => *cached,
             None => {
-                let val = node.borrow().node_val_count(cache);
+                let val = node.as_tagged().node_val_count(cache);
                 cache.insert(ptr, val);
                 val
             },
         }
     } else {
-        node.borrow().node_val_count(cache)
+        node.as_tagged().node_val_count(cache)
     }
 }
 
@@ -2546,11 +2555,10 @@ mod slim_node_ptr {
 
     impl<V, A: Allocator> core::fmt::Debug for SlimNodePtr<V, A>
     where
-    for<'a> &'a dyn TrieNode<V, A>: core::fmt::Debug,
     V: Clone + Send + Sync
     {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            core::fmt::Debug::fmt(&self.borrow(), f)
+            core::fmt::Debug::fmt(&self.as_tagged(), f)
         }
     }
 
@@ -2587,6 +2595,7 @@ mod slim_node_ptr {
         pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
             TaggedNodeRefMut::from_slim_ptr(*self)
         }
+        //Unneeded, GOAT, try to remove this
         #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
             self.as_tagged().into_dyn()
@@ -2808,9 +2817,7 @@ mod opaque_dyn_rc_trie_node {
     }
 
     impl<V, A: Allocator> core::fmt::Debug for TrieNodeODRc<V, A>
-    where
-    for<'a> &'a dyn TrieNode<V, A>: core::fmt::Debug,
-    V: Clone + Send + Sync
+        where V: Clone + Send + Sync
     {
         fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             core::fmt::Debug::fmt(&self.ptr, f)
@@ -2860,6 +2867,7 @@ mod opaque_dyn_rc_trie_node {
         pub(crate) fn tag(&self) -> usize {
             self.ptr.tag()
         }
+        //Unneeded //GOAT, try to remove this
         #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
             self.ptr.borrow()
@@ -2884,7 +2892,7 @@ mod opaque_dyn_rc_trie_node {
 
             if unsafe{ &*ptr }.compare_exchange(1, 0, Acquire, Relaxed).is_err() {
                 // Another pointer exists, so we must clone.
-                let cloned_node = self.borrow().clone_self();
+                let cloned_node = self.as_tagged().clone_self();
 
                 //The decrement of the old `self` refcount will happen at this assignment
                 *self = cloned_node;
@@ -2909,7 +2917,7 @@ impl<V: Lattice + Clone + Send + Sync, A: Allocator> TrieNodeODRc<V, A> {
         if self.ptr_eq(other) {
             AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT)
         } else {
-            self.borrow().pjoin_dyn(other.as_tagged())
+            self.as_tagged().pjoin_dyn(other.as_tagged())
             //GOAT, question: Is there any point to this pre-check, or is it enough to just let pjoin_dyn handle it?
             // let node = self.borrow();
             // let other_node = other.borrow();
@@ -2937,7 +2945,7 @@ impl<V: Lattice + Clone + Send + Sync, A: Allocator> TrieNodeODRc<V, A> {
         if self.ptr_eq(other) {
             AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT)
         } else {
-            self.borrow().pmeet_dyn(other.as_tagged())
+            self.as_tagged().pmeet_dyn(other.as_tagged())
         }
     }
 }
@@ -2948,14 +2956,14 @@ impl<V: DistributiveLattice + Clone + Send + Sync, A: Allocator> TrieNodeODRc<V,
         if self.ptr_eq(other) {
             AlgebraicResult::None
         } else {
-            self.borrow().psubtract_dyn(other.as_tagged())
+            self.as_tagged().psubtract_dyn(other.as_tagged())
         }
     }
 }
 
 impl <V: Clone + Send + Sync, A: Allocator> Quantale for TrieNodeODRc<V, A> {
     fn prestrict(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
-        self.borrow().prestrict_dyn(other.as_tagged())
+        self.as_tagged().prestrict_dyn(other.as_tagged())
     }
 }
 
