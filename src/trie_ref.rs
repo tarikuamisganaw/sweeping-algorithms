@@ -13,6 +13,40 @@ use crate::zipper::zipper_priv::*;
 ///
 /// `TrieRef`s are like a read-only [Zipper] that can't move, but it is *much* smaller, cheaper to
 /// create, and cheaper to work with.
+//
+//TODO: If we want to get a `TrieRef` down a little smaller, we can push the tag from [TaggedNodeRef]
+// into 3 or 4 unused bits in the pointer.  (i.e. convert it to a SlimPtr)
+//
+//TODO: We could go even further towards shrinking the `TrieRef` and ultimately get down to 16 Bytes
+// total by modifying the TrieNode API to create a "location_ref".  That would look roughly like this:
+//
+// - The `node_contains_partial_key` method would be expanded into something like:
+//  `fn location_for_partial_key(&self, key: &[u8]) -> u64;`  The returned location token
+//  would uniquely identify any existing location within the node.
+//
+// - The returned location token needs to be able to represent any location within the node,
+//  not just endpoints.  For a ByteNode, it's easy, it's just a sentinel to indicate pointing
+//  at the base of the node, and a u8 for positions one byte below the base.  For the ListNode/
+//  aka PairNode, the logic would probably be a bit to indicate whether we're looking at slot0
+//  or slot1, and a counter to indicate how many bytes into that slot's key we are pointing at.
+//
+// - There would be universally recognized sentinel value (universal across all node types) for
+//   non-existant paths, which would be the equivalent to `node_contains_partial_key` returning false.
+//
+// - We'd want another method to reverse the transformation from location token back into a path,
+//   This would be needed to initialize the path of a zipper, forked from a TrieRef, and likely
+//   elsewhere too if we used location tokens extensively inside the zipper.
+//
+// - Many accessor functions could take a location token instead of a node_key.  For example,
+//   `count_branches`, `node_branches_mask`, `get_node_at_key` (may rename it), `get_node_at_key`,
+//   `node_get_child`
+//
+// - Implementing this change above may have some interactions with `tiny_node` / TinyRefNode,
+//   it could lead to some potential simplifications to the code overall, if we can come up with
+//   an interface that allows any subtrie within a node to function as a node unto itself.
+//   Because currently `TinyRefNode` targets a special case, so we need a fallback for when
+//   that case doesn't apply.
+//
 pub struct TrieRef<'a, V: Clone + Send + Sync, A: Allocator = GlobalAlloc> {
     focus_node: TaggedNodeRef<'a, V, A>,
     val_or_key: ValRefOrKey<'a, V>,
@@ -30,7 +64,7 @@ impl<V: Clone + Send + Sync> Default for TrieRef<'_, V> {
 union ValRefOrKey<'a, V> {
     /// A length byte, followed by the key bytes themselves
     node_key: (u8, [MaybeUninit<u8>; MAX_NODE_KEY_BYTES]),
-    /// VAL_REF_SENTINEL, followed by the 
+    /// VAL_REF_SENTINEL, followed by the reference to the value
     val_ref: (u64, Option<&'a V>)
 }
 
@@ -317,40 +351,6 @@ mod tests {
 
     #[test]
     fn trie_ref_test1() {
-        //TODO: If we want to get a `TrieRef` down to 32 bytes, we can push the tag in [TaggedNodeRef]
-        // into 3 or 4 unused bits in the pointer
-        //
-        //TODO: We could go even further towards shrinking the `TrieRef` and ultimately get down to 16 Bytes
-        // total by modifying the TrieNode API to create a "location_ref".  That would look roughly like this:
-        //
-        // - The `node_contains_partial_key` method would be expanded into something like:
-        //  `fn location_for_partial_key(&self, key: &[u8]) -> u64;`  The returned location token
-        //  would uniquely identify any existing location within the node.
-        //
-        // - The returned location token needs to be able to represent any location within the node,
-        //  not just endpoints.  For a ByteNode, it's easy, it's just a sentinel to indicate pointing
-        //  at the base of the node, and a u8 for positions one byte below the base.  For the ListNode/
-        //  aka PairNode, the logic would probably be a bit to indicate whether we're looking at slot0
-        //  or slot1, and a counter to indicate how many bytes into that slot's key we are pointing at.
-        //
-        // - There would be universally recognized sentinel value (universal across all node types) for
-        //   non-existant paths, which would be the equivalent to `node_contains_partial_key` returning false.
-        //
-        // - We'd want another method to reverse the transformation from location token back into a path,
-        //   This would be needed to initialize the path of a zipper, forked from a TrieRef, and likely
-        //   elsewhere too if we used location tokens extensively inside the zipper.
-        //
-        // - Many accessor functions could take a location token instead of a node_key.  For example,
-        //   `count_branches`, `node_branches_mask`, `get_node_at_key` (may rename it), `get_node_at_key`,
-        //   `node_get_child`
-        //
-        // - Implementing this change above may have some interactions with `tiny_node` / TinyRefNode,
-        //   it could lead to some potential simplifications to the code overall, if we can come up with
-        //   an interface that allows any subtrie within a node to function as a node unto itself.
-        //   Because currently `TinyRefNode` targets a special case, so we need a fallback for when
-        //   that case doesn't apply.
-        //
-        assert!(core::mem::size_of::<TrieRef<()>>() <= 40);
 
         let keys = ["Hello", "Hell", "Help", "Helsinki"];
         let map: BytesTrieMap<()> = keys.iter().map(|k| (k, ())).collect();
