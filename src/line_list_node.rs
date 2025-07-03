@@ -34,9 +34,9 @@ pub struct LineListNode<V: Clone + Send + Sync, A: Allocator> {
 // to stay within 1 cache line, or 78 to pack into two.
 //WARNING the length bits mean I will overflow if I go above 63
 #[cfg(feature = "slim_ptrs")]
-const KEY_BYTES_CNT: usize = 42;
+pub(crate) const KEY_BYTES_CNT: usize = 42;
 #[cfg(not(feature = "slim_ptrs"))]
-const KEY_BYTES_CNT: usize = 14;
+pub(crate) const KEY_BYTES_CNT: usize = 14;
 
 const SLOT_0_USED_MASK: u16 = 1 << 15;
 const SLOT_1_USED_MASK: u16 = 1 << 14;

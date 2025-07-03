@@ -17,7 +17,12 @@ use crate::line_list_node::LineListNode;
 use crate::bridge_node::BridgeNode;
 
 /// The maximum key length any node type may require to access any value or sub-path within the node
-pub(crate) const MAX_NODE_KEY_BYTES: usize = 23;
+pub(crate) const MAX_NODE_KEY_BYTES: usize = 48;
+
+// Ensure MAX_NODE_KEY_BYTES is big enough to include any path that might be in a node type
+const _: [(); (MAX_NODE_KEY_BYTES >= crate::line_list_node::KEY_BYTES_CNT) as usize - 1] = [];
+// Ensure it's not too big that it violates the sentinel values we are putting in the length byte of TrieRef
+const _: [(); (MAX_NODE_KEY_BYTES < 253) as usize - 1] = [];
 
 /// The abstract interface to all nodes, from which tries are built
 ///

@@ -1483,7 +1483,7 @@ pub(crate) mod read_zipper_core {
             // avoids copying the whole path argument into the path buffer unless that's actually needed.
             // So this loop copies the path arg in chunks.  If we didn't care about this, we could just
             // grow the path buffer in one call with `self.descend_to_internal(k)`, like `descend_to` does
-            const CHUNK_SIZE: usize = 32;
+            const CHUNK_SIZE: usize = 64;
             debug_assert!(CHUNK_SIZE >= MAX_NODE_KEY_BYTES);
             while k.len() > 0 {
                 let (chunk, remaining) = if k.len() > CHUNK_SIZE {
