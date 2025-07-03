@@ -1349,13 +1349,13 @@ pub(crate) mod read_zipper_core {
 
         fn val_count(&self) -> usize {
             if self.node_key().len() == 0 {
-                val_count_below_root(self.focus_node.borrow()) + (self.is_value() as usize)
+                val_count_below_root(self.focus_node) + (self.is_value() as usize)
             } else {
                 let focus = self.get_focus();
                 if focus.is_none() {
                     0
                 } else {
-                    val_count_below_root(focus.borrow()) + (self.is_value() as usize)
+                    val_count_below_root(focus.as_tagged()) + (self.is_value() as usize)
                 }
             }
         }

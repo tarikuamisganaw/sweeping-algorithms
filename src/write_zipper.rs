@@ -868,7 +868,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperC
         if focus.is_none() {
             0
         } else {
-            val_count_below_root(focus.borrow()) + (self.is_value() as usize)
+            val_count_below_root(focus.as_tagged()) + (self.is_value() as usize)
         }
     }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
@@ -1223,9 +1223,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                 return AlgebraicStatus::Identity
             }
         }
-        match self_focus.try_borrow() {
+        match self_focus.try_as_tagged() {
             Some(self_node) => {
-                match self_node.pjoin_dyn(src.borrow()) {
+                match self_node.pjoin_dyn(src.as_tagged()) {
                     AlgebraicResult::Element(joined) => {
                         self.graft_internal(Some(joined));
                         AlgebraicStatus::Element
@@ -1273,9 +1273,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                 }
             }
         };
-        let node_status = match self_focus.try_borrow() {
+        let node_status = match self_focus.try_as_tagged() {
             Some(self_node) => {
-                match self_node.pjoin_dyn(src.borrow()) {
+                match self_node.pjoin_dyn(src.as_tagged()) {
                     AlgebraicResult::Element(joined) => {
                         self.graft_internal(Some(joined));
                         AlgebraicStatus::Element
@@ -1377,9 +1377,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             self.graft_internal(None);
             return AlgebraicStatus::None
         }
-        match self.get_focus().try_borrow() {
+        match self.get_focus().try_as_tagged() {
             Some(self_node) => {
-                match self_node.pmeet_dyn(src.borrow()) {
+                match self_node.pmeet_dyn(src.as_tagged()) {
                     AlgebraicResult::Element(intersection) => {
                         self.graft_internal(Some(intersection));
                         AlgebraicStatus::Element
@@ -1405,7 +1405,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
     /// See [WriteZipper::meet_2]
     pub fn meet_2<ZA: ZipperSubtries<V, A>, ZB: ZipperSubtries<V, A>>(&mut self, rz_a: &ZA, rz_b: &ZB) -> AlgebraicStatus where V: Lattice {
         let a_focus = rz_a.get_focus();
-        let a = match a_focus.try_borrow() {
+        let a = match a_focus.try_as_tagged() {
             Some(src) => src,
             None => {
                 self.graft_internal(None);
@@ -1413,7 +1413,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             }
         };
         let b_focus = rz_b.get_focus();
-        let b = match b_focus.try_borrow() {
+        let b = match b_focus.try_as_tagged() {
             Some(src) => src,
             None => {
                 self.graft_internal(None);
@@ -1452,9 +1452,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                 return AlgebraicStatus::Identity
             }
         }
-        match self_focus.try_borrow() {
+        match self_focus.try_as_tagged() {
             Some(self_node) => {
-                match self_node.psubtract_dyn(src.borrow()) {
+                match self_node.psubtract_dyn(src.as_tagged()) {
                     AlgebraicResult::Element(diff) => {
                         self.graft_internal(Some(diff));
                         AlgebraicStatus::Element
@@ -1479,9 +1479,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             self.graft_internal(None);
             return AlgebraicStatus::None
         }
-        match self.get_focus().try_borrow() {
+        match self.get_focus().try_as_tagged() {
             Some(self_node) => {
-                match self_node.prestrict_dyn(src.borrow()) {
+                match self_node.prestrict_dyn(src.as_tagged()) {
                     AlgebraicResult::Element(restricted) => {
                         self.graft_internal(Some(restricted));
                         AlgebraicStatus::Element
@@ -1505,9 +1505,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
         if src.is_none() {
             return false
         }
-        match self.get_focus().try_borrow() {
+        match self.get_focus().try_as_tagged() {
             Some(self_node) => {
-                match src.borrow().prestrict_dyn(self_node) {
+                match src.as_tagged().prestrict_dyn(self_node) {
                     AlgebraicResult::Element(restricted) => self.graft_internal(Some(restricted)),
                     AlgebraicResult::None => self.graft_internal(None),
                     AlgebraicResult::Identity(mask) => {

@@ -155,7 +155,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V, A>> {
         None
     }
-    fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         if other.node_is_empty() {
             AlgebraicResult::None
         } else {
@@ -172,13 +172,13 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice {
         None
     }
-    fn pmeet_dyn(&self, _other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pmeet_dyn(&self, _other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         AlgebraicResult::None
     }
-    fn psubtract_dyn(&self, _other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
+    fn psubtract_dyn(&self, _other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
         AlgebraicResult::None
     }
-    fn prestrict_dyn(&self, _other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
+    fn prestrict_dyn(&self, _other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
         AlgebraicResult::None
     }
     fn clone_self(&self) -> TrieNodeODRc<V, A> {

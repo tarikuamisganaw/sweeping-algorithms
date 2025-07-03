@@ -277,7 +277,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
 
         //Zero-length key means borrow this node
         if key.len() == 0 {
-            return AbstractNodeRef::BorrowedDyn(self)
+            return AbstractNodeRef::BorrowedDyn(self.as_tagged())
         }
 
         //Exact match with a path to a child node means return that node
@@ -297,22 +297,22 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
         AbstractNodeRef::None
     }
     fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V, A>> { unreachable!() }
-    fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         //GOAT, I can streamline this quite a lot, but for now I'll just up-convert to a ListNode to test
         // the basic premise of the TinyRefNode
         self.into_full().unwrap().pjoin_dyn(other)
     }
     fn join_into_dyn(&mut self, _other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice { unreachable!() }
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice { unreachable!() }
-    fn pmeet_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().pmeet_dyn(other)
     }
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
+    fn psubtract_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().psubtract_dyn(other)
     }
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
+    fn prestrict_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
         //GOAT, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().prestrict_dyn(other)
     }
@@ -326,6 +326,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
     fn tag(&self) -> usize {
         TINY_REF_NODE_TAG
     }
+    #[inline]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_tiny(self)
     }

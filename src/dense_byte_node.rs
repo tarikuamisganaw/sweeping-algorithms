@@ -386,7 +386,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> ByteNode<Cf, A>
                 //If there is an onward link, see if there is a matching link in other, and subtract them
                 if let Some(self_child) = cf.rec() {
                     let other_child = other.get_node_at_key(&[key_byte]);
-                    match other_child.try_borrow() {
+                    match other_child.try_as_tagged() {
                         Some(other_child) => {
                             match self_child.borrow().psubtract_dyn(other_child) {
                                 AlgebraicResult::None => { is_identity = false; }
@@ -449,7 +449,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> ByteNode<Cf, A>
                     //If there is an onward link in the CF and other node, continue the restriction recursively
                     if let Some(self_child) = cf.rec() {
                         let other_child = other.get_node_at_key(&[key_byte]);
-                        match other_child.try_borrow() {
+                        match other_child.try_as_tagged() {
                             Some(other_child) => {
                                 let mut new_cf = Cf::new(None, None);
                                 match self_child.borrow().prestrict_dyn(other_child) {
@@ -1151,7 +1151,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         if key.len() < 2 {
             if key.len() == 0 {
                 if !self.node_is_empty() {
-                    AbstractNodeRef::BorrowedDyn(self)
+                    AbstractNodeRef::BorrowedDyn(self.as_tagged())
                 } else {
                     AbstractNodeRef::None
                 }
@@ -1178,7 +1178,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
     }
 
-    fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         match other.tag() {
             DENSE_BYTE_NODE_TAG => {
                 let other_dense_node = unsafe{ other.as_dense_unchecked() };
@@ -1203,7 +1203,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             },
             TINY_REF_NODE_TAG => {
                 let tiny_node = unsafe{ other.as_tiny_unchecked() };
-                tiny_node.pjoin_dyn(self)
+                tiny_node.pjoin_dyn(self.as_tagged())
             }
             EMPTY_NODE_TAG => {
                 AlgebraicResult::Identity(SELF_IDENT)
@@ -1287,7 +1287,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
     }
 
-    fn pmeet_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         match other.tag() {
             DENSE_BYTE_NODE_TAG => {
                 let other_dense_node = unsafe { other.as_dense_unchecked() };
@@ -1295,7 +1295,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             },
             LINE_LIST_NODE_TAG => {
                 let other_list_node = unsafe { other.as_list_unchecked() };
-                other_list_node.pmeet_dyn(self).invert_identity()
+                other_list_node.pmeet_dyn(self.as_tagged()).invert_identity()
             },
             #[cfg(feature = "bridge_nodes")]
             TaggedNodeRef::BridgeNode(other_bridge_node) => {
@@ -1307,14 +1307,14 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             },
             TINY_REF_NODE_TAG => {
                 let tiny_node = unsafe { other.as_tiny_unchecked() };
-                tiny_node.pmeet_dyn(self).invert_identity()
+                tiny_node.pmeet_dyn(self.as_tagged()).invert_identity()
             },
             EMPTY_NODE_TAG => AlgebraicResult::None,
             _ => unsafe{ unreachable_unchecked() }
         }
     }
 
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
+    fn psubtract_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
         match other.tag() {
             DENSE_BYTE_NODE_TAG => {
                 let other_dense_node = unsafe { other.as_dense_unchecked() };
@@ -1341,7 +1341,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
     }
 
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
+    fn prestrict_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
         match other.tag() {
             DENSE_BYTE_NODE_TAG => {
                 let other_dense_node = unsafe { other.as_dense_unchecked() };

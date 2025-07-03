@@ -438,7 +438,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     /// WARNING: This is not a cheap method. It may have an order-N cost
     pub fn val_count(&self) -> usize {
         match self.root() {
-            Some(root) => val_count_below_root(root.borrow()),
+            Some(root) => val_count_below_root(root.as_tagged()),
             None => 0
         }
     }
@@ -482,7 +482,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         if self_root.is_none() || other_root.is_none() {
             Self::new_in(self.alloc.clone())
         } else {
-            match self_root.unwrap().borrow().prestrict_dyn(other_root.unwrap().borrow()) {
+            match self_root.unwrap().borrow().prestrict_dyn(other_root.unwrap().as_tagged()) {
                 AlgebraicResult::Element(new_root) => Self::new_with_root_in(Some(new_root), None, self.alloc.clone()),
                 AlgebraicResult::None => Self::new_in(self.alloc.clone()),
                 AlgebraicResult::Identity(mask) => {

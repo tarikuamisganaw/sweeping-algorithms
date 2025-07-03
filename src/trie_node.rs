@@ -210,6 +210,7 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     fn next_items(&self, token: u128) -> (u128, &[u8], Option<&TrieNodeODRc<V, A>>, Option<&V>);
 
     /// Returns the total number of leaves contained within the whole subtree defined by the node
+    /// GOAT, this should be deprecated
     fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize;
 
     #[cfg(feature = "counters")]
@@ -306,7 +307,7 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types
-    fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice;
+    fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice;
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types
@@ -323,13 +324,13 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
 
     /// Allows for the implementation of the Lattice trait on different node implementations, and
     /// the logic to promote nodes to other node types
-    fn pmeet_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice;
+    fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice;
 
     /// Allows for the implementation of the DistributiveLattice algebraic operations
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice;
+    fn psubtract_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice;
 
     /// Allows for the implementation of the Quantale algebraic operations
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>>;
+    fn prestrict_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>>;
 
     /// Returns a clone of the node in its own Rc
     fn clone_self(&self) -> TrieNodeODRc<V, A>;
@@ -522,7 +523,7 @@ impl<V: Clone + Send + Sync, A: Allocator> ValOrChildUnion<V, A> {
 // was observed.  Therefore the issue is simply the higher overheads of this function.
 //
 //The next port of call for optimization is probably to remove the recursion
-pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, A: Allocator, MergeF>(self_payloads: &[(&[u8], PayloadRef<V, A>)], other: &dyn TrieNode<V, A>, merge_f: MergeF) -> AlgebraicResult<TrieNodeODRc<V, A>>
+pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, A: Allocator, MergeF>(self_payloads: &[(&[u8], PayloadRef<V, A>)], other: TaggedNodeRef<V, A>, merge_f: MergeF) -> AlgebraicResult<TrieNodeODRc<V, A>>
     where
     MergeF: FnOnce(&mut [Option<ValOrChild<V, A>>]) -> TrieNodeODRc<V, A>,
     V: Clone + Send + Sync + Lattice
@@ -580,7 +581,7 @@ pub(crate) fn node_count_branches_recursive<V: Clone + Send + Sync, A: Allocator
 }
 
 /// Internal function to implement the recursive part of `pmeet_generic`
-pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allocator>(self_payloads: &[(&[u8], PayloadRef<V, A>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V, A>)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V, A>>>], other_node: &'trie dyn TrieNode<V, A>) -> bool
+pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allocator>(self_payloads: &[(&[u8], PayloadRef<V, A>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V, A>)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V, A>>>], other_node: TaggedNodeRef<'trie, V, A>) -> bool
     where V: Clone + Send + Sync + Lattice
 {
     //If is_exhaustive gets set to `false`, then the pmeet method cannot return a `COUNTER_IDENTITY` result
@@ -653,7 +654,7 @@ pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: 
                 PayloadRef::Child(self_link) => {
                     match other_node.get_node_at_key(keys[idx].0).into_option() {
                         Some(other_onward_node) => {
-                            let result = self_link.borrow().pmeet_dyn(other_onward_node.borrow());
+                            let result = self_link.borrow().pmeet_dyn(other_onward_node.as_tagged());
                             FatAlgebraicResult::from_binary_op_result(result, self_link, &other_onward_node)
                                 .map(|child| ValOrChild::Child(child))
                         },
@@ -687,7 +688,7 @@ fn pmeet_generic_recursive_reset<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allo
             let group_keys = &mut keys[group_start..idx];
             let group_results = &mut results[group_start..idx];
             let group_self_payloads = &self_payloads[group_start..idx];
-            if !pmeet_generic_internal::<MAX_PAYLOAD_CNT, V, A>(group_self_payloads, group_keys, request_results, group_results, next_node.borrow()) {
+            if !pmeet_generic_internal::<MAX_PAYLOAD_CNT, V, A>(group_self_payloads, group_keys, request_results, group_results, next_node.as_tagged()) {
                 *is_exhaustive = false;
             }
         },
@@ -697,7 +698,7 @@ fn pmeet_generic_recursive_reset<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allo
 
 pub enum AbstractNodeRef<'a, V: Clone + Send + Sync, A: Allocator> {
     None,
-    BorrowedDyn(&'a dyn TrieNode<V, A>),
+    BorrowedDyn(TaggedNodeRef<'a, V, A>),
     BorrowedRc(&'a TrieNodeODRc<V, A>),
     BorrowedTiny(TinyRefNode<'a, V, A>),
     OwnedRc(TrieNodeODRc<V, A>)
@@ -719,24 +720,6 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> AbstractNodeRef<'a, V, A> {
     pub fn is_none(&self) -> bool {
         matches!(self, AbstractNodeRef::None)
     }
-    pub fn borrow(&self) -> &dyn TrieNode<V, A> {
-        match self {
-            AbstractNodeRef::None => panic!(),
-            AbstractNodeRef::BorrowedDyn(node) => *node,
-            AbstractNodeRef::BorrowedRc(rc) => rc.borrow(),
-            AbstractNodeRef::BorrowedTiny(tiny) => tiny,
-            AbstractNodeRef::OwnedRc(rc) => rc.borrow()
-        }
-    }
-    pub fn try_borrow(&self) -> Option<&dyn TrieNode<V, A>> {
-        match self {
-            AbstractNodeRef::None => None,
-            AbstractNodeRef::BorrowedDyn(node) => Some(*node),
-            AbstractNodeRef::BorrowedRc(rc) => Some(rc.borrow()),
-            AbstractNodeRef::BorrowedTiny(tiny) => Some(tiny),
-            AbstractNodeRef::OwnedRc(rc) => Some(rc.borrow())
-        }
-    }
     pub fn into_option(self) -> Option<TrieNodeODRc<V, A>> {
         match self {
             AbstractNodeRef::None => None,
@@ -744,6 +727,24 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> AbstractNodeRef<'a, V, A> {
             AbstractNodeRef::BorrowedRc(rc) => Some(rc.clone()),
             AbstractNodeRef::BorrowedTiny(tiny) => tiny.into_full().map(|list_node| TrieNodeODRc::new_in(list_node, tiny.alloc)),
             AbstractNodeRef::OwnedRc(rc) => Some(rc)
+        }
+    }
+    pub fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
+        match self {
+            AbstractNodeRef::None => panic!(),
+            AbstractNodeRef::BorrowedDyn(node) => *node,
+            AbstractNodeRef::BorrowedRc(rc) => rc.as_tagged(),
+            AbstractNodeRef::BorrowedTiny(tiny) => tiny.as_tagged(),
+            AbstractNodeRef::OwnedRc(rc) => rc.as_tagged()
+        }
+    }
+    pub fn try_as_tagged(&self) -> Option<TaggedNodeRef<'_, V, A>> {
+        match self {
+            AbstractNodeRef::None => None,
+            AbstractNodeRef::BorrowedDyn(node) => Some(*node),
+            AbstractNodeRef::BorrowedRc(rc) => Some(rc.as_tagged()),
+            AbstractNodeRef::BorrowedTiny(tiny) => Some(tiny.as_tagged()),
+            AbstractNodeRef::OwnedRc(rc) => Some(rc.as_tagged())
         }
     }
 }
@@ -869,6 +870,13 @@ mod tagged_node_ref {
             match self {
                 Self::CellByteNode(node) => node,
                 _ => unsafe { unreachable_unchecked() }
+            }
+        }
+        #[inline(always)]
+        pub unsafe fn as_tiny_unchecked(&self) -> &'a TinyRefNode<'a, V, A> {
+            match self {
+                Self::TinyRefNode(node) => node,
+                _ => unreachable_unchecked()
             }
         }
     }
@@ -1051,6 +1059,16 @@ mod tagged_node_ref {
 
         // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> &mut dyn TrieNode<V>;
 
+        pub fn node_get_payloads<'res>(&self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'a, V, A>)]) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_payloads(keys, results),
+                Self::LineListNode(node) => node.node_get_payloads(keys, results),
+                Self::CellByteNode(node) => node.node_get_payloads(keys, results),
+                Self::TinyRefNode(node) => node.node_get_payloads(keys, results),
+                Self::EmptyNode => true,
+            }
+        }
+
         pub fn node_contains_val(&self, key: &[u8]) -> bool {
             match self {
                 Self::DenseByteNode(node) => node.node_contains_val(key),
@@ -1074,19 +1092,16 @@ mod tagged_node_ref {
             }
         }
 
-        // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
-
-        // fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V>>;
-
-        // fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
-
-        // fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V>) -> Result<bool, TrieNodeODRc<V>>;
-
-        // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
-
-        // fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask);
-
-        // fn node_is_empty(&self) -> bool;
+        #[inline(always)]
+        pub fn node_is_empty(&self) -> bool {
+            match self {
+                Self::DenseByteNode(node) => node.node_is_empty(),
+                Self::LineListNode(node) => node.node_is_empty(),
+                Self::CellByteNode(node) => node.node_is_empty(),
+                Self::TinyRefNode(node) => node.node_is_empty(),
+                Self::EmptyNode => true,
+            }
+        }
 
         #[inline(always)]
         pub fn new_iter_token(&self) -> u128 {
@@ -1125,7 +1140,15 @@ mod tagged_node_ref {
             }
         }
 
-        // fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V>, usize>) -> usize;
+        pub fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+            match self {
+                Self::DenseByteNode(node) => node.node_val_count(cache),
+                Self::LineListNode(node) => node.node_val_count(cache),
+                Self::CellByteNode(node) => node.node_val_count(cache),
+                Self::TinyRefNode(node) => node.node_val_count(cache),
+                Self::EmptyNode => 0,
+            }
+        }
 
         // #[cfg(feature = "counters")]
         // fn item_count(&self) -> usize;
@@ -1236,17 +1259,47 @@ mod tagged_node_ref {
 
         // fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V>>;
 
-        // fn join_dyn(&self, other: &dyn TrieNode<V>) -> TrieNodeODRc<V> where V: Lattice;
-
-        // fn join_into_dyn(&mut self, other: TrieNodeODRc<V>) where V: Lattice;
+        pub fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+            match self {
+                Self::DenseByteNode(node) => node.pjoin_dyn(other),
+                Self::LineListNode(node) => node.pjoin_dyn(other),
+                Self::CellByteNode(node) => node.pjoin_dyn(other),
+                Self::TinyRefNode(node) => node.pjoin_dyn(other),
+                Self::EmptyNode => EmptyNode.pjoin_dyn(other),
+            }
+        }
 
         // fn drop_head_dyn(&mut self, byte_cnt: usize) -> Option<TrieNodeODRc<V>> where V: Lattice;
 
-        // fn meet_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>> where V: Lattice;
+        pub fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+            match self {
+                Self::DenseByteNode(node) => node.pmeet_dyn(other),
+                Self::LineListNode(node) => node.pmeet_dyn(other),
+                Self::CellByteNode(node) => node.pmeet_dyn(other),
+                Self::TinyRefNode(node) => node.pmeet_dyn(other),
+                Self::EmptyNode => AlgebraicResult::None,
+            }
+        }
 
-        // fn psubtract_dyn(&self, other: &dyn TrieNode<V>) -> (bool, Option<TrieNodeODRc<V>>) where V: DistributiveLattice;
+        pub fn psubtract_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
+            match self {
+                Self::DenseByteNode(node) => node.psubtract_dyn(other),
+                Self::LineListNode(node) => node.psubtract_dyn(other),
+                Self::CellByteNode(node) => node.psubtract_dyn(other),
+                Self::TinyRefNode(node) => node.psubtract_dyn(other),
+                Self::EmptyNode => AlgebraicResult::None,
+            }
+        }
 
-        // fn prestrict_dyn(&self, other: &dyn TrieNode<V>) -> Option<TrieNodeODRc<V>>;
+        pub fn prestrict_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
+            match self {
+                Self::DenseByteNode(node) => node.prestrict_dyn(other),
+                Self::LineListNode(node) => node.prestrict_dyn(other),
+                Self::CellByteNode(node) => node.prestrict_dyn(other),
+                Self::TinyRefNode(node) => node.prestrict_dyn(other),
+                Self::EmptyNode => AlgebraicResult::None,
+            }
+        }
 
         #[inline(always)]
         pub fn as_dense(&self) -> Option<&'a DenseByteNode<V, A>> {
@@ -1293,7 +1346,16 @@ mod tagged_node_ref {
 
         // fn as_tagged(&self) -> TaggedNodeRef<V>;
 
-        // fn clone_self(&self) -> TrieNodeODRc<V>;
+        #[inline(always)]
+        pub fn clone_self(&self) -> TrieNodeODRc<V, A> {
+            match self {
+                Self::DenseByteNode(node) => node.clone_self(),
+                Self::LineListNode(node) => node.clone_self(),
+                Self::CellByteNode(node) => node.clone_self(),
+                Self::TinyRefNode(node) => node.clone_self(),
+                Self::EmptyNode => TrieNodeODRc::new_empty(),
+            }
+        }
 
         #[inline(always)]
         pub fn is_cell_node(&self) -> bool {
@@ -2219,7 +2281,7 @@ mod tagged_node_ref {
 }
 
 /// Returns the count of values in the subtrie descending from the node, caching shared subtries
-pub(crate) fn val_count_below_root<V: Clone + Send + Sync, A: Allocator>(node: &dyn TrieNode<V, A>) -> usize {
+pub(crate) fn val_count_below_root<V: Clone + Send + Sync, A: Allocator>(node: TaggedNodeRef<V, A>) -> usize {
     let mut cache = std::collections::HashMap::new();
     node.node_val_count(&mut cache)
 }
@@ -2457,7 +2519,7 @@ mod slim_node_ptr {
     use core::ptr::NonNull;
     use core::sync::atomic::AtomicU32;
     use crate::Allocator;
-    use super::{TaggedNodeRef, TaggedNodeRefMut, TrieNode};
+    use super::{TaggedNodeRef, TaggedNodeRefMut, TrieNode, EMPTY_NODE_TAG};
 
     #[cfg(all(not(target_pointer_width="64")))]
     compile_error!("slim_ptrs is only compatible with 64-bit architectures");
@@ -2493,6 +2555,10 @@ mod slim_node_ptr {
     }
 
     impl<V: Clone + Send + Sync, A: Allocator> SlimNodePtr<V, A> {
+        #[inline]
+        pub(crate) fn new_empty() -> Self {
+            Self::from_raw_parts(core::ptr::without_provenance_mut::<usize>(0xBAADF00D), EMPTY_NODE_TAG)
+        }
         #[inline]
         pub(crate) fn get_raw_parts(&self) -> (*mut AtomicU32, usize) {
             let tag = (self.ptr.addr().get() >> 59) & 0xF;
@@ -2612,6 +2678,7 @@ mod slim_node_ptr {
 
 #[cfg(feature = "slim_ptrs")]
 mod opaque_dyn_rc_trie_node {
+    use core::mem::MaybeUninit;
     use core::sync::atomic::{AtomicU32, Ordering::Acquire, Ordering::Relaxed, Ordering::Release};
     use crate::Allocator;
     use crate::dense_byte_node::{DenseByteNode, CellByteNode};
@@ -2626,7 +2693,7 @@ mod opaque_dyn_rc_trie_node {
     ///  adjust refcounts while `TrieNodeODRc` does.
     pub struct TrieNodeODRc<V: Clone + Send + Sync, A: Allocator> {
         ptr: SlimNodePtr<V, A>,
-        alloc: A
+        alloc: MaybeUninit<A>,
     }
 
     impl<V: Clone + Send + Sync, A: Allocator> Clone for TrieNodeODRc<V, A> {
@@ -2649,7 +2716,7 @@ mod opaque_dyn_rc_trie_node {
             let (ptr, _tag) = self.ptr.get_raw_parts();
             let _old_size = unsafe{ &*ptr }.fetch_add(1, Relaxed);
 
-            Self{ ptr: self.ptr.clone(), alloc: self.alloc.clone() }
+            Self{ ptr: self.ptr.clone(), alloc: unsafe{ MaybeUninit::new(self.alloc.assume_init_ref().clone()) } }
         }
     }
 
@@ -2710,7 +2777,7 @@ mod opaque_dyn_rc_trie_node {
             let refcount = unsafe{ &*ptr }.load(Acquire);
             debug_assert_eq!(refcount, 0);
 
-            drop_inner_in::<V, A>(ptr, tag, self.alloc.clone());
+            drop_inner_in::<V, A>(ptr, tag, unsafe{ self.alloc.assume_init_ref().clone() } );
         }
     }
 
@@ -2765,7 +2832,11 @@ mod opaque_dyn_rc_trie_node {
             };
             #[cfg(feature = "nightly")]
             let boxed = Box::into_raw(Box::new_in(node, alloc.clone()));
-            Self{ ptr: SlimNodePtr::from_raw_parts(boxed, tag), alloc }
+            Self{ ptr: SlimNodePtr::from_raw_parts(boxed, tag), alloc: MaybeUninit::new(alloc) }
+        }
+        #[inline]
+        pub(crate) fn new_empty() -> Self {
+            Self { ptr: SlimNodePtr::new_empty(), alloc: MaybeUninit::uninit() }
         }
         /// Creates a new `TrieNodeODRc` that references a node that exists in memory (ie. not a sentinel for EmptyNode),
         /// but contains no values or onward links
@@ -2838,7 +2909,7 @@ impl<V: Lattice + Clone + Send + Sync, A: Allocator> TrieNodeODRc<V, A> {
         if self.ptr_eq(other) {
             AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT)
         } else {
-            self.borrow().pjoin_dyn(other.borrow())
+            self.borrow().pjoin_dyn(other.as_tagged())
             //GOAT, question: Is there any point to this pre-check, or is it enough to just let pjoin_dyn handle it?
             // let node = self.borrow();
             // let other_node = other.borrow();
@@ -2866,7 +2937,7 @@ impl<V: Lattice + Clone + Send + Sync, A: Allocator> TrieNodeODRc<V, A> {
         if self.ptr_eq(other) {
             AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT)
         } else {
-            self.borrow().pmeet_dyn(other.borrow())
+            self.borrow().pmeet_dyn(other.as_tagged())
         }
     }
 }
@@ -2877,14 +2948,14 @@ impl<V: DistributiveLattice + Clone + Send + Sync, A: Allocator> TrieNodeODRc<V,
         if self.ptr_eq(other) {
             AlgebraicResult::None
         } else {
-            self.borrow().psubtract_dyn(other.borrow())
+            self.borrow().psubtract_dyn(other.as_tagged())
         }
     }
 }
 
 impl <V: Clone + Send + Sync, A: Allocator> Quantale for TrieNodeODRc<V, A> {
     fn prestrict(&self, other: &Self) -> AlgebraicResult<Self> where Self: Sized {
-        self.borrow().prestrict_dyn(other.borrow())
+        self.borrow().prestrict_dyn(other.as_tagged())
     }
 }
 
