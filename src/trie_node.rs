@@ -517,10 +517,10 @@ impl<V: Clone + Send + Sync, A: Allocator> ValOrChildUnion<V, A> {
 /// WARNING: just like [TrieNode::node_get_payloads], the keys in `self_payloads` must be in
 /// sorted order.
 //
-//GOAT: I have confirmed that this function behaves no more conservatively than the function it replaces.
+//NOTE: I have confirmed that this function behaves no more conservatively than the function it replaced.
 // In other words, I have confirmed that, in tests where the old function was behaving correctly, this
 // function returns *identical* results.  Furthermore those same tests are the ones where the 20% slowdown
-// was observed.  Therefore the issue is simply the higher overheads of this function.
+// was observed.  Therefore the the ~20% slowdown is simply the higher overheads of this generic function.
 //
 //The next port of call for optimization is probably to remove the recursion
 pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, A: Allocator, MergeF>(self_payloads: &[(&[u8], PayloadRef<V, A>)], other: TaggedNodeRef<V, A>, merge_f: MergeF) -> AlgebraicResult<TrieNodeODRc<V, A>>
@@ -759,13 +759,6 @@ pub(crate) const TINY_REF_NODE_TAG: usize = 4;
 pub use tagged_node_ref::TaggedNodeRef;
 pub use tagged_node_ref::TaggedNodeRefMut;
 
-#[cfg(not(feature = "slim_ptrs"))]
-pub type NodeRefMut<'a, V, A> = &'a mut dyn TrieNode<V, A>;
-
-//GOAT, `NodeRefMut` can be eliminated, since there is no point in two identical types once `slim_ptrs` is main-line
-#[cfg(feature = "slim_ptrs")]
-pub type NodeRefMut<'a, V, A> = TaggedNodeRefMut<'a, V, A>;
-
 mod tagged_node_ref {
     use super::*;
     use super::slim_node_ptr::SlimNodePtr;
@@ -815,19 +808,19 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
-        ///GOAT, we an hopefully get rid of this
-        #[inline]
-        pub fn into_dyn(self) -> &'a dyn TrieNode<V, A> {
-            match self {
-                Self::DenseByteNode(node) => node as &dyn TrieNode<V, A>,
-                Self::LineListNode(node) => node as &dyn TrieNode<V, A>,
-                #[cfg(feature = "bridge_nodes")]
-                Self::BridgeNode(node) => node as &dyn TrieNode<V, A>,
-                Self::CellByteNode(node) => node as &dyn TrieNode<V, A>,
-                Self::TinyRefNode(node) => node as &dyn TrieNode<V, A>,
-                Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
-            }
-        }
+        ///Unneeded
+        // #[inline]
+        // pub fn into_dyn(self) -> &'a dyn TrieNode<V, A> {
+        //     match self {
+        //         Self::DenseByteNode(node) => node as &dyn TrieNode<V, A>,
+        //         Self::LineListNode(node) => node as &dyn TrieNode<V, A>,
+        //         #[cfg(feature = "bridge_nodes")]
+        //         Self::BridgeNode(node) => node as &dyn TrieNode<V, A>,
+        //         Self::CellByteNode(node) => node as &dyn TrieNode<V, A>,
+        //         Self::TinyRefNode(node) => node as &dyn TrieNode<V, A>,
+        //         Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+        //     }
+        // }
         #[inline]
         pub fn from_dense(node: &'a DenseByteNode<V, A>) -> Self {
             TaggedNodeRef::DenseByteNode(node)
@@ -893,29 +886,16 @@ mod tagged_node_ref {
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
-        //GOAT, this is temporary
-        #[inline]
-        pub fn into_dyn(self) -> &'a mut (dyn TrieNode<V, A> + 'static) {
-            match self {
-                Self::DenseByteNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
-                Self::LineListNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
-                Self::CellByteNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
-            }
-        }
-        /// GOAT, this is definitely trash.  It's here to keep the same usage pattern for the
-        /// dyn dispatch and the table dispatch, but it does ABSOLUTELY NOTHING.  So when it's
-        /// time to remove it, we ought to delete it, and then delete it from every location from
-        /// which it's called
-        #[inline]
-        pub fn as_tagged_mut<'tmp: 'a>(&'tmp mut self) -> TaggedNodeRefMut<'tmp, V, A> {
-            match self {
-                Self::DenseByteNode(node) => Self::DenseByteNode(node),
-                Self::LineListNode(node) => Self::LineListNode(node),
-                Self::CellByteNode(node) => Self::CellByteNode(node),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
-            }
-        }
+        //Unneeded
+        // #[inline]
+        // pub fn into_dyn(self) -> &'a mut (dyn TrieNode<V, A> + 'static) {
+        //     match self {
+        //         Self::DenseByteNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
+        //         Self::LineListNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
+        //         Self::CellByteNode(node) => unsafe{ core::mem::transmute(node as &mut dyn TrieNode<V, A>) },
+        //         Self::Unsupported => unsafe{ unreachable_unchecked() },
+        //     }
+        // }
         /// GOAT, Make this a zero-cost method
         #[inline]
         pub fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
@@ -2615,7 +2595,7 @@ mod slim_node_ptr {
         // }
         #[inline]
         pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
-            let dyn_ref = self.as_tagged().into_dyn();
+            let dyn_ref = self.as_tagged().as_ptr();
             unsafe{ core::mem::transmute(dyn_ref) }
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
@@ -3018,10 +2998,6 @@ impl<V: Lattice + Clone + Send + Sync, A: Allocator> Lattice for Option<TrieNode
             }
         }
     }
-    //GOAT trash
-    // fn bottom() -> Self {
-    //     None
-    // }
 }
 
 impl<V: Lattice + Clone + Send + Sync, A: Allocator> LatticeRef for Option<&TrieNodeODRc<V, A>> {

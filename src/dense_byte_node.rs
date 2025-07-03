@@ -1213,8 +1213,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
     }
 
     fn join_into_dyn(&mut self, mut other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
-        let mut other_mut = other.make_mut();
-        let other_node = other_mut.as_tagged_mut();
+        let other_node = other.make_mut();
         let status = match other_node.tag() {
             DENSE_BYTE_NODE_TAG => {
                 let other_dense_node = unsafe{ other_node.into_dense_unchecked() };

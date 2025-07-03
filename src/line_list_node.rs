@@ -83,7 +83,7 @@ fn list_node_iterative_drop<V: Clone + Send + Sync, A: Allocator>(node: &mut Lin
         if next_node.refcount() > 1 {
             break;
         }
-        match next_node.make_mut().as_tagged_mut().into_list() {
+        match next_node.make_mut().into_list() {
             Some(list_node) => {
                 match list_node_take_child_to_drop(list_node) {
                     Some(child_node) => {
@@ -770,7 +770,7 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
     fn set_payload_abstract<const IS_CHILD: bool>(&mut self, key: &[u8], mut payload: ValOrChildUnion<V, A>) -> Result<(Option<ValOrChild<V, A>>, bool), TrieNodeODRc<V, A>> where V: Clone {
 
         // A local function to either set a child or a branch on a downstream node
-        let set_payload_recursive = |mut child: NodeRefMut<'_, V, A>, node_key, payload: ValOrChildUnion<V, A>| {
+        let set_payload_recursive = |mut child: TaggedNodeRefMut<'_, V, A>, node_key, payload: ValOrChildUnion<V, A>| {
             if IS_CHILD {
                 let onward_link = unsafe{ payload.into_child() };
                 return child.node_set_branch(node_key, onward_link).map(|_| (None, true))
@@ -848,8 +848,8 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
         //We couldn't store the value in either of the slots, so upgrade the node
         //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
         let mut replacement_node = self.convert_to_dense::<OrdinaryCoFree<V, A>>(3);
-        let mut replacement_mut = replacement_node.make_mut();
-        let dense_node = replacement_mut.as_tagged_mut().into_dense().unwrap();
+        let replacement_mut = replacement_node.make_mut();
+        let dense_node = replacement_mut.into_dense().unwrap();
 
         //Add the new key-value pair to the new DenseByteNode
         if key.len() > 1 {
