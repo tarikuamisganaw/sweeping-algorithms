@@ -1399,7 +1399,7 @@ pub(crate) mod read_zipper_core {
                 (Some(prefix), Some(child_node)) => {
                     self.prefix_buf.push(prefix);
                     self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
-                    self.focus_node = child_node.as_tagged();
+                    self.focus_node = child_node;
                     self.focus_iter_token = NODE_ITER_INVALID;
                     true
                 },
@@ -2287,7 +2287,7 @@ pub(crate) mod read_zipper_core {
                     //Step to a new node
                     self.prefix_buf.extend(prefix);
                     self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
-                    self.focus_node = child_node.as_tagged();
+                    self.focus_node = child_node;
                     self.focus_iter_token = NODE_ITER_INVALID;
 
                     //If we're at the root of the new node, descend to the first child

@@ -126,10 +126,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn node_first_val_depth_along_key(&self, _key: &[u8]) -> Option<usize> {
         None
     }
-    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
         (None, None)
     }
-    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V, A>>) {
+    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<V, A>>) {
         (None, None)
     }
     fn count_branches(&self, _key: &[u8]) -> usize {

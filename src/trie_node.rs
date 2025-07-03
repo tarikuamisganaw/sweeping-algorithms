@@ -237,11 +237,11 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     ///
     /// NOTE: onward paths that lead to values are still part of the enumeration
     /// NOTE: Unlike some other trait methods, method may be called with a zero-length key
-    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V, A>>);
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>);
 
     /// Behaves similarly to [Self::nth_child_from_key(0)] with the difference being that the returned
     /// prefix should be an entire path to the onward link or to the next branch
-    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V, A>>);
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<'_, V, A>>);
 
     /// Returns the number of onward (child) paths within a node from a specified key
     ///
@@ -1142,7 +1142,7 @@ mod tagged_node_ref {
             }
         }
 
-        pub fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&'a dyn TrieNode<V, A>>) {
+        pub fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<TaggedNodeRef<'a, V, A>>) {
             match self {
                 Self::DenseByteNode(node) => node.nth_child_from_key(key, n),
                 Self::LineListNode(node) => node.nth_child_from_key(key, n),
@@ -1153,7 +1153,7 @@ mod tagged_node_ref {
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::nth_child_from_key(&crate::empty_node::EMPTY_NODE, key, n),
             }
         }
-        pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<&'a dyn TrieNode<V, A>>) {
+        pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<TaggedNodeRef<'a, V, A>>) {
             match self {
                 Self::DenseByteNode(node) => node.first_child_from_key(key),
                 Self::LineListNode(node) => node.first_child_from_key(key),

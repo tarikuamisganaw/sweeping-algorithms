@@ -250,10 +250,10 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
             None
         }
     }
-    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         panic!();
     }
-    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V, A>>) {
+    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<'_, V, A>>) {
         panic!();
     }
     fn count_branches(&self, _key: &[u8]) -> usize {

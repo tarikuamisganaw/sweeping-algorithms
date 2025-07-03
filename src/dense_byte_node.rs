@@ -1002,7 +1002,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             }
         })
     }
-    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
         if key.len() > 0 {
             return (None, None)
         }
@@ -1024,20 +1024,20 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
 
         if FORWARD {
-            (self.mask.indexed_bit::<FORWARD>(n), self.values[n].rec().map(|cf| &*cf.borrow()))
+            (self.mask.indexed_bit::<FORWARD>(n), self.values[n].rec().map(|cf| cf.as_tagged()))
         } else {
             let idx = self.values.len() - n - 1;
-            (self.mask.indexed_bit::<FORWARD>(n), self.values[idx].rec().map(|cf| &*cf.borrow()))
+            (self.mask.indexed_bit::<FORWARD>(n), self.values[idx].rec().map(|cf| cf.as_tagged()))
         }
     }
 
-    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V, A>>) {
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<V, A>>) {
         debug_assert_eq!(key.len(), 0);
         debug_assert!(self.values.len() > 0);
 
         let cf = unsafe{ self.values.get_unchecked(0) };
         let prefix = self.mask.indexed_bit::<true>(0).unwrap() as usize;
-        (Some(&ALL_BYTES[prefix..=prefix]), cf.rec().map(|cf| &*cf.borrow()))
+        (Some(&ALL_BYTES[prefix..=prefix]), cf.rec().map(|cf| cf.as_tagged()))
     }
 
     fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask) {

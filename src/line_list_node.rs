@@ -1916,7 +1916,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         }
         None
     }
-    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
 
         //If `n==1` we know the only way we will find a valid result is if it's in slot_1.  On the other
         // hand, if `n==0` we might find the result in slot_0, or it might be in slot_1 because the key in
@@ -1927,7 +1927,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                 if key0.starts_with(key) && key0.len() > key.len() {
                     if key0 != key1 {
                         if key.len() + 1 == key0.len() && self.is_child_ptr::<0>() {
-                            return (Some(key0[key.len()]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                            return (Some(key0[key.len()]), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
                         } else {
                             return (Some(key0[key.len()]), None)
                         }
@@ -1935,7 +1935,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                 }
                 if key1.starts_with(key) && key1.len() > key.len() {
                     if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
-                        return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                        return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                     } else {
                         return (Some(key1[key.len()]), None)
                     }
@@ -1954,7 +1954,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                             return (None, None)
                         }
                         if key1.len() == 1 && self.is_child_ptr::<1>() {
-                            return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                            return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                         } else {
                             return (Some(key1[key.len()]), None)
                         }
@@ -1966,7 +1966,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         (None, None)
     }
 
-    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V, A>>) {
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<V, A>>) {
         //Logic:  There are 6 possible results from this method:
         // 1. The `key` arg is zero-length, in which case this method should return the common prefix
         //    if there is one (which is guaranteed to be one byte), or otherwise return the result in slot0
@@ -1987,15 +1987,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         if key.len() == 0 {
             if key1.len() > 0 && key0[0] == key1[0] {
                 if key0.len() == 1 && self.is_child_ptr::<0>() {
-                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().borrow()) });
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) });
                 }
                 if key1.len() == 1 && self.is_child_ptr::<1>() {
-                    return (Some(key0), unsafe{ Some(self.child_in_slot::<1>().borrow()) });
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) });
                 }
                 return (Some(&key0[0..1]), None);
             } else {
                 if self.is_child_ptr::<0>() {
-                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
                 } else {
                     return (Some(key0), None)
                 }
@@ -2007,10 +2007,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             //Case 2
             if key1.len() == 1 && key1[0] == key[0] {
                 if self.is_child_ptr::<0>() {
-                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
                 }
                 if self.is_child_ptr::<1>() {
-                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                 } else {
                     unreachable!(); //If the node has identical keys, one of them must be a link
                 }
@@ -2020,7 +2020,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             if key1.len() > 1 && key1[0] == key[0] {
                 let remaining_key = remaining_key(key1, 1);
                 if self.is_child_ptr::<1>() {
-                    return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                    return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                 } else {
                     return (Some(remaining_key), None)
                 }
@@ -2031,7 +2031,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         if key0.starts_with(key) {
             let remaining_key = remaining_key(key0, key.len());
             if self.is_child_ptr::<0>() {
-                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
             } else {
                 return (Some(remaining_key), None)
             }
@@ -2041,7 +2041,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         if key1.starts_with(key) {
             let remaining_key = remaining_key(key1, key.len());
             if self.is_child_ptr::<1>() {
-                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
             } else {
                 return (Some(remaining_key), None)
             }
