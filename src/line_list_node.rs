@@ -1517,7 +1517,7 @@ fn merge_into_list_nodes<V: Clone + Send + Sync + Lattice, A: Allocator>(target:
     }
 }
 
-fn follow_path<'a, 'k, V: Clone + Send + Sync, A: Allocator>(mut node: TaggedNodeRef<'a, V, A>, mut key: &'k[u8]) -> Option<(&'k[u8], TaggedNodeRef<'a, V, A>)> {
+fn follow_path<'a, 'k, V: Clone + Send + Sync, A: Allocator + 'a>(mut node: TaggedNodeRef<'a, V, A>, mut key: &'k[u8]) -> Option<(&'k[u8], TaggedNodeRef<'a, V, A>)> {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         let next_node = next_node.as_tagged();
         if consumed_byte_cnt < key.len() {
@@ -1536,7 +1536,7 @@ fn follow_path<'a, 'k, V: Clone + Send + Sync, A: Allocator>(mut node: TaggedNod
 
 /// Follows a path from a node, returning `(true, _)` if a value was encountered along the path, returns
 /// `(false, Some)` if the path continues, and `(false, None)` if the path does not descend from the node
-fn follow_path_to_value<'a, 'k, V: Clone + Send + Sync, A: Allocator>(mut node: TaggedNodeRef<'a, V, A>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], TaggedNodeRef<'a, V, A>)>) {
+fn follow_path_to_value<'a, 'k, V: Clone + Send + Sync, A: Allocator + 'a>(mut node: TaggedNodeRef<'a, V, A>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], TaggedNodeRef<'a, V, A>)>) {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         if consumed_byte_cnt < key.len() {
             let next_node = next_node.as_tagged();
@@ -2618,7 +2618,7 @@ mod tests {
     use crate::{global_alloc, Allocator, GlobalAlloc};
     use super::*;
 
-    fn get_recursive<'a, 'b, V: Clone + Send + Sync, A: Allocator>(key: &'a [u8], node: TaggedNodeRef<'b, V, A>) -> (&'a [u8], TaggedNodeRef<'b, V, A>, usize) {
+    fn get_recursive<'a, 'b, V: Clone + Send + Sync, A: Allocator + 'b>(key: &'a [u8], node: TaggedNodeRef<'b, V, A>) -> (&'a [u8], TaggedNodeRef<'b, V, A>, usize) {
         let mut remaining_key = key;
         let mut child_node = node;
         let mut levels = 0;
