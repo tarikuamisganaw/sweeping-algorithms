@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use divan::{Divan, Bencher, black_box};
 use pasture_core::{
     containers::{BorrowedBuffer, VectorBuffer},
@@ -322,7 +324,7 @@ impl BTMOctree {
             if depth >= MAX_DEPTH || wz.child_count() == 0 {
                 if wz.is_value() { wz.get_value_mut().unwrap().push(p); }
                 else { wz.set_value(vec![p]); }
-                // wz.get_value_or_insert_with(|| vec![]).push(p);  GOAT!
+                // wz.get_value_or_insert_with(|| vec![]).push(p);
             } else {
                 let idx = Octree::child_index(bounds.center(), p);
                 let child_bounds = Octree::child(&bounds, idx);
@@ -400,7 +402,7 @@ impl BTMOctree {
             let child_bounds = Octree::child(&bounds, idx as usize);
             order.push((Octree::boundary_d2(&child_bounds, query), idx));
         });
-        
+
         order.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
         for &(_, idx) in &order {
             let child_bounds = Octree::child(&bounds, idx as usize);
