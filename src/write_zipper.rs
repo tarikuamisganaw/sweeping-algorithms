@@ -805,7 +805,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for WriteZipperCore<'_
         }
         match focus_node.node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
-                let child_node = child_node.borrow();
+                let child_node = child_node.as_tagged();
                 if node_key.len() >= consumed_bytes {
                     child_node.node_branches_mask(&node_key[consumed_bytes..])
                 } else {
@@ -1573,7 +1573,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
                 Some((consumed_bytes, child_node)) => {
                     if node_key.len() >= consumed_bytes {
                         child_node.make_mut().node_remove_unmasked_branches(&node_key[consumed_bytes..], mask);
-                        if child_node.borrow().node_is_empty() {
+                        if child_node.as_tagged().node_is_empty() {
                             focus_node.node_remove_all_branches(&node_key[..consumed_bytes]);
                         }
                     } else {
@@ -1605,7 +1605,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             let stack_root = self.focus_stack.root_mut().unwrap();
             core::mem::swap(stack_root, &mut replacement_node);
             self.focus_stack.advance_from_root();
-            if !replacement_node.borrow().node_is_empty() {
+            if !replacement_node.as_tagged().node_is_empty() {
                 Some(replacement_node)
             } else {
                 None
@@ -1643,7 +1643,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
     pub(crate) fn graft_internal(&mut self, src: Option<TrieNodeODRc<V, A>>) {
         match src {
             Some(src) => {
-                debug_assert!(!src.borrow().node_is_empty());
+                debug_assert!(!src.as_tagged().node_is_empty());
                 if self.key.node_key().len() > 0 {
                     //The focus_stack.top() is the parent node of the focus, so we'll replace its child
                     let sub_branch_added = self.in_zipper_mut_static_result(

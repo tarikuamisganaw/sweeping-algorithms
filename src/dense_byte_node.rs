@@ -388,7 +388,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> ByteNode<Cf, A>
                     let other_child = other.get_node_at_key(&[key_byte]);
                     match other_child.try_as_tagged() {
                         Some(other_child) => {
-                            match self_child.borrow().psubtract_dyn(other_child) {
+                            match self_child.as_tagged().psubtract_dyn(other_child) {
                                 AlgebraicResult::None => { is_identity = false; }
                                 AlgebraicResult::Identity(mask) => {
                                     debug_assert_eq!(mask, SELF_IDENT); //subtract is not commutative
@@ -452,7 +452,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> ByteNode<Cf, A>
                         match other_child.try_as_tagged() {
                             Some(other_child) => {
                                 let mut new_cf = Cf::new(None, None);
-                                match self_child.borrow().prestrict_dyn(other_child) {
+                                match self_child.as_tagged().prestrict_dyn(other_child) {
                                     AlgebraicResult::None => { is_identity = false; }
                                     AlgebraicResult::Identity(mask) => {
                                         debug_assert_eq!(mask, SELF_IDENT); //restrict is not commutative

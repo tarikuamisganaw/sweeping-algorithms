@@ -129,7 +129,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
         assert_eq!(partial_path.len(), 0);
 
         self.z.deregularize();
-        self.z.push_node(secondary_root.as_tagged());
+        self.z.push_node(secondary_root);
         self.factor_paths.push(self.path().len());
     }
     /// Internal method to descend across the boundary between two factor zippers if the focus is on a value
@@ -157,7 +157,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
             assert_eq!(partial_path.len(), 0);
 
             self.z.deregularize();
-            self.z.push_node(secondary_root.as_tagged());
+            self.z.push_node(secondary_root);
             self.factor_paths.push(self.path().len());
         }
     }

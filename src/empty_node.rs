@@ -163,7 +163,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
         }
     }
     fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
-        if other.borrow().node_is_empty() {
+        if other.as_tagged().node_is_empty() {
             (AlgebraicStatus::None, Ok(()))
         } else {
             (AlgebraicStatus::Element, Err(other.clone()))

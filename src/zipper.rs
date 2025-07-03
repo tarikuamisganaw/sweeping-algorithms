@@ -634,7 +634,7 @@ pub(crate) mod zipper_priv {
         ///
         /// This method will always return either a zero-length `node_key` or `None` for
         /// `focus_val` (it may return both of those things, but always at least one)
-        fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>);
+        fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>);
 
         /// Returns a the [ReadZipperCore] from inside the zipper leaving a placeholder in the zipper.
         /// Returns `None` if the zipper doesn't support movement
@@ -742,7 +742,7 @@ impl<Z> ZipperPathBuffer for &mut Z where Z: ZipperPathBuffer {
 }
 
 impl<'a, V: Clone + Send + Sync, Z, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for &mut Z where Z: ZipperReadOnlyPriv<'a, V, A> {
-    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) { (**self).borrow_raw_parts() }
+    fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>) { (**self).borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> { (**self).take_core() }
 }
 
@@ -825,7 +825,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipper
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyPriv<'a, V, A> for ReadZipperTracked<'a, '_, V, A> {
-    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
+    fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> {
         let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::empty_node(), &[], 0, None, self.z.alloc.clone());
         core::mem::swap(&mut temp_core, &mut self.z);
@@ -969,7 +969,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipper
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyPriv<'a, V, A> for ReadZipperUntracked<'a, '_, V, A>{
-    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
+    fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> {
         let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::empty_node(), &[], 0, None, self.z.alloc.clone());
         core::mem::swap(&mut temp_core, &mut self.z);
@@ -1173,7 +1173,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipper
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for ReadZipperOwned<V, A> where Self: 'a {
-    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
+    fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>) { self.z.borrow_raw_parts() }
     fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> {
         let mut temp_core = ReadZipperCore::new_with_node_and_path_internal_in(TaggedNodeRef::empty_node(), &[], 0, None, self.z.alloc.clone());
         core::mem::swap(&mut temp_core, &mut self.z);
@@ -1743,13 +1743,12 @@ pub(crate) mod read_zipper_core {
     }
 
     impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for ReadZipperCore<'a, '_, V, A> {
-        fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) {
-            let focus_node = self.focus_node.borrow();
+        fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>) {
             let node_key = self.node_key();
             if node_key.len() > 0 {
-                (focus_node, node_key, None)
+                (self.focus_node, node_key, None)
             } else {
-                (focus_node, &[], self.get_value())
+                (self.focus_node, &[], self.get_value())
             }
         }
         fn take_core(&mut self) -> Option<ReadZipperCore<'a, 'static, V, A>> {
@@ -1795,7 +1794,7 @@ pub(crate) mod read_zipper_core {
             // https://discord.com/channels/@me/1215835387432271922/1352463443541754068
             return None
         }
-        let addr = (node as *const dyn crate::trie_node::TrieNode<V, A>).addr();
+        let addr = (node.as_ptr()).addr();
         Some(addr)
         // FocusAddr(addr, key.into())
     }

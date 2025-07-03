@@ -284,8 +284,8 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for TrieRef<'_
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for TrieRef<'a, V, A> {
-    fn borrow_raw_parts<'z>(&'z self) -> (&'a dyn TrieNode<V, A>, &'z [u8], Option<&'a V>) {
-        (self.focus_node.borrow(), self.node_key(), self.root_val())
+    fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>) {
+        (self.focus_node, self.node_key(), self.root_val())
     }
     fn take_core(&mut self) -> Option<read_zipper_core::ReadZipperCore<'a, 'static, V, A>> {
         None

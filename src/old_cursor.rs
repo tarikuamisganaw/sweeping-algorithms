@@ -20,7 +20,7 @@ impl <'a, V : Clone + Send + Sync + Unpin> AllDenseCursor<'a, V> {
         btm.ensure_root();
         Self {
             prefix: vec![],
-            btnis: vec![ByteTrieNodeIter::new(btm.root().unwrap().borrow().as_tagged().as_dense().unwrap())],
+            btnis: vec![ByteTrieNodeIter::new(btm.root().unwrap().as_tagged().as_dense().unwrap())],
             nopush: false
         }
     }
@@ -51,7 +51,7 @@ impl <'a, V : Clone + Send + Sync> AllDenseCursor<'a, V> {
                                 }
                                 Some(rec) => {
                                     self.nopush = false;
-                                    self.btnis.push(ByteTrieNodeIter::new(rec.borrow().as_tagged().as_dense().unwrap()));
+                                    self.btnis.push(ByteTrieNodeIter::new(rec.as_tagged().as_dense().unwrap()));
                                 }
                             }
 
@@ -257,7 +257,7 @@ impl <'a, V : Clone + Send + Sync + Unpin> PathMapCursor<'a, V> {
         const EXPECTED_DEPTH: usize = 16;
         const EXPECTED_PATH_LEN: usize = 256;
         btm.ensure_root();
-        let node = btm.root().unwrap().borrow().as_tagged();
+        let node = btm.root().unwrap().as_tagged();
         let token = node.new_iter_token();
         let mut btnis = Vec::with_capacity(EXPECTED_DEPTH);
         btnis.push((node, token, 0));
@@ -287,7 +287,7 @@ impl <'a, V : Clone + Send + Sync> PathMapCursor<'a, V> {
                         match rec {
                             None => {},
                             Some(rec) => {
-                                let child_node = rec.borrow().as_tagged();
+                                let child_node = rec.as_tagged();
                                 let child_token = child_node.new_iter_token();
                                 self.btnis.push((child_node, child_token, self.prefix_buf.len()));
                             },

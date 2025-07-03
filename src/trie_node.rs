@@ -1016,19 +1016,32 @@ mod tagged_node_ref {
         pub fn from_tiny(node: &'a TinyRefNode<V, A>) -> Self {
             Self::TinyRefNode(node)
         }
-//GOAT here next
         #[inline]
-        pub fn borrow(&self) -> &'a dyn TrieNode<V, A> {
-            match self {
-                Self::DenseByteNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
-                #[cfg(feature = "bridge_nodes")]
-                Self::BridgeNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::TinyRefNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
-            }
+        pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
+            let ptr = match self {
+                Self::DenseByteNode(node) => *node as *const dyn TrieNode<V, A>,
+                Self::LineListNode(node) => *node as *const dyn TrieNode<V, A>,
+                Self::CellByteNode(node) => *node as *const dyn TrieNode<V, A>,
+                Self::TinyRefNode(node) => *node as *const dyn TrieNode<V, A>,
+                Self::EmptyNode => &crate::empty_node::EMPTY_NODE as *const dyn TrieNode<V, A>,
+            };
+            //SAFETY: This pointer is mainly used to hash the subtrie, but also, the 'static
+            // bound on the nodes doesn't extend to the trie, which is bounded by another lifetime
+            unsafe{ core::mem::transmute(ptr) }
         }
+        //Unneeded
+        // #[inline]
+        // pub fn borrow(&self) -> &'a dyn TrieNode<V, A> {
+        //     match self {
+        //         Self::DenseByteNode(node) => *node as &dyn TrieNode<V, A>,
+        //         Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
+        //         #[cfg(feature = "bridge_nodes")]
+        //         Self::BridgeNode(node) => *node as &dyn TrieNode<V, A>,
+        //         Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
+        //         Self::TinyRefNode(node) => *node as &dyn TrieNode<V, A>,
+        //         Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+        //     }
+        // }
         #[inline]
         pub fn node_key_overlap(&self, key: &[u8]) -> usize {
             match self {
@@ -1375,16 +1388,16 @@ mod tagged_node_ref {
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
-//GOAT here next
-        #[inline]
-        pub fn borrow(&self) -> &dyn TrieNode<V, A> {
-            match self {
-                Self::DenseByteNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
-            }
-        }
+        //Unneeded
+        // #[inline]
+        // pub fn borrow(&self) -> &dyn TrieNode<V, A> {
+        //     match self {
+        //         Self::DenseByteNode(node) => *node as &dyn TrieNode<V, A>,
+        //         Self::LineListNode(node) => *node as &dyn TrieNode<V, A>,
+        //         Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
+        //         Self::Unsupported => unsafe{ unreachable_unchecked() },
+        //     }
+        // }
         #[inline(always)]
         pub fn into_dense(self) -> Option<&'a mut DenseByteNode<V, A>> {
             match self {
@@ -2595,11 +2608,11 @@ mod slim_node_ptr {
         pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
             TaggedNodeRefMut::from_slim_ptr(*self)
         }
-        //Unneeded, GOAT, try to remove this
-        #[inline]
-        pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
-            self.as_tagged().into_dyn()
-        }
+        //Unneeded
+        // #[inline]
+        // pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
+        //     self.as_tagged().into_dyn()
+        // }
         #[inline]
         pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
             let dyn_ref = self.as_tagged().into_dyn();
@@ -2867,11 +2880,11 @@ mod opaque_dyn_rc_trie_node {
         pub(crate) fn tag(&self) -> usize {
             self.ptr.tag()
         }
-        //Unneeded //GOAT, try to remove this
-        #[inline]
-        pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
-            self.ptr.borrow()
-        }
+        //Unneeded
+        // #[inline]
+        // pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
+        //     self.ptr.borrow()
+        // }
         #[inline]
         pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
             self.ptr.as_ptr()

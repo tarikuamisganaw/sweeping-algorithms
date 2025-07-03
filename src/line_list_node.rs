@@ -1048,14 +1048,14 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
             if self.is_child_ptr::<SLOT>() {
                 let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
                 let difference = if onward_key.len() == 0 {
-                    self_onward_link.borrow().psubtract_dyn(onward_node)
+                    self_onward_link.as_tagged().psubtract_dyn(onward_node)
                 } else {
                     match onward_node.get_node_at_key(onward_key).into_option() {
-                        Some(other_onward_node) => self_onward_link.borrow().psubtract_dyn(other_onward_node.as_tagged()),
+                        Some(other_onward_node) => self_onward_link.as_tagged().psubtract_dyn(other_onward_node.as_tagged()),
                         None => return AlgebraicResult::Identity(SELF_IDENT)
                     }
                 };
-                debug_assert!(difference.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or([true, true], true));
+                debug_assert!(difference.as_ref().map(|node| node.as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or([true, true], true));
                 difference.map(|node| ValOrChildUnion::from(node))
             } else {
                 debug_assert!(onward_key.len() > 0);
@@ -1080,10 +1080,10 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
                 if self.is_child_ptr::<SLOT>() {
                     let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
                     let restricted_node_result = if onward_key.len() == 0 {
-                        self_onward_link.borrow().prestrict_dyn(onward_node)
+                        self_onward_link.as_tagged().prestrict_dyn(onward_node)
                     } else {
                         let other_onward_node = onward_node.get_node_at_key(onward_key);
-                        self_onward_link.borrow().prestrict_dyn(other_onward_node.as_tagged())
+                        self_onward_link.as_tagged().prestrict_dyn(other_onward_node.as_tagged())
                     };
                     restricted_node_result.map(|node| ValOrChildUnion::from(node))
                 } else {
@@ -2631,12 +2631,12 @@ mod tests {
     use crate::{global_alloc, Allocator, GlobalAlloc};
     use super::*;
 
-    fn get_recursive<'a, 'b, V: Clone + Send + Sync, A: Allocator>(key: &'a [u8], node: &'b dyn TrieNode<V, A>) -> (&'a [u8], &'b dyn TrieNode<V, A>, usize) {
+    fn get_recursive<'a, 'b, V: Clone + Send + Sync, A: Allocator>(key: &'a [u8], node: TaggedNodeRef<'b, V, A>) -> (&'a [u8], TaggedNodeRef<'b, V, A>, usize) {
         let mut remaining_key = key;
-        let mut child_node = node as &dyn TrieNode<V, A>;
+        let mut child_node = node;
         let mut levels = 0;
         while let Some((bytes_used, next_node)) = child_node.node_get_child(remaining_key) {
-            let next_node = next_node.borrow();
+            let next_node = next_node.as_tagged();
             remaining_key = &remaining_key[bytes_used..];
             child_node = next_node;
             levels += 1;
@@ -2693,7 +2693,7 @@ mod tests {
 
         assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
         let (bytes_used, child_node) = new_node.node_get_child("a".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("hello".as_bytes()), Some(&24));
     }
@@ -2706,7 +2706,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 9);
         assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("s billy".as_bytes()), Some(&24));
@@ -2724,7 +2724,7 @@ mod tests {
         assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok((None, true)));
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
 
-        let (remaining_key, child_node, _) = get_recursive(LONG_KEY, &new_node);
+        let (remaining_key, child_node, _) = get_recursive(LONG_KEY, new_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
     }
 
@@ -2737,7 +2737,7 @@ mod tests {
         // are created
         let mut new_node = LineListNode::<usize, GlobalAlloc>::new_in(global_alloc());
         assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok((None, true)));
-        let (remaining_key, child_node, levels) = get_recursive(LONG_KEY, &new_node);
+        let (remaining_key, child_node, levels) = get_recursive(LONG_KEY, new_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
         assert_eq!(levels, (LONG_KEY.len()-1) / KEY_BYTES_CNT);
 
@@ -2755,7 +2755,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
@@ -2771,7 +2771,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
@@ -2785,17 +2785,17 @@ mod tests {
         assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok((None, false)));
         let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
-        assert_eq!(replacement_node.borrow().tag(), DENSE_BYTE_NODE_TAG);// else { panic!("expected node would be a byte node"); }
-        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        assert_eq!(replacement_node.tag(), DENSE_BYTE_NODE_TAG);// else { panic!("expected node would be a byte node"); }
+        let (bytes_used, child_node) = replacement_node.as_tagged().node_get_child("apple".as_bytes()).unwrap();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("pple".as_bytes()), Some(&1));
-        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("banana".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let (bytes_used, child_node) = replacement_node.as_tagged().node_get_child("banana".as_bytes()).unwrap();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("anana".as_bytes()), Some(&2));
-        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("carrot".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let (bytes_used, child_node) = replacement_node.as_tagged().node_get_child("carrot".as_bytes()).unwrap();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("arrot".as_bytes()), Some(&3));
     }
@@ -2808,14 +2808,14 @@ mod tests {
         b.node_set_val("banana".as_bytes(), 1).unwrap_or_else(|_| panic!());
 
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("banana".as_bytes()), Some(&1));
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert!(!join_list_node.node_is_empty());
     }
@@ -2829,13 +2829,13 @@ mod tests {
 
         //u64's default impl of Lattice::join just takes the value from self
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&42));
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2846,18 +2846,18 @@ mod tests {
         let mut b = LineListNode::<u64, GlobalAlloc>::new_in(global_alloc());
         b.node_set_val("apricot".as_bytes(), 24).unwrap_or_else(|_| panic!());
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
 
-        let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), join_list_node);
+        let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), join_list_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&42));
 
-        let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), join_list_node);
+        let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), join_list_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2871,14 +2871,14 @@ mod tests {
         b.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
 
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2894,14 +2894,14 @@ mod tests {
         debug_assert!(validate_node(&b));
 
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2915,14 +2915,14 @@ mod tests {
         b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
 
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert_eq!(joined_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(joined_node.node_get_val("1".as_bytes()), Some(&1));
         assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert!(!joined_node.node_is_empty());
     }
 
@@ -2936,7 +2936,7 @@ mod tests {
         b.node_set_val("3".as_bytes(), 3).unwrap_or_else(|_| panic!());
 
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert_eq!(joined_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(joined_node.node_get_val("1".as_bytes()), Some(&1));
         assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
@@ -2944,7 +2944,7 @@ mod tests {
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert!(!joined_node.node_is_empty());
     }
 
@@ -2960,7 +2960,7 @@ mod tests {
         debug_assert!(validate_node(&b));
 
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
 
         let (remaining_key, child_node, _) = get_recursive("0a".as_bytes(), joined_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&0));
@@ -2976,7 +2976,7 @@ mod tests {
 
         //re-run join, just to make sure the source maps didn't get modified
         let joined_result = a.pjoin_dyn(b.as_tagged());
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert!(!joined_node.node_is_empty());
     }
 
