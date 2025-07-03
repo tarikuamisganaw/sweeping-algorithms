@@ -47,6 +47,8 @@ num = "0.4.3"
 rand_distr = { version = "0.5.1" }
 rand = { version = "0.9.0" }
 tempfile = "3.19.1"
+pasture-core = "0.5.0" # For pointcloud benchmark
+pasture-io = "0.5.0" # For pointcloud benchmark
 
 [[bench]]
 name = "superdense_keys"
@@ -84,3 +86,7 @@ harness = false
 name = "path_ops"
 harness = false
 required-features = ["fuzzer"]
+
+[[bench]]
+name = "pointcloud"
+harness = false
