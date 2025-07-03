@@ -1719,6 +1719,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         self.get_val_mut(key)
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
+        debug_assert!(key.len() > 0);
         self.set_payload_abstract::<false>(key, val.into()).map(|(result, created_subnode)| {
             (result.map(|payload| payload.into_val() ), created_subnode)
         })

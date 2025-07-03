@@ -811,7 +811,16 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for WriteZipperCore<'_
         }
     }
     fn is_value(&self) -> bool {
-        self.focus_stack.top().unwrap().node_contains_val(self.key.node_key())
+        let key = self.key.node_key();
+        if key.len() == 0 {
+            debug_assert!(self.at_root());
+            match self.root_val {
+                Some(root_ptr) => unsafe{ &*root_ptr }.is_some(),
+                None => false
+            }
+        } else {
+            self.focus_stack.top().unwrap().node_contains_val(key)
+        }
     }
     fn child_count(&self) -> usize {
         let focus_node = self.focus_stack.top().unwrap();
@@ -1142,37 +1151,14 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
     }
     /// See [WriteZipper::get_value_or_insert]
     pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
-        let created_subnode = self.in_zipper_mut_static_result(
-            |node, key| {
-                if !node.node_contains_val(key) {
-                    node.node_set_val(key, default).map(|(_old_val, created_subnode)| created_subnode)
-                } else {
-                    Ok(false)
-                }
-            },
-            |_, _| true);
-        if created_subnode {
-            self.mend_root();
-            self.descend_to_internal();
-        }
-        self.get_value_mut().unwrap()
+        self.get_value_or_insert_with(|| default)
     }
     /// See [WriteZipper::get_value_or_insert_with]
     pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
         where F: FnOnce() -> V
     {
-        let created_subnode = self.in_zipper_mut_static_result(
-            |node, key| {
-                if !node.node_contains_val(key) {
-                    node.node_set_val(key, func()).map(|(_old_val, created_subnode)| created_subnode)
-                } else {
-                    Ok(false)
-                }
-            },
-            |_, _| true);
-        if created_subnode {
-            self.mend_root();
-            self.descend_to_internal();
+        if !self.is_value() {
+            self.set_value(func());
         }
         self.get_value_mut().unwrap()
     }
@@ -2096,6 +2082,29 @@ mod tests {
     }
 
     #[test]
+    fn write_zipper_root_value_test() {
+        let mut map = BytesTrieMap::<usize>::new();
+        let mut zipper = map.write_zipper();
+
+        assert_eq!(zipper.is_value(), false);
+        assert_eq!(zipper.value(), None);
+        assert_eq!(zipper.get_value_mut(), None);
+
+        assert_eq!(zipper.set_value(42), None);
+        assert_eq!(zipper.is_value(), true);
+        assert_eq!(zipper.value(), Some(&42));
+        assert_eq!(zipper.get_value_mut().unwrap(), &42);
+
+        *zipper.get_value_mut().unwrap() = 1337;
+        assert_eq!(zipper.value(), Some(&1337));
+
+        assert_eq!(zipper.remove_value(), Some(1337));
+        assert_eq!(zipper.is_value(), false);
+        assert_eq!(zipper.value(), None);
+        assert_eq!(zipper.get_value_mut(), None);
+    }
+
+    #[test]
     fn write_zipper_get_or_insert_value_test() {
         let mut map = BytesTrieMap::<u64>::new();
         map.write_zipper_at_path(b"Drenths").get_value_or_insert(42);
@@ -2105,6 +2114,17 @@ mod tests {
         assert_eq!(map.get(b"Drenths"), Some(&24));
 
         let mut zipper = map.write_zipper_at_path(b"Drenths");
+        *zipper.get_value_or_insert(42) = 0;
+        assert_eq!(zipper.value(), Some(&0));
+        drop(zipper);
+
+        map.write_zipper().get_value_or_insert(42);
+        assert_eq!(map.get([]), Some(&42));
+
+        *map.write_zipper().get_value_or_insert(42) = 24;
+        assert_eq!(map.get([]), Some(&24));
+
+        let mut zipper = map.write_zipper();
         *zipper.get_value_or_insert(42) = 0;
         assert_eq!(zipper.value(), Some(&0))
     }

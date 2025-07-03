@@ -808,6 +808,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
     }
     fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
+        debug_assert!(key.len() > 0);
         #[cfg(not(feature = "all_dense_nodes"))]
         {
             //Split a new node to hold everything after the first byte of the key
