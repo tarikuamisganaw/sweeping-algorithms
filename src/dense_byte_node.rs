@@ -1118,7 +1118,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
     }
 
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
         if key.len() != 1 {
             return (None, None)
         }
@@ -1144,7 +1144,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         // println!("candidate {}", sk);
         debug_assert!(self.mask.test_bit(sibling_key_char));
         let cf = unsafe{ self.get_unchecked(sibling_key_char) };
-        (Some(sibling_key_char), cf.rec().map(|node| &*node.borrow()))
+        (Some(sibling_key_char), cf.rec().map(|node| node.as_tagged()))
     }
 
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {

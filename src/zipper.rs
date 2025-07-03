@@ -2092,7 +2092,7 @@ pub(crate) mod read_zipper_core {
                     (Some(prefix), Some(child_node)) => {
                         *self.prefix_buf.last_mut().unwrap() = prefix;
                         self.ancestors.push((self.focus_node.clone(), self.focus_iter_token, self.prefix_buf.len()));
-                        self.focus_node = child_node.as_tagged();
+                        self.focus_node = child_node;
                         self.focus_iter_token = NODE_ITER_INVALID;
                         true
                     },
@@ -2110,7 +2110,7 @@ pub(crate) mod read_zipper_core {
                         match parent.get_sibling_of_child(self.parent_key(), next) {
                             (Some(prefix), Some(child_node)) => {
                                 *self.prefix_buf.last_mut().unwrap() = prefix;
-                                self.focus_node = child_node.as_tagged();
+                                self.focus_node = child_node;
                                 self.focus_iter_token = NODE_ITER_INVALID;
                                 true
                             },

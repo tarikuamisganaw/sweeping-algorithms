@@ -146,7 +146,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
         &[]
     }
 
-    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
         (None, None)
     }
     fn get_node_at_key(&self, _key: &[u8]) -> AbstractNodeRef<'_, V, A> {

@@ -2153,7 +2153,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         }
     }
 
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
         debug_assert!(key.len() > 0);
         let last_key_byte_idx = key.len()-1;
         let common_key = &key[..last_key_byte_idx];
@@ -2167,8 +2167,8 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                     };
                     if key1_last_byte != key.last().unwrap() {
                         let sib_node = if key1.len() == key.len() && self.is_child_ptr::<1>() {
-                            let sib_node = unsafe{ self.child_in_slot::<1>().borrow() };
-                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
+                            let sib_node = unsafe{ self.child_in_slot::<1>().as_tagged() };
+                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None
@@ -2189,8 +2189,8 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                     };
                     if key0_last_byte != key.last().unwrap() {
                         let sib_node = if key0.len() == key.len() && self.is_child_ptr::<0>() {
-                            let sib_node = unsafe{ self.child_in_slot::<0>().borrow() };
-                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
+                            let sib_node = unsafe{ self.child_in_slot::<0>().as_tagged() };
+                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None

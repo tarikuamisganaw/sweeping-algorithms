@@ -286,7 +286,7 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// `key`, otherwise it will be immedtely before
     ///
     /// NOTE: This method will never be called with a zero-length key
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V, A>>);
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<V, A>>);
 
     /// Returns a new node which is a clone or reference to the portion of the node rooted at `key`, or
     /// `None` if `key` does not specify a path within the node
@@ -1211,7 +1211,7 @@ mod tagged_node_ref {
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::prior_branch_key(&crate::empty_node::EMPTY_NODE, key),
             }
         }
-        pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&'a dyn TrieNode<V, A>>) {
+        pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<'a, V, A>>) {
             match self {
                 Self::DenseByteNode(node) => node.get_sibling_of_child(key, next),
                 Self::LineListNode(node) => node.get_sibling_of_child(key, next),
