@@ -749,7 +749,6 @@ pub use tagged_node_ref::TaggedNodeRefMut;
 
 mod tagged_node_ref {
     use super::*;
-    use super::slim_node_ptr::SlimNodePtr;
     use crate::empty_node::EmptyNode;
 
     /// A reference to a node with a concrete type
@@ -784,8 +783,9 @@ mod tagged_node_ref {
         pub fn empty_node() -> Self {
             Self::EmptyNode
         }
+        #[cfg(feature = "slim_ptrs")]
         #[inline]
-        pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
+        pub(super) fn from_slim_ptr(ptr: super::slim_node_ptr::SlimNodePtr<V, A>) -> Self {
             let (ptr, tag) = ptr.get_raw_parts();
             match tag {
                 EMPTY_NODE_TAG => Self::EmptyNode,//&crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
@@ -894,8 +894,9 @@ mod tagged_node_ref {
                 Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
+        #[cfg(feature = "slim_ptrs")]
         #[inline]
-        pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
+        pub(super) fn from_slim_ptr(ptr: super::slim_node_ptr::SlimNodePtr<V, A>) -> Self {
             let (ptr, tag) = ptr.get_raw_parts();
             match tag {
                 DENSE_BYTE_NODE_TAG => Self::DenseByteNode(unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }),
@@ -1342,7 +1343,7 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => node.clone_self(),
                 Self::CellByteNode(node) => node.clone_self(),
                 Self::TinyRefNode(node) => node.clone_self(),
-                Self::EmptyNode => TrieNodeODRc::new_empty(),
+                Self::EmptyNode => unreachable!(), //GOAT... The allocator gives us problems, and allocating a box for an empty sentinel is dumb.  TrieNodeODRc::new_empty(),
             }
         }
 
@@ -2347,7 +2348,7 @@ pub(crate) use opaque_dyn_rc_trie_node::TrieNodeODRc;
 mod opaque_dyn_rc_trie_node {
     use std::sync::Arc;
     use super::TrieNode;
-    use crate::Allocator;
+    use crate::{trie_node::TaggedNodeRefMut, Allocator};
     use super::TaggedNodeRef;
 
     //TODO_FUTURE: make a type alias within the trait to refer to this type, as soon as
@@ -2434,6 +2435,14 @@ mod opaque_dyn_rc_trie_node {
             self.borrow().as_tagged()
         }
         #[inline]
+        pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
+            self.make_mut()
+        }
+        #[inline]
+        pub(crate) fn tag(&self) -> usize {
+            self.borrow().tag()
+        }
+        #[inline]
         pub(crate) fn borrow(&self) -> &dyn TrieNode<V, A> {
             &*self.0
         }
@@ -2448,12 +2457,12 @@ mod opaque_dyn_rc_trie_node {
         }
         //NOTE for future separation into stand-alone crate: Make this contingent on a dyn_clone compile-time feature
         #[inline]
-        pub(crate) fn make_mut(&mut self) -> &mut (dyn TrieNode<V, A> + 'static) {
+        pub(crate) fn make_mut(&mut self) -> TaggedNodeRefMut<V, A> {
             #[cfg(not(feature = "nightly"))]
             let node = dyn_clone::arc_make_mut(&mut self.0) as &mut dyn TrieNode<V, A>;
             #[cfg(feature = "nightly")]
             let node = odrc_arc_make_mut(self) as &mut dyn TrieNode<V, A>;
-            node
+            node.as_tagged_mut()
         }
     }
 
@@ -2544,6 +2553,7 @@ mod slim_node_ptr {
     }
 
     impl<V: Clone + Send + Sync, A: Allocator> SlimNodePtr<V, A> {
+        #[allow(unused)]
         #[inline]
         pub(crate) fn new_empty() -> Self {
             Self::from_raw_parts(core::ptr::without_provenance_mut::<usize>(0xBAADF00D), EMPTY_NODE_TAG)
@@ -2822,6 +2832,7 @@ mod opaque_dyn_rc_trie_node {
             let boxed = Box::into_raw(Box::new_in(node, alloc.clone()));
             Self{ ptr: SlimNodePtr::from_raw_parts(boxed, tag), alloc: MaybeUninit::new(alloc) }
         }
+        #[allow(unused)]
         #[inline]
         pub(crate) fn new_empty() -> Self {
             Self { ptr: SlimNodePtr::new_empty(), alloc: MaybeUninit::uninit() }
