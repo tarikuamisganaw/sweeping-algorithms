@@ -956,7 +956,7 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             }
         }
     }
-    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+    fn node_val_count(&self, cache: &mut HashMap<u64, usize>) -> usize {
         //Discussion: These two implementations do the same thing but with a slightly different ordering of
         // the operations.  In `all_dense_nodes`, the "Branchy" impl wins.  But in a mixed-node setting, the
         // IMPL B is the winner.  My suspicion is that the ListNode's heavily branching structure leads to

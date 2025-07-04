@@ -1883,7 +1883,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             _ => (NODE_ITER_FINISHED, &[], None, None)
         }
     }
-    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+    fn node_val_count(&self, cache: &mut HashMap<u64, usize>) -> usize {
         let mut result = 0;
         if self.is_used_value_0() {
             result += 1;

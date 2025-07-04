@@ -542,7 +542,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
 struct StackFrame {
     child_idx: u16,
     child_cnt: u16,
-    child_addr: Option<usize>,
+    child_addr: Option<u64>,
 }
 
 impl StackFrame {
@@ -663,8 +663,6 @@ where
     wz.ascend(prefix_len);
 }
 
-use crate::zipper::zipper_priv::FocusAddr;
-
 /// A trait to dictate if and how the value should be cached.
 ///
 /// The reason this trait exists is to allow a single function to work with and
@@ -680,7 +678,7 @@ trait CacheStrategy<W> {
 
     /// Insert a value to cache
     #[inline(always)]
-    fn insert(cache: &mut HashMap<FocusAddr, W>, addr: Option<FocusAddr>, cur_w: &W) {
+    fn insert(cache: &mut HashMap<u64, W>, addr: Option<u64>, cur_w: &W) {
         // Do nothing if caching is disabled
         if !Self::CACHING {
             return;
@@ -692,7 +690,7 @@ trait CacheStrategy<W> {
 
     /// Get a value from cache
     #[inline(always)]
-    fn get(cache: &HashMap<FocusAddr, W>, addr: Option<FocusAddr>) -> Option<W> {
+    fn get(cache: &HashMap<u64, W>, addr: Option<u64>) -> Option<W> {
         // Do nothing if caching is disabled
         if !Self::CACHING {
             return None;
@@ -735,7 +733,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
 
     let mut stack = Stack::new();
     let mut children = Vec::<W>::new();
-    let mut cache = HashMap::<FocusAddr, W>::new();
+    let mut cache = HashMap::<u64, W>::new();
     stack.push_state(&zipper);
     'outer: loop {
         let frame_mut = stack.last_mut()
@@ -744,7 +742,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
         if frame_mut.child_idx < frame_mut.child_cnt {
             zipper.descend_indexed_branch(frame_mut.child_idx as usize);
             frame_mut.child_idx += 1;
-            frame_mut.child_addr = zipper.shared_addr();
+            frame_mut.child_addr = zipper.shared_node_hash();
 
             // Read and reuse value from cache, if exists
             if let Some(cache) = Cache::get(&cache, frame_mut.child_addr) {

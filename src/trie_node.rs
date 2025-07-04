@@ -211,7 +211,7 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
 
     /// Returns the total number of leaves contained within the whole subtree defined by the node
     /// GOAT, this should be deprecated
-    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize;
+    fn node_val_count(&self, cache: &mut HashMap<u64, usize>) -> usize;
 
     #[cfg(feature = "counters")]
     /// Returns the number of internal items (onward links and values) within the node.  In the case where
@@ -990,17 +990,15 @@ mod tagged_node_ref {
             Self::TinyRefNode(node)
         }
         #[inline]
-        pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
-            let ptr = match self {
-                Self::DenseByteNode(node) => *node as *const dyn TrieNode<V, A>,
-                Self::LineListNode(node) => *node as *const dyn TrieNode<V, A>,
-                Self::CellByteNode(node) => *node as *const dyn TrieNode<V, A>,
-                Self::TinyRefNode(node) => *node as *const dyn TrieNode<V, A>,
-                Self::EmptyNode => &crate::empty_node::EMPTY_NODE as *const dyn TrieNode<V, A>,
+        pub(crate) fn as_ptr_hash(&self) -> u64 {
+            let ptr: *const () = match self {
+                Self::DenseByteNode(node) => (*node as *const DenseByteNode<V, A>).cast(),
+                Self::LineListNode(node) => (*node as *const LineListNode<V, A>).cast(),
+                Self::CellByteNode(node) => (*node as *const CellByteNode<V, A>).cast(),
+                Self::TinyRefNode(node) => (*node as *const TinyRefNode<V, A>).cast(),
+                Self::EmptyNode => (&crate::empty_node::EMPTY_NODE as *const EmptyNode).cast(),
             };
-            //SAFETY: This pointer is mainly used to hash the subtrie, but also, the 'static
-            // bound on the nodes doesn't extend to the trie, which is bounded by another lifetime
-            unsafe{ core::mem::transmute(ptr) }
+            ptr as u64
         }
         //Unneeded
         // #[inline]
@@ -1138,7 +1136,7 @@ mod tagged_node_ref {
             }
         }
 
-        pub fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+        pub fn node_val_count(&self, cache: &mut HashMap<u64, usize>) -> usize {
             match self {
                 Self::DenseByteNode(node) => node.node_val_count(cache),
                 Self::LineListNode(node) => node.node_val_count(cache),
@@ -1785,8 +1783,8 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
-        pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
-            self.ptr.as_ptr()
+        pub(crate) fn as_ptr_hash(&self) -> u64 {
+            self.ptr.as_ptr_hash()
         }
         /// GOAT: Hopefully we can deprecate this soon
         #[inline]
@@ -1912,7 +1910,7 @@ mod tagged_node_ref {
             }
         }
 
-        pub fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+        pub fn node_val_count(&self, cache: &mut HashMap<u64, usize>) -> usize {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
                 EMPTY_NODE_TAG => 0,
@@ -2014,7 +2012,7 @@ mod tagged_node_ref {
             }
         }
 
-        pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {
+        pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'a, V, A> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
                 EMPTY_NODE_TAG => AbstractNodeRef::None,
@@ -2216,18 +2214,12 @@ mod tagged_node_ref {
         //     }
         // }
 
+        /// Reborrow a `TaggedNodeRefMut` as a [TaggedNodeRef] so const methods may be called.
+        ///
+        /// NOTE: This should be a zero-cost conversation.
         #[inline]
-        pub fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
+        pub fn reborrow(&self) -> TaggedNodeRef<'_, V, A> {
             self.ptr.as_tagged()
-        }
-
-        /// GOAT, this is definitely trash.  It's here to keep the same usage pattern for the
-        /// dyn dispatch and the table dispatch, but it does ABSOLUTELY NOTHING.  So when it's
-        /// time to remove it, we ought to delete it, and then delete it from every location from
-        /// which it's called
-        #[inline]
-        pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-            Self { ptr: self.ptr, phantom: PhantomData }
         }
 
         /// GOAT: Hopefully we can deprecate this soon
@@ -2250,7 +2242,7 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
-        pub fn node_get_child_mut(self, key: &[u8]) -> Option<(usize, &'a mut TrieNodeODRc<V, A>)> {
+        pub fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &'a mut TrieNodeODRc<V, A>)> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
                 DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_get_child_mut(key),
@@ -2271,7 +2263,15 @@ mod tagged_node_ref {
             }
         }
 
-        // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A>;
+        pub fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_replace_child(key, new_node),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_replace_child(key, new_node),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_replace_child(key, new_node),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         pub fn node_contains_val(&self, key: &[u8]) -> bool {
             let (ptr, tag) = self.ptr.get_raw_parts();
@@ -2283,7 +2283,15 @@ mod tagged_node_ref {
             }
         }
 
-        // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
+        pub fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_get_val_mut(key),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_get_val_mut(key),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_get_val_mut(key),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         pub fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
             let (ptr, tag) = self.ptr.get_raw_parts();
@@ -2295,7 +2303,15 @@ mod tagged_node_ref {
             }
         }
 
-        // fn node_remove_val(&mut self, key: &[u8]) -> Option<V>;
+        pub fn node_remove_val(&mut self, key: &[u8]) -> Option<V> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_remove_val(key),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_remove_val(key),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_remove_val(key),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         pub fn node_set_branch(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> Result<bool, TrieNodeODRc<V, A>> {
             let (ptr, tag) = self.ptr.get_raw_parts();
@@ -2307,7 +2323,15 @@ mod tagged_node_ref {
             }
         }
 
-        // fn node_remove_all_branches(&mut self, key: &[u8]) -> bool;
+        pub fn node_remove_all_branches(&mut self, key: &[u8]) -> bool {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_remove_all_branches(key),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_remove_all_branches(key),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_remove_all_branches(key),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         pub fn node_remove_unmasked_branches(&mut self, key: &[u8], mask: ByteMask) {
             let (ptr, tag) = self.ptr.get_raw_parts();
@@ -2373,6 +2397,13 @@ mod tagged_node_ref {
                 _ => None
             }
         }
+        pub fn as_cell_node(&mut self) -> Option<&mut CellByteNode<V, A>> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                CELL_BYTE_NODE_TAG => Some( unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() } ),
+                _ => None
+            }
+        }
         #[inline(always)]
         pub unsafe fn into_dense_unchecked(self) -> &'a mut DenseByteNode<V, A> {
             let (ptr, tag) = self.ptr.get_raw_parts();
@@ -2410,14 +2441,14 @@ pub(crate) fn val_count_below_root<V: Clone + Send + Sync, A: Allocator>(node: T
     node.node_val_count(&mut cache)
 }
 
-pub(crate) fn val_count_below_node<V: Clone + Send + Sync, A: Allocator>(node: &TrieNodeODRc<V, A>, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+pub(crate) fn val_count_below_node<V: Clone + Send + Sync, A: Allocator>(node: &TrieNodeODRc<V, A>, cache: &mut HashMap<u64, usize>) -> usize {
     if node.refcount() > 1 {
-        let ptr = node.as_ptr();
-        match cache.get(&ptr) {
+        let hash = node.as_ptr_hash();
+        match cache.get(&hash) {
             Some(cached) => *cached,
             None => {
                 let val = node.as_tagged().node_val_count(cache);
-                cache.insert(ptr, val);
+                cache.insert(hash, val);
                 val
             },
         }
@@ -2580,8 +2611,8 @@ mod opaque_dyn_rc_trie_node {
             &*self.0
         }
         #[inline]
-        pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
-            Arc::as_ptr(&self.0)
+        pub(crate) fn as_ptr_hash(&self) -> u64 {
+            Arc::as_ptr(&self.0).cast::<()>() as u64
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
         #[inline]
@@ -2651,7 +2682,7 @@ mod slim_node_ptr {
     use core::ptr::NonNull;
     use core::sync::atomic::AtomicU32;
     use crate::Allocator;
-    use super::{TaggedNodeRef, TaggedNodeRefMut, TrieNode, EMPTY_NODE_TAG};
+    use super::{TaggedNodeRef, TaggedNodeRefMut, EMPTY_NODE_TAG};
 
     #[cfg(all(not(target_pointer_width="64")))]
     compile_error!("slim_ptrs is only compatible with 64-bit architectures");
@@ -2725,9 +2756,8 @@ mod slim_node_ptr {
         //     self.as_tagged().into_dyn()
         // }
         #[inline]
-        pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
-            let dyn_ref = self.as_tagged().as_ptr();
-            unsafe{ core::mem::transmute(dyn_ref) }
+        pub(crate) fn as_ptr_hash(&self) -> u64 {
+            self.ptr.as_ptr() as u64
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
         #[inline]
@@ -2998,8 +3028,8 @@ mod opaque_dyn_rc_trie_node {
         //     self.ptr.borrow()
         // }
         #[inline]
-        pub(crate) fn as_ptr(&self) -> *const dyn TrieNode<V, A> {
-            self.ptr.as_ptr()
+        pub(crate) fn as_ptr_hash(&self) -> u64 {
+            self.ptr.as_ptr_hash()
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
         #[inline]

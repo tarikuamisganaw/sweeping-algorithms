@@ -92,7 +92,7 @@ trait ZipperCreationPriv<'trie, V, A: Allocator> {
 // safely.  Therefore it is possible to have a ZipperHead that sits at an ordinary node, or even in the
 // middle of a node, however creating a WriteZipper means the node at the root of the WriteZipper must be
 // upgraded to a CellByteNode.
-pub struct ZipperHead<'parent, 'trie, V: Clone + Send + Sync, A: Allocator = GlobalAlloc> {
+pub struct ZipperHead<'parent, 'trie, V: Clone + Send + Sync, A: Allocator + 'trie = GlobalAlloc> {
     z: UnsafeCell<OwnedOrBorrowedMut<'parent, WriteZipperCore<'trie, 'static, V, A>>>,
     tracker_paths: SharedTrackerPaths,
 }
@@ -140,7 +140,7 @@ impl<'trie, V: Clone + Send + Sync, A: Allocator> ZipperCreationPriv<'trie, V, A
     }
 }
 
-impl<V: Clone + Send + Sync, A: Allocator> Drop for ZipperHead<'_, '_, V, A> {
+impl<'trie, V: Clone + Send + Sync, A: Allocator + 'trie> Drop for ZipperHead<'_, 'trie, V, A> {
     fn drop(&mut self) {
         self.with_inner_core_z(|z| z.focus_stack.advance_if_empty())
     }
@@ -333,7 +333,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
 /// 3. The zipper focus doesn't exist, in which case we need to create it, and then follow one of the
 ///  other paths.
 /// 4. The target path is the zipper focus
-fn prepare_exclusive_write_path<'a, 'trie: 'a, 'path: 'a, V: Clone + Send + Sync + Unpin, A: Allocator>(z: &'a mut WriteZipperCore<'trie, 'path, V, A>, path: &[u8]) -> (&'a mut TrieNodeODRc<V, A>, &'a mut Option<V>)
+fn prepare_exclusive_write_path<'a, 'trie: 'a, 'path: 'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie>(z: &'a mut WriteZipperCore<'trie, 'path, V, A>, path: &[u8]) -> (&'a mut TrieNodeODRc<V, A>, &'a mut Option<V>)
 {
     //If we end up taking write zipper from the ZipperHead's root, we leave the focus_stack in an
     // undescended root state, so we need to fix it.
