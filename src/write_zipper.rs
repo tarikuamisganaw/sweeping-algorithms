@@ -294,7 +294,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for WriteZ
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
 
-impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperTracked<'a, 'path, V, A> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperTracked<'a, 'path, V, A> {
     //GOAT, this method currently isn't called
     // /// Creates a new zipper, with a path relative to a node
     // pub(crate) fn new_with_node_and_path(root_node: &'a mut TrieNodeODRc<V>, path: &'k [u8], tracker: ZipperTracker) -> Self {
@@ -460,7 +460,7 @@ impl <'a, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperUntracked<'a,
     }
 }
 
-impl <'a, 'k, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperUntracked<'a, 'k, V, A> {
+impl <'a, 'k, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperUntracked<'a, 'k, V, A> {
     /// Creates a new zipper, with a path relative to a node
     #[cfg(debug_assertions)]
     pub(crate) fn new_with_node_and_path_in(root_node: &'a mut TrieNodeODRc<V, A>, root_val: Option<&'a mut Option<V>>, path: &'k [u8], root_prefix_len: usize, root_key_start: usize, alloc: A, tracker: Option<ZipperTracker<TrackingWrite>>) -> Self {

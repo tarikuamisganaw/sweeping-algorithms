@@ -2212,6 +2212,11 @@ mod tagged_node_ref {
         //     }
         // }
 
+        #[inline]
+        pub fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
+            self.ptr.as_tagged()
+        }
+
         /// GOAT, this is definitely trash.  It's here to keep the same usage pattern for the
         /// dyn dispatch and the table dispatch, but it does ABSOLUTELY NOTHING.  So when it's
         /// time to remove it, we ought to delete it, and then delete it from every location from
@@ -2232,7 +2237,15 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
-
+        pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_contains_partial_key(key),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_contains_partial_key(key),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_contains_partial_key(key),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
         pub fn node_get_child_mut(self, key: &[u8]) -> Option<(usize, &'a mut TrieNodeODRc<V, A>)> {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
@@ -2255,6 +2268,16 @@ mod tagged_node_ref {
         }
 
         // fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A>;
+
+        pub fn node_contains_val(&self, key: &[u8]) -> bool {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<DenseByteNode<V, A>>() }.node_contains_val(key),
+                LINE_LIST_NODE_TAG => unsafe{ &mut *ptr.cast::<LineListNode<V, A>>() }.node_contains_val(key),
+                CELL_BYTE_NODE_TAG => unsafe{ &mut *ptr.cast::<CellByteNode<V, A>>() }.node_contains_val(key),
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         // fn node_get_val_mut(&mut self, key: &[u8]) -> Option<&mut V>;
 

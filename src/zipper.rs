@@ -866,7 +866,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
 }
 
-impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> ReadZipperTracked<'a, 'path, V, A> {
+impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ReadZipperTracked<'a, 'path, V, A> {
     /// See [ReadZipperCore::new_with_node_and_path]
     pub(crate) fn new_with_node_and_path_in(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A, tracker: ZipperTracker<TrackingRead>) -> Self {
         let core = ReadZipperCore::new_with_node_and_path_in(root_node, path, root_prefix_len, root_key_start, root_val, alloc);
@@ -1742,7 +1742,7 @@ pub(crate) mod read_zipper_core {
         }
     }
 
-    impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V, A> for ReadZipperCore<'a, '_, V, A> {
+    impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperReadOnlyPriv<'a, V, A> for ReadZipperCore<'a, '_, V, A> {
         fn borrow_raw_parts<'z>(&'z self) -> (TaggedNodeRef<'a, V, A>, &'z [u8], Option<&'a V>) {
             let node_key = self.node_key();
             if node_key.len() > 0 {
@@ -2397,7 +2397,7 @@ pub(crate) mod read_zipper_core {
 use read_zipper_core::*;
 
 /// Internal function to walk along a path to the final node reference
-pub(crate) fn node_along_path<'a, 'path, V: Clone + Sync + Send, A: Allocator>(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_val: Option<&'a V>) -> (TaggedNodeRef<'a, V, A>, &'path [u8], Option<&'a V>) {
+pub(crate) fn node_along_path<'a, 'path, V: Clone + Sync + Send, A: Allocator + 'a>(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_val: Option<&'a V>) -> (TaggedNodeRef<'a, V, A>, &'path [u8], Option<&'a V>) {
     let mut key = path;
     let mut node = root_node;
     let mut val = root_val;
