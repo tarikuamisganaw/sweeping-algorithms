@@ -1643,7 +1643,7 @@ where Storage: AsRef<[u8]>
 {
     /// Get the address of zipper's focus node, if it points at the root of the node.
     /// When zipper is focused inside of the node, return `None`.
-    fn shared_addr(&self) -> Option<usize> {
+    fn shared_node_hash(&self) -> Option<u64> {
         // TODO: no way to detect now
         None
     }

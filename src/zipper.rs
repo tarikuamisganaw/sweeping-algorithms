@@ -652,6 +652,14 @@ pub(crate) mod zipper_priv {
     pub trait ZipperConcretePriv {
         /// Get a hash value unique to the zipper's focus node, if the zipper points at the root of the node.
         /// When zipper is focused inside of the node, returns `None`.
+        ///
+        /// NOTE: The returned value is not a logical hash of the contents, but is based on
+        /// the node's memory address.  Therefore it is not stable across runs and can't be
+        /// used to infer logical or structural equality.  Furthermore, it is subject to
+        /// change when the contents of the node is modified.
+        ///
+        /// However when hashes are equal it means the zipper has arrived at the same node,
+        /// even if it got there via different parent paths in the trie.
         fn shared_node_hash(&self) -> Option<u64>;
     }
 }
