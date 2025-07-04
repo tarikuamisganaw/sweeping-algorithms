@@ -2104,21 +2104,22 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         m.into()
     }
 
-    fn is_leaf(&self, key: &[u8]) -> bool {
-        let key_len = key.len();
-        let (key0, key1) = self.get_both_keys();
-        if key0.starts_with(key) {
-            if key_len < key0.len() || self.is_child_ptr::<0>() {
-                return false;
-            }
-        }
-        if key1.starts_with(key) {
-            if key_len < key1.len() || self.is_child_ptr::<1>() {
-                return false;
-            }
-        }
-        true
-    }
+    //GOAT trash
+    // fn is_leaf(&self, key: &[u8]) -> bool {
+    //     let key_len = key.len();
+    //     let (key0, key1) = self.get_both_keys();
+    //     if key0.starts_with(key) {
+    //         if key_len < key0.len() || self.is_child_ptr::<0>() {
+    //             return false;
+    //         }
+    //     }
+    //     if key1.starts_with(key) {
+    //         if key_len < key1.len() || self.is_child_ptr::<1>() {
+    //             return false;
+    //         }
+    //     }
+    //     true
+    // }
 
     fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
         debug_assert!(key.len() > 0);
@@ -2562,10 +2563,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for LineListNo
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_list(self)
-    }
-    #[inline(always)]
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::from_list(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         self.convert_to_dense::<CellCoFree<V, A>>(3)

@@ -260,9 +260,10 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     fn node_branches_mask(&self, _key: &[u8]) -> ByteMask {
         panic!();
     }
-    fn is_leaf(&self, _key: &[u8]) -> bool {
-        panic!();
-    }
+    //GOAT trash
+    // fn is_leaf(&self, _key: &[u8]) -> bool {
+    //     panic!();
+    // }
     fn prior_branch_key<'key>(&self, _key: &'key [u8]) -> &'key [u8] {
         panic!();
     }
@@ -327,9 +328,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
     #[inline]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_tiny(self)
-    }
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        unreachable!()
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         unreachable!()

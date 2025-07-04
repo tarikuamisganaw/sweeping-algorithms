@@ -133,9 +133,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn node_branches_mask(&self, _key: &[u8]) -> ByteMask {
         ByteMask::EMPTY
     }
-    fn is_leaf(&self, _key: &[u8]) -> bool {
-        true
-    }
+    //GOAT trash
+    // fn is_leaf(&self, _key: &[u8]) -> bool {
+    //     true
+    // }
 
     fn prior_branch_key<'key>(&self, _key: &'key [u8]) -> &'key [u8] {
         &[]
@@ -187,9 +188,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for EmptyNode 
         EMPTY_NODE_TAG
     }
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        unreachable!()
-    }
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
         unreachable!()
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {

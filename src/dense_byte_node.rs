@@ -1091,14 +1091,15 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
     }
 
-    #[inline(always)]
-    fn is_leaf(&self, key: &[u8]) -> bool {
-        match key.len() {
-            0 => self.values.len() == 0,
-            1 => self.get(key[0]).map(|cf| !cf.has_rec()).unwrap_or(true),
-            _ => true
-        }
-    }
+    //GOAT trash
+    // #[inline(always)]
+    // fn is_leaf(&self, key: &[u8]) -> bool {
+    //     match key.len() {
+    //         0 => self.values.len() == 0,
+    //         1 => self.get(key[0]).map(|cf| !cf.has_rec()).unwrap_or(true),
+    //         _ => true
+    //     }
+    // }
 
     fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
         debug_assert!(key.len() >= 1);
@@ -1376,10 +1377,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<O
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_dense(self)
     }
-    #[inline(always)]
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::from_dense(self)
-    }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         let mut replacement_node = CellByteNode::<V, A>::with_capacity_in(self.values.len(), self.alloc.clone());
         debug_assert_eq!(replacement_node.mask, [0u64; 4]);
@@ -1400,9 +1397,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<C
     }
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_cell(self)
-    }
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::from_cell(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         //Already is a cell_node, and that fact should have been detected before calling this method

@@ -32,7 +32,7 @@ const _: [(); (MAX_NODE_KEY_BYTES < 253) as usize - 1] = [];
 ///
 /// 1. A TrieNode will never have a value or an onward link at a zero-length key.  A value associated with
 /// the path to the root of a TrieNode must be stored in the parent node.
-pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A> + DynClone + core::fmt::Debug + Send + Sync {
+pub(crate) trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A> + DynClone + core::fmt::Debug + Send + Sync {
 
     /// Returns `true` if the node contains a key that begins with `key`, irrespective of whether the key
     /// specifies a child, value, or both
@@ -56,34 +56,9 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// Returns `None` if no child node matches the key, even if there is a value with that prefix
     fn node_get_child(&self, key: &[u8]) -> Option<(usize, &TrieNodeODRc<V, A>)>;
 
-    //GOAT, Deprecated node_get_child_and_val_mut
-    // /// Returns mutable pointers to both an onward child link as well as a value.
-    // ///
-    // /// If the node is not capable of storing either the onward link or the value, this function must
-    // /// return `None`.  The returned `usize` describes the number of key-bytes matched, similar to the
-    // /// return value from [Self::node_get_child].
-    // ///
-    // /// This method is needed because it's impossible to split the borrows to different parts of the
-    // /// same node.  However, the a Zipper or ZipperHead much contain a reference to both the onward
-    // /// link and value.
-    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)>;
-
     /// Same behavior as `node_get_child`, but operates across a mutable reference
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)>;
 
-    //GOAT, we probably don't need this interface
-    // /// Returns `true` if the node does *NOT* contain any onward children at paths aside from the provided
-    // /// `keys`
-    // ///
-    // /// NOTE: It isn't necessary for the node to contain all `keys` provided, simply that it contains no
-    // /// additional onward links with other keys.
-    // ///
-    // /// The implementation may assume `keys` will be in sorted order
-    // ///
-    // /// See [TrieNode::node_contains_vals_exclusive] for the values counterpart.
-    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool;
-
-    //GOAT, Probably can be removed
     /// Replaces a child-node at `key` with the node provided, returning a `&mut` reference to the newly
     /// added child node
     ///
@@ -92,6 +67,8 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// may panic if the node does not already contain a child node at the specified key.
     ///
     /// QUESTION: Does this method have a strong purpose, or can it be superseded by node_set_branch?
+    /// ANSWER: For now, I will keep it because the implementation is vastly simpler and therefore
+    /// cheaper, but it is adequate for the places that call it
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>);
 
     /// Retrieves multiple values or child links from the node, associated with elements from `keys`,
@@ -129,13 +106,6 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// NOTE: just as with [Self::node_get_val], this method will return `false` if key is longer than
     /// the exact key contained within this node
     fn node_contains_val(&self, key: &[u8]) -> bool;
-
-    //GOAT, we probably don't need this interface
-    // /// Returns `true` if the node does *NOT* contain any values at paths aside from the provided `keys`
-    // ///
-    // /// See [TrieNode::node_contains_children_exclusive] for a complete description of behavior and
-    // /// requirements.
-    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool;
 
     /// Returns the value that matches `key` if it contained within the node
     ///
@@ -259,16 +229,17 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// Returns 256-bit mask, indicating which children exist from the branch specified by `key`
     fn node_branches_mask(&self, key: &[u8]) -> ByteMask;
 
-    /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
-    /// descend further, otherwise returns `false`
-    ///
-    /// NOTE: Returns `true` if the key specifies an invalid path, because an invalid path has no
-    ///   onward paths branching from it.
-    /// NOTE: The reason this is not the same as `node.count_branches() == 0` is because [Self::count_branches]
-    ///   counts only internal children, and treats values and onward links equivalently.  Therefore
-    ///   some keys that specify onward links will be reported as having a `count_branches` of 0, but
-    ///   `is_leaf` will not be true.
-    fn is_leaf(&self, key: &[u8]) -> bool;
+    //GOAT unused
+    // /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
+    // /// descend further, otherwise returns `false`
+    // ///
+    // /// NOTE: Returns `true` if the key specifies an invalid path, because an invalid path has no
+    // ///   onward paths branching from it.
+    // /// NOTE: The reason this is not the same as `node.count_branches() == 0` is because [Self::count_branches]
+    // ///   counts only internal children, and treats values and onward links equivalently.  Therefore
+    // ///   some keys that specify onward links will be reported as having a `count_branches` of 0, but
+    // ///   `is_leaf` will not be true.
+    // fn is_leaf(&self, key: &[u8]) -> bool;
 
     /// Returns the key of the prior upstream branch or value, within the node
     ///
@@ -343,9 +314,6 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
 
     /// Returns a [TaggedNodeRef] referencing this node
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A>;
-
-    /// Returns a [TaggedNodeRefMut] referencing this node
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A>;
 
     /// Migrates the contents of the node into a new CellByteNode.  After this method, `self` will be empty
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A>;
@@ -744,8 +712,8 @@ pub(crate) const LINE_LIST_NODE_TAG: usize = 2;
 pub(crate) const CELL_BYTE_NODE_TAG: usize = 3;
 pub(crate) const TINY_REF_NODE_TAG: usize = 4;
 
-pub use tagged_node_ref::TaggedNodeRef;
-pub use tagged_node_ref::TaggedNodeRefMut;
+pub(crate) use tagged_node_ref::TaggedNodeRef;
+pub(crate) use tagged_node_ref::TaggedNodeRefMut;
 
 #[cfg(not(feature = "slim_dispatch"))]
 mod tagged_node_ref {
@@ -873,7 +841,6 @@ mod tagged_node_ref {
         #[cfg(feature = "bridge_nodes")]
         BridgeNode(&'a mut BridgeNode<V, A>),
         CellByteNode(&'a mut CellByteNode<V, A>),
-        Unsupported,
     }
 
     impl<'a, V: Clone + Send + Sync, A: Allocator> TaggedNodeRefMut<'a, V, A> {
@@ -897,7 +864,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => TaggedNodeRef::DenseByteNode(node),
                 Self::LineListNode(node) => TaggedNodeRef::LineListNode(node),
                 Self::CellByteNode(node) => TaggedNodeRef::CellByteNode(node),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
         #[cfg(feature = "slim_ptrs")]
@@ -919,7 +885,6 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(_) => node as &mut dyn TrieNode<V, A>,
                 Self::CellByteNode(_) => CELL_BYTE_NODE_TAG,
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
         #[inline(always)]
@@ -943,18 +908,6 @@ mod tagged_node_ref {
                 _ => unsafe { unreachable_unchecked() }
             }
         }
-        #[inline(always)]
-        pub fn from_dense(node: &'a mut DenseByteNode<V, A>) -> Self {
-            TaggedNodeRefMut::DenseByteNode(node)
-        }
-        #[inline(always)]
-        pub fn from_list(node: &'a mut LineListNode<V, A>) -> Self {
-            TaggedNodeRefMut::LineListNode(node)
-        }
-        #[inline(always)]
-        pub fn from_cell(node: &'a mut CellByteNode<V, A>) -> Self {
-            TaggedNodeRefMut::CellByteNode(node)
-        }
     }
 
     //NOTE: this is a not derived because we don't want to restrict the impl to V: Debug
@@ -966,7 +919,6 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(node) => write!(f, "{node:?}"),
                 Self::CellByteNode(node) => write!(f, "{node:?}"),
-                Self::Unsupported => write!(f, "Unsupported node type"),
             }
         }
     }
@@ -1203,18 +1155,19 @@ mod tagged_node_ref {
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&EMPTY_NODE, key),
             }
         }
-        #[inline(always)]
-        pub fn is_leaf(&self, key: &[u8]) -> bool {
-            match self {
-                Self::DenseByteNode(node) => node.is_leaf(key),
-                Self::LineListNode(node) => node.is_leaf(key),
-                #[cfg(feature = "bridge_nodes")]
-                Self::BridgeNode(node) => node.is_leaf(key),
-                Self::CellByteNode(node) => node.is_leaf(key),
-                Self::TinyRefNode(node) => node.is_leaf(key),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&EMPTY_NODE, key),
-            }
-        }
+        //GOAT trash
+        // #[inline(always)]
+        // pub fn is_leaf(&self, key: &[u8]) -> bool {
+        //     match self {
+        //         Self::DenseByteNode(node) => node.is_leaf(key),
+        //         Self::LineListNode(node) => node.is_leaf(key),
+        //         #[cfg(feature = "bridge_nodes")]
+        //         Self::BridgeNode(node) => node.is_leaf(key),
+        //         Self::CellByteNode(node) => node.is_leaf(key),
+        //         Self::TinyRefNode(node) => node.is_leaf(key),
+        //         Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&EMPTY_NODE, key),
+        //     }
+        // }
         pub fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
             match self {
                 Self::DenseByteNode(node) => node.prior_branch_key(key),
@@ -1367,7 +1320,6 @@ mod tagged_node_ref {
                 #[cfg(feature = "bridge_nodes")]
                 Self::BridgeNode(_) => None,
                 Self::CellByteNode(_) => None,
-                Self::Unsupported => None,
             }
         }
         #[inline(always)]
@@ -1378,7 +1330,6 @@ mod tagged_node_ref {
                 Self::BridgeNode(_) => None,
                 Self::DenseByteNode(_) => None,
                 Self::CellByteNode(_) => None,
-                Self::Unsupported => None,
             }
         }
         #[inline(always)]
@@ -1389,7 +1340,6 @@ mod tagged_node_ref {
                 Self::BridgeNode(_) => None,
                 Self::DenseByteNode(_) => None,
                 Self::LineListNode(_) => None,
-                Self::Unsupported => None,
             }
         }
         #[inline]
@@ -1400,7 +1350,6 @@ mod tagged_node_ref {
                 Self::BridgeNode(_) => None,
                 Self::DenseByteNode(_) => None,
                 Self::LineListNode(_) => None,
-                Self::Unsupported => None,
             }
         }
 
@@ -1409,7 +1358,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_get_child_mut(key),
                 Self::LineListNode(node) => node.node_get_child_mut(key),
                 Self::CellByteNode(node) => node.node_get_child_mut(key),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1419,7 +1367,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_get_child_mut(key),
                 Self::LineListNode(node) => node.node_get_child_mut(key),
                 Self::CellByteNode(node) => node.node_get_child_mut(key),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1428,7 +1375,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_replace_child(key, new_node),
                 Self::LineListNode(node) => node.node_replace_child(key, new_node),
                 Self::CellByteNode(node) => node.node_replace_child(key, new_node),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1437,7 +1383,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_get_val_mut(key),
                 Self::LineListNode(node) => node.node_get_val_mut(key),
                 Self::CellByteNode(node) => node.node_get_val_mut(key),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1446,7 +1391,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_set_val(key, val),
                 Self::LineListNode(node) => node.node_set_val(key, val),
                 Self::CellByteNode(node) => node.node_set_val(key, val),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1455,7 +1399,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_remove_val(key),
                 Self::LineListNode(node) => node.node_remove_val(key),
                 Self::CellByteNode(node) => node.node_remove_val(key),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1464,7 +1407,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_set_branch(key, new_node),
                 Self::LineListNode(node) => node.node_set_branch(key, new_node),
                 Self::CellByteNode(node) => node.node_set_branch(key, new_node),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1473,7 +1415,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_remove_all_branches(key),
                 Self::LineListNode(node) => node.node_remove_all_branches(key),
                 Self::CellByteNode(node) => node.node_remove_all_branches(key),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1482,7 +1423,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.node_remove_unmasked_branches(key, mask),
                 Self::LineListNode(node) => node.node_remove_unmasked_branches(key, mask),
                 Self::CellByteNode(node) => node.node_remove_unmasked_branches(key, mask),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
         pub fn take_node_at_key(&mut self, key: &[u8]) -> Option<TrieNodeODRc<V, A>> {
@@ -1490,7 +1430,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.take_node_at_key(key),
                 Self::LineListNode(node) => node.take_node_at_key(key),
                 Self::CellByteNode(node) => node.take_node_at_key(key),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
         pub fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
@@ -1498,7 +1437,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.join_into_dyn(other),
                 Self::LineListNode(node) => node.join_into_dyn(other),
                 Self::CellByteNode(node) => node.join_into_dyn(other),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1507,7 +1445,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.drop_head_dyn(byte_cnt),
                 Self::LineListNode(node) => node.drop_head_dyn(byte_cnt),
                 Self::CellByteNode(node) => node.drop_head_dyn(byte_cnt),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
 
@@ -1516,7 +1453,6 @@ mod tagged_node_ref {
                 Self::DenseByteNode(node) => node.convert_to_cell_node(),
                 Self::LineListNode(node) => node.convert_to_cell_node(),
                 Self::CellByteNode(node) => node.convert_to_cell_node(),
-                Self::Unsupported => unsafe{ unreachable_unchecked() },
             }
         }
     }
@@ -1654,7 +1590,7 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
-
+        #[inline]
         pub fn node_is_empty(&self) -> bool {
             let (ptr, tag) = self.ptr.get_raw_parts();
             match tag {
