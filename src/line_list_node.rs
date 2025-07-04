@@ -2120,7 +2120,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         true
     }
 
-    fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+    fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
         debug_assert!(key.len() > 0);
 
         //The key-add logic elsewhere in this file would have split the node if the overlap between the keys
@@ -2137,17 +2137,17 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         let (key0, key1) = self.get_both_keys();
         if key_len > key0.len() {
             if &key[..key0.len()] == key0 {
-                return key0
+                return &key[..key0.len()]
             }
         }
         if key_len > key1.len() {
             if &key[..key1.len()] == key1 {
-                return key1
+                return &key[..key1.len()]
             }
         }
         let key_byte = key.get(0);
         if key0.get(0) == key_byte && key1.get(0) == key_byte {
-            &key0[0..1]
+            &key[0..1]
         } else {
             &[]
         }

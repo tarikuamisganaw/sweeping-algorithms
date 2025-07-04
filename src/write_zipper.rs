@@ -776,7 +776,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for WriteZipperCore<'_
     fn path_exists(&self) -> bool {
         let key = self.key.node_key();
         if key.len() > 0 {
-            self.focus_stack.top().unwrap().node_contains_partial_key(key)
+            self.focus_stack.top().unwrap().reborrow().node_contains_partial_key(key)
         } else {
             true
         }
@@ -790,20 +790,20 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for WriteZipperCore<'_
                 None => false
             }
         } else {
-            self.focus_stack.top().unwrap().node_contains_val(key)
+            self.focus_stack.top().unwrap().reborrow().node_contains_val(key)
         }
     }
     fn child_count(&self) -> usize {
         let focus_node = self.focus_stack.top().unwrap();
-        node_count_branches_recursive(focus_node.as_tagged(), self.key.node_key())
+        node_count_branches_recursive(focus_node.reborrow(), self.key.node_key())
     }
     fn child_mask(&self) -> ByteMask {
         let focus_node = self.focus_stack.top().unwrap();
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
-            return focus_node.node_branches_mask(b"")
+            return focus_node.reborrow().node_branches_mask(b"")
         }
-        match focus_node.node_get_child(node_key) {
+        match focus_node.reborrow().node_get_child(node_key) {
             Some((consumed_bytes, child_node)) => {
                 let child_node = child_node.as_tagged();
                 if node_key.len() >= consumed_bytes {
@@ -812,7 +812,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for WriteZipperCore<'_
                     ByteMask::EMPTY
                 }
             },
-            None => focus_node.node_branches_mask(node_key)
+            None => focus_node.reborrow().node_branches_mask(node_key)
         }
     }
 }
@@ -823,7 +823,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for WriteZip
         let new_root_val = self.get_value();
         let path = self.origin_path();
 
-        read_zipper_core::ReadZipperCore::new_with_node_and_path_in(self.focus_stack.top().unwrap().as_tagged(), path, path.len(), self.key.node_key_start(), new_root_val, self.alloc.clone())
+        read_zipper_core::ReadZipperCore::new_with_node_and_path_in(self.focus_stack.top().unwrap().reborrow(), path, path.len(), self.key.node_key_start(), new_root_val, self.alloc.clone())
     }
 }
 
@@ -878,7 +878,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperC
         self.descend_to_internal();
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
-            self.focus_stack.top().unwrap().node_contains_partial_key(node_key)
+            self.focus_stack.top().unwrap().reborrow().node_contains_partial_key(node_key)
         } else {
             true
         }
@@ -947,14 +947,14 @@ impl<'a, 'k, V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for W
     type V = V;
     type A = A;
     fn get_focus(&self) -> AbstractNodeRef<'_, Self::V, Self::A> {
-        self.focus_stack.top().unwrap().get_node_at_key(self.key.node_key())
+        self.focus_stack.top().unwrap().reborrow().get_node_at_key(self.key.node_key())
     }
     fn try_borrow_focus(&self) -> Option<TaggedNodeRef<'_, Self::V, Self::A>> {
         let node_key = self.key.node_key();
         if node_key.len() == 0 {
-            Some(self.focus_stack.top().unwrap().as_tagged())
+            Some(self.focus_stack.top().unwrap().reborrow())
         } else {
-            match self.focus_stack.top().unwrap().node_get_child(node_key) {
+            match self.focus_stack.top().unwrap().reborrow().node_get_child(node_key) {
                 Some((consumed_bytes, child_node)) => {
                     debug_assert_eq!(consumed_bytes, node_key.len());
                     Some(child_node.as_tagged())
@@ -1103,7 +1103,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
     pub fn get_value(&self) -> Option<&V> {
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
-            self.focus_stack.top().unwrap().node_get_val(node_key)
+            self.focus_stack.top().unwrap().reborrow().node_get_val(node_key)
         } else {
             debug_assert!(self.at_root());
             self.root_val.as_ref().and_then(|val| unsafe{&**val}.as_ref())
@@ -1159,7 +1159,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
         }
         let focus_node = self.focus_stack.top_mut().unwrap();
         if let Some(result) = focus_node.node_remove_val(self.key.node_key()) {
-            if focus_node.node_is_empty() {
+            if focus_node.reborrow().node_is_empty() {
                 self.prune_path();
             }
             Some(result)
@@ -1525,7 +1525,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
         if node_key.len() > 0 {
             let focus_node = self.focus_stack.top_mut().unwrap();
             if focus_node.node_remove_all_branches(node_key) {
-                if focus_node.node_is_empty() {
+                if focus_node.reborrow().node_is_empty() {
                     self.prune_path();
                 }
                 true
@@ -1534,7 +1534,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             }
         } else {
             debug_assert_eq!(self.focus_stack.depth(), 1);
-            if self.focus_stack.top().unwrap().node_is_empty() {
+            if self.focus_stack.top().unwrap().reborrow().node_is_empty() {
                 return false
             } else {
                 self.focus_stack.to_root();
@@ -1587,7 +1587,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
         } else {
             focus_node.node_remove_unmasked_branches(node_key, mask);
         }
-        if focus_node.node_is_empty() {
+        if focus_node.reborrow().node_is_empty() {
             self.prune_path();
         }
         //GOAT, this method should have a switch as to whether to prune the upstream branch or not
@@ -1612,7 +1612,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             }
         } else {
             if let Some(new_node) = focus_node.take_node_at_key(node_key) {
-                if focus_node.node_is_empty() {
+                if focus_node.reborrow().node_is_empty() {
                     self.prune_path();
                 }
                 Some(new_node)
@@ -1696,7 +1696,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
     pub(crate) fn prune_path(&mut self) {
         //We need to make sure this path actually exists before trying to prune it, otherwise we may end
         // up pruning the next upstream branch by mistake
-        if !self.focus_stack.top().unwrap().node_is_empty() && !self.path_exists() {
+        if !self.focus_stack.top().unwrap().reborrow().node_is_empty() && !self.path_exists() {
             return
         }
 
@@ -1720,7 +1720,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             let node_key = &temp_path[node_key_start..];
 
             //This mirrors the logic of `ascend_within_node`, but using our alternative path buffer
-            let branch_key = self.focus_stack.top().unwrap().prior_branch_key(node_key);
+            let branch_key = self.focus_stack.top().unwrap().reborrow().prior_branch_key(node_key);
             let new_len = self.key.origin_path.len().max(node_key_start + branch_key.len());
             ascended = true;
             temp_path = &temp_path[..new_len];
@@ -1740,7 +1740,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
             let mut node_key_start = self.key.node_key_start();
             let node_key = &temp_path[node_key_start..];
             let focus_node = self.focus_stack.top().unwrap();
-            if node_count_branches_recursive(focus_node.as_tagged(), node_key) > 1 || focus_node.node_contains_val(node_key) {
+            if node_count_branches_recursive(focus_node.reborrow(), node_key) > 1 || focus_node.reborrow().node_contains_val(node_key) {
                 if just_popped {
                     let mut node_path = &path_buf[node_key_start..];
                     Self::descend_step_internal(&mut self.focus_stack, &mut self.key.prefix_idx, &mut node_path, &mut node_key_start);
@@ -1835,7 +1835,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
     /// Internal method used to impement `ascend_until` when ascending within a node
     #[inline]
     fn ascend_within_node(&mut self) {
-        let branch_key = self.focus_stack.top().unwrap().prior_branch_key(self.key.node_key());
+        let branch_key = self.focus_stack.top().unwrap().reborrow().prior_branch_key(self.key.node_key());
         let new_len = self.key.origin_path.len().max(self.key.node_key_start() + branch_key.len());
         self.key.prefix_buf.truncate(new_len);
     }

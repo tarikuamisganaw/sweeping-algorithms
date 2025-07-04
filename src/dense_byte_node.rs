@@ -1100,15 +1100,14 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
         }
     }
 
-    fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+    fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
         debug_assert!(key.len() >= 1);
         if key.len() == 1 {
             &[]
         } else {
             let k = key[0];
             if self.mask.test_bit(k) {
-                let k = k as usize;
-                &ALL_BYTES[k..=k]
+                &key[0..1]
             } else {
                 &[]
             }

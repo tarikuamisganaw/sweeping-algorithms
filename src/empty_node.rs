@@ -139,7 +139,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
         true
     }
 
-    fn prior_branch_key(&self, _key: &[u8]) -> &[u8] {
+    fn prior_branch_key<'key>(&self, _key: &'key [u8]) -> &'key [u8] {
         &[]
     }
 

@@ -263,7 +263,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     fn is_leaf(&self, _key: &[u8]) -> bool {
         panic!();
     }
-    fn prior_branch_key(&self, _key: &[u8]) -> &[u8] {
+    fn prior_branch_key<'key>(&self, _key: &'key [u8]) -> &'key [u8] {
         panic!();
     }
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {

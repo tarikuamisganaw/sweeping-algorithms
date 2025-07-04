@@ -417,7 +417,7 @@ fn prepare_exclusive_write_path<'a, 'trie: 'a, 'path: 'a, V: Clone + Send + Sync
         z.key.prefix_buf.truncate(original_path_len);
 
         //If the node on top of the stack is not a cell node, we need to upgrade it
-        if !z.focus_stack.top().unwrap().is_cell_node() {
+        if !z.focus_stack.top().unwrap().reborrow().is_cell_node() {
             swap_top_node(&mut z.focus_stack, &z.key, |mut existing_node| {
                 make_cell_node(&mut existing_node);
                 Some(existing_node)
