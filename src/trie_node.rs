@@ -752,6 +752,8 @@ mod tagged_node_ref {
     use super::*;
     use crate::empty_node::EmptyNode;
 
+    pub(crate) static EMPTY_NODE: EmptyNode = EmptyNode;
+
     /// A reference to a node with a concrete type
     pub enum TaggedNodeRef<'a, V: Clone + Send + Sync, A: Allocator> {
         DenseByteNode(&'a DenseByteNode<V, A>),
@@ -789,7 +791,7 @@ mod tagged_node_ref {
         pub(super) fn from_slim_ptr(ptr: super::slim_node_ptr::SlimNodePtr<V, A>) -> Self {
             let (ptr, tag) = ptr.get_raw_parts();
             match tag {
-                EMPTY_NODE_TAG => Self::EmptyNode,//&crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+                EMPTY_NODE_TAG => Self::EmptyNode,
                 DENSE_BYTE_NODE_TAG => Self::DenseByteNode(unsafe{ &*ptr.cast::<DenseByteNode<V, A>>() }),
                 LINE_LIST_NODE_TAG => Self::LineListNode(unsafe{ &*ptr.cast::<LineListNode<V, A>>() }),
                 CELL_BYTE_NODE_TAG => Self::CellByteNode(unsafe{ &*ptr.cast::<CellByteNode<V, A>>() }),
@@ -996,7 +998,7 @@ mod tagged_node_ref {
                 Self::LineListNode(node) => (*node as *const LineListNode<V, A>).cast(),
                 Self::CellByteNode(node) => (*node as *const CellByteNode<V, A>).cast(),
                 Self::TinyRefNode(node) => (*node as *const TinyRefNode<V, A>).cast(),
-                Self::EmptyNode => (&crate::empty_node::EMPTY_NODE as *const EmptyNode).cast(),
+                Self::EmptyNode => (&EMPTY_NODE as *const EmptyNode).cast(),
             };
             ptr as u64
         }
@@ -1010,7 +1012,7 @@ mod tagged_node_ref {
         //         Self::BridgeNode(node) => *node as &dyn TrieNode<V, A>,
         //         Self::CellByteNode(node) => *node as &dyn TrieNode<V, A>,
         //         Self::TinyRefNode(node) => *node as &dyn TrieNode<V, A>,
-        //         Self::EmptyNode => &crate::empty_node::EMPTY_NODE as &dyn TrieNode<V, A>,
+        //         Self::EmptyNode => &EMPTY_NODE as &dyn TrieNode<V, A>,
         //     }
         // }
         #[inline]
@@ -1102,7 +1104,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.new_iter_token(),
                 Self::CellByteNode(node) => node.new_iter_token(),
                 Self::TinyRefNode(node) => node.new_iter_token(),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::new_iter_token(&crate::empty_node::EMPTY_NODE),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::new_iter_token(&EMPTY_NODE),
             }
         }
         #[inline(always)]
@@ -1114,7 +1116,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.iter_token_for_path(key),
                 Self::CellByteNode(node) => node.iter_token_for_path(key),
                 Self::TinyRefNode(node) => node.iter_token_for_path(key),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::iter_token_for_path(&crate::empty_node::EMPTY_NODE, key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::iter_token_for_path(&EMPTY_NODE, key),
             }
         }
         #[inline(always)]
@@ -1126,7 +1128,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.next_items(token),
                 Self::CellByteNode(node) => node.next_items(token),
                 Self::TinyRefNode(node) => node.next_items(token),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::next_items(&crate::empty_node::EMPTY_NODE, token),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::next_items(&EMPTY_NODE, token),
             }
         }
 
@@ -1163,7 +1165,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.nth_child_from_key(key, n),
                 Self::CellByteNode(node) => node.nth_child_from_key(key, n),
                 Self::TinyRefNode(node) => node.nth_child_from_key(key, n),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::nth_child_from_key(&crate::empty_node::EMPTY_NODE, key, n),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::nth_child_from_key(&EMPTY_NODE, key, n),
             }
         }
         pub fn first_child_from_key(&self, key: &[u8]) -> (Option<&'a [u8]>, Option<TaggedNodeRef<'a, V, A>>) {
@@ -1174,7 +1176,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.first_child_from_key(key),
                 Self::CellByteNode(node) => node.first_child_from_key(key),
                 Self::TinyRefNode(node) => node.first_child_from_key(key),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::first_child_from_key(&crate::empty_node::EMPTY_NODE, key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::first_child_from_key(&EMPTY_NODE, key),
             }
         }
         #[inline(always)]
@@ -1186,7 +1188,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.count_branches(key),
                 Self::CellByteNode(node) => node.count_branches(key),
                 Self::TinyRefNode(node) => node.count_branches(key),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::count_branches(&crate::empty_node::EMPTY_NODE, key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::count_branches(&EMPTY_NODE, key),
             }
         }
         #[inline(always)]
@@ -1198,7 +1200,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.node_branches_mask(key),
                 Self::CellByteNode(node) => node.node_branches_mask(key),
                 Self::TinyRefNode(node) => node.node_branches_mask(key),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&crate::empty_node::EMPTY_NODE, key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&EMPTY_NODE, key),
             }
         }
         #[inline(always)]
@@ -1210,7 +1212,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.is_leaf(key),
                 Self::CellByteNode(node) => node.is_leaf(key),
                 Self::TinyRefNode(node) => node.is_leaf(key),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&crate::empty_node::EMPTY_NODE, key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&EMPTY_NODE, key),
             }
         }
         pub fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
@@ -1221,7 +1223,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.prior_branch_key(key),
                 Self::CellByteNode(node) => node.prior_branch_key(key),
                 Self::TinyRefNode(node) => node.prior_branch_key(key),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::prior_branch_key(&crate::empty_node::EMPTY_NODE, key),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::prior_branch_key(&EMPTY_NODE, key),
             }
         }
         pub fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<'a, V, A>>) {
@@ -1232,7 +1234,7 @@ mod tagged_node_ref {
                 Self::BridgeNode(node) => node.get_sibling_of_child(key, next),
                 Self::CellByteNode(node) => node.get_sibling_of_child(key, next),
                 Self::TinyRefNode(node) => node.get_sibling_of_child(key, next),
-                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::get_sibling_of_child(&crate::empty_node::EMPTY_NODE, key, next),
+                Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::get_sibling_of_child(&EMPTY_NODE, key, next),
             }
         }
         pub fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'a, V, A> {
@@ -2697,6 +2699,7 @@ mod opaque_dyn_rc_trie_node {
         pub fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
             self.ptr.as_tagged_mut()
         }
+        #[allow(unused)]
         #[inline]
         pub(crate) fn tag(&self) -> usize {
             self.ptr.tag()

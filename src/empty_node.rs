@@ -7,8 +7,6 @@ use crate::trie_node::*;
 use crate::ring::*;
 use crate::utils::ByteMask;
 
-pub(crate) static EMPTY_NODE: EmptyNode = EmptyNode;
-
 #[derive(Clone, Copy, Default, Debug)]
 pub struct EmptyNode;
 
