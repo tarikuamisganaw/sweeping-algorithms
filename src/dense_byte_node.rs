@@ -568,11 +568,11 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> ByteNode<Cf, A>
         let alloc = self.alloc.clone();
         let new_node = DenseByteNode::new_in(alloc.clone());
         self.set_child(path[0], TrieNodeODRc::new_in(new_node, alloc.clone()));
-        let mut cur = self.get_child_mut(path[0]).unwrap().make_mut().as_tagged_mut().into_dense().unwrap();
+        let mut cur = self.get_child_mut(path[0]).unwrap().make_mut().into_dense().unwrap();
         for i in 1..path.len() - 1 {
             let new_node = DenseByteNode::new_in(alloc.clone());
             cur.set_child(path[i], TrieNodeODRc::new_in(new_node, alloc.clone()));
-            cur = cur.get_child_mut(path[i]).unwrap().make_mut().as_tagged_mut().into_dense().unwrap();
+            cur = cur.get_child_mut(path[i]).unwrap().make_mut().into_dense().unwrap();
         }
         cur
     }
