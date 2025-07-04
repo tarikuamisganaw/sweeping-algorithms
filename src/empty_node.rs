@@ -121,10 +121,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn node_first_val_depth_along_key(&self, _key: &[u8]) -> Option<usize> {
         None
     }
-    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
+    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         (None, None)
     }
-    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<V, A>>) {
+    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<'_, V, A>>) {
         (None, None)
     }
     fn count_branches(&self, _key: &[u8]) -> usize {
@@ -141,7 +141,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
         &[]
     }
 
-    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
+    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         (None, None)
     }
     fn get_node_at_key(&self, _key: &[u8]) -> AbstractNodeRef<'_, V, A> {

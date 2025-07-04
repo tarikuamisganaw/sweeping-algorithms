@@ -221,7 +221,7 @@ impl<V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for TrieRef<'
             AbstractNodeRef::None
         }
     }
-    fn try_borrow_focus(&self) -> Option<TaggedNodeRef<Self::V, Self::A>> {
+    fn try_borrow_focus(&self) -> Option<TaggedNodeRef<'_, Self::V, Self::A>> {
         if self.is_valid() {
             let node_key = self.node_key();
             if node_key.len() == 0 {

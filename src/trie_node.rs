@@ -287,7 +287,7 @@ pub trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncast<V, A>
     /// `key`, otherwise it will be immedtely before
     ///
     /// NOTE: This method will never be called with a zero-length key
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<V, A>>);
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>);
 
     /// Returns a new node which is a clone or reference to the portion of the node rooted at `key`, or
     /// `None` if `key` does not specify a path within the node

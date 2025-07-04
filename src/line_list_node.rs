@@ -1966,7 +1966,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         (None, None)
     }
 
-    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<V, A>>) {
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<'_, V, A>>) {
         //Logic:  There are 6 possible results from this method:
         // 1. The `key` arg is zero-length, in which case this method should return the common prefix
         //    if there is one (which is guaranteed to be one byte), or otherwise return the result in slot0
@@ -2153,7 +2153,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         }
     }
 
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<V, A>>) {
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         debug_assert!(key.len() > 0);
         let last_key_byte_idx = key.len()-1;
         let common_key = &key[..last_key_byte_idx];
