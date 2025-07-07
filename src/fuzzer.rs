@@ -621,7 +621,7 @@ mod tests {
     let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
       ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default()} }, p: |x| !x.is_empty(), pd: PhantomData::default() };
     let trie_fuzzer = UniformTrie { size: N_PATHS, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
-    
+
     trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|mut trie| {
       path_fuzzer.clone().sample_iter(rng.clone()).take(N_DESCENDS).for_each(|path| {
         let mut wz = trie.write_zipper_at_path(&path[..]);

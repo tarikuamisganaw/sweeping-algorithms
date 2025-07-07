@@ -1820,10 +1820,11 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
         let mut key_start = self.key.node_key_start();
         //NOTE: this is a copy of the self.key.node_key() function, but we can't borrow the whole key structure in this code
         let mut key = if self.key.prefix_buf.len() > 0 {
-            &self.key.prefix_buf[key_start..]
+            &self.key.prefix_buf
         } else {
             unsafe{ self.key.origin_path.as_slice_unchecked() }
         };
+        key = &key[key_start..];
         //Explanation: This 2 is based on the fact that a WriteZipper's focus_stack holds the parent node
         // to the focus, so we must have a `node_key` unless the zipper is at the root, and the minimum
         // `node_key` length is 1 byte
@@ -2093,6 +2094,25 @@ mod tests {
         assert!(map.root().unwrap().borrow().as_tagged().as_list().is_some());
 
         let mut wz = map.write_zipper_at_path(b"3Path");
+        assert_eq!(wz.is_value(), false);
+
+        //Now force the node to upgrade with set_value
+        assert_eq!(wz.set_value(()), None);
+        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.get_value_mut(), Some(&mut ()));
+    }
+
+    /// Hits an edge case around fixing a WriteZipper's root (with `mend_root`)
+    #[test]
+    fn write_zipper_set_value_test3() {
+        let mut map = BytesTrieMap::<()>::new();
+
+        //We want to ensure we get a PairNode at the map root
+        map.insert(b"aaa111", ());
+        map.insert(b"bbb", ());
+        map.insert(b"aaa222", ());
+
+        let mut wz = map.write_zipper_at_path(b"aaa");
         assert_eq!(wz.is_value(), false);
 
         //Now force the node to upgrade with set_value
