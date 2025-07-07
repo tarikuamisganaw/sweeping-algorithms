@@ -147,18 +147,8 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
         None
     }
     fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)> { unreachable!() }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     if !self.is_used_child() {
-    //         return true //TinyRefNode can only have one item, so if it doesn't contain a child, then there is no excess item
-    //     }
-    //     keys.binary_search(&self.key()).is_ok()
-    // }
     fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) { unreachable!() }
     fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {
-        //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
-        // node types.  But currently there is no path to call it.
-        // unreachable!();
         if self.node_is_empty() {
             return true
         }
@@ -194,13 +184,6 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
         }
         false
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     if !self.is_used_val() {
-    //         return true //TinyRefNode can only have one item, so if it doesn't contain a val, then there is no excess item
-    //     }
-    //     keys.binary_search(&self.key()).is_ok()
-    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         if self.is_used_val() {
             let node_key = self.key();
@@ -260,10 +243,6 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     fn node_branches_mask(&self, _key: &[u8]) -> ByteMask {
         panic!();
     }
-    //GOAT trash
-    // fn is_leaf(&self, _key: &[u8]) -> bool {
-    //     panic!();
-    // }
     fn prior_branch_key<'key>(&self, _key: &'key [u8]) -> &'key [u8] {
         panic!();
     }
@@ -297,22 +276,22 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     }
     fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V, A>> { unreachable!() }
     fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
-        //GOAT, I can streamline this quite a lot, but for now I'll just up-convert to a ListNode to test
+        //TODO, I can streamline this quite a lot, but for now I'll just up-convert to a ListNode to test
         // the basic premise of the TinyRefNode
         self.into_full().unwrap().pjoin_dyn(other)
     }
     fn join_into_dyn(&mut self, _other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice { unreachable!() }
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice { unreachable!() }
     fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
-        //GOAT, is this worth bespoke code to save some cycles?
+        //TODO, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().pmeet_dyn(other)
     }
     fn psubtract_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
-        //GOAT, is this worth bespoke code to save some cycles?
+        //TODO, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().psubtract_dyn(other)
     }
     fn prestrict_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
-        //GOAT, is this worth bespoke code to save some cycles?
+        //TODO, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().prestrict_dyn(other)
     }
     fn clone_self(&self) -> TrieNodeODRc<V, A> {

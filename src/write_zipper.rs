@@ -713,34 +713,6 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperPriv<V, A> for Wri
 // WriteZipperCore (the actual implementation)
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 
-//GOAT: Discussion on whether to keep rooted zippers, or streamline the WriteZipper code
-//UPDATE: this discussion is moot if we decide all WriteZippers can update their roots
-//RESOLVED: WriteZippers are able to manipulate root values.  There is also now a root value on the map itself
-//
-// * Arguments for keeping rooted WriteZippers
-//  - A. An API that allows `let mut z = map.write_zipper_at_path()` folowed by `z.set_value` is convenient and
-//    easy to explain.  Non-rooted zippers can't set values at their root.
-//
-//  - B. A non-rooted WriteZipper cannot modify its parent node, which means it cannot upgrade its root node
-//    which means the root node needs to be able to accomodate any onward path, which means it needs to be
-//    a DenseNode or similar.  This may mean unnuecessary node upgrading, for example at the root of a map;
-//    ultimately this eats into the utility of light-weight maps.
-//
-//  - C. We'd need to reimplement the `PathMap::some_write_method` write methods to operate directly on the map nodes, rather
-//    than do it via a temporarily-created WriteZipper
-//
-// * Arguments for streamlining
-//  - A'. The convenient API isn't possible much of the time anyway, because a WriteZipper at the PathMap's
-//    root, or a WriteZipper created via `write_zipper_at_exclusive_path` can never be rooted.  And therefore
-//    it may be better to just say "WriteZippers cannot modify values at their root", instead of saying:
-//    "WriteZipper created with... modify values at their root".
-//
-//  - B'. Obviously cutting branches and streamlining the WriteZipper code
-//
-//  - C'. The code that fixes up a zipper (WriteZipper::mend_root) is pure waste if the zipper is temporary;
-//    e.g. just part of the implementation of `PathMap::some_write_method`
-//
-
 /// The core implementation of WriteZipper
 pub(crate) struct WriteZipperCore<'a, 'k, V: Clone + Send + Sync, A: Allocator> {
     pub(crate) key: KeyFields<'k>,

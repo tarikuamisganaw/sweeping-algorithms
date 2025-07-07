@@ -229,18 +229,6 @@ pub(crate) trait TrieNode<V: Clone + Send + Sync, A: Allocator>: TrieNodeDowncas
     /// Returns 256-bit mask, indicating which children exist from the branch specified by `key`
     fn node_branches_mask(&self, key: &[u8]) -> ByteMask;
 
-    //GOAT unused
-    // /// Returns `true` if the key specifies a leaf within the node from which it is impossible to
-    // /// descend further, otherwise returns `false`
-    // ///
-    // /// NOTE: Returns `true` if the key specifies an invalid path, because an invalid path has no
-    // ///   onward paths branching from it.
-    // /// NOTE: The reason this is not the same as `node.count_branches() == 0` is because [Self::count_branches]
-    // ///   counts only internal children, and treats values and onward links equivalently.  Therefore
-    // ///   some keys that specify onward links will be reported as having a `count_branches` of 0, but
-    // ///   `is_leaf` will not be true.
-    // fn is_leaf(&self, key: &[u8]) -> bool;
-
     /// Returns the key of the prior upstream branch or value, within the node
     ///
     /// This method will never be called with a zero-length key.
@@ -1150,19 +1138,6 @@ mod tagged_node_ref {
                 Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::node_branches_mask(&EMPTY_NODE, key),
             }
         }
-        //GOAT trash
-        // #[inline(always)]
-        // pub fn is_leaf(&self, key: &[u8]) -> bool {
-        //     match self {
-        //         Self::DenseByteNode(node) => node.is_leaf(key),
-        //         Self::LineListNode(node) => node.is_leaf(key),
-        //         #[cfg(feature = "bridge_nodes")]
-        //         Self::BridgeNode(node) => node.is_leaf(key),
-        //         Self::CellByteNode(node) => node.is_leaf(key),
-        //         Self::TinyRefNode(node) => node.is_leaf(key),
-        //         Self::EmptyNode => <EmptyNode as TrieNode<V, A>>::is_leaf(&EMPTY_NODE, key),
-        //     }
-        // }
         pub fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
             match self {
                 Self::DenseByteNode(node) => node.prior_branch_key(key),

@@ -630,10 +630,6 @@ impl<V: Clone + Lattice + Send + Sync + Unpin, A: Allocator> Lattice for BytesTr
             AlgebraicResult::Element(Self::new_with_root_in(root_node.flatten(), root_val.flatten(), self.alloc.clone()))
         })
     }
-    //GOAT trash
-    // fn bottom() -> Self {
-    //     BytesTrieMap::new()
-    // }
 }
 
 impl<V: Clone + Send + Sync + Unpin + DistributiveLattice, A: Allocator> DistributiveLattice for BytesTrieMap<V, A> {

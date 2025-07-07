@@ -20,17 +20,9 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn node_get_child(&self, _key: &[u8]) -> Option<(usize, &TrieNodeODRc<V, A>)> {
         None
     }
-    //GOAT, Deprecated node_get_child_and_val_mut
-    // fn node_get_child_and_val_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)> {
-    //     None
-    // }
     fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)> {
         None
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_children_exclusive(&self, _keys: &[&[u8]]) -> bool {
-    //     true
-    // }
     fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) {
         unreachable!() //Should not be called unless it's known that the node being replaced exists
     }
@@ -40,10 +32,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn node_contains_val(&self, _key: &[u8]) -> bool {
         false
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_vals_exclusive(&self, _keys: &[&[u8]]) -> bool {
-    //     true
-    // }
     fn node_get_val(&self, _key: &[u8]) -> Option<&V> {
         None
     }
@@ -55,47 +43,9 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     }
     fn node_set_val(&mut self, _key: &[u8], _val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
         unreachable!() //we should head this off upstream
-
-        //GOAT, dead code
-        // #[allow(unused_mut)]
-        // let mut replacement_node;
-        // #[cfg(all(not(feature = "all_dense_nodes"), not(feature = "bridge_nodes")))]
-        // {
-        //     replacement_node = crate::line_list_node::LineListNode::new();
-        //     replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
-        // }
-        // #[cfg(all(feature = "bridge_nodes", not(feature = "all_dense_nodes")))]
-        // {
-        //     replacement_node = crate::bridge_node::BridgeNode::new(key, false, val.into());
-        // }
-        // #[cfg(feature = "all_dense_nodes")]
-        // {
-        //     replacement_node = crate::dense_byte_node::DenseByteNode::new();
-        //     replacement_node.node_set_val(key, val).unwrap_or_else(|_| panic!());
-        // }
-        // Err(TrieNodeODRc::new(replacement_node))
     }
     fn node_set_branch(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) -> Result<bool, TrieNodeODRc<V, A>> {
         unreachable!() //we should head this off upstream
-
-        //GOAT dead code
-        // #[allow(unused_mut)]
-        // let mut replacement_node;
-        // #[cfg(all(not(feature = "all_dense_nodes"), not(feature = "bridge_nodes")))]
-        // {
-        //     replacement_node = crate::line_list_node::LineListNode::new();
-        //     replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
-        // }
-        // #[cfg(all(feature = "bridge_nodes", not(feature = "all_dense_nodes")))]
-        // {
-        //     replacement_node = crate::bridge_node::BridgeNode::new(key, true, new_node.into());
-        // }
-        // #[cfg(feature = "all_dense_nodes")]
-        // {
-        //     replacement_node = crate::dense_byte_node::DenseByteNode::new();
-        //     replacement_node.node_set_branch(key, new_node).unwrap_or_else(|_| panic!());
-        // }
-        // Err(TrieNodeODRc::new(replacement_node))
     }
     fn node_remove_all_branches(&mut self, _key: &[u8]) -> bool {
         false
@@ -133,15 +83,9 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for EmptyNode {
     fn node_branches_mask(&self, _key: &[u8]) -> ByteMask {
         ByteMask::EMPTY
     }
-    //GOAT trash
-    // fn is_leaf(&self, _key: &[u8]) -> bool {
-    //     true
-    // }
-
     fn prior_branch_key<'key>(&self, _key: &'key [u8]) -> &'key [u8] {
         &[]
     }
-
     fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         (None, None)
     }

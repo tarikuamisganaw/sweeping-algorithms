@@ -1596,64 +1596,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         }
         None
     }
-    //GOAT, Deprecated node_get_child_and_val_mut
-    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)> {
-    //     unimplemented!()
-    //     //GOAT, this code is unsound because we alias the self mutable ref.  To fix it, we need to unpack
-    //     // the implementations of get_child_mut and get_val_mut.
-    //     //  But we may not actually need this method to work.
-    //     //
-    //     // let self_ptr: *mut Self = self;
-    //     // if let Some((consumed_bytes, child)) = self.get_child_mut(key) {
-    //     //     // SAFETY: We know the value and the child will be in different non-overlapping parts of the node,
-    //     //     // so it will be safe to mutably borrow them both at the same time.
-    //     //     let self_ref = unsafe{ &mut *self_ptr };
-    //     //     if let Some(val) = self_ref.get_val_mut(&key[..consumed_bytes]) {
-    //     //         Some((consumed_bytes, child, Some(val)))
-    //     //     } else {
-    //     //         Some((consumed_bytes, None, Some(child)))
-    //     //     }
-    //     // } else {
-    //     //     // SAFETY: In addition to the point above about the value not overlapping the child ptr, we also
-    //     //     // drop the previous borrow so this unsafe would be unnecessary under Polonius
-    //     //     let self_clone = unsafe{ &mut *self_ptr };
-    //     //     if let Some(val) = self_clone.get_val_mut(key) {
-    //     //         Some((key.len(), Some(val), None))
-    //     //     } else {
-    //     //         None
-    //     //     }
-    //     // }
-    // }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)> {
         self.get_child_mut(key)
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     let (key0, key1) = self.get_both_keys();
-    //     let mut pos = 0;
-    //     if self.is_used_child_0() {
-    //         pos = match keys.binary_search(&key0) {
-    //             Ok(pos) => pos,
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     if self.is_used_child_1() {
-    //         match &keys[pos+1..].binary_search(&key1) {
-    //             Ok(_) => {},
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     true
-    // }
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) {
         let (consumed_bytes, child_node) = self.get_child_mut(key).unwrap();
         debug_assert!(consumed_bytes == key.len());
         *child_node = new_node;
     }
     fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {
-        //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
-        // node types.  But currently there is no path to call it.
-        // unreachable!();
         let mut slot_0_requested = !self.is_used::<0>();
         let mut slot_1_requested = !self.is_used::<1>();
         let (node_key_0, node_key_1) = self.get_both_keys();
@@ -1702,24 +1653,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
     fn node_contains_val(&self, key: &[u8]) -> bool {
         self.contains_val(key)
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     let (key0, key1) = self.get_both_keys();
-    //     let mut pos = 0;
-    //     if self.is_used_value_0() {
-    //         pos = match keys.binary_search(&key0) {
-    //             Ok(pos) => pos,
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     if self.is_used_value_1() {
-    //         match keys[pos+1..].binary_search(&key1) {
-    //             Ok(_) => {},
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     true
-    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         self.get_val(key)
     }
@@ -2103,23 +2036,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         }
         m.into()
     }
-
-    //GOAT trash
-    // fn is_leaf(&self, key: &[u8]) -> bool {
-    //     let key_len = key.len();
-    //     let (key0, key1) = self.get_both_keys();
-    //     if key0.starts_with(key) {
-    //         if key_len < key0.len() || self.is_child_ptr::<0>() {
-    //             return false;
-    //         }
-    //     }
-    //     if key1.starts_with(key) {
-    //         if key_len < key1.len() || self.is_child_ptr::<1>() {
-    //             return false;
-    //         }
-    //     }
-    //     true
-    // }
 
     fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
         debug_assert!(key.len() > 0);
@@ -3121,10 +3037,6 @@ mod tests {
 
 }
 
-//GOAT, make an is_shared() zipper method, with all relevant caveats in the documentation
-//
-//GOAT, tests to make sure the right status codes are returned from all algebraic ops
-//
 //GOAT, merge wrappers for lattice impls on primitives
 //
 //GOAT, remove garbage lattice impls
@@ -3158,11 +3070,6 @@ mod tests {
 
 //GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
 
-//GOAT, look at the `move_to(path)` zipper movement API, to avoid ascending too far
-
 //GOAT, implement IntoIterator on PathMap
-
-//GOAT, the following tests appear to leak memory, when running under miri:
-// * test write_zipper::tests::write_zipper_test_zipper_conversion ... ok
 
 //GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957

@@ -278,40 +278,6 @@ pub trait ZipperMoving: Zipper {
     /// NOTE: A default implementation could be provided, but all current zippers have more optimal native implementations.
     fn ascend_until_branch(&mut self) -> bool;
 
-//GOAT, I think this method ought to behave like the other two, and ascend above the current value, instead
-// of stopping if the zipper is on a value.  But does anybody even use it??
-    // /// Ascends the zipper to the nearest upstream value.  Returns `true` if the zipper
-    // /// focus moved upwards, otherwise returns `false` if the zipper was already at the root or at a value
-    // fn ascend_until_value(&mut self) -> bool {
-    //     if self.is_value() {
-    //         return false;
-    //     }
-    //     let at_root = !self.ascend_until();
-    //     if at_root {
-    //         return false;
-    //     }
-    //     loop {
-    //         if self.is_value() {
-    //             break;
-    //         };
-    //         let done = !self.ascend_until();
-    //         if done {
-    //             break;
-    //         };
-    //     }
-    //     return true;
-    // }
-
-    // //GOAT, this should be deprecated in favor of to_next_sibling_byte and to_prev_sibling_byte
-    // /// Moves the zipper's focus to a sibling at the same level.  Returns `true` if the focus was changed,
-    // /// otherwise returns `false`
-    // ///
-    // /// This method is equivalent to calling [Self::ascend] with `1`, followed by [Self::descend_indexed_branch]
-    // /// where the index passed is 1 more or less than the index of the current focus position.
-    // ///
-    // /// If `next` is `true` then the zipper will be advanced otherwise it will be moved backwards.
-    // fn to_sibling(&mut self, next: bool) -> bool;
-
     /// Moves the zipper's focus to the next sibling byte with the same parent
     ///
     /// Returns `true` if the focus was moved.  If the focus is already on the last byte among its siblings,
@@ -2306,16 +2272,6 @@ pub(crate) mod read_zipper_core {
             }
         }
 
-        // //GOAT, Consider deleting.  I feel like this API isn't very useful and leads people away from the better-performing options
-        // /// Consumes the zipper and returns a Iterator over the downstream child bytes from the focus branch
-        // ///
-        // /// NOTE: This is mainly a convenience to allow the use of `collect` and `for` loops, as the other
-        // /// zipper methods can do the same thing without consuming the iterator
-        // pub fn into_child_iter(mut self) -> ReadZipperChildIter<'a, 'path, V> {
-        //     self.descend_first_byte();
-        //     ReadZipperChildIter::<'a, 'path, V>(Some(self))
-        // }
-
         /// Internal method returning the index to the key char beyond the path to the `self.focus_node`
         #[inline]
         fn node_key_start(&self) -> usize {
@@ -4138,6 +4094,3 @@ mod tests {
     }
 }
 
-// GOAT, new zipper API.  "fork_zipper_at_path".  Cheap call to make a new zipper cheaper than descend_to
-//   for the current zipper.  The idea is that there is no need to save the intervening node pointers along the path
-//

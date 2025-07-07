@@ -328,11 +328,6 @@ impl Lattice for ByteMask {
     fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
         self.0.pmeet(&other.0).map(|mask| Self(mask))
     }
-    //GOAT trash
-    // #[inline]
-    // fn bottom() -> Self {
-    //     Self::new()
-    // }
 }
 
 impl DistributiveLattice for ByteMask {
