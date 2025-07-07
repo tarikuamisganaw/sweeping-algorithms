@@ -1173,7 +1173,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperCore<'
         }
         let (old_val, created_subnode) = self.in_zipper_mut_static_result(
             |node, remaining_key| node.node_set_val(remaining_key, val),
-            |_new_leaf_node, _remaining_key| (None, false));
+            |_new_leaf_node, _remaining_key| (None, true));
         if created_subnode {
             self.mend_root();
             self.descend_to_internal();
@@ -2057,7 +2057,7 @@ mod tests {
     use crate::GlobalAlloc;
 
     #[test]
-    fn write_zipper_set_value_test() {
+    fn write_zipper_set_value_test1() {
         let mut map = BytesTrieMap::<usize>::new();
         let mut zipper = map.write_zipper_at_path(b"in");
         for i in 0usize..32 {
@@ -2079,6 +2079,26 @@ mod tests {
             zipper.reset();
         }
         drop(zipper);
+    }
+
+    /// Hits an edge case, where we want to ensure that the zipper's root gets mended
+    /// (with `mend_root`) when a node is upgraded to a different node type
+    #[test]
+    fn write_zipper_set_value_test2() {
+        let mut map = BytesTrieMap::<()>::new();
+
+        //We want to ensure we get a PairNode at the map root
+        map.insert(b"OnePath", ());
+        map.insert(b"2Path", ());
+        assert!(map.root().unwrap().borrow().as_tagged().as_list().is_some());
+
+        let mut wz = map.write_zipper_at_path(b"3Path");
+        assert_eq!(wz.is_value(), false);
+
+        //Now force the node to upgrade with set_value
+        assert_eq!(wz.set_value(()), None);
+        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.get_value_mut(), Some(&mut ()));
     }
 
     #[test]
