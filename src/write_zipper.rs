@@ -2167,7 +2167,7 @@ mod tests {
         //We want to ensure we get a PairNode at the map root
         map.insert(b"OnePath", ());
         map.insert(b"2Path", ());
-        assert!(map.root().unwrap().borrow().as_tagged().as_list().is_some());
+        assert!(map.root().unwrap().as_tagged().as_list().is_some());
 
         let mut wz = map.write_zipper_at_path(b"3Path");
         assert_eq!(wz.is_value(), false);
