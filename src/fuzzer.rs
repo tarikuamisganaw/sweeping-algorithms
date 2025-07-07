@@ -598,4 +598,37 @@ mod tests {
       black_box(trie);
     })
   }
+
+  #[test]
+  fn zipper_basic_1() {
+    #[cfg(not(miri))]
+    const N_TRIES: usize = 100;
+    #[cfg(miri)]
+    const N_TRIES: usize = 10;
+
+    #[cfg(not(miri))]
+    const N_PATHS: usize = 100;
+    #[cfg(miri)]
+    const N_PATHS: usize = 10;
+
+    #[cfg(not(miri))]
+    const N_DESCENDS: usize = 100;
+    #[cfg(miri)]
+    const N_DESCENDS: usize = 10;
+
+    let rng = StdRng::from_seed([0; 32]);
+    let rng_ = StdRng::from_seed([!0; 32]);
+    let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
+      ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default()} }, p: |x| !x.is_empty(), pd: PhantomData::default() };
+    let trie_fuzzer = UniformTrie { size: N_PATHS, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
+
+    trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|mut trie| {
+      path_fuzzer.clone().sample_iter(rng.clone()).take(N_DESCENDS).for_each(|path| {
+        let mut wz = trie.write_zipper_at_path(&path[..]);
+        black_box(wz.get_value_or_insert(()));
+        drop(wz);
+      });
+      black_box(trie);
+    })
+  }
 }
