@@ -485,14 +485,12 @@ pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, A: Allocator, Merge
     V: Clone + Send + Sync + Lattice
 {
     let mut request_keys = ArrayVec::<(&[u8], bool), MAX_PAYLOAD_CNT>::new();
-    //GOAT, we can remove the `Option<>` around the `FatAlgebraicResult`, once we are satisfied that
-    // we never fail to set a result, and we never attempt to set the same result more than once.
-    let mut element_results = ArrayVec::<Option<FatAlgebraicResult<ValOrChild<V, A>>>, MAX_PAYLOAD_CNT>::new();
+    let mut element_results = ArrayVec::<FatAlgebraicResult<ValOrChild<V, A>>, MAX_PAYLOAD_CNT>::new();
     let mut request_results = ArrayVec::<(usize, PayloadRef<V, A>), MAX_PAYLOAD_CNT>::new();
     for (self_key, self_payload) in self_payloads.iter() {
         debug_assert!(!self_payload.is_none());
         request_keys.push((self_key, self_payload.is_val()));
-        element_results.push(None);
+        element_results.push(FatAlgebraicResult::none());
         request_results.push((0, PayloadRef::default()));
     }
 
@@ -501,7 +499,6 @@ pub(crate) fn pmeet_generic<const MAX_PAYLOAD_CNT: usize, V, A: Allocator, Merge
     let mut combined_mask = SELF_IDENT | COUNTER_IDENT;
     let mut result_payloads = ArrayVec::<Option<ValOrChild<V, A>>, MAX_PAYLOAD_CNT>::new();
     for result in element_results {
-        let result = result.unwrap();
         combined_mask &= result.identity_mask;
         is_none = is_none && result.element.is_none();
         result_payloads.push(result.element);
@@ -537,7 +534,7 @@ pub(crate) fn node_count_branches_recursive<V: Clone + Send + Sync, A: Allocator
 }
 
 /// Internal function to implement the recursive part of `pmeet_generic`
-pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allocator>(self_payloads: &[(&[u8], PayloadRef<V, A>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V, A>)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V, A>>>], other_node: TaggedNodeRef<'trie, V, A>) -> bool
+pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allocator>(self_payloads: &[(&[u8], PayloadRef<V, A>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V, A>)], results: &mut [FatAlgebraicResult<ValOrChild<V, A>>], other_node: TaggedNodeRef<'trie, V, A>) -> bool
     where V: Clone + Send + Sync + Lattice
 {
     //If is_exhaustive gets set to `false`, then the pmeet method cannot return a `COUNTER_IDENTITY` result
@@ -597,11 +594,9 @@ pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: 
                     },
                     _ => unreachable!()
                 };
-                //GOAT, use the commented-out asserts when we get rid of the option wrapping the FatAlgebraicResult
-                debug_assert!(results[idx].is_none());
-                // debug_assert!(results[idx].element.is_none());
-                // debug_assert_eq!(results[idx].mask, 0);
-                results[idx] = Some(result);
+                debug_assert!(results[idx].element.is_none());
+                debug_assert_eq!(results[idx].identity_mask, 0);
+                results[idx] = result;
             }
         } else {
             pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V, A>(&mut cur_group, &mut is_exhaustive, idx, self_payloads, keys, request_results, results);
@@ -625,7 +620,7 @@ pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: 
                 },
                 _ => unreachable!()
             };
-            results[idx] = Some(result);
+            results[idx] = result;
         }
     }
     pmeet_generic_recursive_reset::<MAX_PAYLOAD_CNT, V, A>(&mut cur_group, &mut is_exhaustive, keys.len(), self_payloads, keys, request_results, results);
@@ -636,7 +631,7 @@ pub(crate) fn pmeet_generic_internal<'trie, const MAX_PAYLOAD_CNT: usize, V, A: 
 /// Effectively part of `pmeet_generic_internal`, but factored out separately because it's called in
 /// several different places.  Resets the `cur_group` state and does a recursive call of `pmeet_generic_internal`
 #[inline]
-fn pmeet_generic_recursive_reset<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allocator>(cur_group: &mut Option<(usize, &'trie TrieNodeODRc<V, A>)>, is_exhaustive: &mut bool, idx: usize, self_payloads: &[(&[u8], PayloadRef<V, A>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V, A>)], results: &mut [Option<FatAlgebraicResult<ValOrChild<V, A>>>])
+fn pmeet_generic_recursive_reset<'trie, const MAX_PAYLOAD_CNT: usize, V, A: Allocator>(cur_group: &mut Option<(usize, &'trie TrieNodeODRc<V, A>)>, is_exhaustive: &mut bool, idx: usize, self_payloads: &[(&[u8], PayloadRef<V, A>)], keys: &mut [(&[u8], bool)], request_results: &mut [(usize, PayloadRef<'trie, V, A>)], results: &mut [FatAlgebraicResult<ValOrChild<V, A>>])
     where V: Clone + Send + Sync + Lattice
 {
     match core::mem::take(cur_group) {
