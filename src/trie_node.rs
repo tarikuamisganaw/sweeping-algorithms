@@ -2464,7 +2464,12 @@ mod opaque_dyn_rc_trie_node {
             //
             // [1]: (www.boost.org/doc/libs/1_55_0/doc/html/atomic/usage_examples.html)
             let (ptr, _tag) = self.ptr.get_raw_parts();
-            let _old_size = unsafe{ &*ptr }.fetch_add(1, Relaxed);
+            let old_count = unsafe{ &*ptr }.fetch_add(1, Relaxed);
+
+            if old_count > MAX_REFCOUNT {
+                //Undo the increment if the counter is saturated
+                unsafe{ &*ptr }.fetch_sub(1, Relaxed);
+            }
 
             Self{ ptr: self.ptr.clone(), alloc: unsafe{ MaybeUninit::new(self.alloc.assume_init_ref().clone()) } }
         }
@@ -2488,11 +2493,18 @@ mod opaque_dyn_rc_trie_node {
             // Because `fetch_sub` is already atomic, we do not need to synchronize
             // with other threads unless we are going to delete the object. This
             // same logic applies to the below `fetch_sub` to the `weak` count.
-            if unsafe{ &*ptr }.fetch_sub(1, Release) != 1 {
+            let old_count = unsafe{ &*ptr }.fetch_sub(1, Release);
+
+            if old_count >= MAX_REFCOUNT {
+                // Undo the decrement because we saturated
+                unsafe{ &*ptr }.fetch_add(1, Relaxed);
                 return;
             }
 
-//GOAT, deal with saturation
+            if old_count != 1 {
+                return;
+            }
+
             // This fence is needed to prevent reordering of use of the data and
             // deletion of the data. Because it is marked `Release`, the decreasing
             // of the reference count synchronizes with this `Acquire` fence. This
