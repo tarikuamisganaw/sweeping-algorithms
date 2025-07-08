@@ -2140,6 +2140,7 @@ mod tests {
         //We want to ensure we get a PairNode at the map root
         map.insert(b"OnePath", ());
         map.insert(b"2Path", ());
+        #[cfg(not(feature = "all_dense_nodes"))]
         assert!(map.root().unwrap().as_tagged().as_list().is_some());
 
         let mut wz = map.write_zipper_at_path(b"3Path");

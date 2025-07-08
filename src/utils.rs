@@ -522,11 +522,6 @@ impl Lattice for [u64; 4] {
         let result = [self[0] & other[0], self[1] & other[1], self[2] & other[2], self[3] & other[3]];
         bitmask_algebraic_result(result, self, other)
     }
-    //GOAT trash
-    // #[inline]
-    // fn bottom() -> Self {
-    //     empty_mask()
-    // }
 }
 
 //GOAT, This should be generalized to bit sets of other widths
