@@ -83,7 +83,7 @@ fn list_node_iterative_drop<V: Clone + Send + Sync, A: Allocator>(node: &mut Lin
         if next_node.refcount() > 1 {
             break;
         }
-        match next_node.make_mut().as_tagged_mut().into_list() {
+        match next_node.make_mut().into_list() {
             Some(list_node) => {
                 match list_node_take_child_to_drop(list_node) {
                     Some(child_node) => {
@@ -770,7 +770,7 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
     fn set_payload_abstract<const IS_CHILD: bool>(&mut self, key: &[u8], mut payload: ValOrChildUnion<V, A>) -> Result<(Option<ValOrChild<V, A>>, bool), TrieNodeODRc<V, A>> where V: Clone {
 
         // A local function to either set a child or a branch on a downstream node
-        let set_payload_recursive = |child: &mut dyn TrieNode<V, A>, node_key, payload: ValOrChildUnion<V, A>| {
+        let set_payload_recursive = |mut child: TaggedNodeRefMut<'_, V, A>, node_key, payload: ValOrChildUnion<V, A>| {
             if IS_CHILD {
                 let onward_link = unsafe{ payload.into_child() };
                 return child.node_set_branch(node_key, onward_link).map(|_| (None, true))
@@ -848,12 +848,21 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
         //We couldn't store the value in either of the slots, so upgrade the node
         //=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
         let mut replacement_node = self.convert_to_dense::<OrdinaryCoFree<V, A>>(3);
-        let dense_node = replacement_node.make_mut().as_tagged_mut().into_dense().unwrap();
+        let replacement_mut = replacement_node.make_mut();
+        let dense_node = replacement_mut.into_dense().unwrap();
 
         //Add the new key-value pair to the new DenseByteNode
         if key.len() > 1 {
             let mut child_node = Self::new_in(self.alloc.clone());
-            set_payload_recursive(&mut child_node, &key[1..], payload).unwrap_or_else(|_| panic!());
+            if IS_CHILD {
+                let onward_link = unsafe{ payload.into_child() };
+                let result = child_node.node_set_branch(&key[1..], onward_link);
+                debug_assert!(result.is_ok())
+            } else {
+                let val = unsafe{ payload.into_val() };
+                let result = child_node.node_set_val(&key[1..], val);
+                debug_assert!(result.is_ok())
+            }
             dense_node.set_child(key[0], TrieNodeODRc::new_in(child_node, self.alloc.clone()));
         } else {
             if IS_CHILD {
@@ -1030,7 +1039,7 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
     // }
 
     /// Internal method to subtract the contents of `SLOT` with the contents of the `other` node
-    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<ValOrChildUnion<V, A>> where V: Clone + DistributiveLattice {
+    fn subtract_from_slot_contents<const SLOT: usize>(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<ValOrChildUnion<V, A>> where V: Clone + DistributiveLattice {
         if !self.is_used::<SLOT>() {
             return AlgebraicResult::None
         }
@@ -1039,14 +1048,14 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
             if self.is_child_ptr::<SLOT>() {
                 let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
                 let difference = if onward_key.len() == 0 {
-                    self_onward_link.borrow().psubtract_dyn(onward_node)
+                    self_onward_link.as_tagged().psubtract_dyn(onward_node)
                 } else {
                     match onward_node.get_node_at_key(onward_key).into_option() {
-                        Some(other_onward_node) => self_onward_link.borrow().psubtract_dyn(other_onward_node.borrow()),
+                        Some(other_onward_node) => self_onward_link.as_tagged().psubtract_dyn(other_onward_node.as_tagged()),
                         None => return AlgebraicResult::Identity(SELF_IDENT)
                     }
                 };
-                debug_assert!(difference.as_ref().map(|node| node.borrow().as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or([true, true], true));
+                debug_assert!(difference.as_ref().map(|node| node.as_tagged().as_list().map(|node| validate_node(node)).unwrap_or(true)).unwrap_or([true, true], true));
                 difference.map(|node| ValOrChildUnion::from(node))
             } else {
                 debug_assert!(onward_key.len() > 0);
@@ -1060,7 +1069,7 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
         }
     }
     /// Internal method to restrict the contents of `SLOT` with the contents of the `other` node
-    fn restrict_slot_contents<const SLOT: usize>(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<ValOrChildUnion<V, A>> where V: Clone {
+    fn restrict_slot_contents<const SLOT: usize>(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<ValOrChildUnion<V, A>> where V: Clone {
         if self.is_used::<SLOT>() {
             let path = unsafe{ self.key_unchecked::<SLOT>() };
             let (found_val, onward) = follow_path_to_value(other, path);
@@ -1071,10 +1080,10 @@ impl<V: Clone + Send + Sync, A: Allocator> LineListNode<V, A> {
                 if self.is_child_ptr::<SLOT>() {
                     let self_onward_link = unsafe{ self.child_in_slot::<SLOT>() };
                     let restricted_node_result = if onward_key.len() == 0 {
-                        self_onward_link.borrow().prestrict_dyn(onward_node)
+                        self_onward_link.as_tagged().prestrict_dyn(onward_node)
                     } else {
                         let other_onward_node = onward_node.get_node_at_key(onward_key);
-                        self_onward_link.borrow().prestrict_dyn(other_onward_node.borrow())
+                        self_onward_link.as_tagged().prestrict_dyn(other_onward_node.as_tagged())
                     };
                     restricted_node_result.map(|node| ValOrChildUnion::from(node))
                 } else {
@@ -1508,9 +1517,9 @@ fn merge_into_list_nodes<V: Clone + Send + Sync + Lattice, A: Allocator>(target:
     }
 }
 
-fn follow_path<'a, 'k, V: Clone + Send + Sync, A: Allocator>(mut node: &'a dyn TrieNode<V, A>, mut key: &'k[u8]) -> Option<(&'k[u8], &'a dyn TrieNode<V, A>)> {
+fn follow_path<'a, 'k, V: Clone + Send + Sync, A: Allocator + 'a>(mut node: TaggedNodeRef<'a, V, A>, mut key: &'k[u8]) -> Option<(&'k[u8], TaggedNodeRef<'a, V, A>)> {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
-        let next_node = next_node.borrow();
+        let next_node = next_node.as_tagged();
         if consumed_byte_cnt < key.len() {
             node = next_node;
             key = &key[consumed_byte_cnt..]
@@ -1527,10 +1536,10 @@ fn follow_path<'a, 'k, V: Clone + Send + Sync, A: Allocator>(mut node: &'a dyn T
 
 /// Follows a path from a node, returning `(true, _)` if a value was encountered along the path, returns
 /// `(false, Some)` if the path continues, and `(false, None)` if the path does not descend from the node
-fn follow_path_to_value<'a, 'k, V: Clone + Send + Sync, A: Allocator>(mut node: &'a dyn TrieNode<V, A>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], &'a dyn TrieNode<V, A>)>) {
+fn follow_path_to_value<'a, 'k, V: Clone + Send + Sync, A: Allocator + 'a>(mut node: TaggedNodeRef<'a, V, A>, mut key: &'k[u8]) -> (bool, Option<(&'k[u8], TaggedNodeRef<'a, V, A>)>) {
     while let Some((consumed_byte_cnt, next_node)) = node.node_get_child(key) {
         if consumed_byte_cnt < key.len() {
-            let next_node = next_node.borrow();
+            let next_node = next_node.as_tagged();
             node = next_node;
             key = &key[consumed_byte_cnt..]
         } else {
@@ -1587,65 +1596,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         }
         None
     }
-    //GOAT, Deprecated node_get_child_and_val_mut
-    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)> {
-    //     unimplemented!()
-    //     //GOAT, this code is unsound because we alias the self mutable ref.  To fix it, we need to unpack
-    //     // the implementations of get_child_mut and get_val_mut.
-    //     //  But we may not actually need this method to work.
-    //     //
-    //     // let self_ptr: *mut Self = self;
-    //     // if let Some((consumed_bytes, child)) = self.get_child_mut(key) {
-    //     //     // SAFETY: We know the value and the child will be in different non-overlapping parts of the node,
-    //     //     // so it will be safe to mutably borrow them both at the same time.
-    //     //     let self_ref = unsafe{ &mut *self_ptr };
-    //     //     if let Some(val) = self_ref.get_val_mut(&key[..consumed_bytes]) {
-    //     //         Some((consumed_bytes, child, Some(val)))
-    //     //     } else {
-    //     //         Some((consumed_bytes, None, Some(child)))
-    //     //     }
-    //     // } else {
-    //     //     // SAFETY: In addition to the point above about the value not overlapping the child ptr, we also
-    //     //     // drop the previous borrow so this unsafe would be unnecessary under Polonius
-    //     //     let self_clone = unsafe{ &mut *self_ptr };
-    //     //     if let Some(val) = self_clone.get_val_mut(key) {
-    //     //         Some((key.len(), Some(val), None))
-    //     //     } else {
-    //     //         None
-    //     //     }
-    //     // }
-    // }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)> {
         self.get_child_mut(key)
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     let (key0, key1) = self.get_both_keys();
-    //     let mut pos = 0;
-    //     if self.is_used_child_0() {
-    //         pos = match keys.binary_search(&key0) {
-    //             Ok(pos) => pos,
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     if self.is_used_child_1() {
-    //         match &keys[pos+1..].binary_search(&key1) {
-    //             Ok(_) => {},
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     true
-    // }
-    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A> {
+    fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) {
         let (consumed_bytes, child_node) = self.get_child_mut(key).unwrap();
         debug_assert!(consumed_bytes == key.len());
         *child_node = new_node;
-        child_node.make_mut()
     }
     fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {
-        //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
-        // node types.  But currently there is no path to call it.
-        // unreachable!();
         let mut slot_0_requested = !self.is_used::<0>();
         let mut slot_1_requested = !self.is_used::<1>();
         let (node_key_0, node_key_1) = self.get_both_keys();
@@ -1694,24 +1653,6 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
     fn node_contains_val(&self, key: &[u8]) -> bool {
         self.contains_val(key)
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     let (key0, key1) = self.get_both_keys();
-    //     let mut pos = 0;
-    //     if self.is_used_value_0() {
-    //         pos = match keys.binary_search(&key0) {
-    //             Ok(pos) => pos,
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     if self.is_used_value_1() {
-    //         match keys[pos+1..].binary_search(&key1) {
-    //             Ok(_) => {},
-    //             Err(_) => return false
-    //         };
-    //     }
-    //     true
-    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         self.get_val(key)
     }
@@ -1875,7 +1816,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             _ => (NODE_ITER_FINISHED, &[], None, None)
         }
     }
-    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+    fn node_val_count(&self, cache: &mut HashMap<u64, usize>) -> usize {
         let mut result = 0;
         if self.is_used_value_0() {
             result += 1;
@@ -1908,7 +1849,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         }
         None
     }
-    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn nth_child_from_key(&self, key: &[u8], n: usize) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
 
         //If `n==1` we know the only way we will find a valid result is if it's in slot_1.  On the other
         // hand, if `n==0` we might find the result in slot_0, or it might be in slot_1 because the key in
@@ -1919,7 +1860,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                 if key0.starts_with(key) && key0.len() > key.len() {
                     if key0 != key1 {
                         if key.len() + 1 == key0.len() && self.is_child_ptr::<0>() {
-                            return (Some(key0[key.len()]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                            return (Some(key0[key.len()]), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
                         } else {
                             return (Some(key0[key.len()]), None)
                         }
@@ -1927,7 +1868,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                 }
                 if key1.starts_with(key) && key1.len() > key.len() {
                     if key.len() + 1 == key1.len() && self.is_child_ptr::<1>() {
-                        return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                        return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                     } else {
                         return (Some(key1[key.len()]), None)
                     }
@@ -1946,7 +1887,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                             return (None, None)
                         }
                         if key1.len() == 1 && self.is_child_ptr::<1>() {
-                            return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                            return (Some(key1[key.len()]), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                         } else {
                             return (Some(key1[key.len()]), None)
                         }
@@ -1958,7 +1899,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         (None, None)
     }
 
-    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V, A>>) {
+    fn first_child_from_key(&self, key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<'_, V, A>>) {
         //Logic:  There are 6 possible results from this method:
         // 1. The `key` arg is zero-length, in which case this method should return the common prefix
         //    if there is one (which is guaranteed to be one byte), or otherwise return the result in slot0
@@ -1979,15 +1920,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         if key.len() == 0 {
             if key1.len() > 0 && key0[0] == key1[0] {
                 if key0.len() == 1 && self.is_child_ptr::<0>() {
-                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().borrow()) });
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) });
                 }
                 if key1.len() == 1 && self.is_child_ptr::<1>() {
-                    return (Some(key0), unsafe{ Some(self.child_in_slot::<1>().borrow()) });
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) });
                 }
                 return (Some(&key0[0..1]), None);
             } else {
                 if self.is_child_ptr::<0>() {
-                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                    return (Some(key0), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
                 } else {
                     return (Some(key0), None)
                 }
@@ -1999,10 +1940,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             //Case 2
             if key1.len() == 1 && key1[0] == key[0] {
                 if self.is_child_ptr::<0>() {
-                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
                 }
                 if self.is_child_ptr::<1>() {
-                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                    return (Some(&[]), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                 } else {
                     unreachable!(); //If the node has identical keys, one of them must be a link
                 }
@@ -2012,7 +1953,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             if key1.len() > 1 && key1[0] == key[0] {
                 let remaining_key = remaining_key(key1, 1);
                 if self.is_child_ptr::<1>() {
-                    return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                    return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
                 } else {
                     return (Some(remaining_key), None)
                 }
@@ -2023,7 +1964,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         if key0.starts_with(key) {
             let remaining_key = remaining_key(key0, key.len());
             if self.is_child_ptr::<0>() {
-                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<0>().borrow()) })
+                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<0>().as_tagged()) })
             } else {
                 return (Some(remaining_key), None)
             }
@@ -2033,7 +1974,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         if key1.starts_with(key) {
             let remaining_key = remaining_key(key1, key.len());
             if self.is_child_ptr::<1>() {
-                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().borrow()) })
+                return (Some(remaining_key), unsafe{ Some(self.child_in_slot::<1>().as_tagged()) })
             } else {
                 return (Some(remaining_key), None)
             }
@@ -2096,23 +2037,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         m.into()
     }
 
-    fn is_leaf(&self, key: &[u8]) -> bool {
-        let key_len = key.len();
-        let (key0, key1) = self.get_both_keys();
-        if key0.starts_with(key) {
-            if key_len < key0.len() || self.is_child_ptr::<0>() {
-                return false;
-            }
-        }
-        if key1.starts_with(key) {
-            if key_len < key1.len() || self.is_child_ptr::<1>() {
-                return false;
-            }
-        }
-        true
-    }
-
-    fn prior_branch_key(&self, key: &[u8]) -> &[u8] {
+    fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
         debug_assert!(key.len() > 0);
 
         //The key-add logic elsewhere in this file would have split the node if the overlap between the keys
@@ -2129,23 +2054,23 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         let (key0, key1) = self.get_both_keys();
         if key_len > key0.len() {
             if &key[..key0.len()] == key0 {
-                return key0
+                return &key[..key0.len()]
             }
         }
         if key_len > key1.len() {
             if &key[..key1.len()] == key1 {
-                return key1
+                return &key[..key1.len()]
             }
         }
         let key_byte = key.get(0);
         if key0.get(0) == key_byte && key1.get(0) == key_byte {
-            &key0[0..1]
+            &key[0..1]
         } else {
             &[]
         }
     }
 
-    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn get_sibling_of_child(&self, key: &[u8], next: bool) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         debug_assert!(key.len() > 0);
         let last_key_byte_idx = key.len()-1;
         let common_key = &key[..last_key_byte_idx];
@@ -2159,8 +2084,8 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                     };
                     if key1_last_byte != key.last().unwrap() {
                         let sib_node = if key1.len() == key.len() && self.is_child_ptr::<1>() {
-                            let sib_node = unsafe{ self.child_in_slot::<1>().borrow() };
-                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
+                            let sib_node = unsafe{ self.child_in_slot::<1>().as_tagged() };
+                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None
@@ -2181,8 +2106,8 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                     };
                     if key0_last_byte != key.last().unwrap() {
                         let sib_node = if key0.len() == key.len() && self.is_child_ptr::<0>() {
-                            let sib_node = unsafe{ self.child_in_slot::<0>().borrow() };
-                            debug_assert!({ sib_node.as_tagged().as_list().map(|sib_node| validate_node(sib_node)); true});
+                            let sib_node = unsafe{ self.child_in_slot::<0>().as_tagged() };
+                            debug_assert!({ sib_node.as_list().map(|sib_node| validate_node(sib_node)); true});
                             Some(sib_node)
                         } else {
                             None
@@ -2204,7 +2129,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         //Zero-length key means clone this node
         if key.len() == 0 {
             return if !self.node_is_empty() {
-                AbstractNodeRef::BorrowedDyn(self)
+                AbstractNodeRef::BorrowedDyn(self.as_tagged())
             } else {
                 AbstractNodeRef::None
             }
@@ -2283,16 +2208,18 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         None
     }
 
-    fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         debug_assert!(validate_node(self));
-        match other.as_tagged() {
-            TaggedNodeRef::LineListNode(other_list_node) => {
+        match other.tag() {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe{ other.as_list_unchecked() };
                 match merge_list_nodes(self, other_list_node) {
                     Ok(joined_list_node) => joined_list_node.map(|node| TrieNodeODRc::new_in(node, self.alloc.clone())),
                     Err(joined_dense_node) => joined_dense_node.map(|node| TrieNodeODRc::new_in(node, self.alloc.clone())),
                 }
             },
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other.as_dense_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 match new_node.merge_from_list_node(self) {
                     AlgebraicStatus::None => unreachable!(), //Joining a non-empty node with another non-empty node should never produce an empty node
@@ -2304,10 +2231,8 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             TaggedNodeRef::BridgeNode(_other_bridge_node) => {
                 unimplemented!()
             },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                tiny_node.pjoin_dyn(self)
-            },
-            TaggedNodeRef::CellByteNode(other_dense_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other.as_dense_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 match new_node.merge_from_list_node(self) {
                     AlgebraicStatus::None => unreachable!(), //Joining a non-empty node with another non-empty node should never produce an empty node
@@ -2315,19 +2240,27 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
                     AlgebraicStatus::Element => AlgebraicResult::Element(TrieNodeODRc::new_in(new_node, self.alloc.clone()))
                 }
             },
-            TaggedNodeRef::EmptyNode => {
-                AlgebraicResult::Identity(SELF_IDENT)
+            TINY_REF_NODE_TAG => {
+                let tiny_node = unsafe{ other.as_tiny_unchecked() };
+                tiny_node.pjoin_dyn(self.as_tagged())
             }
+            EMPTY_NODE_TAG => {
+                AlgebraicResult::Identity(SELF_IDENT)
+            },
+            _ => unsafe{ unreachable_unchecked() }
         }
     }
 
     fn join_into_dyn(&mut self, other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice {
         debug_assert!(validate_node(self));
-        match other.borrow().as_tagged() {
-            TaggedNodeRef::LineListNode(other_list_node) => {
+        let other_node = other.as_tagged();
+        match other_node.tag() {
+            LINE_LIST_NODE_TAG => {
+                let other_list_node = unsafe{ other_node.as_list_unchecked() };
                 merge_into_list_nodes(self, other_list_node)
             },
-            TaggedNodeRef::DenseByteNode(other_dense_node) => {
+            DENSE_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other_node.as_dense_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 let status = new_node.merge_from_list_node(self);
                 debug_assert!(!status.is_none());
@@ -2337,17 +2270,15 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             TaggedNodeRef::BridgeNode(_other_bridge_node) => {
                 unimplemented!()
             },
-            TaggedNodeRef::TinyRefNode(tiny_node) => {
-                let other_tiny_node = tiny_node.into_list_node().unwrap();
-                merge_into_list_nodes(self, &other_tiny_node)
-            },
-            TaggedNodeRef::CellByteNode(other_dense_node) => {
+            CELL_BYTE_NODE_TAG => {
+                let other_dense_node = unsafe{ other_node.as_cell_unchecked() };
                 let mut new_node = other_dense_node.clone();
                 let status = new_node.merge_from_list_node(self);
                 debug_assert!(!status.is_none());
                 (AlgebraicStatus::Element, Err(TrieNodeODRc::new_in(new_node, self.alloc.clone())))
             },
-            TaggedNodeRef::EmptyNode => (AlgebraicStatus::Identity, Ok(()))
+            EMPTY_NODE_TAG => (AlgebraicStatus::Identity, Ok(())),
+            _ => unsafe{ unreachable_unchecked() }
         }
     }
 
@@ -2490,7 +2421,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
         unreachable!()
     }
 
-    fn pmeet_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+    fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
         debug_assert!(validate_node(self));
 
         let mut self_payloads_buf: [(&[u8], PayloadRef<V, A>); 2] = [(&[], PayloadRef::None); 2];
@@ -2523,13 +2454,13 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for LineListNode<V, A>
             TrieNodeODRc::new_in(new_node, self.alloc.clone())
         })
     }
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
+    fn psubtract_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
         debug_assert!(validate_node(self));
         let slot0_result = self.subtract_from_slot_contents::<0>(other);
         let slot1_result = self.subtract_from_slot_contents::<1>(other);
         self.combine_slot_results_into_node_result(slot0_result, slot1_result)
     }
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
+    fn prestrict_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
         debug_assert!(validate_node(self));
         let slot0_result = self.restrict_slot_contents::<0>(other);
         let slot1_result = self.restrict_slot_contents::<1>(other);
@@ -2547,11 +2478,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for LineListNo
     }
     #[inline(always)]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        TaggedNodeRef::LineListNode(self)
-    }
-    #[inline(always)]
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        TaggedNodeRefMut::LineListNode(self)
+        TaggedNodeRef::from_list(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         self.convert_to_dense::<CellCoFree<V, A>>(3)
@@ -2604,12 +2531,12 @@ mod tests {
     use crate::{global_alloc, Allocator, GlobalAlloc};
     use super::*;
 
-    fn get_recursive<'a, 'b, V: Clone + Send + Sync, A: Allocator>(key: &'a [u8], node: &'b dyn TrieNode<V, A>) -> (&'a [u8], &'b dyn TrieNode<V, A>, usize) {
+    fn get_recursive<'a, 'b, V: Clone + Send + Sync, A: Allocator + 'b>(key: &'a [u8], node: TaggedNodeRef<'b, V, A>) -> (&'a [u8], TaggedNodeRef<'b, V, A>, usize) {
         let mut remaining_key = key;
-        let mut child_node = node as &dyn TrieNode<V, A>;
+        let mut child_node = node;
         let mut levels = 0;
         while let Some((bytes_used, next_node)) = child_node.node_get_child(remaining_key) {
-            let next_node = next_node.borrow();
+            let next_node = next_node.as_tagged();
             remaining_key = &remaining_key[bytes_used..];
             child_node = next_node;
             levels += 1;
@@ -2666,7 +2593,7 @@ mod tests {
 
         assert_eq!(new_node.node_get_val("a".as_bytes()), Some(&42));
         let (bytes_used, child_node) = new_node.node_get_child("a".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("hello".as_bytes()), Some(&24));
     }
@@ -2679,7 +2606,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("my name is".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("my name is billy".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("my name is".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 9);
         assert_eq!(child_node.node_get_val("s".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("s billy".as_bytes()), Some(&24));
@@ -2697,7 +2624,7 @@ mod tests {
         assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok((None, true)));
         assert_eq!(new_node.node_get_val("hello".as_bytes()), Some(&42));
 
-        let (remaining_key, child_node, _) = get_recursive(LONG_KEY, &new_node);
+        let (remaining_key, child_node, _) = get_recursive(LONG_KEY, new_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
     }
 
@@ -2710,7 +2637,7 @@ mod tests {
         // are created
         let mut new_node = LineListNode::<usize, GlobalAlloc>::new_in(global_alloc());
         assert_eq!(new_node.node_set_val(LONG_KEY, 24).map_err(|_| 0), Ok((None, true)));
-        let (remaining_key, child_node, levels) = get_recursive(LONG_KEY, &new_node);
+        let (remaining_key, child_node, levels) = get_recursive(LONG_KEY, new_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
         assert_eq!(levels, (LONG_KEY.len()-1) / KEY_BYTES_CNT);
 
@@ -2728,7 +2655,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("slot1".as_bytes(), 123).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
@@ -2744,7 +2671,7 @@ mod tests {
         assert_eq!(new_node.node_set_val("I'm billy".as_bytes(), 42).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("I'm johnny".as_bytes(), 24).map_err(|_| 0), Ok((None, true)));
         let (bytes_used, child_node) = new_node.node_get_child("I'm billy".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 4);
         assert_eq!(child_node.node_get_val("billy".as_bytes()), Some(&42));
         assert_eq!(child_node.node_get_val("johnny".as_bytes()), Some(&24));
@@ -2758,17 +2685,17 @@ mod tests {
         assert_eq!(new_node.node_set_val("apple".as_bytes(), 1).map_err(|_| 0), Ok((None, false)));
         assert_eq!(new_node.node_set_val("banana".as_bytes(), 2).map_err(|_| 0), Ok((None, false)));
         let replacement_node = new_node.node_set_val("carrot".as_bytes(), 3).unwrap_err();
-        if let TaggedNodeRef::DenseByteNode(_) = replacement_node.borrow().as_tagged() { } else { panic!("expected node would be a byte node"); }
-        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("apple".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        assert_eq!(replacement_node.tag(), DENSE_BYTE_NODE_TAG);// else { panic!("expected node would be a byte node"); }
+        let (bytes_used, child_node) = replacement_node.as_tagged().node_get_child("apple".as_bytes()).unwrap();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("pple".as_bytes()), Some(&1));
-        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("banana".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let (bytes_used, child_node) = replacement_node.as_tagged().node_get_child("banana".as_bytes()).unwrap();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("anana".as_bytes()), Some(&2));
-        let (bytes_used, child_node) = replacement_node.borrow().node_get_child("carrot".as_bytes()).unwrap();
-        let child_node = child_node.borrow();
+        let (bytes_used, child_node) = replacement_node.as_tagged().node_get_child("carrot".as_bytes()).unwrap();
+        let child_node = child_node.as_tagged();
         assert_eq!(bytes_used, 1);
         assert_eq!(child_node.node_get_val("arrot".as_bytes()), Some(&3));
     }
@@ -2780,15 +2707,15 @@ mod tests {
         let mut b = LineListNode::<u64, GlobalAlloc>::new_in(global_alloc());
         b.node_set_val("banana".as_bytes(), 1).unwrap_or_else(|_| panic!());
 
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("banana".as_bytes()), Some(&1));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert!(!join_list_node.node_is_empty());
     }
@@ -2801,14 +2728,14 @@ mod tests {
         b.node_set_val("apple".as_bytes(), 24).unwrap_or_else(|_| panic!());
 
         //u64's default impl of Lattice::join just takes the value from self
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("apple".as_bytes()), Some(&42));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2818,19 +2745,19 @@ mod tests {
         a.node_set_val("apple".as_bytes(), 42).unwrap_or_else(|_| panic!());
         let mut b = LineListNode::<u64, GlobalAlloc>::new_in(global_alloc());
         b.node_set_val("apricot".as_bytes(), 24).unwrap_or_else(|_| panic!());
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
 
-        let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), join_list_node);
+        let (remaining_key, child_node, _) = get_recursive("apple".as_bytes(), join_list_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&42));
 
-        let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), join_list_node);
+        let (remaining_key, child_node, _) = get_recursive("apricot".as_bytes(), join_list_node.as_tagged());
         assert_eq!(child_node.node_get_val(remaining_key), Some(&24));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2843,15 +2770,15 @@ mod tests {
         b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
         b.node_set_val("0".as_bytes(), 0).unwrap_or_else(|_| panic!());
 
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2866,15 +2793,15 @@ mod tests {
         debug_assert!(validate_node(&a));
         debug_assert!(validate_node(&b));
 
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         debug_assert!(validate_node(join_list_node));
         assert_eq!(join_list_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(join_list_node.node_get_val("1".as_bytes()), Some(&1));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let join_list_node = joined_result.as_ref().map(|joined| joined.borrow().as_tagged().as_list().unwrap()).unwrap([&a, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let join_list_node = joined_result.as_ref().map(|joined| joined.as_tagged().as_list().unwrap()).unwrap([&a, &b]);
         assert!(!join_list_node.node_is_empty());
     }
 
@@ -2887,15 +2814,15 @@ mod tests {
         b.node_set_val("2".as_bytes(), 2).unwrap_or_else(|_| panic!());
         b.node_set_val("1".as_bytes(), 1).unwrap_or_else(|_| panic!());
 
-        let joined_result = a.pjoin_dyn(&b);
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert_eq!(joined_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(joined_node.node_get_val("1".as_bytes()), Some(&1));
         assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert!(!joined_node.node_is_empty());
     }
 
@@ -2908,16 +2835,16 @@ mod tests {
         b.node_set_val("2".as_bytes(), 2).unwrap_or_else(|_| panic!());
         b.node_set_val("3".as_bytes(), 3).unwrap_or_else(|_| panic!());
 
-        let joined_result = a.pjoin_dyn(&b);
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert_eq!(joined_node.node_get_val("0".as_bytes()), Some(&0));
         assert_eq!(joined_node.node_get_val("1".as_bytes()), Some(&1));
         assert_eq!(joined_node.node_get_val("2".as_bytes()), Some(&2));
         assert_eq!(joined_node.node_get_val("3".as_bytes()), Some(&3));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert!(!joined_node.node_is_empty());
     }
 
@@ -2932,8 +2859,8 @@ mod tests {
         debug_assert!(validate_node(&a));
         debug_assert!(validate_node(&b));
 
-        let joined_result = a.pjoin_dyn(&b);
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
 
         let (remaining_key, child_node, _) = get_recursive("0a".as_bytes(), joined_node);
         assert_eq!(child_node.node_get_val(remaining_key), Some(&0));
@@ -2948,8 +2875,8 @@ mod tests {
         assert_eq!(child_node.node_get_val(remaining_key), Some(&2));
 
         //re-run join, just to make sure the source maps didn't get modified
-        let joined_result = a.pjoin_dyn(&b);
-        let joined_node = joined_result.as_ref().map(|joined| joined.borrow()).unwrap([&a as &dyn TrieNode<_, GlobalAlloc>, &b]);
+        let joined_result = a.pjoin_dyn(b.as_tagged());
+        let joined_node = joined_result.as_ref().map(|joined| joined.as_tagged()).unwrap([a.as_tagged(), b.as_tagged()]);
         assert!(!joined_node.node_is_empty());
     }
 
@@ -3082,38 +3009,34 @@ mod tests {
         node.node_set_val(b"almond", 1).unwrap_or_else(|_| panic!());
         node.node_set_val(b"a", 2).unwrap_or_else(|_| panic!());
         let inner_node = node.get_node_at_key(b"a");
-        assert_eq!(inner_node.borrow().node_get_val(b"pple"), Some(&0));
-        assert_eq!(inner_node.borrow().node_get_val(b"lmond"), Some(&1));
+        assert_eq!(inner_node.as_tagged().node_get_val(b"pple"), Some(&0));
+        assert_eq!(inner_node.as_tagged().node_get_val(b"lmond"), Some(&1));
 
         let mut node = LineListNode::<u64, GlobalAlloc>::new_in(global_alloc());
         node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
         node.node_set_val(b"apricot", 1).unwrap_or_else(|_| panic!());
         let inner_node = node.get_node_at_key(b"a");
-        assert!(inner_node.borrow().node_get_child(b"p").is_some());
+        assert!(inner_node.as_tagged().node_get_child(b"p").is_some());
         let inner_node = node.get_node_at_key(b"ap");
-        assert_eq!(inner_node.borrow().node_get_val(b"ple"), Some(&0));
+        assert_eq!(inner_node.as_tagged().node_get_val(b"ple"), Some(&0));
 
         let mut node = LineListNode::<u64, GlobalAlloc>::new_in(global_alloc());
         node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
         node.node_set_val(b"a", 1).unwrap_or_else(|_| panic!());
         let inner_node = node.get_node_at_key(b"a");
-        assert_eq!(inner_node.borrow().node_get_val(b"pple"), Some(&0));
+        assert_eq!(inner_node.as_tagged().node_get_val(b"pple"), Some(&0));
 
         let mut node = LineListNode::<u64, GlobalAlloc>::new_in(global_alloc());
         node.node_set_val(b"apple", 0).unwrap_or_else(|_| panic!());
         node.node_set_val(b"banana", 1).unwrap_or_else(|_| panic!());
         let inner_node = node.get_node_at_key(b"ap");
-        assert_eq!(inner_node.borrow().node_get_val(b"ple"), Some(&0));
+        assert_eq!(inner_node.as_tagged().node_get_val(b"ple"), Some(&0));
         let inner_node = node.get_node_at_key(b"b");
-        assert_eq!(inner_node.borrow().node_get_val(b"anana"), Some(&1));
+        assert_eq!(inner_node.as_tagged().node_get_val(b"anana"), Some(&1));
     }
 
 }
 
-//GOAT, make an is_shared() zipper method, with all relevant caveats in the documentation
-//
-//GOAT, tests to make sure the right status codes are returned from all algebraic ops
-//
 //GOAT, merge wrappers for lattice impls on primitives
 //
 //GOAT, remove garbage lattice impls
@@ -3147,11 +3070,6 @@ mod tests {
 
 //GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
 
-//GOAT, look at the `move_to(path)` zipper movement API, to avoid ascending too far
-
 //GOAT, implement IntoIterator on PathMap
-
-//GOAT, the following tests appear to leak memory, when running under miri:
-// * test write_zipper::tests::write_zipper_test_zipper_conversion ... ok
 
 //GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957

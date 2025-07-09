@@ -206,7 +206,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     #[inline]
     pub(crate) fn into_root(self) -> (Option<TrieNodeODRc<V, A>>, Option<V>) {
         let root_node = match self.root() {
-            Some(root) => if !root.borrow().node_is_empty() {
+            Some(root) => if !root.as_tagged().node_is_empty() {
                 self.root.into_inner()
             } else {
                 None
@@ -221,7 +221,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     pub fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'_, V, A> {
         self.ensure_root();
         let path = path.as_ref();
-        trie_ref_at_path_in(self.root().unwrap().borrow(), self.root_val(), &[], path, self.alloc.clone())
+        trie_ref_at_path_in(self.root().unwrap().as_tagged(), self.root_val(), &[], path, self.alloc.clone())
     }
 
     /// Creates a new read-only [Zipper], starting at the root of a `BytesTrieMap`
@@ -230,11 +230,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path_internal_in(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val, self.alloc.clone(), None)
+            ReadZipperUntracked::new_with_node_and_path_internal_in(self.root().unwrap().as_tagged(), &[], 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_path_internal_in(self.root().unwrap().borrow().as_tagged(), &[], 0, root_val, self.alloc.clone())
+            ReadZipperUntracked::new_with_node_and_path_internal_in(self.root().unwrap().as_tagged(), &[], 0, root_val, self.alloc.clone())
         }
     }
 
@@ -249,11 +249,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone(), None)
+            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().as_tagged(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().borrow(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone())
+            ReadZipperUntracked::new_with_node_and_path_in(self.root().unwrap().as_tagged(), path.as_ref(), path.len(), 0, root_val, self.alloc.clone())
         }
     }
 
@@ -267,11 +267,11 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         };
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().borrow(), path, path.len(), 0, root_val, self.alloc.clone(), None)
+            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().as_tagged(), path, path.len(), 0, root_val, self.alloc.clone(), None)
         }
         #[cfg(not(debug_assertions))]
         {
-            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().borrow(), path, path.len(), 0, root_val, self.alloc.clone())
+            ReadZipperUntracked::new_with_node_and_cloned_path_in(self.root().unwrap().as_tagged(), path, path.len(), 0, root_val, self.alloc.clone())
         }
     }
 
@@ -414,7 +414,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     /// Returns `true` if the map is empty, otherwise returns `false`
     pub fn is_empty(&self) -> bool {
         (match self.root() {
-            Some(root) => root.borrow().node_is_empty(),
+            Some(root) => root.as_tagged().node_is_empty(),
             None => true
         } && self.root_val().is_none())
     }
@@ -438,7 +438,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     /// WARNING: This is not a cheap method. It may have an order-N cost
     pub fn val_count(&self) -> usize {
         match self.root() {
-            Some(root) => val_count_below_root(root.borrow()),
+            Some(root) => val_count_below_root(root.as_tagged()),
             None => 0
         }
     }
@@ -482,7 +482,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         if self_root.is_none() || other_root.is_none() {
             Self::new_in(self.alloc.clone())
         } else {
-            match self_root.unwrap().borrow().prestrict_dyn(other_root.unwrap().borrow()) {
+            match self_root.unwrap().as_tagged().prestrict_dyn(other_root.unwrap().as_tagged()) {
                 AlgebraicResult::Element(new_root) => Self::new_with_root_in(Some(new_root), None, self.alloc.clone()),
                 AlgebraicResult::None => Self::new_in(self.alloc.clone()),
                 AlgebraicResult::Identity(mask) => {
@@ -630,10 +630,6 @@ impl<V: Clone + Lattice + Send + Sync + Unpin, A: Allocator> Lattice for BytesTr
             AlgebraicResult::Element(Self::new_with_root_in(root_node.flatten(), root_val.flatten(), self.alloc.clone()))
         })
     }
-    //GOAT trash
-    // fn bottom() -> Self {
-    //     BytesTrieMap::new()
-    // }
 }
 
 impl<V: Clone + Send + Sync + Unpin + DistributiveLattice, A: Allocator> DistributiveLattice for BytesTrieMap<V, A> {

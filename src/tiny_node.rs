@@ -147,18 +147,8 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
         None
     }
     fn node_get_child_mut(&mut self, _key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)> { unreachable!() }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     if !self.is_used_child() {
-    //         return true //TinyRefNode can only have one item, so if it doesn't contain a child, then there is no excess item
-    //     }
-    //     keys.binary_search(&self.key()).is_ok()
-    // }
-    fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) -> &mut dyn TrieNode<V, A> { unreachable!() }
+    fn node_replace_child(&mut self, _key: &[u8], _new_node: TrieNodeODRc<V, A>) { unreachable!() }
     fn node_get_payloads<'node, 'res>(&'node self, keys: &[(&[u8], bool)], results: &'res mut [(usize, PayloadRef<'node, V, A>)]) -> bool {
-        //GOAT, this code below is correct as far as I know, any will likely be useful in the future when we add additional
-        // node types.  But currently there is no path to call it.
-        // unreachable!();
         if self.node_is_empty() {
             return true
         }
@@ -194,13 +184,6 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
         }
         false
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     if !self.is_used_val() {
-    //         return true //TinyRefNode can only have one item, so if it doesn't contain a val, then there is no excess item
-    //     }
-    //     keys.binary_search(&self.key()).is_ok()
-    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         if self.is_used_val() {
             let node_key = self.key();
@@ -231,7 +214,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     fn new_iter_token(&self) -> u128 { unreachable!() }
     fn iter_token_for_path(&self, _key: &[u8]) -> u128 { unreachable!() }
     fn next_items(&self, _token: u128) -> (u128, &'a[u8], Option<&TrieNodeODRc<V, A>>, Option<&V>) { unreachable!() }
-    fn node_val_count(&self, cache: &mut HashMap<*const dyn TrieNode<V, A>, usize>) -> usize {
+    fn node_val_count(&self, cache: &mut HashMap<u64, usize>) -> usize {
         let temp_node = self.into_full().unwrap();
         temp_node.node_val_count(cache)
     }
@@ -248,10 +231,10 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
             None
         }
     }
-    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn nth_child_from_key(&self, _key: &[u8], _n: usize) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         panic!();
     }
-    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<&dyn TrieNode<V, A>>) {
+    fn first_child_from_key(&self, _key: &[u8]) -> (Option<&[u8]>, Option<TaggedNodeRef<'_, V, A>>) {
         panic!();
     }
     fn count_branches(&self, _key: &[u8]) -> usize {
@@ -260,13 +243,10 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
     fn node_branches_mask(&self, _key: &[u8]) -> ByteMask {
         panic!();
     }
-    fn is_leaf(&self, _key: &[u8]) -> bool {
+    fn prior_branch_key<'key>(&self, _key: &'key [u8]) -> &'key [u8] {
         panic!();
     }
-    fn prior_branch_key(&self, _key: &[u8]) -> &[u8] {
-        panic!();
-    }
-    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<&dyn TrieNode<V, A>>) {
+    fn get_sibling_of_child(&self, _key: &[u8], _next: bool) -> (Option<u8>, Option<TaggedNodeRef<'_, V, A>>) {
         panic!();
     }
     fn get_node_at_key(&self, key: &[u8]) -> AbstractNodeRef<'_, V, A> {
@@ -275,7 +255,7 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
 
         //Zero-length key means borrow this node
         if key.len() == 0 {
-            return AbstractNodeRef::BorrowedDyn(self)
+            return AbstractNodeRef::BorrowedDyn(self.as_tagged())
         }
 
         //Exact match with a path to a child node means return that node
@@ -295,23 +275,23 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
         AbstractNodeRef::None
     }
     fn take_node_at_key(&mut self, _key: &[u8]) -> Option<TrieNodeODRc<V, A>> { unreachable!() }
-    fn pjoin_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
-        //GOAT, I can streamline this quite a lot, but for now I'll just up-convert to a ListNode to test
+    fn pjoin_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+        //TODO, I can streamline this quite a lot, but for now I'll just up-convert to a ListNode to test
         // the basic premise of the TinyRefNode
         self.into_full().unwrap().pjoin_dyn(other)
     }
     fn join_into_dyn(&mut self, _other: TrieNodeODRc<V, A>) -> (AlgebraicStatus, Result<(), TrieNodeODRc<V, A>>) where V: Lattice { unreachable!() }
     fn drop_head_dyn(&mut self, _byte_cnt: usize) -> Option<TrieNodeODRc<V, A>> where V: Lattice { unreachable!() }
-    fn pmeet_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
-        //GOAT, is this worth bespoke code to save some cycles?
+    fn pmeet_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: Lattice {
+        //TODO, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().pmeet_dyn(other)
     }
-    fn psubtract_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
-        //GOAT, is this worth bespoke code to save some cycles?
+    fn psubtract_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> where V: DistributiveLattice {
+        //TODO, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().psubtract_dyn(other)
     }
-    fn prestrict_dyn(&self, other: &dyn TrieNode<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
-        //GOAT, is this worth bespoke code to save some cycles?
+    fn prestrict_dyn(&self, other: TaggedNodeRef<V, A>) -> AlgebraicResult<TrieNodeODRc<V, A>> {
+        //TODO, is this worth bespoke code to save some cycles?
         self.into_full().unwrap().prestrict_dyn(other)
     }
     fn clone_self(&self) -> TrieNodeODRc<V, A> {
@@ -322,16 +302,14 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> TrieNode<V, A> for TinyRefNode<'a
 impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNode<'_, V, A> {
     #[inline]
     fn tag(&self) -> usize {
-        unreachable!()
+        TINY_REF_NODE_TAG
     }
+    #[inline]
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
-        TaggedNodeRef::TinyRefNode(self)
-    }
-    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
-        panic!()
+        TaggedNodeRef::from_tiny(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
-        panic!();
+        unreachable!()
     }
 }
 

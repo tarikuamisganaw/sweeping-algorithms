@@ -128,16 +128,6 @@ impl<V> AlgebraicResult<V> {
             },
         }
     }
-    //GOAT, this interface feels like a foot-gun
-    // /// Returns the contained `Element` value or one of the provided default values
-    // #[inline]
-    // pub fn unwrap_or(self, ident: V, none: V) -> V {
-    //     match self {
-    //         Self::Element(v) => v,
-    //         Self::None => none,
-    //         Self::Identity(_) => ident,
-    //     }
-    // }
 
     /// Returns the contained `Element` value or an identity value from the `idents` table.  Panics if `self`
     /// is [AlgebraicResult::None]
@@ -310,22 +300,6 @@ impl<V> AlgebraicResult<V> {
             }
         }
     }
-    //GOAT, may not be needed
-    // /// Converts an AlgebraicResult into a FatAlgebraicResult
-    // pub(crate) fn into_fat(self, arg0_ident: V, arg1_ident: V) -> FatAlgebraicResult<V> {
-    //     match self {
-    //         Self::None => FatAlgebraicResult::none(),
-    //         Self::Element(v) => FatAlgebraicResult::element(v),
-    //         Self::Identity(mask) => {
-    //             if mask & SELF_IDENT > 0 {
-    //                 FatAlgebraicResult::new(mask, Some(arg0_ident))
-    //             } else {
-    //                 debug_assert!(mask & COUNTER_IDENT > 0);
-    //                 FatAlgebraicResult::new(mask, Some(arg1_ident))
-    //             }
-    //         }
-    //     }
-    // }
 }
 
 impl<V> AlgebraicResult<Option<V>> {
@@ -576,22 +550,6 @@ pub trait Lattice {
     //GOAT, we want a meet_into, that has the same semantics as join_into, e.g. mutating in-place.  I
     // don't think there is any benefit to consuming `other`, however, so we can still take `other: &Self`
 
-    //GOAT, The addition of the allocator type param finally gave me the kick to get rid of the bottom method,
-    // since the alternative is to have a version that can allocate a bottom object without a &self to get the
-    // allocator from.
-    //
-    // /// Returns the "least" value for the type in the lattice
-    // ///
-    // /// See [Boolean Algebra](https://en.wikipedia.org/wiki/Boolean_algebra_(structure)#Definition).
-    // ///
-    // ///GOAT: consider removing the `bottom` method from the lattice trait alltogether, now that I understand
-    // /// the math terms better, I understand that there are actually two lattices being defined, a Meet lattice
-    // /// and a Join lattice, and this bottom is only the bottom type in the join lattice
-    // ///
-    // ///GOAT: Should I formalize the relationship between the bottom() value and the AlgebraicResult::None
-    // /// result by adding a `is_bottom(&self) -> bool` method?  That seems like it may be the correct thing to do.
-    // fn bottom() -> Self;
-
     //GOAT, this should be temporarily deprecated until we work out the correct function prototype
     fn join_all<S: AsRef<Self>, Args: AsRef<[S]>>(xs: Args) -> AlgebraicResult<Self> where Self: Sized + Clone {
         let mut iter = xs.as_ref().into_iter().enumerate();
@@ -684,8 +642,6 @@ pub(crate) trait HeteroLattice<OtherT> {
     fn pmeet(&self, other: &OtherT) -> AlgebraicResult<Self> where Self: Sized;
     fn join_all(xs: &[&Self]) -> Self where Self: Sized;
     fn convert(other: OtherT) -> Self;
-    //GOAT trash
-    // fn bottom() -> Self;
 }
 
 /// An internal mirror of the [DistributiveLattice] trait, where the `self` and `other` types
@@ -747,10 +703,6 @@ impl<V: Lattice + Clone> Lattice for Option<V> {
             }
         }
     }
-    //GOAT Trash
-    // fn bottom() -> Self {
-    //     None
-    // }
 }
 
 impl<V: DistributiveLattice + Clone> DistributiveLattice for Option<V> {
@@ -833,10 +785,6 @@ impl <V: Lattice> Lattice for Box<V> {
     fn pmeet(&self, other: &Self) -> AlgebraicResult<Self> {
         self.as_ref().pmeet(other.as_ref()).map(|result| Box::new(result))
     }
-    //GOAT trash
-    // fn bottom() -> Self {
-    //     Box::new(V::bottom())
-    // }
 }
 
 impl<V: DistributiveLattice> DistributiveLattice for Box<V> {
@@ -877,24 +825,18 @@ impl DistributiveLattice for () {
 impl Lattice for () {
     fn pjoin(&self, _other: &Self) -> AlgebraicResult<Self> { AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT) }
     fn pmeet(&self, _other: &Self) -> AlgebraicResult<Self> { AlgebraicResult::Identity(SELF_IDENT | COUNTER_IDENT) }
-    //GOAT trash
-    // fn bottom() -> Self { () }
 }
 
 //GOAT trash
 impl Lattice for usize {
     fn pjoin(&self, _other: &usize) -> AlgebraicResult<usize> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &usize) -> AlgebraicResult<usize> { AlgebraicResult::Identity(SELF_IDENT) }
-    //GOAT trash
-    // fn bottom() -> Self { 0 }
 }
 
 //GOAT trash
 impl Lattice for u64 {
     fn pjoin(&self, _other: &u64) -> AlgebraicResult<u64> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u64) -> AlgebraicResult<u64> { AlgebraicResult::Identity(SELF_IDENT) }
-    //GOAT trash
-    // fn bottom() -> Self { 0 }
 }
 
 //GOAT trash
@@ -909,16 +851,12 @@ impl DistributiveLattice for u64 {
 impl Lattice for u32 {
     fn pjoin(&self, _other: &u32) -> AlgebraicResult<u32> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u32) -> AlgebraicResult<u32> { AlgebraicResult::Identity(SELF_IDENT) }
-    //GOAT trash
-    // fn bottom() -> Self { 0 }
 }
 
 //GOAT trash
 impl Lattice for u16 {
     fn pjoin(&self, _other: &u16) -> AlgebraicResult<u16> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u16) -> AlgebraicResult<u16> { AlgebraicResult::Identity(SELF_IDENT) }
-    //GOAT trash
-    // fn bottom() -> Self { 0 }
 }
 
 //GOAT trash
@@ -933,8 +871,6 @@ impl DistributiveLattice for u16 {
 impl Lattice for u8 {
     fn pjoin(&self, _other: &u8) -> AlgebraicResult<u8> { AlgebraicResult::Identity(SELF_IDENT) }
     fn pmeet(&self, _other: &u8) -> AlgebraicResult<u8> { AlgebraicResult::Identity(SELF_IDENT) }
-    //GOAT trash
-    // fn bottom() -> Self { 0 }
 }
 
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
@@ -967,8 +903,6 @@ impl Lattice for bool {
             AlgebraicResult::Identity(SELF_IDENT)
         }
     }
-    //GOAT trash
-    // fn bottom() -> Self { false }
 }
 
 // =-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-==-**-=
@@ -1079,10 +1013,6 @@ macro_rules! set_lattice {
                 }
                 set_lattice_integrate_into_result(result, is_ident, is_counter_ident, self.len(), other.len())
             }
-            //GOAT trash
-            // fn bottom() -> Self {
-            //     <Self as SetLattice>::with_capacity(0)
-            // }
         }
     }
 }
