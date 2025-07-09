@@ -1356,6 +1356,16 @@ mod tagged_node_ref {
             }
         }
 
+        /// Same behavior as [Self::node_get_val_mut], but consumes the [TaggedNodeRefMut]
+        /// so it can return a `&mut` ref with the `'a` lifetime
+        pub fn node_into_val_ref_mut(self, key: &[u8]) -> Option<&'a mut V> {
+            match self {
+                Self::DenseByteNode(node) => node.node_get_val_mut(key),
+                Self::LineListNode(node) => node.node_get_val_mut(key),
+                Self::CellByteNode(node) => node.node_get_val_mut(key),
+            }
+        }
+
         pub fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
             match self {
                 Self::DenseByteNode(node) => node.node_set_val(key, val),

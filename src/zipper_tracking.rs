@@ -63,6 +63,8 @@ impl Clone for ZipperTracker<TrackingRead> {
     }
 }
 
+/// An error type that may be produced when attempting to create a zipper or otherwise acquire
+/// permission to access a path
 #[derive(Debug)]
 pub struct Conflict {
     with: IsTracking,

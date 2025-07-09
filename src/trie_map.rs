@@ -400,16 +400,52 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         zipper.remove_value()
     }
 
-    //GOAT-redo this with the WriteZipper::get_value_or_insert, although I may need an alternate function
-    // that consumes the zipper in order to be allowed to return the correct lifetime
-    //
-    // pub fn update<K: AsRef<[u8]>, F: FnOnce()->V>(&mut self, k: K, default_f: F) -> &mut V {
-    //     let k = k.as_ref();
+    /// Returns a mutable reference to the value at the specified path in the `PathMap`, if it exists
+    pub fn get_mut<K: AsRef<[u8]>>(&mut self, path: K) -> Option<&mut V> {
+        let path = path.as_ref();
+        if path.len() == 0 {
+            return self.root_val_mut().as_mut()
+        }
 
-    //     traverse_to_leaf_mut(&mut self.root, k,
-    //     |node, remaining_key| node.node_update_val(remaining_key, Box::new(default_f)),
-    //     |new_leaf_node, remaining_key| new_leaf_node.node_get_val_mut(remaining_key).unwrap())
-    // }
+        self.ensure_root();
+        let root_node = self.root.get_mut().as_mut().unwrap();
+        let (node_key, node) = node_along_path_mut(root_node, path, true);
+        node.as_tagged_mut().node_into_val_ref_mut(node_key)
+    }
+
+    /// Returns a mutable reference to the value at the specified path, inserting the result
+    /// of `func` if no value exists
+    pub fn get_value_mut_or_set_with<F, K>(&mut self, path: K, func: F) -> &mut V
+    where
+    F: FnOnce() -> V,
+    K: AsRef<[u8]>,
+    {
+        let path = path.as_ref();
+        if path.len() == 0 {
+            if self.root_val().is_some() {
+                return self.root_val_mut().as_mut().unwrap()
+            }
+            *self.root_val_mut() = Some(func());
+            return self.root_val_mut().as_mut().unwrap()
+        }
+
+        //For setting, it's worth it for us to go through the zipper API, so we don't need
+        // to worry about node upgrading, etc.
+        self.ensure_root();
+        let root_node = self.root.get_mut().as_mut().unwrap();
+        let mut temp_z = WriteZipperCore::<'_, '_, V, A>::new_with_node_and_path_in(root_node, None, path, path.len(), 0, self.alloc.clone());
+
+        if !temp_z.is_value() {
+            temp_z.set_value(func());
+        }
+        temp_z.into_value_mut().unwrap()
+    }
+
+    /// Returns a mutable reference to the value at the specified path, inserting `default`
+    /// if no value already exists
+    pub fn get_value_mut_or_set<K: AsRef<[u8]>>(&mut self, path: K, default: V) -> &mut V {
+        self.get_value_mut_or_set_with(path, || default)
+    }
 
     /// Returns `true` if the map is empty, otherwise returns `false`
     pub fn is_empty(&self) -> bool {
@@ -810,6 +846,47 @@ mod tests {
         assert_eq!(btm.contains_path(b"cannon"), true);
         assert_eq!(btm.contains_path(b"cannonade"), false);
         assert_eq!(btm.contains_path(b""), true);
+    }
+
+    #[test]
+    fn map_get_mut_test() {
+        let mut map = BytesTrieMap::<usize>::new();
+
+        //Test root value with `get_mut`
+        assert_eq!(map.get_mut(b""), None);
+        assert_eq!(map.insert(b"", 42), None);
+        assert_eq!(map.get_mut(b""), Some(&mut 42));
+        *map.get_mut(b"").unwrap() = 24;
+        assert_eq!(map.get_mut(b""), Some(&mut 24));
+
+        //Test non-root value with `get_mut`
+        const PATH: &[u8] = b"This is a long path to somewhere, hopefully far enough away that we end up creating more than one node";
+        assert_eq!(map.get_mut(PATH), None);
+        assert_eq!(map.insert(PATH, 42), None);
+        assert_eq!(map.get_mut(PATH), Some(&mut 42));
+        *map.get_mut(PATH).unwrap() = 24;
+        assert_eq!(map.get_mut(PATH), Some(&mut 24));
+    }
+
+    #[test]
+    fn map_get_value_mut_or_set_test() {
+        let mut map = BytesTrieMap::<usize>::new();
+
+        //Test root value
+        assert_eq!(map.get_value_mut_or_set(b"", 42), &mut 42);
+        assert_eq!(map.get_mut(b""), Some(&mut 42));
+        assert_eq!(map.remove(b""), Some(42));
+        *map.get_value_mut_or_set(b"", 42) = 24;
+        assert_eq!(map.get_mut(b""), Some(&mut 24));
+
+        //Test non-root value
+        const PATH: &[u8] = b"This is a long path to somewhere, hopefully far enough away that we end up creating more than one node";
+        assert_eq!(map.get_mut(PATH), None);
+        assert_eq!(map.get_value_mut_or_set(PATH, 42), &mut 42);
+        assert_eq!(map.get_mut(PATH), Some(&mut 42));
+        assert_eq!(map.remove(PATH), Some(42));
+        *map.get_value_mut_or_set(PATH, 42) = 24;
+        assert_eq!(map.get_mut(PATH), Some(&mut 24));
     }
 
     #[test]

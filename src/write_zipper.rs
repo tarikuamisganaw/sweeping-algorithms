@@ -1091,11 +1091,27 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             self.root_val.as_mut().and_then(|val| unsafe{&mut **val}.as_mut())
         }
     }
+    /// Consumes the zipper and returns an `&mut` ref to the value at the zipper's focus
+    /// Used in the implementation of some top-level PathMap ops
+    ///
+    /// **WARNING** This API must NOT be made public, because it would allow the tracker to
+    /// drop while retaining access to nodes in the trie
+    pub(crate) fn into_value_mut(mut self) -> Option<&'a mut V> {
+        let node_key = self.key.node_key();
+        if node_key.len() > 0 {
+            self.focus_stack.into_top().unwrap().node_into_val_ref_mut(node_key)
+        } else {
+            debug_assert!(self.at_root());
+            self.root_val.as_mut().and_then(|val| unsafe{&mut **val}.as_mut())
+        }
+    }
     /// See [WriteZipper::get_value_or_insert]
+    //GOAT, consider renaming "get_value_mut_or_set"
     pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
         self.get_value_or_insert_with(|| default)
     }
     /// See [WriteZipper::get_value_or_insert_with]
+    //GOAT, consider renaming "get_value_mut_or_set_with"
     pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
         where F: FnOnce() -> V
     {
@@ -2016,6 +2032,10 @@ mod mut_node_stack {
         #[inline]
         pub fn top(&self) -> Option<&TaggedNodeRefMut<'a, V, A>> {
             self.stack.last()
+        }
+        #[inline]
+        pub fn into_top(mut self) -> Option<TaggedNodeRefMut<'a, V, A>> {
+            self.stack.pop()
         }
         #[inline]
         pub fn top_mut(&mut self) -> Option<&mut TaggedNodeRefMut<'a, V, A>> {
