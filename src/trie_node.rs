@@ -2467,16 +2467,23 @@ mod opaque_dyn_rc_trie_node {
             let old_count = unsafe{ &*ptr }.fetch_add(1, Relaxed);
 
             if old_count > MAX_REFCOUNT {
-                //Undo the increment if the counter is saturated
-                unsafe{ &*ptr }.fetch_sub(1, Relaxed);
+                //Saturate the refcount
+                unsafe{ &*ptr }.store(REFCOUNT_SATURATION_VAL, Relaxed);
             }
 
             Self{ ptr: self.ptr.clone(), alloc: unsafe{ MaybeUninit::new(self.alloc.assume_init_ref().clone()) } }
         }
     }
 
-    /// We want to saturate at this refcount.  So if we ever see this value, we stop decrementing
+    /// We want to saturate at this refcount.  So if we ever see this value, we stop incrementing and
+    /// decrementing the refcount, and effectively leak the node it points to
     const MAX_REFCOUNT: u32 = 0x7FFFFFFF;
+    /// A value that is far above the [MAX_REFCOUNT] trigger threshold, but also very far from wrapping
+    /// This ensures that, even if something gets screwed up with the ordering, a saturated value can
+    /// never "un-saturate"
+    const REFCOUNT_SATURATION_VAL: u32 = 0xBFFFFFFF;
+
+    const _: [(); (REFCOUNT_SATURATION_VAL > MAX_REFCOUNT && REFCOUNT_SATURATION_VAL < u32::MAX) as usize - 1] = [];
 
     impl<V: Clone + Send + Sync, A: Allocator> Drop for TrieNodeODRc<V, A> {
         /// Decrements the refcount, and deletes the node if the refcount reaches 0
@@ -2495,9 +2502,9 @@ mod opaque_dyn_rc_trie_node {
             // same logic applies to the below `fetch_sub` to the `weak` count.
             let old_count = unsafe{ &*ptr }.fetch_sub(1, Release);
 
-            if old_count >= MAX_REFCOUNT {
-                // Undo the decrement because we saturated
-                unsafe{ &*ptr }.fetch_add(1, Relaxed);
+            if old_count > MAX_REFCOUNT {
+                //Make sure the refcount stays saturated, and the decrement didn't have an effect
+                unsafe{ &*ptr }.store(REFCOUNT_SATURATION_VAL, Relaxed);
                 return;
             }
 
