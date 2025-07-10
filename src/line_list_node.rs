@@ -2985,9 +2985,23 @@ mod tests {
 // However, that brings up another question: Do you *want* to be pruning the path each time?  Consider a loop where a zipper is acquired, dropped, acquired, dropped, etc.  If each acquisition means creating the path, and each drop means pruning it, that is a lot of wasted work.  On the other hand, just setting and clearing a value is a lot cheaper.
 // Anyway, let me know your thoughts.
 
-//GOAT, Put the old cursor behind a feature flag, and prepare it for removal
 
-//GOAT, write up plan for generalization of caching val_count
+//GOAT, steps to moving `val_count` method onto a new "TrieSummary" trait, and removing it from the ZipperMoving trait
+// (and remove the node_val_count method from the TrieNode trait)
+//
+//GOAT - Wait until TrieNode trait is re-jigged to put root values on the node and not the
+// parent, because there is bound to be a lot of edge-case logic to account for root values
+// under the current TrieNode trait contract.  I'd prefer to only write this code once.
+//
+// 1. implement a caching_cata inner loop that uses the TrieNode API instead of the zipper API
+//       a. This means it has no access to the origin_path, and the cata implementation needs
+//          to maintain its own path_buffer
+//       b. It means paths are relative to the node where it is called
+//       c. It borrows the zipper, rather than taking ownership.
+//       d. It works from the focus, rather than from a the root.
+//       e. It can then be implemented on more zipper types that don't support ReadOnlyValues
+//          and ZipperMoving
+// 2. implement a val_count convenience on top of 1.
 
 //GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
 
