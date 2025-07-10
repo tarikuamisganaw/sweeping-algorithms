@@ -709,6 +709,50 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperPriv<V, A> for Wri
     fn alloc(&self) -> A { self.z.alloc.clone() }
 }
 
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperIteration for WriteZipperOwned<V, A> { } //Use the default impl for all methods
+
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> std::iter::IntoIterator for WriteZipperOwned<V, A> {
+    type Item = (Vec<u8>, V);
+    type IntoIter = OwnedZipperIter<V, A>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        OwnedZipperIter {
+            started: false,
+            zipper: self,
+        }
+    }
+}
+
+/// An iterator for depth-first traversal of a [ZipperWriting] type or a [PathMap]
+///
+/// NOTE: This is a convenience to allow access to syntactic sugar like `for` loops, [collect](std::iter::Iterator::collect),
+///  etc.  It will always be faster to use the zipper itself for iteration and traversal.
+pub struct OwnedZipperIter<V: Clone + Send + Sync + 'static, A: Allocator + 'static = GlobalAlloc>{
+    started: bool,
+    zipper: WriteZipperOwned<V, A>,
+}
+
+impl<V: Clone + Send + Sync + Unpin + 'static, A: Allocator + 'static> Iterator for OwnedZipperIter<V, A> {
+    type Item = (Vec<u8>, V);
+
+    fn next(&mut self) -> Option<(Vec<u8>, V)> {
+        if !self.started {
+            self.started = true;
+            if let Some(val) = self.zipper.remove_value() {
+                return Some((self.zipper.path().to_vec(), val))
+            }
+        }
+        if self.zipper.to_next_val() {
+            match self.zipper.remove_value() {
+                Some(val) => return Some((self.zipper.path().to_vec(), val)),
+                None => None
+            }
+        } else {
+            None
+        }
+    }
+}
+
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
 // WriteZipperCore (the actual implementation)
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -3267,5 +3311,15 @@ mod tests {
         },
         |btm: &mut BytesTrieMap<()>, path: &[u8]| -> WriteZipperUntracked<(), GlobalAlloc> {
             btm.write_zipper_at_path(path)
+    });
+
+    crate::zipper::zipper_iteration_tests::zipper_iteration_tests!(write_zipper_owned,
+        |keys: &[&[u8]]| {
+            let mut btm = BytesTrieMap::new();
+            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            btm
+        },
+        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> WriteZipperOwned<()> {
+            btm.clone().into_write_zipper(path)
     });
 }

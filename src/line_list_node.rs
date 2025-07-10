@@ -3003,6 +3003,4 @@ mod tests {
 //          and ZipperMoving
 // 2. implement a val_count convenience on top of 1.
 
-//GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
-
 //GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957

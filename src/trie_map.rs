@@ -560,6 +560,15 @@ impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> From<(K, V)> for BytesTrieM
     }
 }
 
+impl<V: Clone + Send + Sync + Unpin + 'static, A: Allocator + 'static> std::iter::IntoIterator for BytesTrieMap<V, A> {
+    type Item = (Vec<u8>, V);
+    type IntoIter = OwnedZipperIter<V, A>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_write_zipper(&[]).into_iter()
+    }
+}
+
 /// Internal function to convert an AlgebraicResult (partial lattice result) into a BytesTrieMap
 fn result_into_map<V: Clone + Send + Sync + Unpin, A: Allocator>(result: AlgebraicResult<BytesTrieMap<V, A>>, self_map: &BytesTrieMap<V, A>, other_map: &BytesTrieMap<V, A>, result_region: A) -> BytesTrieMap<V, A> {
     match result {
