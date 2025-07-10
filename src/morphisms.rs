@@ -566,22 +566,6 @@ impl StackFrame {
         self.child_cnt = zipper.child_count() as u16;
         self.child_idx = 0;
     }
-
-    // fn push_val(&mut self, w: W) {
-    //     debug_assert!(self.child_idx < self.child_cnt,
-    //         "we're trying to push a value for a non-existent child");
-    //     self.children.push(w);
-    //     self.child_idx += 1;
-    // }
-    //GOAT, unused for the time being.
-    // fn push_none(&mut self) {
-    //     self.child_idx += 1;
-    //     debug_assert!(self.remaining_children_mask > 0); //If this assert trips, then it means we're trying to push a value for a non-existent child
-    //     let index = self.remaining_children_mask.trailing_zeros();
-    //     self.remaining_children_mask ^= 1u64 << index;
-    //     self.child_mask.0[self.mask_word_idx] ^= 1u64 << index;
-    //     self.advance_word_idx();
-    // }
 }
 
 struct Stack {

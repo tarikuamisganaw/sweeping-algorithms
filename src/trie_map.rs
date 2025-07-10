@@ -1,6 +1,5 @@
 use core::cell::UnsafeCell;
 use std::ptr::slice_from_raw_parts;
-use num_traits::{PrimInt, zero};
 use crate::{Allocator, GlobalAlloc, global_alloc};
 use crate::morphisms::{new_map_from_ana_in, Catamorphism, TrieBuilder};
 use crate::trie_node::*;
@@ -88,38 +87,6 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V, GlobalAlloc> {
         AlgF: FnMut(W, &mut Option<V>, &mut TrieBuilder<V, W, GlobalAlloc>, &[u8])
     {
         Self::new_from_ana_in(w, alg_f, global_alloc())
-    }
-
-    /// GOAT, this method doesn't belong here!
-    pub fn range<const BE : bool, R : PrimInt + std::ops::AddAssign + num_traits::ToBytes + std::fmt::Display>(start: R, stop: R, step: R, value: V) -> Self {
-        // #[cfg(feature = "all_dense_nodes")]
-        // we can extremely efficiently generate ranges, but currently we're limited to range(0, BASE**j, k < BASE)
-        // let root = crate::dense_byte_node::_so_range(step as u8, 4);
-        // BytesTrieMap::<()>::new_with_root(root)
-        //fallback
-
-        //GOAT, this method is highly sub-optimal.  It should be possible to populate a range in log n time,
-        // rather than linear time.  Adam has already written code for this, but it's specific to the DenseByteNode
-        // and is commented out in that file
-        let mut new_map = Self::new();
-        let mut zipper = new_map.write_zipper();
-
-        let mut i = start;
-        let positive = step > zero();
-        loop {
-            if positive { if i >= stop { break } }
-            else { if i <= step { break } }
-            // println!("{}", i);
-            if BE { zipper.descend_to(i.to_be_bytes()); }
-            else { zipper.descend_to(i.to_le_bytes()); }
-            zipper.set_value(value.clone());
-            zipper.reset();
-
-            i += step;
-        }
-        drop(zipper);
-
-        new_map
     }
 
 }

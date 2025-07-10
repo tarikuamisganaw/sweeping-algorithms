@@ -106,7 +106,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
         &self.factor_paths
     }
     /// Reserves a path buffer of at least `len` bytes.  Will never shrink the path buffer
-    /// GOAT, this doesn't offer any value over the standard `reserve_buffers` method which is now implemented
+    /// NOTE, this doesn't offer any value over the standard `reserve_buffers` method which is now implemented
     /// on many zipper types
     #[deprecated]
     pub fn reserve_path_buffer(&mut self, reserve_len: usize) {

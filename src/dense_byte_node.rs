@@ -108,13 +108,6 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> Clone for ByteN
     }
 }
 
-//GOAT, trash, we need an allocator for the node... Maybe
-// impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<A, V=V>> Default for ByteNode<Cf, A> {
-//     fn default() -> Self {
-//         Self::new()
-//     }
-// }
-
 impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> Debug for ByteNode<Cf, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         //Recursively printing a whole tree will get pretty unwieldy.  Should do something
@@ -644,36 +637,12 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             })
         )
     }
-    //GOAT, Deprecated node_get_child_and_val_mut
-    // fn node_get_child_and_val_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V>, &mut Option<V>)> {
-    //     self.get_mut(key[0]).and_then(|cf|
-    //         if cf.has_rec() || cf.has_val() {
-    //             let (rec, val) = cf.both_mut_refs();
-    //             rec.as_mut().map(|rec| (1, rec, val))
-    //         } else {
-    //             None
-    //         }
-    //     )
-    // }
     fn node_get_child_mut(&mut self, key: &[u8]) -> Option<(usize, &mut TrieNodeODRc<V, A>)> {
         debug_assert!(key.len() > 0);
         self.get_child_mut(key[0]).map(|child_node_ptr| {
             (1, child_node_ptr)
         })
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_children_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     let mut pos = 0;
-    //     for (byte, cf) in self.mask.byte_mask_iter().zip(self.values.iter()) {
-    //         if cf.rec().is_some() {
-    //             match keys[pos..].binary_search(&&[byte][..]) {
-    //                 Ok(new_pos) => { pos = new_pos+1; },
-    //                 Err(_) => return false
-    //             };
-    //         }
-    //     }
-    //     true
-    // }
     fn node_replace_child(&mut self, key: &[u8], new_node: TrieNodeODRc<V, A>) {
         debug_assert!(key.len() == 1);
         let cf = self.get_mut(key[0]).unwrap();
@@ -778,19 +747,6 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             false
         }
     }
-    //GOAT, we probably don't need this interface, although it is fully implemented and working
-    // fn node_contains_vals_exclusive(&self, keys: &[&[u8]]) -> bool {
-    //     let mut pos = 0;
-    //     for (byte, cf) in self.mask.byte_mask_iter().zip(self.values.iter()) {
-    //         if cf.val().is_some() {
-    //             match keys[pos..].binary_search(&&[byte][..]) {
-    //                 Ok(new_pos) => { pos = new_pos+1; },
-    //                 Err(_) => return false
-    //             };
-    //         }
-    //     }
-    //     true
-    // }
     fn node_get_val(&self, key: &[u8]) -> Option<&V> {
         if key.len() == 1 {
             self.get(key[0]).and_then(|cf| cf.val() )
@@ -1090,16 +1046,6 @@ impl<V: Clone + Send + Sync, A: Allocator, Cf: CoFree<V=V, A=A>> TrieNode<V, A> 
             }
         }
     }
-
-    //GOAT trash
-    // #[inline(always)]
-    // fn is_leaf(&self, key: &[u8]) -> bool {
-    //     match key.len() {
-    //         0 => self.values.len() == 0,
-    //         1 => self.get(key[0]).map(|cf| !cf.has_rec()).unwrap_or(true),
-    //         _ => true
-    //     }
-    // }
 
     fn prior_branch_key<'key>(&self, key: &'key [u8]) -> &'key [u8] {
         debug_assert!(key.len() >= 1);
