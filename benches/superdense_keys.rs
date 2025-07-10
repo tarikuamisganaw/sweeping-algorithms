@@ -154,6 +154,7 @@ fn superdense_iter(bencher: Bencher, n: u64) {
     });
 }
 
+#[cfg(feature = "old_cursor")]
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_cursor(bencher: Bencher, n: u64) {
 

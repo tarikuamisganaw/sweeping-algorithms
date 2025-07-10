@@ -523,17 +523,20 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
 }
 
 
+#[cfg(feature = "old_cursor")]
 impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     /// Returns a [crate::old_cursor::PathMapCursor] to traverse all key-value pairs within the map. This
     /// is more efficient than using [iter](Self::iter), but is not compatible with the [Iterator] trait
     ///
-    /// WARNING: This API will be deprecated in favor of the [read_zipper](Self::read_zipper) method
+    /// NOTE: This API is deprecated in favor of the [read_zipper](Self::read_zipper) method
+    #[deprecated]
     pub fn cursor<'a>(&'a self) -> crate::old_cursor::PathMapCursor<'a, V> {
         crate::old_cursor::PathMapCursor::new(self)
     }
 
     /// Returns an [crate::old_cursor::AllDenseCursor], which behaves exactly like a [crate::old_cursor::PathMapCursor],
     /// but is only available with the `all_dense_nodes` feature.  This is mainly kept for benchmarking.
+    #[deprecated]
     pub fn all_dense_cursor<'a>(&'a self) -> crate::old_cursor::AllDenseCursor<'a, V> {
         crate::old_cursor::AllDenseCursor::new(self)
     }
@@ -952,6 +955,7 @@ mod tests {
         assert_eq!(a.val_count(), rs.len());
     }
 
+    #[cfg(feature = "old_cursor")]
     #[test]
     fn cursor_test() {
         let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];

@@ -68,6 +68,7 @@ mod tiny_node;
 #[cfg(feature = "bridge_nodes")]
 mod bridge_node;
 
+#[cfg(feature = "old_cursor")]
 mod old_cursor;
 
 /// Wrapper around `std::alloc::Allocator` trait, shims to the `allocator_api` on nightly, does nothing on `stable`

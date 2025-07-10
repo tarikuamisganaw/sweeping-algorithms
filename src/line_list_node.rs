@@ -2987,8 +2987,6 @@ mod tests {
 
 //GOAT, Put the old cursor behind a feature flag, and prepare it for removal
 
-//GOAT, move range into "utils" module, and integrate efficient implementation
-
 //GOAT, write up plan for generalization of caching val_count
 
 //GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values

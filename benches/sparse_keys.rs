@@ -178,6 +178,7 @@ fn sparse_subtract_after_join(bencher: Bencher, n: u64) {
     assert_eq!(remaining.val_count(), l.val_count())
 }
 
+#[cfg(feature = "old_cursor")]
 #[divan::bench(args = [50, 100, 200, 400, 800, 1600])]
 fn sparse_cursor(bencher: Bencher, n: u64) {
 
