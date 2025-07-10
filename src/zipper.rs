@@ -731,7 +731,7 @@ impl<Z> ZipperConcretePriv for &mut Z where Z: ZipperConcretePriv {
 #[derive(Clone)]
 pub struct ReadZipperTracked<'a, 'path, V: Clone + Send + Sync, A: Allocator = GlobalAlloc> {
     z: ReadZipperCore<'a, 'path, V, A>,
-    _tracker: ZipperTracker<TrackingRead>,
+    tracker: ZipperTracker<TrackingRead>,
 }
 
 //The Drop impl ensures the tracker gets dropped at the right time
@@ -842,24 +842,29 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ReadZipperTra
     /// See [ReadZipperCore::new_with_node_and_path]
     pub(crate) fn new_with_node_and_path_in(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A, tracker: ZipperTracker<TrackingRead>) -> Self {
         let core = ReadZipperCore::new_with_node_and_path_in(root_node, path, root_prefix_len, root_key_start, root_val, alloc);
-        Self { z: core, _tracker: tracker }
+        Self { z: core, tracker: tracker }
     }
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
     pub(crate) fn new_with_node_and_cloned_path_in(root_node: TaggedNodeRef<'a, V, A>, path: &[u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A, tracker: ZipperTracker<TrackingRead>) -> Self {
         let core = ReadZipperCore::new_with_node_and_cloned_path_in(root_node, path, root_prefix_len, root_key_start, root_val, alloc);
-        Self { z: core, _tracker: tracker }
+        Self { z: core, tracker: tracker }
     }
 }
-
-//GOAT!!!! UNsound!!!!  I realized I drop the zipper_tracker here...  Which allows the iterator to
-// continue to access the fields after the lock has been released!!!!!   FIX THIS!!!!
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> std::iter::IntoIterator for ReadZipperTracked<'a, 'path, V, A> {
     type Item = (Vec<u8>, &'a V);
     type IntoIter = ReadZipperIter<'a, 'path, V, A>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.z.clone().into_iter()
+        //Destructure `self` without dropping it
+        let zip = core::mem::ManuallyDrop::new(self);
+        let core_z = unsafe { std::ptr::read(&zip.z) };
+        let tracker = unsafe { std::ptr::read(&zip.tracker) };
+        ReadZipperIter {
+            started: false,
+            zipper: Some(core_z),
+            _tracker: Some(tracker)
+        }
     }
 }
 
@@ -874,7 +879,7 @@ pub struct ReadZipperUntracked<'a, 'path, V: Clone + Send + Sync, A: Allocator =
     z: ReadZipperCore<'a, 'path, V, A>,
     /// We will still track the zipper in debug mode, because unsafe isn't permission to break the rules
     #[cfg(debug_assertions)]
-    _tracker: Option<ZipperTracker<TrackingRead>>,
+    tracker: Option<ZipperTracker<TrackingRead>>,
 }
 
 #[cfg(debug_assertions)]
@@ -987,7 +992,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ReadZipp
     #[cfg(debug_assertions)]
     pub(crate) fn new_with_node_and_path_in(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
         let core = ReadZipperCore::new_with_node_and_path_in(root_node, path, root_prefix_len, root_key_start, root_val, alloc);
-        Self { z: core, _tracker: tracker }
+        Self { z: core, tracker }
     }
     #[cfg(not(debug_assertions))]
     pub(crate) fn new_with_node_and_path_in(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A) -> Self {
@@ -998,7 +1003,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ReadZipp
     #[cfg(debug_assertions)]
     pub(crate) fn new_with_node_and_path_internal_in(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_key_start: usize, root_val: Option<&'a V>, alloc: A, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
         let core = ReadZipperCore::new_with_node_and_path_internal_in(root_node, path, root_key_start, root_val, alloc);
-        Self { z: core, _tracker: tracker }
+        Self { z: core, tracker }
     }
     #[cfg(not(debug_assertions))]
     pub(crate) fn new_with_node_and_path_internal_in(root_node: TaggedNodeRef<'a, V, A>, path: &'path [u8], root_key_start: usize, root_val: Option<&'a V>, alloc: A) -> Self {
@@ -1009,7 +1014,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ReadZipp
     #[cfg(debug_assertions)]
     pub(crate) fn new_with_node_and_cloned_path_in(root_node: TaggedNodeRef<'a, V, A>, path: &[u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A, tracker: Option<ZipperTracker<TrackingRead>>) -> Self {
         let core = ReadZipperCore::new_with_node_and_cloned_path_in(root_node, path, root_prefix_len, root_key_start, root_val, alloc);
-        Self { z: core, _tracker: tracker }
+        Self { z: core, tracker }
     }
     #[cfg(not(debug_assertions))]
     pub(crate) fn new_with_node_and_cloned_path_in(root_node: TaggedNodeRef<'a, V, A>, path: &[u8], root_prefix_len: usize, root_key_start: usize, root_val: Option<&'a V>, alloc: A) -> Self {
@@ -1021,7 +1026,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ReadZipp
     pub(crate) fn new_forked_with_inner_zipper(core: ReadZipperCore<'a, 'path, V, A>) -> Self {
         #[cfg(debug_assertions)]
         {
-            ReadZipperUntracked{ z: core, _tracker: None }
+            ReadZipperUntracked{ z: core, tracker: None }
         }
         #[cfg(not(debug_assertions))]
         {
@@ -1030,15 +1035,24 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ReadZipp
     }
 }
 
-//GOAT!!!! UNsound!!!!  I realized I drop the zipper_tracker here...  Which allows the iterator to
-// continue to access the fields after the lock has been released!!!!!   FIX THIS!!!!
-
 impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> std::iter::IntoIterator for ReadZipperUntracked<'a, 'path, V, A> {
     type Item = (Vec<u8>, &'a V);
     type IntoIter = ReadZipperIter<'a, 'path, V, A>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.z.clone().into_iter()
+        //Destructure `self` without dropping it
+        let zip = core::mem::ManuallyDrop::new(self);
+        let core_z = unsafe { std::ptr::read(&zip.z) };
+        #[cfg(debug_assertions)]
+        let tracker = unsafe { std::ptr::read(&zip.tracker) };
+        ReadZipperIter {
+            started: false,
+            zipper: Some(core_z),
+            #[cfg(debug_assertions)]
+            _tracker: tracker,
+            #[cfg(not(debug_assertions))]
+            _tracker: None,
+        }
     }
 }
 
@@ -2341,18 +2355,6 @@ pub(crate) mod read_zipper_core {
             self.focus_iter_token = NODE_ITER_INVALID;
         }
     }
-
-    impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> std::iter::IntoIterator for ReadZipperCore<'a, 'path, V, A> {
-        type Item = (Vec<u8>, &'a V);
-        type IntoIter = ReadZipperIter<'a, 'path, V, A>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            ReadZipperIter {
-                started: false,
-                zipper: Some(self)
-            }
-        }
-    }
 }
 use read_zipper_core::*;
 
@@ -2388,6 +2390,7 @@ pub(crate) fn node_along_path<'a, 'path, V: Clone + Sync + Send, A: Allocator + 
 pub struct ReadZipperIter<'a, 'path, V: Clone + Send + Sync, A: Allocator = GlobalAlloc>{
     started: bool,
     zipper: Option<ReadZipperCore<'a, 'path, V, A>>,
+    _tracker: Option<ZipperTracker<TrackingRead>>,
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> Iterator for ReadZipperIter<'a, '_, V, A> {

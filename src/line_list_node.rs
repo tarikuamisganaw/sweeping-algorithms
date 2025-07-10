@@ -3005,6 +3005,4 @@ mod tests {
 
 //GOAT, fix the issue with the iterators and the tracker, and the iterators and the root values
 
-//GOAT, implement IntoIterator on PathMap
-
 //GOAT, Paths in caching Cata:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004828957
