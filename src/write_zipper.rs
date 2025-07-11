@@ -86,7 +86,7 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     /// an analogy to `graft` and `graft_map` that currently don't bother the values.  Personally, I
     /// believe `yes` is more conceptually correct, and that the behavior of `graft` and `graft_map`
     /// should probably be revisited.  **HOWEVER** the currently implemented behavior is **NO**!
-    /// This is related to a question in [Zipper::make_map]
+    /// This is related to a question in [ZipperSubtries::make_map]
     fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice;
 
     /// Joins the subtrie below the focus of `src_zipper` with the subtrie below the focus of `self`,
@@ -163,7 +163,7 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     ///
     /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
     /// A value at the zipper's focus will not be affected, and will not be included in the resulting map.
-    /// GOAT: See discussion in [Zipper::make_map] about whether this behavior should be changed
+    /// GOAT: See discussion in [ZipperSubtries::make_map] about whether this behavior should be changed
     fn take_map(&mut self) -> Option<PathMap<V, A>>;
 
     /// Uses a 256-bit mask to remove multiple branches below the zipper's focus
@@ -243,7 +243,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> Zipper for WriteZipp
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperValues<V> for WriteZipperTracked<'a, '_, V, A>{
-    fn value(&self) -> Option<&V> { self.z.get_value() }
+    fn value(&self) -> Option<&V> { self.z.value() }
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<V> for WriteZipperTracked<'trie, '_, V, A>{
@@ -395,7 +395,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> Zipper for WriteZipp
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperValues<V> for WriteZipperUntracked<'a, '_, V, A> {
-    fn value(&self) -> Option<&V> { self.z.get_value() }
+    fn value(&self) -> Option<&V> { self.z.value() }
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<V> for WriteZipperUntracked<'trie, '_, V, A> {
@@ -576,7 +576,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for WriteZipperOwned<V
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperValues<V> for WriteZipperOwned<V, A> {
-    fn value(&self) -> Option<&V> { self.z.get_value() }
+    fn value(&self) -> Option<&V> { self.z.value() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for WriteZipperOwned<V, A> {
@@ -836,7 +836,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zipper for Wri
 impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<V> for WriteZipperCore<'trie, '_, V, A> {
     type ReadZipperT<'a> = crate::zipper::read_zipper_core::ReadZipperCore<'a, 'a, V, A> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        let new_root_val = self.get_value();
+        let new_root_val = self.value();
         let path = self.origin_path();
 
         read_zipper_core::ReadZipperCore::new_with_node_and_path_in(self.focus_stack.top().unwrap().reborrow(), path, path.len(), self.key.node_key_start(), new_root_val, self.alloc.clone())
@@ -848,7 +848,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperCore<'a, 
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
-        let root_val = self.get_value().cloned();
+        let root_val = self.value().cloned();
 
         let root_node = self.get_focus().into_option();
         if root_node.is_some() || root_val.is_some() {
@@ -1058,7 +1058,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
                 (*self).try_borrow_focus().unwrap()
             },
         };
-        let val = self.get_value();
+        let val = self.value();
         (node, val)
     }
 
@@ -1115,8 +1115,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
     //     self.key.prefix_buf.len() > key_start || self.at_root()
     // }
 
-    /// See [WriteZipper::get_value]
-    pub fn get_value(&self) -> Option<&V> {
+    /// See [ZipperValues::value]
+    pub fn value(&self) -> Option<&V> {
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
             self.focus_stack.top().unwrap().reborrow().node_get_val(node_key)
@@ -1125,7 +1125,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             self.root_val.as_ref().and_then(|val| unsafe{&**val}.as_ref())
         }
     }
-    /// See [WriteZipper::get_value_mut]
+    /// See [ZipperWriting::get_value_mut]
     pub fn get_value_mut(&mut self) -> Option<&mut V> {
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
@@ -1149,12 +1149,12 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             self.root_val.as_mut().and_then(|val| unsafe{&mut **val}.as_mut())
         }
     }
-    /// See [WriteZipper::get_value_or_insert]
+    /// See [ZipperWriting::get_value_or_insert]
     //GOAT, consider renaming "get_value_mut_or_set"
     pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
         self.get_value_or_insert_with(|| default)
     }
-    /// See [WriteZipper::get_value_or_insert_with]
+    /// See [ZipperWriting::get_value_or_insert_with]
     //GOAT, consider renaming "get_value_mut_or_set_with"
     pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
         where F: FnOnce() -> V
@@ -1164,7 +1164,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         }
         self.get_value_mut().unwrap()
     }
-    /// See [WriteZipper::set_value]
+    /// See [ZipperWriting::set_value]
     pub fn set_value(&mut self, val: V) -> Option<V> {
         if self.key.node_key().len() == 0 {
             debug_assert!(self.at_root());
@@ -1182,7 +1182,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         }
         old_val
     }
-    /// See [WriteZipper::remove_value]
+    /// See [ZipperWriting::remove_value]
     pub fn remove_value(&mut self) -> Option<V> {
         if self.key.node_key().len() == 0 {
             debug_assert!(self.at_root());
@@ -1216,11 +1216,11 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
     pub(crate) fn into_zipper_head(self) -> ZipperHead<'a, 'a, V, A> where 'path: 'static {
         //NOTE, we are assuming this method is called from [PathMap::zipper_head] on a freshly-created
         // WriteZipper at the map root.  Is there is an associated path, we need to call `prepare_buffers`,
-        // just like [WriteZipper::zipper_head] does above.
+        // just like [ZipperWriting::zipper_head] does above.
         debug_assert_eq!(self.key.node_key().len(), 0);
         ZipperHead::new_owned(self)
     }
-    /// See [WriteZipper::graft]
+    /// See [ZipperWriting::graft]
     pub fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) {
         self.graft_internal(read_zipper.get_focus().into_option());
 
@@ -1230,7 +1230,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             None => self.remove_value()
         };
     }
-    /// See [WriteZipper::graft_map]
+    /// See [ZipperWriting::graft_map]
     pub fn graft_map(&mut self, map: PathMap<V, A>) {
         let (src_root_node, src_root_val) = map.into_root();
         self.graft_internal(src_root_node);
@@ -1243,7 +1243,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             None => self.remove_value()
         };
     }
-    /// See [WriteZipper::join]
+    /// See [ZipperWriting::join]
     pub fn join<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice {
         let src = read_zipper.get_focus();
         let self_focus = self.get_focus();
@@ -1279,7 +1279,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             None => { self.graft_internal(src.into_option()); AlgebraicStatus::Element }
         }
     }
-    /// See [WriteZipper::join_map]
+    /// See [ZipperWriting::join_map]
     pub fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice {
         let (src_root_node, src_root_val) = map.into_root();
 
@@ -1334,7 +1334,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         #[cfg(feature = "graft_root_vals")]
         return node_status.merge(val_status, true, true)
     }
-    /// See [WriteZipper::join_into]
+    /// See [ZipperWriting::join_into]
     pub fn join_into<Z: ZipperSubtries<V, A> + ZipperWriting<V, A>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice {
         match src_zipper.take_focus() {
             None => {
@@ -1363,7 +1363,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         }
         //GOAT!!!!!  We should prune the path at the source zipper, since we're effectively leaving behind an empty node
     }
-    /// See [WriteZipper::drop_head]
+    /// See [ZipperWriting::drop_head]
     pub fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice {
         match self.get_focus().into_option() {
             Some(mut self_node) => {
@@ -1379,7 +1379,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         }
         //GOAT!!!!!  We should prune the path upstream, if we ended up removing all downstream paths
     }
-    /// See [WriteZipper::insert_prefix]
+    /// See [ZipperWriting::insert_prefix]
     pub fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool {
         let prefix = prefix.as_ref();
         match self.get_focus().into_option() {
@@ -1391,7 +1391,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             None => { false }
         }
     }
-    /// See [WriteZipper::remove_prefix]
+    /// See [ZipperWriting::remove_prefix]
     pub fn remove_prefix(&mut self, n: usize) -> bool {
 
         let downstream_node = self.get_focus().into_option();
@@ -1401,7 +1401,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         self.graft_internal(downstream_node);
         fully_ascended
     }
-    /// See [WriteZipper::meet]
+    /// See [ZipperWriting::meet]
     pub fn meet<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice {
         let src = read_zipper.get_focus();
         if src.is_none() {

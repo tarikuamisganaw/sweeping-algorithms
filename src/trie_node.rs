@@ -2271,8 +2271,8 @@ mod opaque_dyn_rc_trie_node {
 }
 
 /// Interesting Reading:
-/// https://www.ralfj.de/blog/2022/04/11/provenance-exposed.html
-/// https://github.com/irrustible/ointers/blob/main/src/lib.rs
+/// <https://www.ralfj.de/blog/2022/04/11/provenance-exposed.html>
+/// <https://github.com/irrustible/ointers/blob/main/src/lib.rs>
 #[cfg(feature = "slim_ptrs")]
 mod slim_node_ptr {
     use core::marker::PhantomData;

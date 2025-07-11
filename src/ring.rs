@@ -331,7 +331,7 @@ impl<V> AlgebraicResult<Option<V>> {
 ///
 /// In general, `AlgebraicStatus` return values are a valid signal for loop termination, but should not be
 /// strictly relied upon for other kinds of branching.  For example, `Element` might be returned by
-/// [ZipperWriting::join] instead of `Identity` if the internal representation was changed by the method,
+/// [ZipperWriting::join](crate::zipper::ZipperWriting::join) instead of `Identity` if the internal representation was changed by the method,
 /// however the next call to `join` ought to return `Identity` if nothing new is added.
 ///
 /// This type mirrors [AlgebraicResult]

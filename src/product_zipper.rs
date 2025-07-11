@@ -51,7 +51,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
         Self{z: core_z, factor_paths: Vec::with_capacity(secondaries.len()), secondaries, source_zippers}
     }
     /// Creates a new `ProductZipper` from a single zipper, with the expectation that more zippers
-    /// will be added using [new_factor]
+    /// will be added using [new_factors](Self::new_factors)
     pub fn new_with_primary<PrimaryZ>(mut primary_z: PrimaryZ) -> Self
         where PrimaryZ: ZipperMoving + ZipperReadOnlySubtries<'trie, V, A> + 'factor_z,
     {
@@ -96,7 +96,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
     /// Returns a slice of the path indices that represent the end-points of the portion of the path from each
     /// factor
     ///
-    /// The returned slice will have a length of [`focus_factor_idx`](Self::focus_factor_idx), so the factor
+    /// The returned slice will have a length of [`focus_factor`](Self::focus_factor), so the factor
     /// containing the current focus has will not be included.
     ///
     /// Indices will be offsets into the buffer returned by [path](ZipperMoving::path).  To get an offset into

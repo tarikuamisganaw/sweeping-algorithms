@@ -20,7 +20,7 @@
 //!
 //! **NOTE**: The traversal order, while depth-first, is subtly different from the order of
 //! [ZipperIteration::to_next_val](crate::zipper::ZipperIteration::to_next_val) and
-//! [ZipperIteration::to_next_step](crate::zipper::ZipperIteration::to_next_step).  The
+//! [ZipperMoving::to_next_step](crate::zipper::ZipperMoving::to_next_step).  The
 //! [ZipperIteration](crate::zipper::ZipperIteration) methods visit values first before descending to the
 //! branches below, while the `cata` methods call the `mapper` on the deepest values first, before
 //! returning to higher levels where `collapse` is called.
