@@ -10,8 +10,6 @@ use pathmap::fuzzer::*;
 use rand::SeedableRng;
 use rand_distr::Distribution;
 use std::marker::PhantomData;
-use std::process::Termination;
-
 
 const PAGE_SIZE: usize = 4096;
 const TO_TEST: usize = 1000000;
@@ -23,6 +21,7 @@ use core::convert::{identity as likely, identity as unlikely};
 #[allow(unused)]
 use core::intrinsics::{likely, unlikely};
 
+#[allow(dead_code)]
 #[inline(always)]
 unsafe fn same_page<const VECTOR_SIZE: usize>(slice: &[u8]) -> bool {
     let address = slice.as_ptr() as usize;
@@ -32,6 +31,7 @@ unsafe fn same_page<const VECTOR_SIZE: usize>(slice: &[u8]) -> bool {
     offset_within_page < PAGE_SIZE - VECTOR_SIZE
 }
 
+#[allow(dead_code)]
 #[cold]
 fn count_shared_cold(a: &[u8], b: &[u8]) -> usize {
     count_shared_reference(a, b)
@@ -48,7 +48,7 @@ fn setup() -> Vec<(*const [u8], *const [u8])> {
 
     // let pairs = path_fuzzer.clone().sample_iter(rng).zip(path_fuzzer.clone().sample_iter(rng_)).take(TO_TEST).map(|(x, y)| (x.leak() as *const [u8], y.leak() as *const [u8])).collect::<Vec<_>>();
     let mut vec = Vec::with_capacity(TO_TEST*(max_len_sqrt*max_len_sqrt + 1));
-    let pairs = path_fuzzer.clone().sample_iter(rng).zip(path_fuzzer.clone().sample_iter(rng_)).take(TO_TEST).map(|(x, y)| {
+    let pairs = path_fuzzer.clone().sample_iter(rng).zip(path_fuzzer.clone().sample_iter(rng_)).take(TO_TEST).map(|(x, _y)| {
         let vl0 = vec.len();
         vec.extend_from_slice(&x[..]);
         let vl1 = vec.len();

@@ -775,7 +775,7 @@ mod tests {
     crate::zipper::zipper_moving_tests::zipper_moving_tests!(product_zipper,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> _ {
@@ -785,7 +785,7 @@ mod tests {
     crate::zipper::zipper_iteration_tests::zipper_iteration_tests!(product_zipper,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> _ {

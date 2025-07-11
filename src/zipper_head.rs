@@ -654,7 +654,7 @@ mod tests {
         let mut map = PathMap::<isize>::new();
 
         //Make a WriteZipper in a place that will require splitting an existing path
-        map.insert(b"test:3", 3);
+        map.set_val_at(b"test:3", 3);
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
@@ -690,10 +690,10 @@ mod tests {
         let mut map = PathMap::<isize>::new();
 
         //Make sure that inserting a WriteZipper doesn't chop off any downstream parts of the trie
-        map.insert(b"test:1", 1);
-        map.insert(b"test:2", 2);
-        map.insert(b"test:3", 3);
-        map.insert(b"test:4", 4);
+        map.set_val_at(b"test:1", 1);
+        map.set_val_at(b"test:2", 2);
+        map.set_val_at(b"test:3", 3);
+        map.set_val_at(b"test:4", 4);
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
@@ -716,10 +716,10 @@ mod tests {
         let mut map = PathMap::<isize>::new();
 
         //Make sure I can upgrade an ordinary ByteNode into a CellNode without losing anything
-        map.insert(b"test:1", 1);
-        map.insert(b"test:2", 2);
-        map.insert(b"test:3", 3);
-        map.insert(b"test:4", 4);
+        map.set_val_at(b"test:1", 1);
+        map.set_val_at(b"test:2", 2);
+        map.set_val_at(b"test:3", 3);
+        map.set_val_at(b"test:4", 4);
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test:").unwrap();
         assert!(zipper.descend_to(b"3"));
@@ -740,7 +740,7 @@ mod tests {
     #[test]
     fn zipper_head8() {
         let mut map = PathMap::<isize>::new();
-        map.insert(b"start:0000:hello", 0);
+        map.set_val_at(b"start:0000:hello", 0);
 
         let mut wz = map.write_zipper();
         wz.descend_to(b"start:");
@@ -761,10 +761,10 @@ mod tests {
     #[test]
     fn zipper_head9() {
         let mut map = PathMap::<isize>::new();
-        map.insert(b"start:0000:hello", 0);
-        map.insert(b"start:0001:hello", 1);
-        map.insert(b"start:0002:hello", 2);
-        map.insert(b"start:0003:hello", 3);
+        map.set_val_at(b"start:0000:hello", 0);
+        map.set_val_at(b"start:0001:hello", 1);
+        map.set_val_at(b"start:0002:hello", 2);
+        map.set_val_at(b"start:0003:hello", 3);
 
         let mut wz = map.write_zipper();
         wz.descend_to(b"start:");
@@ -804,11 +804,11 @@ mod tests {
         //This hits the case where we attempt to make a WriteZipper rooted in the middle of an existing ListNode
         // This tests the `prepare_node_at_path_end` code path in the WriteZipper creation
         let mut map = PathMap::<()>::new();
-        map.insert([1], ());
-        map.insert([2], ());
-        map.insert([3, 193, 4], ());
-        map.insert([3, 194, 21, 134], ());
-        map.insert([3, 194, 21, 133], ());
+        map.set_val_at([1], ());
+        map.set_val_at([2], ());
+        map.set_val_at([3, 193, 4], ());
+        map.set_val_at([3, 194, 21, 134], ());
+        map.set_val_at([3, 194, 21, 133], ());
 
         let zh = map.zipper_head();
         let wz = zh.write_zipper_at_exclusive_path([3, 194, 21]).unwrap();
@@ -819,11 +819,11 @@ mod tests {
         //This hits the case where we need to upgrade a node that was used to make the root of a ReadZipper
         // This tests the `splitting_borrow_focus` code path in ReadZipper creation
         let mut map = PathMap::<()>::new();
-        map.insert([1], ());
-        map.insert([2], ());
-        map.insert([3, 193, 4], ());
-        map.insert([3, 194, 21, 134], ());
-        map.insert([3, 194, 21, 133], ());
+        map.set_val_at([1], ());
+        map.set_val_at([2], ());
+        map.set_val_at([3, 193, 4], ());
+        map.set_val_at([3, 194, 21, 134], ());
+        map.set_val_at([3, 194, 21, 133], ());
 
         let zh = map.zipper_head();
         let mut rz = zh.read_zipper_at_borrowed_path(&[3, 194, 21]).unwrap();
@@ -1047,10 +1047,10 @@ mod tests {
     #[test]
     fn owned_zipper_head_test1() {
         let mut map = PathMap::<isize>::new();
-        map.insert(b"start:0000:hello", 0);
-        map.insert(b"start:0001:hello", 1);
-        map.insert(b"start:0002:hello", 2);
-        map.insert(b"start:0003:hello", 3);
+        map.set_val_at(b"start:0000:hello", 0);
+        map.set_val_at(b"start:0001:hello", 1);
+        map.set_val_at(b"start:0002:hello", 2);
+        map.set_val_at(b"start:0003:hello", 3);
 
         let zh = map.into_zipper_head(b"start:");
 
@@ -1097,7 +1097,7 @@ mod tests {
             let mut path = b"start:".to_vec();
             path.extend(i.to_be_bytes());
             path.extend(b":hello");
-            map.insert(path, i);
+            map.set_val_at(path, i);
         }
 
         let zh = map.into_zipper_head(b"start:");
@@ -1142,7 +1142,7 @@ mod tests {
     #[test]
     fn cleanup_write_zipper_test1() {
         let mut map = PathMap::<()>::new();
-        map.insert("the_path_to_somewhere", ());
+        map.set_val_at("the_path_to_somewhere", ());
 
         //First ensure we *do* have a dangling path from these operations
         let zh = map.zipper_head();
@@ -1164,7 +1164,7 @@ mod tests {
     #[test]
     fn cleanup_write_zipper_test2() {
         let mut map = PathMap::<()>::new();
-        map.insert("a_path_to_somewhere", ());
+        map.set_val_at("a_path_to_somewhere", ());
         let zh = map.zipper_head();
 
         //Make a ZipperHead, which will create a dangling path, but then clean it up

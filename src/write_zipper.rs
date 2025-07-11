@@ -2202,8 +2202,8 @@ mod tests {
         let mut map = PathMap::<()>::new();
 
         //We want to ensure we get a PairNode at the map root
-        map.insert(b"OnePath", ());
-        map.insert(b"2Path", ());
+        map.set_val_at(b"OnePath", ());
+        map.set_val_at(b"2Path", ());
         #[cfg(not(feature = "all_dense_nodes"))]
         assert!(map.root().unwrap().as_tagged().as_list().is_some());
 
@@ -2222,9 +2222,9 @@ mod tests {
         let mut map = PathMap::<()>::new();
 
         //We want to ensure we get a PairNode at the map root
-        map.insert(b"aaa111", ());
-        map.insert(b"bbb", ());
-        map.insert(b"aaa222", ());
+        map.set_val_at(b"aaa111", ());
+        map.set_val_at(b"bbb", ());
+        map.set_val_at(b"aaa222", ());
 
         let mut wz = map.write_zipper_at_path(b"aaa");
         assert_eq!(wz.is_value(), false);
@@ -2713,7 +2713,7 @@ mod tests {
         //A single long key
         let key = b"12345678901234567890123456789012345678901234567890";
         let mut map = PathMap::<u64>::new();
-        map.insert(key, 42);
+        map.set_val_at(key, 42);
         for i in 0..key.len() {
             assert_eq!(map.get(&key[i..]), Some(&42));
             let mut wz = map.write_zipper();
@@ -3204,7 +3204,7 @@ mod tests {
     #[test]
     fn origin_path_test2() {
         let mut map = PathMap::<()>::new();
-        map.insert(b"You can do anything with Zombocom.  The only limit is yourself.", ());
+        map.set_val_at(b"You can do anything with Zombocom.  The only limit is yourself.", ());
         let zh = map.zipper_head();
 
         // Make sure ReadZippers off a ZipperHead have the right origin_path
@@ -3260,8 +3260,8 @@ mod tests {
     #[test]
     fn write_zipper_prune_path_test1() {
         let mut map = PathMap::<()>::new();
-        map.insert([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128], ());
-        map.insert([196, 34, 48, 49, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 196, 112, 97, 105, 114, 128, 129], ());
+        map.set_val_at([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128], ());
+        map.set_val_at([196, 34, 48, 49, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 196, 112, 97, 105, 114, 128, 129], ());
         let mut wz = map.write_zipper();
 
         //Sanity checking
@@ -3306,7 +3306,7 @@ mod tests {
     crate::zipper::zipper_moving_tests::zipper_moving_tests!(write_zipper,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> WriteZipperUntracked<(), GlobalAlloc> {
@@ -3316,7 +3316,7 @@ mod tests {
     crate::zipper::zipper_iteration_tests::zipper_iteration_tests!(write_zipper_owned,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> WriteZipperOwned<()> {

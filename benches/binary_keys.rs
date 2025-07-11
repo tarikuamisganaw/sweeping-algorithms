@@ -39,7 +39,7 @@ fn binary_insert(bencher: Bencher, n: u64) {
     let out = bencher.with_inputs(|| {
         PathMap::new()
     }).bench_local_values(|mut map| {
-        for i in 0..n { black_box(&mut map).insert(&keys[i as usize], i); }
+        for i in 0..n { black_box(&mut map).set_val_at(&keys[i as usize], i); }
         map //Return the map so we don't drop it inside the timing loop
     });
     divan::black_box_drop(out)
@@ -51,7 +51,7 @@ fn binary_get(bencher: Bencher, n: u64) {
     let keys = make_keys(n as usize, 1);
 
     let mut map: PathMap<u64> = PathMap::new();
-    for i in 0..n { map.insert(&keys[i as usize], i); }
+    for i in 0..n { map.set_val_at(&keys[i as usize], i); }
 
     //Benchmark the get operation
     bencher.bench_local(|| {
@@ -67,7 +67,7 @@ fn binary_val_count_bench(bencher: Bencher, n: u64) {
     let keys = make_keys(n as usize, 1);
 
     let mut map: PathMap<u64> = PathMap::new();
-    for i in 0..n { map.insert(&keys[i as usize], i); }
+    for i in 0..n { map.set_val_at(&keys[i as usize], i); }
 
     //Benchmark the time taken to count the number of values in the map
     let mut sink = 0;
@@ -84,7 +84,7 @@ fn binary_drop_head(bencher: Bencher, n: u64) {
 
     bencher.with_inputs(|| {
         let mut map: PathMap<u64> = PathMap::new();
-        for i in 0..n { map.insert(&keys[i as usize], i); }
+        for i in 0..n { map.set_val_at(&keys[i as usize], i); }
         map
     }).bench_local_values(|mut map| {
         let mut wz = map.write_zipper();
@@ -100,9 +100,9 @@ fn binary_meet(bencher: Bencher, n: u64) {
     let keys = make_keys((n+o) as usize, 1);
 
     let mut l: PathMap<u64> = PathMap::new();
-    for i in 0..n { l.insert(&keys[i as usize], i); }
+    for i in 0..n { l.set_val_at(&keys[i as usize], i); }
     let mut r: PathMap<u64> = PathMap::new();
-    for i in o..(n+o) { r.insert(&keys[i as usize], i); }
+    for i in o..(n+o) { r.set_val_at(&keys[i as usize], i); }
 
     let mut intersection: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
@@ -159,8 +159,8 @@ fn binary_join(bencher: Bencher, n: u64) {
 
     let mut vnl = PathMap::new();
     let mut vnr = PathMap::new();
-    for i in 0..n { vnl.insert(&keys[i as usize], i); }
-    for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
+    for i in 0..n { vnl.set_val_at(&keys[i as usize], i); }
+    for i in o..(n+o) { vnr.set_val_at(&keys[i as usize], i); }
 
     //Benchmark the join operation
     let mut j: PathMap<u64> = PathMap::new();

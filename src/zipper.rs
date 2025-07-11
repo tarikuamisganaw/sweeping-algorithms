@@ -3753,7 +3753,7 @@ mod tests {
     super::zipper_moving_tests::zipper_moving_tests!(read_zipper,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperUntracked<()> {
@@ -3763,7 +3763,7 @@ mod tests {
     super::zipper_iteration_tests::zipper_iteration_tests!(read_zipper,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperUntracked<()> {
@@ -3773,7 +3773,7 @@ mod tests {
     super::zipper_moving_tests::zipper_moving_tests!(read_zipper_owned,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperOwned<()> {
@@ -3783,7 +3783,7 @@ mod tests {
     super::zipper_iteration_tests::zipper_iteration_tests!(read_zipper_owned,
         |keys: &[&[u8]]| {
             let mut btm = PathMap::new();
-            keys.iter().for_each(|k| { btm.insert(k, ()); });
+            keys.iter().for_each(|k| { btm.set_val_at(k, ()); });
             btm
         },
         |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperOwned<()> {
@@ -3795,7 +3795,7 @@ mod tests {
     fn zipper_value_access() {
         let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().for_each(|r| { btm.insert(r.as_bytes(), *r); });
+        rs.iter().for_each(|r| { btm.set_val_at(r.as_bytes(), *r); });
 
         let root_key = b"ro";
         let mut zipper = ReadZipperCore::new_with_node_and_path_in(btm.root().unwrap().as_tagged(), root_key, root_key.len(), 0, None, global_alloc());
@@ -3825,7 +3825,7 @@ mod tests {
     fn read_zipper_special_iter_test1() {
         let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
         let mut zipper = btm.read_zipper();
 
         //Fork a sub-zipper, and test iteration of that subtree

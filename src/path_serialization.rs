@@ -151,7 +151,7 @@ pub fn deserialize_paths<V: TrieValue, A: Allocator, WZ : ZipperWriting<V, A>, R
         if pos + l as usize <= end {
           wz_buf.extend(&obuffer[pos..pos + l as usize]);
           let v = fv(total_paths, &wz_buf[..]);
-          submap.insert(&wz_buf[..], v);
+          submap.set_val_at(&wz_buf[..], v);
           wz_buf.clear();
           total_paths += 1;
           pos += l as usize;
@@ -190,7 +190,7 @@ mod test {
   fn path_serialize_deserialize() {
     let mut btm = PathMap::new();
     let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().for_each(|r| { btm.insert(r.as_bytes(), ()); });
+    rs.iter().for_each(|r| { btm.set_val_at(r.as_bytes(), ()); });
     let mut v = vec![];
     match serialize_paths_(btm.read_zipper(), &mut v) {
       Ok(SerializationStats { bytes_out : c, bytes_in : bw, path_count : pw}) => {
@@ -229,7 +229,7 @@ mod test {
       for i in 0..400 {
         rs.push(format!("{}{}{}{}", "0".repeat(zeros), i/100, (i/10)%10, i%10))
       }
-      rs.iter().for_each(|r| { btm.insert(r.as_bytes(), ()); });
+      rs.iter().for_each(|r| { btm.set_val_at(r.as_bytes(), ()); });
 
       let mut v = vec![];
       match serialize_paths_(btm.read_zipper(), &mut v) {
@@ -265,7 +265,7 @@ mod test {
   fn path_serialize_deserialize_values() {
     let mut btm = PathMap::new();
     let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+    rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
     let mut values = vec![];
     let mut v = vec![];
     match serialize_paths(btm.read_zipper(), &mut v,

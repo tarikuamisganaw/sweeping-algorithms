@@ -199,7 +199,7 @@ impl <T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distributio
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> PathMap<T> {
     let mut btm = PathMap::new();
     for _ in 0..self.size {
-      btm.insert(&self.pd.sample(rng)[..], self.vd.sample(rng));
+      btm.set_val_at(&self.pd.sample(rng)[..], self.vd.sample(rng));
     }
     btm
   }
@@ -212,7 +212,7 @@ impl <T, SproutD : Fn(T) -> Distribution<&PathMap<T>>> Distribution<PathMap<T>> 
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> PathMap<T> {
     let mut btm = PathMap::new();
     for i in 0..self.size {
-      btm.insert(&self.pd.sample(rng)[..], self.vd.sample(rng));
+      btm.set_val_at(&self.pd.sample(rng)[..], self.vd.sample(rng));
     }
     btm
   }
@@ -441,7 +441,7 @@ mod tests {
     let mut btm = PathMap::new();
     let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz",
       "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-    rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+    rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
     let lengths = Triangular::new(1f32, 5., 1.5).unwrap();
     let submaps = Collected {
       d: Product2 {

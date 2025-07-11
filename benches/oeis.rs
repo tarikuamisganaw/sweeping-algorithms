@@ -114,7 +114,7 @@ fn query(m: &PathMap<usize>) {
   let mut q = PathMap::new();
   for i in 0..(MAX_OFFSET + 1) {
     qseq[0] = i;
-    q.insert(&qseq[..], 0usize);
+    q.set_val_at(&qseq[..], 0usize);
   }
 
   let qresult = m.restrict(&q);

@@ -42,7 +42,7 @@ R: PathInteger<NUM_SIZE>,
         let mut map = PathMap::<V>::new();
         let mut i = start;
         while i < stop {
-            map.insert(i.to_be_bytes(), value.clone());
+            map.set_val_at(i.to_be_bytes(), value.clone());
             i = i.saturating_add(step);
         }
         return map
@@ -63,7 +63,7 @@ fn gen_value_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: Pat
     let mut i = start;
     while i < stop {
         let byte = i.to_u8().unwrap();
-        map.insert(&[byte], value.clone());
+        map.set_val_at(&[byte], value.clone());
         i = i.saturating_add(step);
     }
     map

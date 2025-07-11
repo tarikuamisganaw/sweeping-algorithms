@@ -131,12 +131,12 @@ mod tests {
     #[test]
     fn btm_value_only_subtract_test() {
         let mut l: PathMap<u64> = PathMap::new();
-        l.insert(b"0", 0);
-        l.insert(b"1", 1);
-        l.insert(b"2", 2);
+        l.set_val_at(b"0", 0);
+        l.set_val_at(b"1", 1);
+        l.set_val_at(b"2", 2);
         let mut r: PathMap<u64> = PathMap::new();
-        r.insert(b"1", 1);
-        r.insert(b"3", 3);
+        r.set_val_at(b"1", 1);
+        r.set_val_at(b"3", 3);
         let l_no_r = l.subtract(&r);
         assert_eq!(l_no_r.get(b"0"), Some(&0));
         assert_eq!(l_no_r.get(b"1"), None);
@@ -147,11 +147,11 @@ mod tests {
     #[test]
     fn btm_compound_tree_subtract_test() {
         let mut l: PathMap<bool> = PathMap::new();
-        l.insert(b"hello", true);
-        l.insert(b"hello world", true);
-        l.insert(b"hell no we won't go", true);
+        l.set_val_at(b"hello", true);
+        l.set_val_at(b"hello world", true);
+        l.set_val_at(b"hell no we won't go", true);
         let mut r: PathMap<bool> = PathMap::new();
-        r.insert(b"hello", true);
+        r.set_val_at(b"hello", true);
         let l_no_r = l.subtract(&r);
 
         assert_eq!(l_no_r.get(b"hello"), None);
@@ -162,13 +162,13 @@ mod tests {
     #[test]
     fn btm_simple_tree_subtract_test() {
         let mut l: PathMap<bool> = PathMap::new();
-        l.insert(b"alligator", true);
-        l.insert(b"allegedly", true);
-        l.insert(b"albatross", true);
-        l.insert(b"albino", true);
+        l.set_val_at(b"alligator", true);
+        l.set_val_at(b"allegedly", true);
+        l.set_val_at(b"albatross", true);
+        l.set_val_at(b"albino", true);
         let mut r: PathMap<bool> = PathMap::new();
-        r.insert(b"alligator", true);
-        r.insert(b"albino", true);
+        r.set_val_at(b"alligator", true);
+        r.set_val_at(b"albino", true);
         let l_no_r = l.subtract(&r);
 
         assert_eq!(l_no_r.val_count(), 2);
@@ -190,8 +190,8 @@ mod tests {
 
         let mut vnl = PathMap::new();
         let mut vnr = PathMap::new();
-        for i in 0..N { vnl.insert(prefix_key(&i), i); }
-        for i in o..(N+o) { vnr.insert(prefix_key(&i), i); }
+        for i in 0..N { vnl.set_val_at(prefix_key(&i), i); }
+        for i in o..(N+o) { vnr.set_val_at(prefix_key(&i), i); }
         let l_no_r = vnl.subtract(&vnr);
 
         //Validate the ByteTrieMap::subtract against HashSet::difference
@@ -267,9 +267,9 @@ mod tests {
         }).collect();
 
         let mut l: PathMap<u64> = PathMap::new();
-        for i in 0..(N/2) { l.insert(&keys[i as usize], i); }
+        for i in 0..(N/2) { l.set_val_at(&keys[i as usize], i); }
         let mut r: PathMap<u64> = PathMap::new();
-        for i in (N/2)..N { r.insert(&keys[i as usize], i); }
+        for i in (N/2)..N { r.set_val_at(&keys[i as usize], i); }
 
         let joined = l.join(&r);
         let remaining = joined.subtract(&r);
@@ -279,12 +279,12 @@ mod tests {
     #[test]
     fn btm_test_restrict1() {
         let mut l: PathMap<&str> = PathMap::new();
-        l.insert(b"alligator", "alligator");
-        l.insert(b"allegedly", "allegedly");
-        l.insert(b"albatross", "albatross");
-        l.insert(b"albino", "albino");
+        l.set_val_at(b"alligator", "alligator");
+        l.set_val_at(b"allegedly", "allegedly");
+        l.set_val_at(b"albatross", "albatross");
+        l.set_val_at(b"albino", "albino");
         let mut r: PathMap<&str> = PathMap::new();
-        r.insert(b"all", "all");
+        r.set_val_at(b"all", "all");
         let restricted = l.restrict(&r);
 
         assert_eq!(restricted.val_count(), 2);
@@ -379,22 +379,22 @@ mod tests {
     fn path_prefix_test() {
         let mut map = PathMap::<u64>::new();
 
-        map.insert(&[0u8], 1);
+        map.set_val_at(&[0u8], 1);
         assert_eq!(map.get(&[0u8]), Some(&1));
         assert_eq!(map.get(&[0u8, 0u8]), None);
         assert_eq!(map.get(&[0u8, 0u8, 0u8]), None);
 
-        map.insert(&[0u8, 0u8, 0u8, 0u8], 4);
+        map.set_val_at(&[0u8, 0u8, 0u8, 0u8], 4);
         assert_eq!(map.get(&[0u8]), Some(&1));
         assert_eq!(map.get(&[0u8, 0u8]), None);
         assert_eq!(map.get(&[0u8, 0u8, 0u8]), None);
         assert_eq!(map.get(&[0u8, 0u8, 0u8, 0u8]), Some(&4));
 
-        map.insert(&[0u8, 0u8, 0u8, 0u8, 0u8], 5);
+        map.set_val_at(&[0u8, 0u8, 0u8, 0u8, 0u8], 5);
         assert_eq!(map.get(&[0u8, 0u8, 0u8, 0u8]), Some(&4));
         assert_eq!(map.get(&[0u8, 0u8, 0u8, 0u8, 0u8]), Some(&5));
 
-        map.insert(&[0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8], 9);
+        map.set_val_at(&[0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8, 0u8], 9);
         assert_eq!(map.get(&[0u8]), Some(&1));
         assert_eq!(map.get(&[0u8, 0u8]), None);
         assert_eq!(map.get(&[0u8, 0u8, 0u8]), None);
@@ -415,9 +415,9 @@ mod tests {
         const N: u64 = 1000;
 
         let mut l: PathMap<u64> = PathMap::new();
-        for i in 0..(N/2) { l.insert(prefix_key(&i), i); }
+        for i in 0..(N/2) { l.set_val_at(prefix_key(&i), i); }
         let mut r: PathMap<u64> = PathMap::new();
-        for i in (N/2)..N { r.insert(prefix_key(&i), i); }
+        for i in (N/2)..N { r.set_val_at(prefix_key(&i), i); }
 
         let joined = l.join(&r);
         let met = joined.meet(&l);
@@ -446,9 +446,9 @@ mod tests {
         }).collect();
 
         let mut l: PathMap<u64> = PathMap::new();
-        for i in 0..N { l.insert(&keys[i as usize], i); }
+        for i in 0..N { l.set_val_at(&keys[i as usize], i); }
         let mut r: PathMap<u64> = PathMap::new();
-        for i in o..(N+o) { r.insert(&keys[i as usize], i); }
+        for i in o..(N+o) { r.set_val_at(&keys[i as usize], i); }
 
         let intersection = l.meet(&r);
         assert_eq!(intersection.val_count(), (N/2) as usize);
@@ -494,7 +494,7 @@ mod tests {
             {
                 let mut vnl = PathMap::new();
                 let mut vnr = PathMap::new();
-                for i in 0..n { vnl.insert(prefix_key(&i), i); }
+                for i in 0..n { vnl.set_val_at(prefix_key(&i), i); }
                 // println!("{:?}", vnl.root);
                 for i in 0..n { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
                 for i in n..2*n { assert_eq!(vnl.get(prefix_key(&i)), None); }
@@ -506,7 +506,7 @@ mod tests {
                 });
                 c.sort();
                 assert_eq!(c, (0..n).collect::<Vec<u64>>());
-                for i in o..(n+o) { vnr.insert(prefix_key(&i), i); }
+                for i in o..(n+o) { vnr.set_val_at(prefix_key(&i), i); }
 
                 let j: PathMap<u64> = vnl.join(&vnr);
                 let m = vnl.meet(&vnr);

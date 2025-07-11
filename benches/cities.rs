@@ -92,7 +92,7 @@ fn cities_insert(bencher: Bencher) {
     bencher.bench_local(|| {
         let mut map = PathMap::new();
         for (k, v) in pairs.iter() {
-            map.insert(k, v);
+            map.set_val_at(k, v);
         }
     });
 }
@@ -103,7 +103,7 @@ fn cities_get(bencher: Bencher) {
     let pairs = read_data();
     let mut map = PathMap::new();
     for (k, v) in pairs.iter() {
-        map.insert(k, *v);
+        map.set_val_at(k, *v);
     }
 
     // let counters = pathmap::counters::Counters::count_ocupancy(&map);
@@ -128,7 +128,7 @@ fn cities_get_act(bencher: Bencher) {
     let pairs = read_data();
     let mut map = PathMap::new();
     for (k, v) in pairs.iter() {
-        map.insert(k, *v);
+        map.set_val_at(k, *v);
     }
     let act = ArenaCompactTree::from_zipper(map.read_zipper(), |&v| v as u64);
     // let counters = pathmap::counters::Counters::count_ocupancy(&map);
@@ -152,7 +152,7 @@ fn cities_val_count(bencher: Bencher) {
     let mut map = PathMap::new();
     let mut unique_count = 0;
     for (k, v) in pairs.iter() {
-        if map.insert(k, *v).is_none() {
+        if map.set_val_at(k, *v).is_none() {
             unique_count += 1;
         }
     }
@@ -175,7 +175,7 @@ fn cities_val_count_act(bencher: Bencher) {
     let mut map = PathMap::new();
     let mut unique_count = 0;
     for (k, v) in pairs.iter() {
-        if map.insert(k, *v).is_none() {
+        if map.set_val_at(k, *v).is_none() {
             unique_count += 1;
         }
     }

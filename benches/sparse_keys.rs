@@ -27,7 +27,7 @@ fn sparse_insert(bencher: Bencher, n: u64) {
     let out = bencher.with_inputs(|| {
         PathMap::new()
     }).bench_local_values(|mut map| {
-        for i in 0..n { black_box(&mut map).insert(&keys[i as usize], i); }
+        for i in 0..n { black_box(&mut map).set_val_at(&keys[i as usize], i); }
         map //Return the map so we don't drop it inside the timing loop
     });
     divan::black_box_drop(out)
@@ -45,7 +45,7 @@ fn sparse_drop_bench(bencher: Bencher, n: u64) {
     //Benchmark the time taken to drop the map
     bencher.with_inputs(|| {
         let mut map = PathMap::new();
-        for i in 0..n { map.insert(&keys[i as usize], i); }
+        for i in 0..n { map.set_val_at(&keys[i as usize], i); }
         map
     }).bench_local_values(|map| {
         drop(map);
@@ -62,7 +62,7 @@ fn sparse_get(bencher: Bencher, n: u64) {
     }).collect();
 
     let mut map: PathMap<u64> = PathMap::new();
-    for i in 0..n { map.insert(&keys[i as usize], i); }
+    for i in 0..n { map.set_val_at(&keys[i as usize], i); }
 
     //Benchmark the get operation
     bencher.bench_local(|| {
@@ -82,7 +82,7 @@ fn sparse_val_count_bench(bencher: Bencher, n: u64) {
     }).collect();
 
     let mut map: PathMap<u64> = PathMap::new();
-    for i in 0..n { map.insert(&keys[i as usize], i); }
+    for i in 0..n { map.set_val_at(&keys[i as usize], i); }
 
     //Benchmark the time taken to count the number of values in the map
     let mut sink = 0;
@@ -103,7 +103,7 @@ fn binary_drop_head(bencher: Bencher, n: u64) {
 
     bencher.with_inputs(|| {
         let mut map: PathMap<u64> = PathMap::new();
-        for i in 0..n { map.insert(&keys[i as usize], i); }
+        for i in 0..n { map.set_val_at(&keys[i as usize], i); }
         map
     }).bench_local_values(|mut map| {
         let mut wz = map.write_zipper();
@@ -123,9 +123,9 @@ fn sparse_meet(bencher: Bencher, n: u64) {
     }).collect();
 
     let mut l: PathMap<u64> = PathMap::new();
-    for i in 0..n { l.insert(&keys[i as usize], i); }
+    for i in 0..n { l.set_val_at(&keys[i as usize], i); }
     let mut r: PathMap<u64> = PathMap::new();
-    for i in o..(n+o) { r.insert(&keys[i as usize], i); }
+    for i in o..(n+o) { r.set_val_at(&keys[i as usize], i); }
 
     let mut intersection: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
@@ -144,9 +144,9 @@ fn sparse_meet_after_join(bencher: Bencher, n: u64) {
     }).collect();
 
     let mut l: PathMap<u64> = PathMap::new();
-    for i in 0..(n/2) { l.insert(&keys[i as usize], i); }
+    for i in 0..(n/2) { l.set_val_at(&keys[i as usize], i); }
     let mut r: PathMap<u64> = PathMap::new();
-    for i in (n/2)..n { r.insert(&keys[i as usize], i); }
+    for i in (n/2)..n { r.set_val_at(&keys[i as usize], i); }
 
     let joined = l.join(&r);
     let mut intersection: PathMap<u64> = PathMap::new();
@@ -166,9 +166,9 @@ fn sparse_subtract_after_join(bencher: Bencher, n: u64) {
     }).collect();
 
     let mut l: PathMap<u64> = PathMap::new();
-    for i in 0..(n/2) { l.insert(&keys[i as usize], i); }
+    for i in 0..(n/2) { l.set_val_at(&keys[i as usize], i); }
     let mut r: PathMap<u64> = PathMap::new();
-    for i in (n/2)..n { r.insert(&keys[i as usize], i); }
+    for i in (n/2)..n { r.set_val_at(&keys[i as usize], i); }
 
     let joined = l.join(&r);
     let mut remaining: PathMap<u64> = PathMap::new();
@@ -294,8 +294,8 @@ fn join_sparse(bencher: Bencher, n: u64) {
 
     let mut vnl = PathMap::new();
     let mut vnr = PathMap::new();
-    for i in 0..n { vnl.insert(&keys[i as usize], i); }
-    for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
+    for i in 0..n { vnl.set_val_at(&keys[i as usize], i); }
+    for i in o..(n+o) { vnr.set_val_at(&keys[i as usize], i); }
 
     //Benchmark the join operation
     let mut j: PathMap<u64> = PathMap::new();
@@ -329,8 +329,8 @@ fn join_into_sparse(bencher: Bencher, n: u64) {
     bencher.with_inputs(|| {
         let mut vnl = PathMap::new();
         let mut vnr = PathMap::new();
-        for i in 0..n { vnl.insert(&keys[i as usize], i); }
-        for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
+        for i in 0..n { vnl.set_val_at(&keys[i as usize], i); }
+        for i in o..(n+o) { vnr.set_val_at(&keys[i as usize], i); }
         (vnl, vnr)
     }).bench_local_values(|(mut left, right)| {
         left.join_into(right);

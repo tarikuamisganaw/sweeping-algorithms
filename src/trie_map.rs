@@ -145,7 +145,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
     #[inline]
     pub fn single_in<P: AsRef<[u8]>>(path: P, val: V, alloc: A) -> Self {
         let mut map = Self::new_in(alloc);
-        map.insert(path, val);
+        map.set_val_at(path, val);
         map
     }
 
@@ -339,14 +339,12 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         zipper.path_exists()
     }
 
-//GOAT, in light of PathMap's behavior holistically an a potential collision with WriteZipper::insert_prefix,
-// `insert` really should be called set_value
-    /// Inserts `v` into the map at `k`.  Panics if `k` has a zero length
+    /// Inserts `v` into the map at `path`.  Panics if `path` has a zero length
     ///
     /// Returns `Some(replaced_val)` if an existing value was replaced, otherwise returns `None` if
     /// the value was added to the map without replacing anything.
-    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> Option<V> {
-        let k = k.as_ref();
+    pub fn set_val_at<K: AsRef<[u8]>>(&mut self, path: K, v: V) -> Option<V> {
+        let path = path.as_ref();
 
         //NOTE: Here is the old impl traversing without the zipper.  Kept here for benchmarking purposes
         // However, the zipper version is basically identical performance, within the margin of error 
@@ -354,8 +352,14 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         // |node, remaining_key| node.node_set_val(remaining_key, v),
         // |_new_leaf_node, _remaining_key| None)
 
-        let mut zipper = self.write_zipper_at_path(k);
+        let mut zipper = self.write_zipper_at_path(path);
         zipper.set_value(v)
+    }
+
+    /// Deprecated alias for [Self::set_val_at]
+    #[deprecated] //GOAT-old-names
+    pub fn insert<K: AsRef<[u8]>>(&mut self, k: K, v: V) -> Option<V> {
+        self.set_val_at(k, v)
     }
 
     //GOAT, make a separate `join_with` that is similar to `insert` except replaces V with a merged V rather
@@ -550,7 +554,7 @@ impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> FromIterator<(K, V)> for Pa
     fn from_iter<I: IntoIterator<Item=(K, V)>>(iter: I) -> Self {
         let mut map = Self::new();
         for (key, val) in iter {
-            map.insert(key, val);
+            map.set_val_at(key, val);
         }
         map
     }
@@ -559,7 +563,7 @@ impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> FromIterator<(K, V)> for Pa
 impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> From<(K, V)> for PathMap<V> {
     fn from(pair: (K, V)) -> Self {
         let mut map = Self::new();
-        map.insert(pair.0, pair.1);
+        map.set_val_at(pair.0, pair.1);
         map
     }
 }
@@ -714,42 +718,42 @@ mod tests {
         let mut map = PathMap::new();
         //NOW: map contains an empty ListNode
 
-        map.insert("aaaaa", "aaaaa");
+        map.set_val_at("aaaaa", "aaaaa");
         assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
         //NOW: map contains a ListNode with slot_0 filled by a value
 
-        map.insert("bbbbb", "bbbbb");
+        map.set_val_at("bbbbb", "bbbbb");
         assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
         //NOW: map contains a ListNode with slot_0 and slot_1 filled by values
 
-        map.insert("ccccc", "ccccc");
+        map.set_val_at("ccccc", "ccccc");
         assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
         assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
         assert_eq!(map.get("ccccc").unwrap(), &"ccccc");
         //NOW: map contains a DenseByteNode, with 3 separate ListNodes, each containing one value
 
-        map.insert("ddddd", "ddddd");
+        map.set_val_at("ddddd", "ddddd");
         assert_eq!(map.get("ddddd").unwrap(), &"ddddd");
         //NOW: map contains a DenseByteNode, with 4 separate ListNodes, each containing one value
 
-        map.insert("abbbb", "abbbb");
+        map.set_val_at("abbbb", "abbbb");
         assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
         //NOW: Dense("a"..) -> List("aaaa", "bbbb")
 
-        map.insert("aaaab", "aaaab");
+        map.set_val_at("aaaab", "aaaab");
         assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
         assert_eq!(map.get("bbbbb").unwrap(), &"bbbbb");
         assert_eq!(map.get("abbbb").unwrap(), &"abbbb");
         assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
         //NOW: Dense("a"..) -> List("aaa", "bbbb") -> List("a", "b")
 
-        map.insert("aaaac", "aaaac");
+        map.set_val_at("aaaac", "aaaac");
         assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
         assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
         assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
         //NOW: Dense("a"..) -> List("aaa", "bbbb") -> Dense("a", "b", "c")
 
-        map.insert("acaaa", "acaaa");
+        map.set_val_at("acaaa", "acaaa");
         assert_eq!(map.get("aaaaa").unwrap(), &"aaaaa");
         assert_eq!(map.get("aaaab").unwrap(), &"aaaab");
         assert_eq!(map.get("aaaac").unwrap(), &"aaaac");
@@ -792,7 +796,7 @@ mod tests {
         ];
         let mut map = PathMap::new();
         for (i, key) in keys.iter().enumerate() {
-            map.insert(key, i);
+            map.set_val_at(key, i);
         }
         for (i, key) in keys.iter().enumerate() {
             assert_eq!(map.get(key), Some(&i));
@@ -803,19 +807,19 @@ mod tests {
     fn long_key_map_test() {
         let mut map = PathMap::new();
 
-        map.insert("aaaaaaaaaa01234567890123456789", 30);
+        map.set_val_at("aaaaaaaaaa01234567890123456789", 30);
         assert_eq!(map.get("aaaaaaaaaa01234567890123456789").unwrap(), &30);
 
-        map.insert("bbbbbbbbbb012345678901234567891", 31);
+        map.set_val_at("bbbbbbbbbb012345678901234567891", 31);
         assert_eq!(map.get("bbbbbbbbbb012345678901234567891").unwrap(), &31);
 
-        map.insert("cccccccccc012345678901234567890123456789", 40);
+        map.set_val_at("cccccccccc012345678901234567890123456789", 40);
         assert_eq!(map.get("cccccccccc012345678901234567890123456789").unwrap(), &40);
 
-        map.insert("dddddddddd01234567890123456789012345678901234", 45);
+        map.set_val_at("dddddddddd01234567890123456789012345678901234", 45);
         assert_eq!(map.get("dddddddddd01234567890123456789012345678901234").unwrap(), &45);
 
-        map.insert("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789", 90);
+        map.set_val_at("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789", 90);
         assert_eq!(map.get("eeeeeeeeee01234567890123456789012345678901234567890123456789012345678901234567890123456789").unwrap(), &90);
     }
 
@@ -823,7 +827,7 @@ mod tests {
     fn map_contains_path_test() {
         let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
 
         assert_eq!(btm.contains_path(b"can"), true);
         assert_eq!(btm.contains_path(b"cannon"), true);
@@ -837,7 +841,7 @@ mod tests {
 
         //Test root value with `get_mut`
         assert_eq!(map.get_mut(b""), None);
-        assert_eq!(map.insert(b"", 42), None);
+        assert_eq!(map.set_val_at(b"", 42), None);
         assert_eq!(map.get_mut(b""), Some(&mut 42));
         *map.get_mut(b"").unwrap() = 24;
         assert_eq!(map.get_mut(b""), Some(&mut 24));
@@ -845,7 +849,7 @@ mod tests {
         //Test non-root value with `get_mut`
         const PATH: &[u8] = b"This is a long path to somewhere, hopefully far enough away that we end up creating more than one node";
         assert_eq!(map.get_mut(PATH), None);
-        assert_eq!(map.insert(PATH, 42), None);
+        assert_eq!(map.set_val_at(PATH, 42), None);
         assert_eq!(map.get_mut(PATH), Some(&mut 42));
         *map.get_mut(PATH).unwrap() = 24;
         assert_eq!(map.get_mut(PATH), Some(&mut 24));
@@ -875,14 +879,14 @@ mod tests {
     #[test]
     fn map_remove_test1() {
         let mut map = PathMap::new();
-        map.insert("aaaaa", "aaaaa");
-        map.insert("bbbbb", "bbbbb");
-        map.insert("ccccc", "ccccc");
-        map.insert("ddddd", "ddddd");
-        map.insert("abbbb", "abbbb");
-        map.insert("aaaab", "aaaab");
-        map.insert("aaaac", "aaaac");
-        map.insert("acaaa", "acaaa");
+        map.set_val_at("aaaaa", "aaaaa");
+        map.set_val_at("bbbbb", "bbbbb");
+        map.set_val_at("ccccc", "ccccc");
+        map.set_val_at("ddddd", "ddddd");
+        map.set_val_at("abbbb", "abbbb");
+        map.set_val_at("aaaab", "aaaab");
+        map.set_val_at("aaaac", "aaaac");
+        map.set_val_at("acaaa", "acaaa");
         assert_eq!(map.val_count(), 8);
 
         assert_eq!(map.remove(b"aaaaa"), Some("aaaaa"));
@@ -933,9 +937,9 @@ mod tests {
         let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz"];
         for (i, path) in rs.into_iter().enumerate() {
             if i % 2 == 0 {
-                a.insert(path, i);
+                a.set_val_at(path, i);
             } else {
-                b.insert(path, i);
+                b.set_val_at(path, i);
             }
         }
 
@@ -954,9 +958,9 @@ mod tests {
         let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz"];
         for (i, path) in rs.into_iter().enumerate() {
             if i % 2 == 0 {
-                a.insert(path, i);
+                a.set_val_at(path, i);
             } else {
-                b.insert(path, i);
+                b.set_val_at(path, i);
             }
         }
 
@@ -986,7 +990,7 @@ mod tests {
 
         //Direct-map operations on root value
         assert_eq!(map.get([]), None);
-        assert_eq!(map.insert([], 1), None);
+        assert_eq!(map.set_val_at([], 1), None);
         assert_eq!(map.get([]), Some(&1));
         assert_eq!(map.remove([]), Some(1));
         assert_eq!(map.get([]), None);
@@ -1013,7 +1017,7 @@ mod tests {
 
         //Through read zippers
         assert_eq!(map.read_zipper().get_value(), None);
-        assert_eq!(map.insert([], 1), None);
+        assert_eq!(map.set_val_at([], 1), None);
         assert_eq!(map.read_zipper().get_value(), Some(&1));
         assert_eq!(map.read_zipper_at_borrowed_path(&[]).get_value(), Some(&1));
         assert_eq!(map.read_zipper_at_path([]).get_value(), Some(&1));
@@ -1038,7 +1042,7 @@ mod tests {
     fn map_root_value_test2() {
         let mut map_a = PathMap::<()>::new();
         assert_eq!(map_a.get([]), None);
-        assert_eq!(map_a.insert([], ()), None);
+        assert_eq!(map_a.set_val_at([], ()), None);
         assert_eq!(map_a.get([]), Some(&()));
         let map_b = PathMap::<()>::new();
 
@@ -1076,20 +1080,20 @@ mod tests {
     fn map_root_value_test3() {
         //Both a root val and a trie
         let mut map_a = PathMap::<()>::new();
-        assert_eq!(map_a.insert([], ()), None);
-        assert_eq!(map_a.insert("AA", ()), None);
+        assert_eq!(map_a.set_val_at([], ()), None);
+        assert_eq!(map_a.set_val_at("AA", ()), None);
 
         //Trie different from map_a, but no root val
         let mut map_b = PathMap::<()>::new();
-        assert_eq!(map_b.insert("BB", ()), None);
+        assert_eq!(map_b.set_val_at("BB", ()), None);
 
         //Trie same as map_a, but no root val
         let mut map_c = PathMap::<()>::new();
-        assert_eq!(map_c.insert("AA", ()), None);
+        assert_eq!(map_c.set_val_at("AA", ()), None);
 
         //Root val but no trie
         let mut map_d = PathMap::<()>::new();
-        assert_eq!(map_d.insert([], ()), None);
+        assert_eq!(map_d.set_val_at([], ()), None);
 
         //pjoin
         let joined_result = map_a.pjoin(&map_b);
@@ -1162,7 +1166,7 @@ mod tests {
     fn map_root_value_test4() {
         let mut map0 = PathMap::<usize>::new();
         let mut map1 = PathMap::<usize>::new();
-        map1.insert([], 0);
+        map1.set_val_at([], 0);
 
         let mut wz = map0.write_zipper();
         wz.graft(&map1.read_zipper());
@@ -1194,7 +1198,7 @@ mod tests {
     #[test]
     fn map_write_zipper_test1() {
         let mut map = PathMap::<isize>::new();
-        map.insert(b"start:0000:hello", 0);
+        map.set_val_at(b"start:0000:hello", 0);
 
         let mut z = map.write_zipper_at_path(b"start:0000:");
         z.descend_to(b"goodbye");
@@ -1206,10 +1210,10 @@ mod tests {
         assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
 
         let mut map = PathMap::<isize>::new();
-        map.insert(b"start:0000:hello", 0);
-        map.insert(b"start:0001:hello", 1);
-        map.insert(b"start:0002:hello", 2);
-        map.insert(b"start:0003:hello", 3);
+        map.set_val_at(b"start:0000:hello", 0);
+        map.set_val_at(b"start:0001:hello", 1);
+        map.set_val_at(b"start:0002:hello", 2);
+        map.set_val_at(b"start:0003:hello", 3);
 
         let mut z = map.write_zipper_at_path(b"start:0000:");
         z.descend_to(b"goodbye");
@@ -1241,7 +1245,7 @@ mod tests {
     #[test]
     fn map_write_zipper_test2() {
         let mut map = PathMap::<isize>::new();
-        map.insert(b"start:0000:hello", 0);
+        map.set_val_at(b"start:0000:hello", 0);
 
         let mut z = map.into_write_zipper(b"start:0000:");
         z.descend_to(b"goodbye");
@@ -1253,10 +1257,10 @@ mod tests {
         assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
 
         let mut map = PathMap::<isize>::new();
-        map.insert(b"start:0000:hello", 0);
-        map.insert(b"start:0001:hello", 1);
-        map.insert(b"start:0002:hello", 2);
-        map.insert(b"start:0003:hello", 3);
+        map.set_val_at(b"start:0000:hello", 0);
+        map.set_val_at(b"start:0001:hello", 1);
+        map.set_val_at(b"start:0002:hello", 2);
+        map.set_val_at(b"start:0003:hello", 3);
 
         let mut z = map.into_write_zipper(b"start:0000:");
         z.descend_to(b"goodbye");

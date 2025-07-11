@@ -1305,7 +1305,7 @@ mod tests {
     fn cata_test2() {
         let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
 
         //These algorithms should perform the same with both "jumping" and "non-jumping" versions
 
@@ -1413,7 +1413,7 @@ mod tests {
 
         let mut btm = PathMap::new();
         let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
 
         let s = btm.read_zipper().into_cata_jumping_side_effect(SplitCataJumping::new(
             |v, _path| { Some(Box::new(Value(*v))) },
@@ -1456,7 +1456,7 @@ mod tests {
 
         let mut btm = PathMap::new();
         let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
 
         let s: Option<Trie<usize>> = btm.read_zipper().into_cata_jumping_side_effect(|bm, ws: &mut [Option<Trie<usize>>], jump, mv, path| {
             Some(Trie{
@@ -1508,7 +1508,7 @@ mod tests {
         assert_eq!(result, 3);
 
         let mut nonempty = PathMap::<u64>::new();
-        nonempty.insert(&[1, 2, 3], !0);
+        nonempty.set_val_at(&[1, 2, 3], !0);
         let result = nonempty.into_cata_side_effect(SplitCata::new(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
         assert_eq!(result, 3);
     }
@@ -1517,7 +1517,7 @@ mod tests {
     fn cata_test6() {
         let mut btm = PathMap::new();
         let rs = ["Hello, my name is", "Helsinki", "Hell"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
 
         let mut map_cnt = 0;
         let mut collapse_cnt = 0;
@@ -1555,7 +1555,7 @@ mod tests {
     fn cata_test7() {
         let mut btm = PathMap::new();
         let rs = [[0, 0, 0, 0], [0, 255, 170, 170], [0, 255, 255, 255], [0, 255, 88, 88]];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r, i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r, i); });
 
         let mut map_cnt = 0;
         let mut collapse_cnt = 0;
@@ -2003,7 +2003,7 @@ mod tests {
     fn apo_test1() {
         let mut btm = PathMap::new();
         let rs = ["arro^w", "bow", "cann^on", "roman", "romane", "romanus^", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom^i"];
-        rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
+        rs.iter().enumerate().for_each(|(i, r)| { btm.set_val_at(r.as_bytes(), i); });
 
         let mut alphabetic = [0u64; 4];
         for c in "abcdefghijklmnopqrstuvwxyz".bytes() { alphabetic.set_bit(c) }
