@@ -72,6 +72,8 @@ use crate::zipper::*;
 
 #[cfg(not(miri))]
 use gxhash::HashMap;
+#[cfg(not(miri))]
+use gxhash::HashMapExt;
 
 #[cfg(miri)]
 use std::collections::HashMap;
@@ -710,8 +712,6 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
     Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperConcrete + ZipperAbsolutePath + ZipperPathBuffer,
     AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>
 {
-    use gxhash::HashMapExt;
-
     zipper.reset();
     zipper.prepare_buffers();
 
@@ -796,22 +796,22 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
 // This is a naive implementation of caching/jumping cata
 // The code is left in for reference/readability, since the unrolled version
 // is very hard to read. It took several days to debug the unrolled version.
-#[cfg(any())] // this is equivalent to "always disabled"
+#[cfg(false)]
 fn into_cata_jumping_naive<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
     z: &mut Z, alg_f: &mut AlgF
 ) -> Result<W, E>
     where
-    Cache: CacheStrategy<W>, Z: Zipper<V> + ZipperReadOnly<'a, V> + ZipperAbsolutePath,
+    Cache: CacheStrategy<W>, Z: Zipper + ZipperReadOnlyValues<'a, V> + ZipperAbsolutePath + ZipperPathBuffer + ZipperConcretePriv,
     AlgF: FnMut (&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>
 {
     let child_mask = ByteMask::from(z.child_mask());
     let child_count = child_mask.count_bits();
     let mut children = Vec::<W>::with_capacity(child_count);
-    let mut cache = HashMap::<FocusAddr, W>::new();
+    let mut cache = HashMap::<u64, W>::new();
     let path = z.path().to_vec();
     for ii in 0..child_count {
         z.descend_indexed_branch(ii);
-        let child_addr = shared_addr(z);
+        let child_addr = z.shared_node_hash();
         // Read and reuse value from cache, if exists
         if let Some(cached) = Cache::get(&cache, child_addr) {
             // DO NOT modify the W from cache
