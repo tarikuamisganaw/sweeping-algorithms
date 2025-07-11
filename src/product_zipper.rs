@@ -1,5 +1,5 @@
 
-use crate::{Allocator, GlobalAlloc};
+use crate::alloc::{Allocator, GlobalAlloc};
 use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::zipper::*;

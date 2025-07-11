@@ -2,7 +2,7 @@
 use core::fmt::Debug;
 use std::collections::HashMap;
 
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::utils::ByteMask;

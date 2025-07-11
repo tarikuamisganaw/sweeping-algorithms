@@ -2,7 +2,7 @@
 use core::slice;
 use std::mem::MaybeUninit;
 
-use crate::{global_alloc, Allocator, GlobalAlloc};
+use crate::alloc::{global_alloc, Allocator, GlobalAlloc};
 use crate::utils::ByteMask;
 use crate::PathMap;
 use crate::trie_node::*;
@@ -345,7 +345,7 @@ pub(crate) fn trie_ref_at_path_in<'a, 'paths, V: Clone + Send + Sync, A: Allocat
 
 #[cfg(test)]
 mod tests {
-    use crate::{global_alloc, PathMap, utils::ByteMask, zipper::*};
+    use crate::{alloc::global_alloc, PathMap, utils::ByteMask, zipper::*};
 
     #[test]
     fn trie_ref_test1() {

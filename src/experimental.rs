@@ -1,6 +1,6 @@
 #![allow(warnings)] 
 
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::utils::ByteMask;
 use crate::PathMap;
 use crate::trie_node::*;

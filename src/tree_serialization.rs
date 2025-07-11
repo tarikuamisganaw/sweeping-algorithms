@@ -1,7 +1,7 @@
 use std::cell::UnsafeCell;
 use std::io::Write;
 use std::ptr::slice_from_raw_parts;
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::{zipper, TrieValue};
 use crate::morphisms::{Catamorphism, new_map_from_ana_jumping};
 use crate::utils::{BitMask, ByteMask};

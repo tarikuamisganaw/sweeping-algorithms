@@ -12,7 +12,7 @@ use core::fmt::{Debug, Formatter};
 use std::collections::HashMap;
 
 use crate::utils::{ByteMask, find_prefix_overlap};
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::trie_node::*;
 use crate::ring::*;
 
@@ -316,7 +316,7 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::GlobalAlloc;
+    use crate::alloc::GlobalAlloc;
 
     #[test]
     fn test_tiny_node() {

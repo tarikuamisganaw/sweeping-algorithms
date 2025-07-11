@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use local_or_heap::LocalOrHeap;
 
 use crate::utils::{BitMask, ByteMask, find_prefix_overlap};
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::trie_node::*;
 use crate::ring::*;
 use crate::dense_byte_node::{DenseByteNode, ByteNode, CoFree, OrdinaryCoFree, CellCoFree};
@@ -2451,7 +2451,7 @@ pub(crate) fn validate_node<V: Clone + Send + Sync, A: Allocator>(_node: &LineLi
 
 #[cfg(test)]
 mod tests {
-    use crate::{global_alloc, Allocator, GlobalAlloc};
+    use crate::alloc::{global_alloc, Allocator, GlobalAlloc};
     use super::*;
 
     fn get_recursive<'a, 'b, V: Clone + Send + Sync, A: Allocator + 'b>(key: &'a [u8], node: TaggedNodeRef<'b, V, A>) -> (&'a [u8], TaggedNodeRef<'b, V, A>, usize) {

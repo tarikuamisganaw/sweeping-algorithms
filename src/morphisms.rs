@@ -64,7 +64,7 @@ use core::convert::Infallible;
 use reusing_vec::ReusingQueue;
 
 use crate::utils::*;
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::PathMap;
 use crate::trie_node::TrieNodeODRc;
 use crate::zipper;

@@ -3,7 +3,7 @@
 use libz_ng_sys::*;
 use crate::PathMap;
 use crate::TrieValue;
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::zipper::{ZipperReadOnlyIteration, ZipperWriting};
 
 #[derive(Debug, Clone, Copy)]

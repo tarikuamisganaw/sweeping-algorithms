@@ -4,7 +4,7 @@ use core::ptr;
 use std::collections::HashMap;
 use std::hint::unreachable_unchecked;
 
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::ring::*;
 use crate::utils::ByteMask;
 

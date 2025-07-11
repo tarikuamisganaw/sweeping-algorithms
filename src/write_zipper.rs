@@ -1,7 +1,7 @@
 
 use maybe_dangling::MaybeDangling;
 
-use crate::{Allocator, GlobalAlloc};
+use crate::alloc::{Allocator, GlobalAlloc};
 use crate::utils::ByteMask;
 use crate::trie_node::*;
 use crate::PathMap;
@@ -2059,7 +2059,7 @@ use mut_node_stack::MutNodeStack;
 mod mut_node_stack {
     use smallvec::{SmallVec, smallvec};
     use core::ptr::NonNull;
-    use crate::Allocator;
+    use crate::alloc::Allocator;
     use super::{TaggedNodeRefMut, TrieNodeODRc};
 
     /// See [mutcursor::MutCursorRootedVec] for discussion about behavior
@@ -2168,7 +2168,7 @@ mod tests {
     use crate::trie_map::*;
     use crate::utils::ByteMask;
     use crate::zipper::*;
-    use crate::GlobalAlloc;
+    use crate::alloc::GlobalAlloc;
 
     #[test]
     fn write_zipper_set_value_test1() {

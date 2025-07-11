@@ -27,7 +27,7 @@
 
 use maybe_dangling::MaybeDangling;
 
-use crate::{Allocator, GlobalAlloc};
+use crate::alloc::{Allocator, GlobalAlloc};
 use crate::utils::{ByteMask, find_prefix_overlap};
 use crate::trie_node::*;
 use crate::PathMap;
@@ -3747,7 +3747,7 @@ pub(crate) mod zipper_iteration_tests {
 
 #[cfg(test)]
 mod tests {
-    use crate::{global_alloc, trie_map::*};
+    use crate::{alloc::global_alloc, PathMap};
     use super::*;
 
     super::zipper_moving_tests::zipper_moving_tests!(read_zipper,

@@ -7,7 +7,7 @@ use local_or_heap::LocalOrHeap;
 use arrayvec::ArrayVec;
 
 use crate::utils::ByteMask;
-use crate::Allocator;
+use crate::alloc::Allocator;
 use crate::dense_byte_node::*;
 use crate::ring::*;
 use crate::tiny_node::TinyRefNode;
@@ -2278,7 +2278,7 @@ mod slim_node_ptr {
     use core::marker::PhantomData;
     use core::ptr::NonNull;
     use core::sync::atomic::AtomicU32;
-    use crate::Allocator;
+    use crate::alloc::Allocator;
     use super::{TaggedNodeRef, TaggedNodeRefMut, EMPTY_NODE_TAG};
 
     #[cfg(all(not(target_pointer_width="64")))]
@@ -2440,7 +2440,7 @@ mod slim_node_ptr {
 mod opaque_dyn_rc_trie_node {
     use core::mem::MaybeUninit;
     use core::sync::atomic::{AtomicU32, Ordering::Acquire, Ordering::Relaxed, Ordering::Release};
-    use crate::Allocator;
+    use crate::alloc::Allocator;
     use crate::dense_byte_node::{DenseByteNode, CellByteNode};
     use crate::line_list_node::LineListNode;
     use super::slim_node_ptr::SlimNodePtr;

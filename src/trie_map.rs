@@ -1,6 +1,6 @@
 use core::cell::UnsafeCell;
 use std::ptr::slice_from_raw_parts;
-use crate::{Allocator, GlobalAlloc, global_alloc};
+use crate::alloc::{Allocator, GlobalAlloc, global_alloc};
 use crate::morphisms::{new_map_from_ana_in, Catamorphism, TrieBuilder};
 use crate::trie_node::*;
 use crate::zipper::*;

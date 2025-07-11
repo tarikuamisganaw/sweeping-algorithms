@@ -1,7 +1,7 @@
 
 use core::cell::UnsafeCell;
 
-use crate::{Allocator, GlobalAlloc};
+use crate::alloc::{Allocator, GlobalAlloc};
 use crate::PathMap;
 use crate::trie_node::*;
 use crate::zipper::*;
