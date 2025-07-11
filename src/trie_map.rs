@@ -414,9 +414,9 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         node.as_tagged_mut().node_into_val_ref_mut(node_key)
     }
 
-    /// Returns a mutable reference to the value at the specified path, inserting the result
+    /// Returns a mutable reference to the value at the specified `path`, inserting the result
     /// of `func` if no value exists
-    pub fn get_value_mut_or_set_with<F, K>(&mut self, path: K, func: F) -> &mut V
+    pub fn get_val_or_set_mut_with_at<F, K>(&mut self, path: K, func: F) -> &mut V
     where
     F: FnOnce() -> V,
     K: AsRef<[u8]>,
@@ -442,10 +442,10 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         temp_z.into_value_mut().unwrap()
     }
 
-    /// Returns a mutable reference to the value at the specified path, inserting `default`
+    /// Returns a mutable reference to the value at the specified `path`, inserting `default`
     /// if no value already exists
-    pub fn get_value_mut_or_set<K: AsRef<[u8]>>(&mut self, path: K, default: V) -> &mut V {
-        self.get_value_mut_or_set_with(path, || default)
+    pub fn get_val_or_set_mut_at<K: AsRef<[u8]>>(&mut self, path: K, default: V) -> &mut V {
+        self.get_val_or_set_mut_with_at(path, || default)
     }
 
     /// Returns `true` if the map is empty, otherwise returns `false`
@@ -872,19 +872,19 @@ mod tests {
         let mut map = PathMap::<usize>::new();
 
         //Test root value
-        assert_eq!(map.get_value_mut_or_set(b"", 42), &mut 42);
+        assert_eq!(map.get_val_or_set_mut_at(b"", 42), &mut 42);
         assert_eq!(map.get_val_mut_at(b""), Some(&mut 42));
         assert_eq!(map.remove_val_at(b""), Some(42));
-        *map.get_value_mut_or_set(b"", 42) = 24;
+        *map.get_val_or_set_mut_at(b"", 42) = 24;
         assert_eq!(map.get_val_mut_at(b""), Some(&mut 24));
 
         //Test non-root value
         const PATH: &[u8] = b"This is a long path to somewhere, hopefully far enough away that we end up creating more than one node";
         assert_eq!(map.get_val_mut_at(PATH), None);
-        assert_eq!(map.get_value_mut_or_set(PATH, 42), &mut 42);
+        assert_eq!(map.get_val_or_set_mut_at(PATH, 42), &mut 42);
         assert_eq!(map.get_val_mut_at(PATH), Some(&mut 42));
         assert_eq!(map.remove_val_at(PATH), Some(42));
-        *map.get_value_mut_or_set(PATH, 42) = 24;
+        *map.get_val_or_set_mut_at(PATH, 42) = 24;
         assert_eq!(map.get_val_mut_at(PATH), Some(&mut 24));
     }
 
