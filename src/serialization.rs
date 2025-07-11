@@ -2,7 +2,7 @@
 
 use std::{any::type_name, hash::Hasher, io::{BufRead, BufReader, BufWriter, Read, Seek, Write}, path::PathBuf};
 
-use crate::{morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{ZipperMoving, ZipperWriting}};
+use crate::{morphisms::Catamorphism, PathMap, zipper::{ZipperMoving, ZipperWriting}};
 use crate::TrieValue;
 extern crate alloc;
 use alloc::collections::BTreeMap;
@@ -130,7 +130,7 @@ pub fn write_trie<C :Catamorphism<V> ,V: TrieValue>(
   let _ = std::fs::remove_file(&data_path);
 
   let mut data_file = std::fs::File::create_new(&data_path)?;
-  data_file.write_fmt(format_args!("{:?} :: {:?}\n", type_name::<BytesTrieMap<V>>(), memo.as_ref()))?;
+  data_file.write_fmt(format_args!("{:?} :: {:?}\n", type_name::<PathMap<V>>(), memo.as_ref()))?;
   let mut meta_file = std::fs::File::create(&meta_path)?;
 
   let pos = data_file.stream_position()?;
@@ -708,7 +708,7 @@ fn offset_and_childmask_zero_compressor(
 // /////////////////
 
 /// deserialize the serialized pathmap
-pub fn deserialize_file<V: TrieValue>(file_path : impl AsRef<std::path::Path>, de : impl Fn(&[u8])->V)-> Result<BytesTrieMap<V>, std::io::Error> {
+pub fn deserialize_file<V: TrieValue>(file_path : impl AsRef<std::path::Path>, de : impl Fn(&[u8])->V)-> Result<PathMap<V>, std::io::Error> {
   let f = std::fs::File::open(file_path.as_ref())?;
   let mut reader = BufReader::new(f);
 
@@ -728,7 +728,7 @@ pub fn deserialize_file<V: TrieValue>(file_path : impl AsRef<std::path::Path>, d
     Value(V),
     ChildMask(ChildMask),
     Branches(std::ops::Range<usize>),
-    Node(BytesTrieMap<V>),
+    Node(PathMap<V>),
   }
 
   #[cfg(debug_assertions)]
@@ -846,7 +846,7 @@ pub fn deserialize_file<V: TrieValue>(file_path : impl AsRef<std::path::Path>, d
                              let Deserialized::Path(path) = &deserialized[path_idx] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected path")); };
                              let Deserialized::Node(node) = &deserialized[node_idx] else { return Err(std::io::Error::other("Malformed serialized ByteTrie, expected node")); };
 
-                             let mut path_node = BytesTrieMap::new();
+                             let mut path_node = PathMap::new();
 
                              let mut wz        = path_node.write_zipper();
                              wz.descend_to(&paths_buffer[path.start..path.end]);
@@ -886,7 +886,7 @@ pub fn deserialize_file<V: TrieValue>(file_path : impl AsRef<std::path::Path>, d
 
                              core::debug_assert_eq!(mask.into_iter().copied().map(u64::count_ones).sum::<u32>() as usize, branches.len());
 
-                             let mut branch_node = BytesTrieMap::new();
+                             let mut branch_node = PathMap::new();
                              let mut wz = branch_node.write_zipper();
 
                              for (byte, &idx) in iter.into_iter().zip(branches) {
@@ -1027,7 +1027,7 @@ mod test {
       arr
     };
 
-    let mut trie = BytesTrieMap::<Arc<[u8]>>::new();
+    let mut trie = PathMap::<Arc<[u8]>>::new();
 
     let as_arc = |bs : &[u8]| alloc::sync::Arc::<[u8]>::from(bs);
     trie.insert(b"a", as_arc(b""));
@@ -1536,7 +1536,7 @@ mod test {
   }
 
   // for doing test equality check
-  fn string_pathmap_as_btree_dbg(map : BytesTrieMap<Arc<[u8]>>)->BTreeMap<String,String> {
+  fn string_pathmap_as_btree_dbg(map : PathMap<Arc<[u8]>>)->BTreeMap<String,String> {
     let mut map_ = BTreeMap::new();
 
     map.into_cata_jumping_side_effect(|_bytemask, _accs, _jump_len, v, o| {
@@ -1558,7 +1558,7 @@ mod test {
 // we could consider making some of the following public later
 
 // for debugging
-fn _trace<V: TrieValue>(trie : BytesTrieMap<V>) {
+fn _trace<V: TrieValue>(trie : PathMap<V>) {
   let counter = core::sync::atomic::AtomicUsize::new(0);
   trie.into_cata_jumping_side_effect(|bytemask, accs, jump_len, v, o| {
     let n = counter.fetch_add(1, core::sync::atomic::Ordering::SeqCst);

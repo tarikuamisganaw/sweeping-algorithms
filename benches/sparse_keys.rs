@@ -3,7 +3,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use divan::{Divan, Bencher, black_box};
 
 use pathmap::ring::*;
-use pathmap::trie_map::BytesTrieMap;
+use pathmap::PathMap;
 use pathmap::zipper::*;
 
 fn main() {
@@ -25,7 +25,7 @@ fn sparse_insert(bencher: Bencher, n: u64) {
 
     //Benchmark the insert operation
     let out = bencher.with_inputs(|| {
-        BytesTrieMap::new()
+        PathMap::new()
     }).bench_local_values(|mut map| {
         for i in 0..n { black_box(&mut map).insert(&keys[i as usize], i); }
         map //Return the map so we don't drop it inside the timing loop
@@ -44,7 +44,7 @@ fn sparse_drop_bench(bencher: Bencher, n: u64) {
 
     //Benchmark the time taken to drop the map
     bencher.with_inputs(|| {
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
         for i in 0..n { map.insert(&keys[i as usize], i); }
         map
     }).bench_local_values(|map| {
@@ -61,7 +61,7 @@ fn sparse_get(bencher: Bencher, n: u64) {
         (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(&keys[i as usize], i); }
 
     //Benchmark the get operation
@@ -81,7 +81,7 @@ fn sparse_val_count_bench(bencher: Bencher, n: u64) {
         (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(&keys[i as usize], i); }
 
     //Benchmark the time taken to count the number of values in the map
@@ -102,7 +102,7 @@ fn binary_drop_head(bencher: Bencher, n: u64) {
     }).collect();
 
     bencher.with_inputs(|| {
-        let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut map: PathMap<u64> = PathMap::new();
         for i in 0..n { map.insert(&keys[i as usize], i); }
         map
     }).bench_local_values(|mut map| {
@@ -122,12 +122,12 @@ fn sparse_meet(bencher: Bencher, n: u64) {
         (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
     }).collect();
 
-    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut l: PathMap<u64> = PathMap::new();
     for i in 0..n { l.insert(&keys[i as usize], i); }
-    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut r: PathMap<u64> = PathMap::new();
     for i in o..(n+o) { r.insert(&keys[i as usize], i); }
 
-    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut intersection: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut intersection) = l.meet(black_box(&r));
     });
@@ -143,13 +143,13 @@ fn sparse_meet_after_join(bencher: Bencher, n: u64) {
         (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
     }).collect();
 
-    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut l: PathMap<u64> = PathMap::new();
     for i in 0..(n/2) { l.insert(&keys[i as usize], i); }
-    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut r: PathMap<u64> = PathMap::new();
     for i in (n/2)..n { r.insert(&keys[i as usize], i); }
 
     let joined = l.join(&r);
-    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut intersection: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut intersection) = joined.meet(black_box(&l));
     });
@@ -165,13 +165,13 @@ fn sparse_subtract_after_join(bencher: Bencher, n: u64) {
         (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
     }).collect();
 
-    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut l: PathMap<u64> = PathMap::new();
     for i in 0..(n/2) { l.insert(&keys[i as usize], i); }
-    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut r: PathMap<u64> = PathMap::new();
     for i in (n/2)..n { r.insert(&keys[i as usize], i); }
 
     let joined = l.join(&r);
-    let mut remaining: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut remaining: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut remaining) = joined.subtract(black_box(&r));
     });
@@ -187,7 +187,7 @@ fn sparse_cursor(bencher: Bencher, n: u64) {
         let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
         (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
-    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+    let map: PathMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
     //Benchmark the iterator
     let mut sink = 0;
@@ -208,7 +208,7 @@ fn sparse_all_dense_cursor(bencher: Bencher, n: u64) {
         let len = (r.gen::<u8>() % 18) + 3; //length between 3 and 20 chars
         (0..len).into_iter().map(|_| r.gen::<u8>()).collect()
     }).collect();
-    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+    let map: PathMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
     //Benchmark the iterator
     let mut sink = 0;
@@ -228,7 +228,7 @@ fn sparse_k_path_iter(bencher: Bencher, n: u64) {
         let len = (r.random::<u8>() % 15) + 5; //length between 5 and 20 chars
         (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
-    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+    let map: PathMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
     //Benchmark the zipper's iterator
     bencher.bench_local(|| {
@@ -250,7 +250,7 @@ fn sparse_zipper_cursor(bencher: Bencher, n: u64) {
         let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
         (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
-    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+    let map: PathMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
     //Benchmark using the zipper as a cursor
     bencher.bench_local(|| {
@@ -271,7 +271,7 @@ fn sparse_iter(bencher: Bencher, n: u64) {
         let len = (r.random::<u8>() % 18) + 3; //length between 3 and 20 chars
         (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
-    let map: BytesTrieMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
+    let map: PathMap<usize> = keys.iter().enumerate().map(|(n, s)| (s, n)).collect();
 
     //Benchmark the iterator
     let mut sink = 0;
@@ -292,13 +292,13 @@ fn join_sparse(bencher: Bencher, n: u64) {
         (0..len).into_iter().map(|_| r.random::<u8>()).collect()
     }).collect();
 
-    let mut vnl = BytesTrieMap::new();
-    let mut vnr = BytesTrieMap::new();
+    let mut vnl = PathMap::new();
+    let mut vnr = PathMap::new();
     for i in 0..n { vnl.insert(&keys[i as usize], i); }
     for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
 
     //Benchmark the join operation
-    let mut j: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut j: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut j) = vnl.join(black_box(&vnr));
     });
@@ -327,8 +327,8 @@ fn join_into_sparse(bencher: Bencher, n: u64) {
 
     //Benchmark the join_into operation
     bencher.with_inputs(|| {
-        let mut vnl = BytesTrieMap::new();
-        let mut vnr = BytesTrieMap::new();
+        let mut vnl = PathMap::new();
+        let mut vnr = PathMap::new();
         for i in 0..n { vnl.insert(&keys[i as usize], i); }
         for i in o..(n+o) { vnr.insert(&keys[i as usize], i); }
         (vnl, vnr)

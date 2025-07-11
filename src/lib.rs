@@ -16,7 +16,9 @@ static GLOBAL: Jemalloc = Jemalloc;
 pub mod ring;
 
 /// A collection indexed by paths of bytes, supporting [algebraic](crate::ring) operations
+//GOAT-old-names, this mod shouldn't be pub, because it only contains one public object which is re-exported here
 pub mod trie_map;
+pub use trie_map::PathMap;
 
 /// Cursors that can move over a trie, to inspect and modify contained elements or entire branches
 pub mod zipper;
@@ -110,7 +112,7 @@ impl<T> TrieValue for T where T : Clone + Send + Sync + Unpin + 'static {}
 mod tests {
     use rand::{Rng, SeedableRng, rngs::StdRng};
     use crate::ring::*;
-    use crate::trie_map::BytesTrieMap;
+    use crate::PathMap;
     use crate::zipper::*;
 
     pub(crate) fn prefix_key(k: &u64) -> &[u8] {
@@ -128,11 +130,11 @@ mod tests {
 
     #[test]
     fn btm_value_only_subtract_test() {
-        let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut l: PathMap<u64> = PathMap::new();
         l.insert(b"0", 0);
         l.insert(b"1", 1);
         l.insert(b"2", 2);
-        let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut r: PathMap<u64> = PathMap::new();
         r.insert(b"1", 1);
         r.insert(b"3", 3);
         let l_no_r = l.subtract(&r);
@@ -144,11 +146,11 @@ mod tests {
 
     #[test]
     fn btm_compound_tree_subtract_test() {
-        let mut l: BytesTrieMap<bool> = BytesTrieMap::new();
+        let mut l: PathMap<bool> = PathMap::new();
         l.insert(b"hello", true);
         l.insert(b"hello world", true);
         l.insert(b"hell no we won't go", true);
-        let mut r: BytesTrieMap<bool> = BytesTrieMap::new();
+        let mut r: PathMap<bool> = PathMap::new();
         r.insert(b"hello", true);
         let l_no_r = l.subtract(&r);
 
@@ -159,12 +161,12 @@ mod tests {
 
     #[test]
     fn btm_simple_tree_subtract_test() {
-        let mut l: BytesTrieMap<bool> = BytesTrieMap::new();
+        let mut l: PathMap<bool> = PathMap::new();
         l.insert(b"alligator", true);
         l.insert(b"allegedly", true);
         l.insert(b"albatross", true);
         l.insert(b"albino", true);
-        let mut r: BytesTrieMap<bool> = BytesTrieMap::new();
+        let mut r: PathMap<bool> = PathMap::new();
         r.insert(b"alligator", true);
         r.insert(b"albino", true);
         let l_no_r = l.subtract(&r);
@@ -186,8 +188,8 @@ mod tests {
         let overlap = 0.5;
         let o = ((1. - overlap) * N as f64) as u64;
 
-        let mut vnl = BytesTrieMap::new();
-        let mut vnr = BytesTrieMap::new();
+        let mut vnl = PathMap::new();
+        let mut vnr = PathMap::new();
         for i in 0..N { vnl.insert(prefix_key(&i), i); }
         for i in o..(N+o) { vnr.insert(prefix_key(&i), i); }
         let l_no_r = vnl.subtract(&vnr);
@@ -210,12 +212,12 @@ mod tests {
             vec![61, 85, 161, 68, 245, 90, 129],
             vec![70, 91, 37, 155, 181, 227, 100, 255, 66, 129, 158, 241, 183, 96, 59],
         ];
-        let r: BytesTrieMap<u64> = r.into_iter().map(|v| (v, 0)).collect();
+        let r: PathMap<u64> = r.into_iter().map(|v| (v, 0)).collect();
 
         let l: Vec<Vec<u8>> = vec![
             vec![70, 116, 109, 134, 122, 15, 78, 126, 240, 158, 42, 221],
         ];
-        let l: BytesTrieMap<u64> = l.into_iter().map(|v| (v, 0)).collect();
+        let l: PathMap<u64> = l.into_iter().map(|v| (v, 0)).collect();
 
         let joined = l.join(&r);
         let remaining = joined.subtract(&r);
@@ -233,12 +235,12 @@ mod tests {
             vec![70, 10, 122, 77, 171, 54, 32, 161, 24, 162, 112, 152],
             vec![70, 91, 37, 155, 181, 227, 100, 255, 66, 129, 158, 241, 183, 96, 59],
         ];
-        let r: BytesTrieMap<u64> = r.into_iter().map(|v| (v, 0)).collect();
+        let r: PathMap<u64> = r.into_iter().map(|v| (v, 0)).collect();
 
         let l: Vec<Vec<u8>> = vec![
             vec![70, 116, 109, 134, 122, 15, 78, 126, 240, 158, 42, 221],
         ];
-        let l: BytesTrieMap<u64> = l.into_iter().map(|v| (v, 0)).collect();
+        let l: PathMap<u64> = l.into_iter().map(|v| (v, 0)).collect();
 
         let joined = l.join(&r);
         let remaining = joined.subtract(&r);
@@ -264,9 +266,9 @@ mod tests {
             (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
         }).collect();
 
-        let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut l: PathMap<u64> = PathMap::new();
         for i in 0..(N/2) { l.insert(&keys[i as usize], i); }
-        let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut r: PathMap<u64> = PathMap::new();
         for i in (N/2)..N { r.insert(&keys[i as usize], i); }
 
         let joined = l.join(&r);
@@ -276,12 +278,12 @@ mod tests {
 
     #[test]
     fn btm_test_restrict1() {
-        let mut l: BytesTrieMap<&str> = BytesTrieMap::new();
+        let mut l: PathMap<&str> = PathMap::new();
         l.insert(b"alligator", "alligator");
         l.insert(b"allegedly", "allegedly");
         l.insert(b"albatross", "albatross");
         l.insert(b"albino", "albino");
-        let mut r: BytesTrieMap<&str> = BytesTrieMap::new();
+        let mut r: PathMap<&str> = PathMap::new();
         r.insert(b"all", "all");
         let restricted = l.restrict(&r);
 
@@ -302,11 +304,11 @@ mod tests {
             vec![0, 2], vec![1, 2], vec![2, 2], vec![3, 2], vec![0, 3], vec![1, 3], vec![2, 3], vec![3, 3],
             vec![0, 0, 1], vec![1, 0, 1], vec![2, 0, 1], vec![3, 0, 1]
         ];
-        let map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let map: PathMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
 
         // Restrict to odd numbers
         let odd_keys = [ vec![1], vec![3]];
-        let odd_map: BytesTrieMap<i32> = odd_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let odd_map: PathMap<i32> = odd_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
         let restricted = map.restrict(&odd_map);
 
         assert_eq!(restricted.val_count(), 10);
@@ -323,7 +325,7 @@ mod tests {
 
         // Restrict to numbers divisible by 4 (exluding 0; 0 technically isn't divisible by 4)
         let div4_keys = [ vec![0, 0], vec![0, 1], vec![0, 2], vec![0, 3]];
-        let div4_map: BytesTrieMap<i32> = div4_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let div4_map: PathMap<i32> = div4_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
         let restricted = map.restrict(&div4_map);
 
         assert_eq!(restricted.val_count(), 4);
@@ -348,11 +350,11 @@ mod tests {
             "adaptation",
             "adapter",
         ];
-        let map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let map: PathMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
 
         // Restrict to words beginning with "act"
         let restrictor = [ "act" ];
-        let restrictor_map: BytesTrieMap<i32> = restrictor.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let restrictor_map: PathMap<i32> = restrictor.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
         let restricted = map.restrict(&restrictor_map);
 
         assert_eq!(restricted.val_count(), 4);
@@ -361,7 +363,7 @@ mod tests {
 
         // Restrict to words beginning with "a"
         let restrictor = [ "a" ];
-        let restrictor_map: BytesTrieMap<i32> = restrictor.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let restrictor_map: PathMap<i32> = restrictor.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
         let restricted = map.restrict(&restrictor_map);
 
         assert_eq!(restricted.val_count(), 8);
@@ -375,7 +377,7 @@ mod tests {
     /// after existing values.
     #[test]
     fn path_prefix_test() {
-        let mut map = BytesTrieMap::<u64>::new();
+        let mut map = PathMap::<u64>::new();
 
         map.insert(&[0u8], 1);
         assert_eq!(map.get(&[0u8]), Some(&1));
@@ -412,9 +414,9 @@ mod tests {
         #[cfg(not(miri))]
         const N: u64 = 1000;
 
-        let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut l: PathMap<u64> = PathMap::new();
         for i in 0..(N/2) { l.insert(prefix_key(&i), i); }
-        let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut r: PathMap<u64> = PathMap::new();
         for i in (N/2)..N { r.insert(prefix_key(&i), i); }
 
         let joined = l.join(&r);
@@ -443,9 +445,9 @@ mod tests {
             (0..len).into_iter().map(|_| rng.random::<u8>()).collect()
         }).collect();
 
-        let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut l: PathMap<u64> = PathMap::new();
         for i in 0..N { l.insert(&keys[i as usize], i); }
-        let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+        let mut r: PathMap<u64> = PathMap::new();
         for i in o..(N+o) { r.insert(&keys[i as usize], i); }
 
         let intersection = l.meet(&r);
@@ -470,8 +472,8 @@ mod tests {
             // vec![208, 250], //Overlap
             // vec![213, 63],  //Overlap
         ];
-        let l: BytesTrieMap<u64> = l_keys.into_iter().map(|v| (v, 0)).collect();
-        let r: BytesTrieMap<u64> = r_keys.into_iter().map(|v| (v, 0)).collect();
+        let l: PathMap<u64> = l_keys.into_iter().map(|v| (v, 0)).collect();
+        let r: PathMap<u64> = r_keys.into_iter().map(|v| (v, 0)).collect();
 
         let intersection = l.meet(&r);
         assert_eq!(intersection.val_count(), 2);
@@ -490,8 +492,8 @@ mod tests {
             let overlap = 0.5;
             let o = ((1. - overlap) * n as f64) as u64;
             {
-                let mut vnl = BytesTrieMap::new();
-                let mut vnr = BytesTrieMap::new();
+                let mut vnl = PathMap::new();
+                let mut vnr = PathMap::new();
                 for i in 0..n { vnl.insert(prefix_key(&i), i); }
                 // println!("{:?}", vnl.root);
                 for i in 0..n { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
@@ -506,7 +508,7 @@ mod tests {
                 assert_eq!(c, (0..n).collect::<Vec<u64>>());
                 for i in o..(n+o) { vnr.insert(prefix_key(&i), i); }
 
-                let j: BytesTrieMap<u64> = vnl.join(&vnr);
+                let j: PathMap<u64> = vnl.join(&vnr);
                 let m = vnl.meet(&vnr);
                 let l_no_r = vnl.subtract(&vnr);
 
@@ -530,7 +532,7 @@ mod tests {
     fn map_very_long_key_test() {
 
         let test_key_len = |len: usize| {
-            let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+            let mut map: PathMap<u64> = PathMap::new();
             let mut z = map.write_zipper();
             let key = vec![0u8; len];
             z.descend_to(&key);

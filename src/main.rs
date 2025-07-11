@@ -4,7 +4,7 @@ use std::alloc::{alloc, dealloc, Layout};
 use std::ptr;
 use std::time::Instant;
 use pathmap::ring::*;
-use pathmap::trie_map::BytesTrieMap;
+use pathmap::PathMap;
 
 // #[global_allocator]
 // static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -35,8 +35,8 @@ fn main() {
             let O = ((1. - overlap) * N as f64) as u64;
             let t0 = Instant::now();
             {
-                let mut vnl = BytesTrieMap::new();
-                let mut vnr = BytesTrieMap::new();
+                let mut vnl = PathMap::new();
+                let mut vnr = PathMap::new();
                 for i in 0..N { vnl.insert(gen_key(i, buffer), i); }
                 // println!("{:?}", vnl.root);
                 for i in 0..N { assert_eq!(vnl.get(gen_key(i, buffer)), Some(i).as_ref()); }

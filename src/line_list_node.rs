@@ -2964,7 +2964,6 @@ mod tests {
 //
 //GOAT, remove garbage lattice impls
 //
-//GOAT, rename BytesTrieMap to PathMap, consider other renames, marked by GOATs
 //GOAT Catamorphism names:  https://github.com/Adam-Vandervorst/PathMap/pull/8#discussion_r2004745719
 //
 //GOAT, document how path existence can't be used to confirm the existence of a value, only the non-existence

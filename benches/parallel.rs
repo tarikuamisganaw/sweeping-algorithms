@@ -4,7 +4,7 @@ use std::sync::mpsc;
 
 use divan::{Divan, Bencher};
 
-use pathmap::trie_map::BytesTrieMap;
+use pathmap::PathMap;
 use pathmap::zipper::*;
 
 fn main() {
@@ -31,7 +31,7 @@ fn parallel_read_zipper_get(bencher: Bencher, (elements, thread_cnt): (usize, &s
     let thread_cnt = usize::from_str_radix(thread_cnt, 10).unwrap();
     let real_thread_cnt = thread_cnt.max(1);
 
-    let mut map = BytesTrieMap::<usize>::new();
+    let mut map = PathMap::<usize>::new();
     let elements_per_thread = elements / real_thread_cnt;
     for n in 0..real_thread_cnt {
         let path = [n as u8];
@@ -111,7 +111,7 @@ fn parallel_insert(bencher: Bencher, (elements, thread_cnt): (usize, &str)) {
     let real_thread_cnt = thread_cnt.max(1);
     let elements_per_thread = elements / real_thread_cnt;
 
-    let mut map = BytesTrieMap::<usize>::new();
+    let mut map = PathMap::<usize>::new();
     let zipper_head = map.zipper_head();
 
     thread::scope(|scope| {
@@ -182,7 +182,7 @@ fn parallel_copy_known_path(bencher: Bencher, (elements, thread_cnt): (usize, &s
     let real_thread_cnt = thread_cnt.max(1);
     let elements_per_thread = elements / real_thread_cnt;
 
-    let mut map = BytesTrieMap::<usize>::new();
+    let mut map = PathMap::<usize>::new();
     let mut zipper = map.write_zipper_at_path(b"in");
     for n in 0..real_thread_cnt {
         for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
@@ -278,7 +278,7 @@ fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str
     let real_thread_cnt = thread_cnt.max(1);
     let elements_per_thread = elements / real_thread_cnt;
 
-    let mut map = BytesTrieMap::<usize>::new();
+    let mut map = PathMap::<usize>::new();
     let mut zipper = map.write_zipper_at_path(b"in");
     for n in 0..real_thread_cnt {
         for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {

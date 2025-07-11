@@ -57,17 +57,17 @@ pub fn deserialize_fork<V: TrieValue, A: Allocator, WZ : ZipperWriting<V, A> + z
 #[cfg(test)]
 mod tests {
     use crate::tree_serialization::{serialize_fork, deserialize_fork};
-    use crate::trie_map::BytesTrieMap;
+    use crate::PathMap;
 
     #[ignore] //GOAT, re-enable if/when this code is ready.
     #[test]
     fn tree_serde_2() {
         let keys = [vec![12, 13, 14], vec![12, 13, 14, 100, 101]];
-        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let btm: PathMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
 
         let mut v = vec![];
         let Ok(top_node) = serialize_fork(btm.read_zipper(), &mut v, |_1, _2, _3| {}) else { unreachable!() };
-        let mut recovered = BytesTrieMap::new();
+        let mut recovered = PathMap::new();
         deserialize_fork(top_node, &mut recovered.write_zipper(), &v[..], |_, _p| ()).unwrap();
         assert_eq!(btm.hash(|_| 0), recovered.hash(|_| 0));
     }

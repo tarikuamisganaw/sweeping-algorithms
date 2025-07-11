@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use rand::Rng;
 use rand_distr::Distribution;
 use std::marker::PhantomData;
@@ -195,9 +195,9 @@ impl <MByteD : Distribution<Option<u8>> + Clone> Distribution<Vec<u8>> for Senti
 
 #[derive(Clone)]
 pub struct UniformTrie<T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> { pub size: usize, pub pd: PathD, pub vd: ValueD, pub ph: PhantomData<T> }
-impl <T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> Distribution<BytesTrieMap<T>> for UniformTrie<T, PathD, ValueD> {
-  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BytesTrieMap<T> {
-    let mut btm = BytesTrieMap::new();
+impl <T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distribution<T> + Clone> Distribution<PathMap<T>> for UniformTrie<T, PathD, ValueD> {
+  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> PathMap<T> {
+    let mut btm = PathMap::new();
     for _ in 0..self.size {
       btm.insert(&self.pd.sample(rng)[..], self.vd.sample(rng));
     }
@@ -207,10 +207,10 @@ impl <T : TrieValue, PathD : Distribution<Vec<u8>> + Clone, ValueD : Distributio
 
 /*
 // fancier Trie Distributions WIP
-pub struct GrowTrie<T, SproutD : Fn(&BytesTrieMap<T>) -> Distribution<BytesTrieMap<T>>> { seed: BytesTrieMap<T>, sd: SproutD }
-impl <T, SproutD : Fn(T) -> Distribution<&BytesTrieMap<T>>> Distribution<BytesTrieMap<T>> for GrowTrie<T, SproutD> {
-  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> BytesTrieMap<T> {
-    let mut btm = BytesTrieMap::new();
+pub struct GrowTrie<T, SproutD : Fn(&PathMap<T>) -> Distribution<PathMap<T>>> { seed: PathMap<T>, sd: SproutD }
+impl <T, SproutD : Fn(T) -> Distribution<&PathMap<T>>> Distribution<PathMap<T>> for GrowTrie<T, SproutD> {
+  fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> PathMap<T> {
+    let mut btm = PathMap::new();
     for i in 0..self.size {
       btm.insert(&self.pd.sample(rng)[..], self.vd.sample(rng));
     }
@@ -219,7 +219,7 @@ impl <T, SproutD : Fn(T) -> Distribution<&BytesTrieMap<T>>> Distribution<BytesTr
 }*/
 
 #[derive(Clone)]
-pub struct FairTrieValue<T : TrieValue> { pub source: BytesTrieMap<T> }
+pub struct FairTrieValue<T : TrieValue> { pub source: PathMap<T> }
 impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, T) {
     // it's much cheaper to draw many samples at once, but the current Distribution API is broken
@@ -236,7 +236,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
 }
 
 #[derive(Clone)]
-pub struct DescendFirstTrieValue<T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> { pub source: BytesTrieMap<T>, pub policy: P }
+pub struct DescendFirstTrieValue<T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> { pub source: PathMap<T>, pub policy: P }
 impl <T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> Distribution<(Vec<u8>, T)> for DescendFirstTrieValue<T, ByteD, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, T) {
     let mut rz = self.source.read_zipper();
@@ -253,7 +253,7 @@ pub fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>)
 }
 
 #[derive(Clone)]
-pub struct FairTriePath<T : TrieValue> { pub source: BytesTrieMap<T> }
+pub struct FairTriePath<T : TrieValue> { pub source: PathMap<T> }
 impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, Option<T>) {
     use crate::morphisms::Catamorphism;
@@ -270,7 +270,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, Option<T>)> for FairTriePath<T> {
 }
 
 #[derive(Clone)]
-pub struct DescendTriePath<T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> { pub source: BytesTrieMap<T>, pub policy: P, pub ph: PhantomData<S> }
+pub struct DescendTriePath<T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> { pub source: PathMap<T>, pub policy: P, pub ph: PhantomData<S> }
 impl <T : TrieValue, S, SByteD : Distribution<Result<u8, S>> + Clone, P : Fn(&ReadZipperUntracked<T>) -> SByteD> Distribution<(Vec<u8>, S)> for DescendTriePath<T, S, SByteD, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, S) {
     let mut rz = self.source.read_zipper();
@@ -339,7 +339,7 @@ mod tests {
     let rng = StdRng::from_seed([0; 32]);
 
     let pairs = &[("abc", 0), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)];
-    let btm = BytesTrieMap::from_iter(pairs.iter().map(|(s, i)| (s.as_bytes(), i)));
+    let btm = PathMap::from_iter(pairs.iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = FairTrieValue{ source: btm };
     let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| v).take(pairs.len()*SAMPLES));
     let achieved: Vec<usize> = hist.table().into_iter().map(|(_k, c)|
@@ -361,7 +361,7 @@ mod tests {
     let rng = StdRng::from_seed([0; 32]);
 
     let pairs = &[("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)];
-    let btm = BytesTrieMap::from_iter(pairs.iter().map(|(s, i)| (s.as_bytes(), i)));
+    let btm = PathMap::from_iter(pairs.iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = DescendFirstTrieValue{ source: btm, policy: unbiased_descend_first_policy };
     let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*SAMPLES));
     // println!("{:?}", hist.table());
@@ -391,7 +391,7 @@ mod tests {
     const SAMPLES: usize = 800;
 
     let rng = StdRng::from_seed([0; 32]);
-    let btm = BytesTrieMap::from_iter([("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
+    let btm = PathMap::from_iter([("abc", 0), ("abcd", 10), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = DescendTriePath{ source: btm, policy: unbiased_descend_last_policy, ph: Default::default() };
     let hist = Histogram::from(stv.sample_iter(rng).map(|(_, v)| *v).take(6*SAMPLES));
     // println!("{:?}", hist.table());
@@ -421,7 +421,7 @@ mod tests {
     const SAMPLES: usize = 100;
 
     let rng = StdRng::from_seed([0; 32]);
-    let btm = BytesTrieMap::from_iter([("abc", 0), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
+    let btm = PathMap::from_iter([("abc", 0), ("abd", 1), ("ax", 2), ("ay", 3), ("A1", 4), ("A2", 5)].iter().map(|(s, i)| (s.as_bytes(), i)));
     let stv = FairTriePath{ source: btm };
     let hist = Histogram::from(stv.sample_iter(rng).map(|(p, _)| p).take(10*SAMPLES));
     let achieved: Vec<usize> = hist.table().into_iter().map(|(_k, c)|
@@ -438,7 +438,7 @@ mod tests {
   fn resample_trie() {
     const SAMPLES: usize = 10;
     let mut rng = StdRng::from_seed([0; 32]);
-    let mut btm = BytesTrieMap::new();
+    let mut btm = PathMap::new();
     let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz",
       "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
     rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
@@ -459,11 +459,11 @@ mod tests {
 
     let resampled = Concentrated {
       dx: Product2{ dx: FairTriePath{ source: btm.clone() }, dy: submaps, f: |(p, _), sm| {
-        let mut r = BytesTrieMap::new();
+        let mut r = PathMap::new();
         r.write_zipper_at_path(&p[..]).graft_map(sm);
         r
       }, pd: PhantomData::default() },
-      z: (BytesTrieMap::new(), 0),
+      z: (PathMap::new(), 0),
       fa: |(a, c), sm| {
         a.join_into(sm);
         *c += 1;
@@ -493,7 +493,7 @@ mod tests {
     let trie_fuzzer = UniformTrie { size: N_PATHS, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };
 
     trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|mut trie| {
-      // println!("let mut btm = BytesTrieMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
+      // println!("let mut btm = PathMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
       path_fuzzer.clone().sample_iter(rng.clone()).take(N_REMOVES).for_each(|path| {
         // println!("btm.remove({:?}.as_bytes());", String::from_utf8(path.clone()).unwrap());
         trie.remove(path);
@@ -574,7 +574,7 @@ mod tests {
     // { RZ.reset(); RZ.descend_to(p) } =:= { RZ.move_to(p); } 
 
     trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|trie| {
-      // println!("let mut btm = BytesTrieMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
+      // println!("let mut btm = PathMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
       let mut rz = trie.read_zipper();
       path_fuzzer.clone().sample_iter(rng.clone()).take(N_DESCENDS).for_each(|path| {
         rz.descend_to(&path[..]);
@@ -617,7 +617,7 @@ mod tests {
     const N_DESCENDS: usize = 10;
 
     let rng = StdRng::from_seed([0; 32]);
-    let rng_ = StdRng::from_seed([!0; 32]);
+    // let rng_ = StdRng::from_seed([!0; 32]);
     let path_fuzzer = Filtered{ d: Sentinel { mbd: Mapped{ d: Categorical { elements: "abcd\0".as_bytes().to_vec(),
       ed: Uniform::try_from(0..5).unwrap() }, f: |x| if x == b'\0' { None } else { Some(x) }, pd: PhantomData::default()} }, p: |x| !x.is_empty(), pd: PhantomData::default() };
     let trie_fuzzer = UniformTrie { size: N_PATHS, pd: path_fuzzer.clone(), vd: Degenerate{ element: () }, ph: PhantomData::default() };

@@ -30,7 +30,7 @@ use maybe_dangling::MaybeDangling;
 use crate::{Allocator, GlobalAlloc};
 use crate::utils::{ByteMask, find_prefix_overlap};
 use crate::trie_node::*;
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 
 pub use crate::write_zipper::*;
 pub use crate::trie_ref::*;
@@ -83,7 +83,7 @@ pub trait ZipperForking<V> {
 
 /// Methods for zippers that can access concrete subtries
 pub trait ZipperSubtries<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: ZipperValues<V> + zipper_priv::ZipperPriv<V=V, A=A> {
-    /// Returns a new [BytesTrieMap] containing everything below the zipper's focus or `None` if no
+    /// Returns a new [PathMap] containing everything below the zipper's focus or `None` if no
     /// subtrie exists below the focus
     ///
     /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
@@ -100,7 +100,7 @@ pub trait ZipperSubtries<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Zi
     /// Luke: Personally I think it might make sense for all of the entry points to change behavior.
     /// Perhaps the biggest argument against the change is that it effectively doubles the cost of
     /// graft.  This is related to a similar question on [ZipperWriting::join_map]
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>>;
+    fn make_map(&self) -> Option<PathMap<Self::V, A>>;
 }
 
 /// An interface to enable moving a zipper around the trie and inspecting paths
@@ -681,7 +681,7 @@ impl<V, Z> ZipperForking<V> for &mut Z where Z: ZipperForking<V> {
 }
 
 impl<V: Clone + Send + Sync, Z, A: Allocator> ZipperSubtries<V, A> for &mut Z where Z: ZipperSubtries<V, A> {
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { (**self).make_map() }
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> { (**self).make_map() }
 }
 
 impl<'a, V: Clone + Send + Sync, Z> ZipperReadOnlyValues<'a, V> for &mut Z where Z: ZipperReadOnlyValues<'a, V>, Self: ZipperValues<V> {
@@ -759,7 +759,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for ReadZipp
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for ReadZipperTracked<'_, '_, V, A>{
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> { self.z.make_map() }
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperMoving for ReadZipperTracked<'trie, '_, V, A> {
@@ -908,7 +908,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for ReadZipp
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for ReadZipperUntracked<'_, '_, V, A> {
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> { self.z.make_map() }
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperMoving for ReadZipperUntracked<'trie, '_, V, A> {
@@ -1062,7 +1062,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> std::ite
 
 /// A [Zipper] that holds ownership of the root node, so there is no need for a lifetime parameter
 pub struct ReadZipperOwned<V: Clone + Send + Sync + 'static, A: Allocator + 'static = GlobalAlloc> {
-    map: MaybeDangling<Box<BytesTrieMap<V, A>>>,
+    map: MaybeDangling<Box<PathMap<V, A>>>,
     // NOTE About this Box around the WriteZipperCore... The reason this is needed is for the
     // [WriteZipperOwned::into_map] method.  This box effectively provides a fence, ensuring that the
     // `&mut` references to the `map` and the `prefix_path` are totally gone before we access `map`.
@@ -1083,7 +1083,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin, A: Allocator> Clone for ReadZippe
 
 impl<V: 'static + Clone + Send + Sync + Unpin, A: Allocator> ReadZipperOwned<V, A> {
     /// See [ReadZipperCore::new_with_node_and_cloned_path]
-    pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V, A>, path: K) -> Self {
+    pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: PathMap<V, A>, path: K) -> Self {
         map.ensure_root();
         let alloc = map.alloc.clone();
         let path = path.as_ref();
@@ -1094,7 +1094,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin, A: Allocator> ReadZipperOwned<V, 
         Self { map, z: Box::new(core) }
     }
     /// Consumes the zipper and returns a map contained within the zipper
-    pub fn into_map(self) -> BytesTrieMap<V, A> {
+    pub fn into_map(self) -> PathMap<V, A> {
         drop(self.z);
         let map = MaybeDangling::into_inner(self.map);
         *map
@@ -1121,7 +1121,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for ReadZipp
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for ReadZipperOwned<V, A> {
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> { self.z.make_map() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ReadZipperOwned<V, A> {
@@ -1212,7 +1212,7 @@ pub(crate) const EXPECTED_PATH_LEN: usize = 64;
 
 pub(crate) mod read_zipper_core {
     use crate::trie_node::*;
-    use crate::trie_map::BytesTrieMap;
+    use crate::PathMap;
     use crate::trie_ref::*;
     use crate::zipper::*;
 
@@ -1292,7 +1292,7 @@ pub(crate) mod read_zipper_core {
     }
 
     impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for ReadZipperCore<'_, '_, V, A> {
-        fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> {
+        fn make_map(&self) -> Option<PathMap<Self::V, A>> {
             #[cfg(not(feature = "graft_root_vals"))]
             let root_val = None;
             #[cfg(feature = "graft_root_vals")]
@@ -1300,7 +1300,7 @@ pub(crate) mod read_zipper_core {
 
             let root_node = self.get_focus().into_option();
             if root_node.is_some() || root_val.is_some() {
-                Some(BytesTrieMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
+                Some(PathMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
             } else {
                 None
             }
@@ -2782,7 +2782,7 @@ pub(crate) mod zipper_moving_tests {
 
         // Try with a narrow deeper trie
         let keys = ["000", "1Z", "00AAA", "00AA000", "00AA00AAA"];
-        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let map: PathMap<()> = keys.into_iter().map(|v| (v, ())).collect();
         let mut zip = map.read_zipper();
 
         zip.descend_to("000");
@@ -2916,7 +2916,7 @@ pub(crate) mod zipper_moving_tests {
         //Try with some actual branches in the trie.
         //Some paths encountered will be values only, some will be branches only, and some will be both
         let keys = ["1", "123", "12345", "1abc", "1234abc"];
-        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let map: PathMap<()> = keys.into_iter().map(|v| (v, ())).collect();
         let mut zip = map.read_zipper();
 
         assert!(zip.descend_to(b"12345"));
@@ -3752,48 +3752,48 @@ mod tests {
 
     super::zipper_moving_tests::zipper_moving_tests!(read_zipper,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> ReadZipperUntracked<()> {
+        |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperUntracked<()> {
             btm.read_zipper_at_path(path)
     });
 
     super::zipper_iteration_tests::zipper_iteration_tests!(read_zipper,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> ReadZipperUntracked<()> {
+        |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperUntracked<()> {
             btm.read_zipper_at_path(path)
     });
 
     super::zipper_moving_tests::zipper_moving_tests!(read_zipper_owned,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> ReadZipperOwned<()> {
+        |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperOwned<()> {
             core::mem::take(btm).into_read_zipper(path)
     });
 
     super::zipper_iteration_tests::zipper_iteration_tests!(read_zipper_owned,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> ReadZipperOwned<()> {
+        |btm: &mut PathMap<()>, path: &[u8]| -> ReadZipperOwned<()> {
             core::mem::take(btm).into_read_zipper(path)
     });
 
     /// Tests the integrity of values accessed through [ZipperReadOnlyValues::get_value]
     #[test]
     fn zipper_value_access() {
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().for_each(|r| { btm.insert(r.as_bytes(), *r); });
 
@@ -3823,7 +3823,7 @@ mod tests {
     /// Tests that a zipper forked at a subtrie will iterate correctly within that subtrie, also tests ReadZipper::IntoIterator impl
     #[test]
     fn read_zipper_special_iter_test1() {
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
         let mut zipper = btm.read_zipper();
@@ -3847,7 +3847,7 @@ mod tests {
     #[test]
     fn read_zipper_special_iter_test2() {
         //This tests iteration over an empty map, with no activity at all
-        let mut map = BytesTrieMap::<u64>::new();
+        let mut map = PathMap::<u64>::new();
 
         let mut zipper = map.read_zipper();
         assert_eq!(zipper.to_next_val(), false);
@@ -3870,7 +3870,7 @@ mod tests {
     fn read_zipper_special_iter_test3() {
         const N: usize = 32;
 
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper_at_path(b"in");
         for i in 0usize..N {
             zipper.descend_to(i.to_be_bytes());
@@ -3897,7 +3897,7 @@ mod tests {
     fn read_zipper_special_iter_test4() {
         const R_KEY_CNT: usize = 9;
         let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let mut map: BytesTrieMap::<()> = keys.into_iter().map(|k| (k, ())).collect();
+        let mut map: PathMap::<()> = keys.into_iter().map(|k| (k, ())).collect();
 
         // Test val_count & iteration on a ReadZipper
         let rz = map.read_zipper_at_borrowed_path(b"r");
@@ -3923,7 +3923,7 @@ mod tests {
     /// This test tries to hit an edge case in to_next_value where we begin iteration in the middle of a node
     #[test]
     fn read_zipper_special_zipper_iter_test5() {
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper_at_path(b"in");
         for i in 0usize..2 {
             zipper.descend_to_byte(i as u8);
@@ -3944,7 +3944,7 @@ mod tests {
     #[test]
     fn read_zipper_special_byte_iter_test() {
         let keys = vec![[0, 3], [0, 4], [0, 5]];
-        let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+        let map: PathMap<()> = keys.into_iter().map(|v| (v, ())).collect();
 
         let mut r0 = map.read_zipper();
         assert_eq!(r0.descend_to_byte(0), true);
@@ -3978,7 +3978,7 @@ mod tests {
             "�female�Ann",
             "�male�Jim",
         ];
-        let family: BytesTrieMap<i32> = exprs.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let family: PathMap<i32> = exprs.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
 
         let mut parent_zipper = family.read_zipper_at_path(parent_path.as_bytes());
 
@@ -3999,7 +3999,7 @@ mod tests {
     #[test]
     fn full_path_test() {
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let btm: BytesTrieMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let btm: PathMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut zipper = btm.read_zipper_at_path(b"roma");
         assert_eq!(format!("roma{}", std::str::from_utf8(zipper.path()).unwrap()), "roma");
@@ -4022,9 +4022,9 @@ mod tests {
         let l0_keys = vec!["stem0", "stem1", "stem2", "strongbad", "strange", "steam", "stevador", "steeple"];
         let l1_keys = vec!["A-mid0", "B-mid1", "C-mid2", "D-midlands", "D-middling", "D-middlemarch"];
         let l2_keys = vec!["X-top0", "X-top1", "X-top2", "X-top3"];
-        let top_map: BytesTrieMap<()> = l2_keys.iter().map(|v| (v, ())).collect();
+        let top_map: PathMap<()> = l2_keys.iter().map(|v| (v, ())).collect();
 
-        let mut mid_map = BytesTrieMap::<()>::new();
+        let mut mid_map = PathMap::<()>::new();
         let mut wz = mid_map.write_zipper();
         for key in l1_keys.iter() {
             wz.reset();
@@ -4033,7 +4033,7 @@ mod tests {
         }
         drop(wz);
 
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         let mut wz = map.write_zipper();
         for key in l0_keys.iter() {
             wz.reset();
@@ -4072,9 +4072,9 @@ mod tests {
     fn read_zipper_is_shared_test2() {
         let l0_keys = vec!["steam", "steamboat"];
         let l1_keys = vec!["X0", "X1", "X2"];
-        let top_map: BytesTrieMap<()> = l1_keys.iter().map(|v| (v, ())).collect();
+        let top_map: PathMap<()> = l1_keys.iter().map(|v| (v, ())).collect();
 
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         let mut wz = map.write_zipper();
         for key in l0_keys.iter() {
             wz.reset();

@@ -4,7 +4,7 @@ use std::mem::MaybeUninit;
 
 use crate::{global_alloc, Allocator, GlobalAlloc};
 use crate::utils::ByteMask;
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
@@ -196,7 +196,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for TrieRef<
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for TrieRef<'_, V, A> {
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> {
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> {
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
@@ -204,7 +204,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for Trie
 
         let root_node = self.get_focus().into_option();
         if root_node.is_some() || root_val.is_some() {
-            Some(BytesTrieMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
+            Some(PathMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
         } else {
             None
         }
@@ -345,13 +345,13 @@ pub(crate) fn trie_ref_at_path_in<'a, 'paths, V: Clone + Send + Sync, A: Allocat
 
 #[cfg(test)]
 mod tests {
-    use crate::{global_alloc, trie_map::BytesTrieMap, utils::ByteMask, zipper::*};
+    use crate::{global_alloc, PathMap, utils::ByteMask, zipper::*};
 
     #[test]
     fn trie_ref_test1() {
 
         let keys = ["Hello", "Hell", "Help", "Helsinki"];
-        let map: BytesTrieMap<()> = keys.iter().map(|k| (k, ())).collect();
+        let map: PathMap<()> = keys.iter().map(|k| (k, ())).collect();
 
         // With the current node types, there likely isn't any reason the node would be split at "He"
         let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"He", global_alloc());
@@ -427,7 +427,7 @@ mod tests {
     #[test]
     fn trie_ref_test2() {
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus^", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let btm: BytesTrieMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i) ).collect();
+        let btm: PathMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i) ).collect();
 
         let trie_ref = btm.trie_ref_at_path([]);
         assert_eq!(trie_ref.get_value(), None);

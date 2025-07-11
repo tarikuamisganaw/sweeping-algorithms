@@ -65,7 +65,7 @@ use reusing_vec::ReusingQueue;
 
 use crate::utils::*;
 use crate::Allocator;
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use crate::trie_node::TrieNodeODRc;
 use crate::zipper;
 use crate::zipper::*;
@@ -358,12 +358,12 @@ impl<'a, Z, V: 'a> Catamorphism<V> for Z where Z: Zipper + ZipperReadOnlyValues<
     }
 }
 
-impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<V> {
+impl<V: 'static + Clone + Send + Sync + Unpin, A: Allocator + 'static> Catamorphism<V> for PathMap<V, A> {
     fn into_cata_side_effect_fallible<W, Err, AlgF>(self, mut alg_f: AlgF) -> Result<W, Err>
         where AlgF: FnMut(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, Err>
     {
         let rz = self.into_read_zipper(&[]);
-        cata_side_effect_body::<ReadZipperOwned<V>, V, W, Err, _, false>(rz, |mask, children, jump_len, val, path| {
+        cata_side_effect_body::<ReadZipperOwned<V, A>, V, W, Err, _, false>(rz, |mask, children, jump_len, val, path| {
             debug_assert!(jump_len == 0);
             alg_f(mask, children, val, path)
         })
@@ -372,7 +372,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
         where AlgF: FnMut(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, Err>
     {
         let rz = self.into_read_zipper(&[]);
-        cata_side_effect_body::<ReadZipperOwned<V>, V, W, Err, AlgF, true>(rz, alg_f)
+        cata_side_effect_body::<ReadZipperOwned<V, A>, V, W, Err, AlgF, true>(rz, alg_f)
     }
     fn into_cata_cached_fallible<W, E, AlgF>(self, alg_f: AlgF) -> Result<W, E>
         where
@@ -380,7 +380,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
             AlgF: Fn(&ByteMask, &mut [W], Option<&V>, &[u8]) -> Result<W, E>
     {
         let rz = self.into_read_zipper(&[]);
-        into_cata_cached_body::<ReadZipperOwned<V>, V, W, E, _, DoCache, false>(rz,
+        into_cata_cached_body::<ReadZipperOwned<V, A>, V, W, E, _, DoCache, false>(rz,
             |mask, children, jump_len, val, path| {
                 debug_assert!(jump_len == 0);
                 alg_f(mask, children, val, path)
@@ -393,7 +393,7 @@ impl<V: 'static + Clone + Send + Sync + Unpin> Catamorphism<V> for BytesTrieMap<
             AlgF: Fn(&ByteMask, &mut [W], usize, Option<&V>, &[u8]) -> Result<W, E>
     {
         let rz = self.into_read_zipper(&[]);
-        into_cata_cached_body::<ReadZipperOwned<V>, V, W, E, _, DoCache, true>(rz, alg_f)
+        into_cata_cached_body::<ReadZipperOwned<V, A>, V, W, E, _, DoCache, true>(rz, alg_f)
     }
 }
 
@@ -857,7 +857,7 @@ fn into_cata_jumping_naive<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>
 }
 
 /// Internal function to generate a new root trie node from an anamorphism
-pub(crate) fn new_map_from_ana_in<V, W, AlgF, A: Allocator>(w: W, mut alg_f: AlgF, alloc: A) -> BytesTrieMap<V, A>
+pub(crate) fn new_map_from_ana_in<V, W, AlgF, A: Allocator>(w: W, mut alg_f: AlgF, alloc: A) -> PathMap<V, A>
     where
     V: 'static + Clone + Send + Sync + Unpin,
     W: Default,
@@ -866,7 +866,7 @@ pub(crate) fn new_map_from_ana_in<V, W, AlgF, A: Allocator>(w: W, mut alg_f: Alg
     let mut stack = Vec::<(TrieBuilder<V, W, A>, usize)>::with_capacity(12);
     let mut frame_idx = 0;
 
-    let mut new_map = BytesTrieMap::new_in(alloc.clone());
+    let mut new_map = PathMap::new_in(alloc.clone());
     let mut z = new_map.write_zipper();
     let mut val = None;
 
@@ -1241,7 +1241,7 @@ impl<V: Clone + Send + Sync, W: Default, A: Allocator> TrieBuilder<V, W, A> {
 #[cfg(test)]
 mod tests {
     use std::ops::Range;
-    use crate::trie_map::BytesTrieMap;
+    use crate::PathMap;
     use crate::utils::BitMask;
     use super::*;
 
@@ -1283,7 +1283,7 @@ mod tests {
             (vec!["1", "2", "123", "123765", "1234", "12345", "12349"], 29) //A challenging mix of everything
         ];
         for (keys, expected_sum) in tests {
-            let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+            let map: PathMap<()> = keys.into_iter().map(|v| (v, ())).collect();
             let zip = map.read_zipper();
 
             let alg = |_child_mask: &ByteMask, children: &mut [u32], _jump_len: usize, val: Option<&()>, path: &[u8]| {
@@ -1303,7 +1303,7 @@ mod tests {
 
     #[test]
     fn cata_test2() {
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
@@ -1370,7 +1370,7 @@ mod tests {
             (vec!["ii", "iiii", "iij", "iijjj"], 7, 3), //2 leaves, 1 fork, 7 total "nodes"
         ];
         for (keys, expected_sum_ordinary, expected_sum_jumping) in tests {
-            let map: BytesTrieMap<()> = keys.into_iter().map(|v| (v, ())).collect();
+            let map: PathMap<()> = keys.into_iter().map(|v| (v, ())).collect();
             let zip = map.read_zipper();
 
             let map_f = |_v: &(), _path: &[u8]| {
@@ -1411,7 +1411,7 @@ mod tests {
         }
         use Trie::*;
 
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
@@ -1454,7 +1454,7 @@ mod tests {
             children: Vec<(char, Trie<V>)>
         }
 
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["arr", "arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
@@ -1487,7 +1487,7 @@ mod tests {
                         ('u', Trie { prefix: "ndus".into(), value: Some(11), children: [].into() })].into() })].into() })].into() })].into() }));
 
         let keys = [vec![b'a', b'b', b'c'], vec![b'a', b'b', b'c', b'x', b'y']];
-        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let btm: PathMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
 
         let s: Option<Trie<usize>> = btm.read_zipper().into_cata_jumping_side_effect(|bm, ws: &mut [Option<Trie<usize>>], jump, mv, path| {
             Some(Trie{
@@ -1503,11 +1503,11 @@ mod tests {
     /// Tests going from a map directly to a catamorphism
     #[test]
     fn cata_test5() {
-        let empty = BytesTrieMap::<u64>::new();
+        let empty = PathMap::<u64>::new();
         let result = empty.into_cata_side_effect(SplitCata::new(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
         assert_eq!(result, 3);
 
-        let mut nonempty = BytesTrieMap::<u64>::new();
+        let mut nonempty = PathMap::<u64>::new();
         nonempty.insert(&[1, 2, 3], !0);
         let result = nonempty.into_cata_side_effect(SplitCata::new(|_, _| 1, |_, _, _| 2, |_, _, _| 3));
         assert_eq!(result, 3);
@@ -1515,7 +1515,7 @@ mod tests {
 
     #[test]
     fn cata_test6() {
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["Hello, my name is", "Helsinki", "Hell"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
@@ -1553,7 +1553,7 @@ mod tests {
     /// Covers the full spectrum of byte values
     #[test]
     fn cata_test7() {
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = [[0, 0, 0, 0], [0, 255, 170, 170], [0, 255, 255, 255], [0, 255, 88, 88]];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r, i); });
 
@@ -1592,7 +1592,7 @@ mod tests {
     #[test]
     fn cata_test8() {
         let keys = ["", "ab", "abc"];
-        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let btm: PathMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
 
         btm.into_cata_jumping_side_effect(SplitCataJumping::new(
             |v, path| {
@@ -1623,7 +1623,7 @@ mod tests {
     #[test]
     fn cata_test9() {
         let keys = [vec![0], vec![0, 1, 2], vec![0, 1, 3]];
-        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let btm: PathMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
 
         btm.into_cata_jumping_side_effect(|mask, children, jump_len, val, path| {
             // println!("mask={mask:?}, children={children:?}, jump_len={jump_len}, val={val:?}, path={path:?}");
@@ -1660,7 +1660,7 @@ mod tests {
     #[test]
     fn cata_testa() {
         let keys = [vec![0, 128, 1], vec![0, 128, 1, 255, 2]];
-        let btm: BytesTrieMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
+        let btm: PathMap<usize> = keys.into_iter().enumerate().map(|(i, k)| (k, i)).collect();
 
         btm.into_cata_jumping_side_effect(|mask, children, jump_len, val, path| {
             println!("mask={mask:?}, children={children:?}, jump_len={jump_len}, val={val:?}, path={path:?}");
@@ -1685,16 +1685,16 @@ mod tests {
     #[test]
     fn cata_test_cached() {
         let make_map = || {
-            // let btm: BytesTrieMap<u8> = BytesTrieMap::range::<false, u16>(0x0, 0x101, 0x1, 0);
+            // let btm: PathMap<u8> = crate::utils::ints::gen_int_range::<false, u16>(0x0, 0x101, 0x1, 0);
             // if true { return btm; }
             // let keys = [vec![0, 128, 1], vec![0, 128, 1, 255, 2]];
-            // let btm: BytesTrieMap<u8> = keys.into_iter().enumerate()
+            // let btm: PathMap<u8> = keys.into_iter().enumerate()
             //     .map(|(i, k)| (k, i as u8)).collect();
             // if true { return btm; }
-            let mut map: BytesTrieMap<u8> = BytesTrieMap::from_iter([([0], 0)]);
+            let mut map: PathMap<u8> = PathMap::from_iter([([0], 0)]);
             for _level in 0..3 {
                 let prev_zipper = map.read_zipper();
-                let next_map = BytesTrieMap::new_from_ana(false, |quit, _val, children, _path| {
+                let next_map = PathMap::new_from_ana(false, |quit, _val, children, _path| {
                     if quit { return }
                     for ii in 0..=2 {
                         children.graft_at_byte(ii, &prev_zipper);
@@ -1759,7 +1759,7 @@ mod tests {
     fn ana_test1() {
         // Generate 5 'i's
         let mut invocations = 0;
-        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(5, |idx, val, children, _path| {
+        let map: PathMap<()> = PathMap::<()>::new_from_ana(5, |idx, val, children, _path| {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             *val = Some(());
             if idx > 0 {
@@ -1772,7 +1772,7 @@ mod tests {
 
         // Generate all 3-lenght 'L' | 'R' permutations
         let mut invocations = 0;
-        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
+        let map: PathMap<()> = PathMap::<()>::new_from_ana(3, |idx, val, children, _path| {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             if idx > 0 {
                 children.push_byte(b'L', idx - 1);
@@ -1789,7 +1789,7 @@ mod tests {
     /// Test the [`TrieBuilder::set_child_mask`] API to set multiple children at once
     #[test]
     fn ana_test2() {
-        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(([0u64; 4], 0), |(mut mask, idx), val, children, _path| {
+        let map: PathMap<()> = PathMap::<()>::new_from_ana(([0u64; 4], 0), |(mut mask, idx), val, children, _path| {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             if idx < 5 {
                 mask[1] |= 1u64 << 1+idx;
@@ -1807,7 +1807,7 @@ mod tests {
     /// Test the [`TrieBuilder::push`] API to set whole string paths
     #[test]
     fn ana_test3() {
-        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
+        let map: PathMap<()> = PathMap::<()>::new_from_ana(3, |idx, val, children, _path| {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             if idx > 0 {
                 children.push(b"Left:", idx-1);
@@ -1824,7 +1824,7 @@ mod tests {
         assert_eq!(map.get(b"Right:Left:Right:"), Some(&()));
 
         //Try intermixing whole strings and bytes
-        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(7, |idx, val, children, _path| {
+        let map: PathMap<()> = PathMap::<()>::new_from_ana(7, |idx, val, children, _path| {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             if idx > 0 {
                 if idx % 2 == 0 {
@@ -1846,7 +1846,7 @@ mod tests {
         assert_eq!(map.get(b"Left-Right-Right+Left"), Some(&()));
 
         //Intermix them in the same child list
-        let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(7, |idx, val, children, _path| {
+        let map: PathMap<()> = PathMap::<()>::new_from_ana(7, |idx, val, children, _path| {
             // println!("path=\"{}\"", String::from_utf8_lossy(_path));
             if idx > 0 {
                 if idx % 2 == 0 {
@@ -1897,7 +1897,7 @@ mod tests {
     #[test]
     fn ana_test4() {
         let mut greetings_vec = GREETINGS.to_vec();
-        let btm = BytesTrieMap::<Range<usize>>::new_from_ana(0..greetings_vec.len(), |mut range, val, children, path| {
+        let btm = PathMap::<Range<usize>>::new_from_ana(0..greetings_vec.len(), |mut range, val, children, path| {
             let n = path.len();
 
             //Sort the keys in the range by the first byte of each substring
@@ -1968,7 +1968,7 @@ mod tests {
     //GOAT WIP
     // #[test]
     // fn ana_test5() {
-    //     let _btm = BytesTrieMap::<&str>::new_from_ana(GREETINGS, |string_slice, val, children, _path| {
+    //     let _btm = PathMap::<&str>::new_from_ana(GREETINGS, |string_slice, val, children, _path| {
 
     //         fn split_key(in_str: &str) -> (&str, &str) {
     //             let det = in_str.find(',').unwrap_or(usize::MAX);
@@ -2001,7 +2001,7 @@ mod tests {
 
     #[test]
     fn apo_test1() {
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["arro^w", "bow", "cann^on", "roman", "romane", "romanus^", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom^i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
@@ -2009,7 +2009,7 @@ mod tests {
         for c in "abcdefghijklmnopqrstuvwxyz".bytes() { alphabetic.set_bit(c) }
 
         let trie_ref = btm.trie_ref_at_path([]);
-        let counted = BytesTrieMap::new_from_ana(trie_ref, |trie_ref, _v, builder, loc| {
+        let counted = PathMap::new_from_ana(trie_ref, |trie_ref, _v, builder, loc| {
 
             let iter = trie_ref.child_mask().iter();
             for b in iter {
@@ -2019,7 +2019,7 @@ mod tests {
                 }
                 // todo I didn't find a histogram/groupby function, so couldn't aggregate letter counts yet, just returning one
                 else {
-                    let new_map = BytesTrieMap::from_iter(loc.into_iter().copied().map(|x| ([x], 1)));
+                    let new_map = PathMap::from_iter(loc.into_iter().copied().map(|x| ([x], 1)));
                     let temp_zipper = new_map.read_zipper();
                     builder.graft_at_byte(b, &temp_zipper)
                 }

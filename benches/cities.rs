@@ -1,6 +1,6 @@
 
 use divan::{Divan, Bencher, black_box};
-use pathmap::trie_map::BytesTrieMap;
+use pathmap::PathMap;
 
 use std::fs::File;
 use std::io::BufReader;
@@ -90,7 +90,7 @@ fn cities_insert(bencher: Bencher) {
     let pairs = read_data();
 
     bencher.bench_local(|| {
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
         for (k, v) in pairs.iter() {
             map.insert(k, v);
         }
@@ -101,7 +101,7 @@ fn cities_insert(bencher: Bencher) {
 fn cities_get(bencher: Bencher) {
 
     let pairs = read_data();
-    let mut map = BytesTrieMap::new();
+    let mut map = PathMap::new();
     for (k, v) in pairs.iter() {
         map.insert(k, *v);
     }
@@ -126,7 +126,7 @@ fn cities_get_act(bencher: Bencher) {
     use pathmap::arena_compact::ArenaCompactTree;
 
     let pairs = read_data();
-    let mut map = BytesTrieMap::new();
+    let mut map = PathMap::new();
     for (k, v) in pairs.iter() {
         map.insert(k, *v);
     }
@@ -149,7 +149,7 @@ fn cities_get_act(bencher: Bencher) {
 fn cities_val_count(bencher: Bencher) {
 
     let pairs = read_data();
-    let mut map = BytesTrieMap::new();
+    let mut map = PathMap::new();
     let mut unique_count = 0;
     for (k, v) in pairs.iter() {
         if map.insert(k, *v).is_none() {
@@ -172,7 +172,7 @@ fn cities_val_count_act(bencher: Bencher) {
         zipper::ZipperMoving,
     };
     let pairs = read_data();
-    let mut map = BytesTrieMap::new();
+    let mut map = PathMap::new();
     let mut unique_count = 0;
     for (k, v) in pairs.iter() {
         if map.insert(k, *v).is_none() {

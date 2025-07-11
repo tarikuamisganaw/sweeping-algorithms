@@ -1,6 +1,6 @@
 
 use divan::{Divan, Bencher, black_box};
-use pathmap::trie_map::BytesTrieMap;
+use pathmap::PathMap;
 use pathmap::zipper::*;
 
 fn main() {
@@ -16,8 +16,8 @@ fn superdense_join(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;
 
-    let mut vnl = BytesTrieMap::new();
-    let mut vnr = BytesTrieMap::new();
+    let mut vnl = PathMap::new();
+    let mut vnr = PathMap::new();
     for i in 0..n { vnl.insert(prefix_key(&i), i); }
     // println!("{:?}", vnl.root);
     for i in 0..n { assert_eq!(vnl.get(prefix_key(&i)), Some(i).as_ref()); }
@@ -33,7 +33,7 @@ fn superdense_join(bencher: Bencher, n: u64) {
     for i in o..(n+o) { vnr.insert(prefix_key(&i), i); }
 
     //Benchmark the join operation
-    let mut j: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut j: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut j) = vnl.join(black_box(&vnr));
     });
@@ -44,7 +44,7 @@ fn superdense_insert(bencher: Bencher, n: u64) {
 
     //Benchmark the insert operation
     let out = bencher.with_inputs(|| {
-        BytesTrieMap::new()
+        PathMap::new()
     }).bench_local_values(|mut map| {
         for i in 0..n { black_box(&mut map).insert(prefix_key(&i), i); }
         map //Return the map so we don't drop it inside the timing loop
@@ -57,7 +57,7 @@ fn superdense_drop_bench(bencher: Bencher, n: u64) {
 
     //Benchmark the time taken to drop the map
     bencher.with_inputs(|| {
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
         for i in 0..n { map.insert(prefix_key(&i), i); }
         map
     }).bench_local_values(|map| {
@@ -68,7 +68,7 @@ fn superdense_drop_bench(bencher: Bencher, n: u64) {
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
 fn superdense_get(bencher: Bencher, n: u64) {
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
 
     //Benchmark the get operation
@@ -83,7 +83,7 @@ fn superdense_get(bencher: Bencher, n: u64) {
 fn superdense_drop_head(bencher: Bencher, n: u64) {
 
     bencher.with_inputs(|| {
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
         for i in 0..n { map.insert(prefix_key(&i), i); }
         map
     }).bench_local_values(|mut map| {
@@ -97,12 +97,12 @@ fn superdense_meet(bencher: Bencher, n: u64) {
     let overlap = 0.5;
     let o = ((1. - overlap) * n as f64) as u64;
 
-    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut l: PathMap<u64> = PathMap::new();
     for i in 0..n { l.insert(prefix_key(&i), i); }
-    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut r: PathMap<u64> = PathMap::new();
     for i in o..(n+o) { r.insert(prefix_key(&i), i); }
 
-    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut intersection: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut intersection) = l.meet(black_box(&r));
     });
@@ -112,13 +112,13 @@ fn superdense_meet(bencher: Bencher, n: u64) {
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
 fn superdense_meet_after_join(bencher: Bencher, n: u64) {
 
-    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut l: PathMap<u64> = PathMap::new();
     for i in 0..(n/2) { l.insert(prefix_key(&i), i); }
-    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut r: PathMap<u64> = PathMap::new();
     for i in (n/2)..n { r.insert(prefix_key(&i), i); }
 
     let joined = l.join(&r);
-    let mut intersection: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut intersection: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut intersection) = joined.meet(black_box(&l));
     });
@@ -128,13 +128,13 @@ fn superdense_meet_after_join(bencher: Bencher, n: u64) {
 #[divan::bench(args = [1000, 2000, 4000, 8000, 16000, 32000])]
 fn superdense_subtract_after_join(bencher: Bencher, n: u64) {
 
-    let mut l: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut l: PathMap<u64> = PathMap::new();
     for i in 0..(n/2) { l.insert(prefix_key(&i), i); }
-    let mut r: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut r: PathMap<u64> = PathMap::new();
     for i in (n/2)..n { r.insert(prefix_key(&i), i); }
 
     let joined = l.join(&r);
-    let mut remaining: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut remaining: PathMap<u64> = PathMap::new();
     bencher.bench_local(|| {
         *black_box(&mut remaining) = joined.subtract(black_box(&r));
     });
@@ -144,7 +144,7 @@ fn superdense_subtract_after_join(bencher: Bencher, n: u64) {
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_iter(bencher: Bencher, n: u64) {
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
 
     //Benchmark the iterator
@@ -158,7 +158,7 @@ fn superdense_iter(bencher: Bencher, n: u64) {
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_cursor(bencher: Bencher, n: u64) {
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
 
     //Benchmark the cursor
@@ -174,7 +174,7 @@ fn superdense_cursor(bencher: Bencher, n: u64) {
 #[divan::bench(args = [500, 1000, 2000, 4000, 8000, 16000])]
 fn superdense_k_path_iter(bencher: Bencher, n: u64) {
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n {
         map.insert(&i.to_be_bytes()[..][6..], i);
     }
@@ -196,7 +196,7 @@ fn superdense_k_path_iter(bencher: Bencher, n: u64) {
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_all_dense_cursor(bencher: Bencher, n: u64) {
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
 
     //Benchmark the cursor
@@ -212,7 +212,7 @@ fn superdense_all_dense_cursor(bencher: Bencher, n: u64) {
 #[divan::bench(args = [100, 200, 400, 800, 1600, 3200])]
 fn superdense_zipper_cursor(bencher: Bencher, n: u64) {
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
 
     //Benchmark using the the zipper as a cursor
@@ -242,7 +242,7 @@ fn from_prefix_key(k: Vec<u8>) -> u64 {
 #[divan::bench(sample_size = 1, args = [100, 200, 400, 800, 1600, 3200, 20_000])]
 fn superdense_val_count_bench(bencher: Bencher, n: u64) {
 
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
 
     //Benchmark the time taken to count the number of values in the map
@@ -260,7 +260,7 @@ fn superdense_val_count_bench_act(bencher: Bencher, n: u64) {
         arena_compact::ArenaCompactTree,
         zipper::ZipperMoving,
     };
-    let mut map: BytesTrieMap<u64> = BytesTrieMap::new();
+    let mut map: PathMap<u64> = PathMap::new();
     for i in 0..n { map.insert(prefix_key(&i), i); }
     let act = ArenaCompactTree::from_zipper(map.read_zipper(), |&v| v);
     let zipper = act.read_zipper();

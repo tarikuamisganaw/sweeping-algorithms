@@ -2,12 +2,12 @@
 //! Temporary file, porting old cursor to new trie.  ONLY WORKS WITH `all_dense_nodes` feature
 //!
 
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use crate::trie_node::{TaggedNodeRef, NODE_ITER_FINISHED};
 use crate::dense_byte_node::{DenseByteNode, OrdinaryCoFree, CoFree};
 use crate::GlobalAlloc;
 
-/// An iterator-like object that traverses key-value pairs in a [BytesTrieMap], however only one
+/// An iterator-like object that traverses key-value pairs in a [PathMap], however only one
 /// returned reference may exist at a given time
 pub struct AllDenseCursor<'a, V: Clone + Send + Sync> where V : Clone {
     prefix: Vec<u8>,
@@ -16,7 +16,7 @@ pub struct AllDenseCursor<'a, V: Clone + Send + Sync> where V : Clone {
 }
 
 impl <'a, V : Clone + Send + Sync + Unpin> AllDenseCursor<'a, V> {
-    pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
+    pub fn new(btm: &'a PathMap<V>) -> Self {
         btm.ensure_root();
         Self {
             prefix: vec![],
@@ -118,7 +118,7 @@ impl <'a, V : Clone + Send + Sync> Iterator for ByteTrieNodeIter<'a, V> {
 // }
 
 // impl <'a, V : Clone> AbstractedOldCursor<'a, V> {
-//     pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
+//     pub fn new(btm: &'a PathMap<V>) -> Self {
 //         // Part of 3.
 //         let node = AbstractNodeRef::DenseByteNode(btm.root().borrow().as_dense().unwrap());
 //         let token = node.new_iter_token();
@@ -253,7 +253,7 @@ pub struct PathMapCursor<'a, V: Clone + Send + Sync> {
 }
 
 impl <'a, V : Clone + Send + Sync + Unpin> PathMapCursor<'a, V> {
-    pub fn new(btm: &'a BytesTrieMap<V>) -> Self {
+    pub fn new(btm: &'a PathMap<V>) -> Self {
         const EXPECTED_DEPTH: usize = 16;
         const EXPECTED_PATH_LEN: usize = 256;
         btm.ensure_root();

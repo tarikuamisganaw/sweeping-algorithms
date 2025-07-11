@@ -629,10 +629,9 @@ where Storage: AsRef<[u8]>
     ///
     /// # Examples
     /// ```
-    /// use pathmap::arena_compact::ArenaCompactTree;
-    /// use pathmap::trie_map::BytesTrieMap;
+    /// use pathmap::{PathMap, arena_compact::ArenaCompactTree};
     /// let items = ["ace", "acf", "adg", "adh", "bjk"];
-    /// let btm = BytesTrieMap::from_iter(items.iter().map(|i| (i, ())));
+    /// let btm = PathMap::from_iter(items.iter().map(|i| (i, ())));
     /// let tree1 = ArenaCompactTree::from_zipper(btm.read_zipper(), |_v| 0);
     /// let the_serialized_bytes = tree1.get_data();
     /// println!("serialized data: {the_serialized_bytes:?}");
@@ -816,10 +815,9 @@ impl ArenaCompactTree<Vec<u8>> {
     /// Construct [ArenaCompactTree] from a read zipper.
     /// # Examples
     /// ```
-    /// use pathmap::trie_map::BytesTrieMap;
-    /// use pathmap::arena_compact::ArenaCompactTree;
+    /// use pathmap::{PathMap, arena_compact::ArenaCompactTree};
     /// let items = ["ace", "acf", "adg", "adh", "bjk"];
-    /// let btm = BytesTrieMap::from_iter(items.iter().map(|i| (i, ())));
+    /// let btm = PathMap::from_iter(items.iter().map(|i| (i, ())));
     /// let tree1 = ArenaCompactTree::from_zipper(btm.read_zipper(), |_v| 0);
     /// let mut zipper = tree1.read_zipper();
     /// for path in items {
@@ -885,14 +883,13 @@ impl ArenaCompactTree<Mmap> {
     ///
     /// # Examples
     /// ```
-    /// use pathmap::trie_map::BytesTrieMap;
-    /// use pathmap::arena_compact::ArenaCompactTree;
+    /// use pathmap::{PathMap, arena_compact::ArenaCompactTree};
     /// use tempfile::NamedTempFile;
     /// use std::io::Write;
     /// # fn main() -> std::io::Result<()> {
     /// let mut file = NamedTempFile::new()?;
     /// let items = ["ace", "acf", "adg", "adh", "bjk"];
-    /// let btm = BytesTrieMap::from_iter(items.iter().map(|i| (i, ())));
+    /// let btm = PathMap::from_iter(items.iter().map(|i| (i, ())));
     /// let tree1 = ArenaCompactTree::from_zipper(btm.read_zipper(), |_v| 0);
     /// file.write_all(tree1.get_data())?;
     /// let tree_path = file.path();
@@ -919,15 +916,14 @@ impl ArenaCompactTree<Mmap> {
 
 
     /// ```
-    /// use pathmap::trie_map::BytesTrieMap;
-    /// use pathmap::arena_compact::ArenaCompactTree;
+    /// use pathmap::{PathMap, arena_compact::ArenaCompactTree};
     /// use tempfile::NamedTempFile;
     /// use std::io::Write;
     /// # fn main() -> std::io::Result<()> {
     /// let mut file = NamedTempFile::new()?;
     /// let tree_path = "test_tree.tree";
     /// let items = ["ace", "acf", "adg", "adh", "bjk"];
-    /// let btm = BytesTrieMap::from_iter(items.iter().map(|i| (i, ())));
+    /// let btm = PathMap::from_iter(items.iter().map(|i| (i, ())));
     /// let tree1 = ArenaCompactTree::dump_from_zipper(
     ///     btm.read_zipper(), |_v| 0, tree_path)?;
     /// let tree2 = ArenaCompactTree::from_zipper(
@@ -1188,10 +1184,10 @@ fn dump_arena_tree<V, Z, F, P>(
 }
 
 /*
-fn tree_to_btm(tree: &ArenaCompactTree) -> BytesTrieMap<()> {
+fn tree_to_btm(tree: &ArenaCompactTree) -> PathMap<()> {
     struct PathIdx(NodeId, usize)
     let (_root, root_id) = tree.get_root();
-    BytesTrieMap::<()>::new_from_ana(PathIdx(root_id, 0), |PathIdx(node_id, depth), val, children, _path| {
+    PathMap::<()>::new_from_ana(PathIdx(root_id, 0), |PathIdx(node_id, depth), val, children, _path| {
         match tree.get_node(node_id) {
             Node::Line(line) => {
                 *val = line.value.map(|_| ());
@@ -1995,12 +1991,12 @@ where Storage: AsRef<[u8]>
 mod tests {
     use super::{ArenaCompactTree, ACTZipper};
     use crate::{
-        arena_compact::ValueSlice, morphisms::Catamorphism, trie_map::BytesTrieMap, zipper::{zipper_iteration_tests, zipper_moving_tests, ZipperIteration, ZipperMoving, ZipperValues}
+        arena_compact::ValueSlice, morphisms::Catamorphism, PathMap, zipper::{zipper_iteration_tests, zipper_moving_tests, ZipperIteration, ZipperMoving, ZipperValues}
     };
 
     zipper_moving_tests::zipper_moving_tests!(arena_compact_zipper,
         |keys: &[&[u8]]| {
-            let btm = keys.into_iter().map(|k| (k, ())).collect::<BytesTrieMap<()>>();
+            let btm = keys.into_iter().map(|k| (k, ())).collect::<PathMap<()>>();
             ArenaCompactTree::from_zipper(btm.read_zipper(), |&_v| 0)
         },
         |trie: &mut ArenaCompactTree<Vec<u8>>, path: &[u8]| -> ACTZipper<'_, Vec<u8>> {
@@ -2010,7 +2006,7 @@ mod tests {
 
     zipper_iteration_tests::zipper_iteration_tests!(arena_compact_zipper,
         |keys: &[&[u8]]| {
-            let btm = keys.into_iter().map(|k| (k, ())).collect::<BytesTrieMap<()>>();
+            let btm = keys.into_iter().map(|k| (k, ())).collect::<PathMap<()>>();
             ArenaCompactTree::from_zipper(btm.read_zipper(), |&_v| 0)
         },
         |trie: &mut ArenaCompactTree<Vec<u8>>, path: &[u8]| -> ACTZipper<'_, Vec<u8>> {
@@ -2032,7 +2028,7 @@ mod tests {
         let path_vals = PATHS.iter().enumerate()
             .map(|(idx, path)| (path, idx as u64));
 
-        let btm = BytesTrieMap::from_iter(path_vals);
+        let btm = PathMap::from_iter(path_vals);
         let act = ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| v);
 
         let mut btm_zipper = btm.read_zipper();
@@ -2058,7 +2054,7 @@ mod tests {
     fn test_act_get() {
         let path_vals = PATHS.iter().enumerate()
             .map(|(idx, path)| (path, idx as u64));
-        let btm = BytesTrieMap::from_iter(path_vals.clone());
+        let btm = PathMap::from_iter(path_vals.clone());
         let act = ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| v);
         for (path, idx) in path_vals {
             assert_eq!(Some(idx), act.get(path));
@@ -2070,7 +2066,7 @@ mod tests {
         let path_vals = PATHS.iter().enumerate()
             .map(|(idx, path)| (path, idx as u64));
 
-        let btm = BytesTrieMap::from_iter(path_vals);
+        let btm = PathMap::from_iter(path_vals);
         let act1 = ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| v);
         let act2 = ArenaCompactTree::from_zipper(act1.read_zipper(), |v| v.value());
         assert_eq!(act1.get_data(), act2.get_data());
@@ -2081,7 +2077,7 @@ mod tests {
         let path_vals = PATHS.iter().enumerate()
             .map(|(idx, path)| (path, idx as u64));
 
-        let btm = BytesTrieMap::from_iter(path_vals);
+        let btm = PathMap::from_iter(path_vals);
         let btm_value = btm.read_zipper().into_cata_side_effect(|bm, ch, v, path| {
             let path = std::str::from_utf8(path).unwrap();
             let children = ch.join(", ");
@@ -2104,7 +2100,7 @@ mod tests {
         let path_vals = PATHS.iter().enumerate()
             .map(|(idx, path)| (path, idx as u64));
 
-        let btm = BytesTrieMap::from_iter(path_vals);
+        let btm = PathMap::from_iter(path_vals);
         let act = ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| v);
         let mut tmp = NamedTempFile::new()?;
         tmp.write_all(act.get_data())?;

@@ -1,7 +1,7 @@
 
 use std::collections::HashMap;
 
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use crate::write_zipper::ZipperWriting;
 
 //GOAT. As I understand it, there is another version of this code out there designed by Anneline and
@@ -31,7 +31,7 @@ impl PathInteger<16> for u128 {}
 
 /// Creates a map with copies of the provided `value` at every path that represents an encoded
 /// integer across the range specified by `start`, `stop`, and `step`.
-pub fn gen_int_range<V, const NUM_SIZE: usize, R>(start: R, stop: R, step: R, value: V) -> BytesTrieMap<V>
+pub fn gen_int_range<V, const NUM_SIZE: usize, R>(start: R, stop: R, step: R, value: V) -> PathMap<V>
 where
 V: Clone + Send + Sync + Unpin,
 R: PathInteger<NUM_SIZE>,
@@ -39,7 +39,7 @@ R: PathInteger<NUM_SIZE>,
 
     //Special case for u8s
     if NUM_SIZE == 1 {
-        let mut map = BytesTrieMap::<V>::new();
+        let mut map = PathMap::<V>::new();
         let mut i = start;
         while i < stop {
             map.insert(i.to_be_bytes(), value.clone());
@@ -48,18 +48,18 @@ R: PathInteger<NUM_SIZE>,
         return map
     }
 
-    let mut cache: Vec<HashMap::<(R, R), BytesTrieMap<V>>> = Vec::with_capacity(NUM_SIZE-1);
+    let mut cache: Vec<HashMap::<(R, R), PathMap<V>>> = Vec::with_capacity(NUM_SIZE-1);
     cache.resize(NUM_SIZE-1, HashMap::new());
 
     gen_child_level(NUM_SIZE-1, &mut cache, start, stop, step, value.clone())
 }
 
-type Cache<R, V> = Vec<HashMap::<(R, R), BytesTrieMap<V>>>;
+type Cache<R, V> = Vec<HashMap::<(R, R), PathMap<V>>>;
 
 fn gen_value_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: PathInteger<NUM_SIZE>>(
-    start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
+    start: R, stop: R, step: R, value: V) -> PathMap<V> {
 
-    let mut map = BytesTrieMap::<V>::new();
+    let mut map = PathMap::<V>::new();
     let mut i = start;
     while i < stop {
         let byte = i.to_u8().unwrap();
@@ -70,7 +70,7 @@ fn gen_value_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: Pat
 }
 
 fn get_from_cache<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: PathInteger<NUM_SIZE>>(
-    level: usize, cache: &mut Cache<R, V>, start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
+    level: usize, cache: &mut Cache<R, V>, start: R, stop: R, step: R, value: V) -> PathMap<V> {
 
     match cache[level].get(&(start, stop)) {
         Some(map) => {
@@ -91,13 +91,13 @@ fn get_from_cache<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: Path
 }
 
 pub(crate) fn gen_child_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: PathInteger<NUM_SIZE>>(
-    level: usize, cache: &mut Cache<R, V>, start: R, stop: R, step: R, value: V) -> BytesTrieMap<V> {
+    level: usize, cache: &mut Cache<R, V>, start: R, stop: R, step: R, value: V) -> PathMap<V> {
     debug_assert!(start < stop);
 
     let base = R::from(R::from(256).unwrap().pow(level as u32)).unwrap();
     let one = R::from(1).unwrap();
 
-    let mut map = BytesTrieMap::<V>::new();
+    let mut map = PathMap::<V>::new();
 
     let mut i = start;
     while i < stop {

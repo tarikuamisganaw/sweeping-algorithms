@@ -12,14 +12,18 @@ use gxhash::gxhash128;
 #[cfg(miri)]
 fn gxhash128(data: &[u8], _seed: i64) -> u128 { xxhash_rust::const_xxh3::xxh3_128(data) }
 
+//GOAT-old-names
+#[deprecated]
+pub type BytesTrieMap<V, A = GlobalAlloc> = PathMap<V, A>;
+
 /// A map type that uses byte slices `&[u8]` as keys
 ///
 /// This type is implemented using some of the approaches explained in the
 /// ["Bitwise trie with bitmap" Wikipedia article](https://en.wikipedia.org/wiki/Bitwise_trie_with_bitmap).
 ///
 /// ```
-/// # use pathmap::trie_map::BytesTrieMap;
-/// let mut map = BytesTrieMap::<String>::new();
+/// # use pathmap::PathMap;
+/// let mut map = PathMap::<String>::new();
 /// map.insert("one", "1".to_string());
 /// map.insert("two", "2".to_string());
 ///
@@ -27,7 +31,7 @@ fn gxhash128(data: &[u8], _seed: i64) -> u128 { xxhash_rust::const_xxh3::xxh3_12
 /// assert_eq!(map.get("two"), Some(&"2".to_string()));
 /// assert!(!map.contains("three"));
 /// ```
-pub struct BytesTrieMap<
+pub struct PathMap<
     V: Clone + Send + Sync,
     A: Allocator = GlobalAlloc,
 > {
@@ -36,10 +40,10 @@ pub struct BytesTrieMap<
     pub(crate) alloc: A,
 }
 
-unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for BytesTrieMap<V, A> {}
-unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for BytesTrieMap<V, A> {}
+unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for PathMap<V, A> {}
+unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for PathMap<V, A> {}
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> Clone for BytesTrieMap<V, A> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> Clone for PathMap<V, A> {
     fn clone(&self) -> Self {
         let root_ref = unsafe{ &*self.root.get() };
         let root_val_ref = unsafe{ &*self.root_val.get() };
@@ -47,7 +51,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Clone for BytesTrieMap<V, A> 
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V, GlobalAlloc> {
+impl<V: Clone + Send + Sync + Unpin> PathMap<V, GlobalAlloc> {
     /// Creates a new empty map
     #[inline]
     pub const fn new() -> Self {
@@ -70,8 +74,8 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V, GlobalAlloc> {
     /// The example below creates a trie with binary tree, 3 levels deep, where each level has a 'L'
     /// and an 'R' branch, and the leaves have a unit value.
     /// ```
-    /// # use pathmap::trie_map::BytesTrieMap;
-    /// let map: BytesTrieMap<()> = BytesTrieMap::<()>::new_from_ana(3, |idx, val, children, _path| {
+    /// # use pathmap::PathMap;
+    /// let map = PathMap::<()>::new_from_ana(3, |idx, val, children, _path| {
     ///     if idx > 0 {
     ///         children.push(b"L", idx - 1);
     ///         children.push(b"R", idx - 1);
@@ -91,7 +95,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V, GlobalAlloc> {
 
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
     #[inline]
     pub(crate) fn root(&self) -> Option<&TrieNodeODRc<V, A>> {
         unsafe{ &*self.root.get() }.as_ref()
@@ -155,7 +159,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         new_map_from_ana_in(w, alg_f, alloc)
     }
 
-    /// Internal Method.  Creates a new BytesTrieMap with the supplied root node
+    /// Internal Method.  Creates a new `PathMap` with the supplied root node
     #[inline]
     pub(crate) const fn new_with_root_in(
         root_node: Option<TrieNodeODRc<V, A>>,
@@ -169,7 +173,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         }
     }
 
-    /// Internal Method.  Removes and returns the root node and root_val from a BytesTrieMap
+    /// Internal Method.  Removes and returns the root node and root_val from a `PathMap`
     #[inline]
     pub(crate) fn into_root(self) -> (Option<TrieNodeODRc<V, A>>, Option<V>) {
         let root_node = match self.root() {
@@ -184,14 +188,14 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         (root_node, root_val)
     }
 
-    /// Creates a new [TrieRef], referring to a position from the root of the `BytesTrieMap`
+    /// Creates a new [TrieRef], referring to a position from the root of the `PathMap`
     pub fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'_, V, A> {
         self.ensure_root();
         let path = path.as_ref();
         trie_ref_at_path_in(self.root().unwrap().as_tagged(), self.root_val(), &[], path, self.alloc.clone())
     }
 
-    /// Creates a new read-only [Zipper], starting at the root of a `BytesTrieMap`
+    /// Creates a new read-only [Zipper], starting at the root of a `PathMap`
     pub fn read_zipper<'a>(&'a self) -> ReadZipperUntracked<'a, 'static, V, A> {
         self.ensure_root();
         let root_val = unsafe{ &*self.root_val.get() }.as_ref();
@@ -242,7 +246,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         }
     }
 
-    /// Creates a new [write zipper](ZipperWriting) starting at the root of a BytesTrieMap
+    /// Creates a new [write zipper](ZipperWriting) starting at the root of the `PathMap`
     pub fn write_zipper(&mut self) -> WriteZipperUntracked<'_, 'static, V, A> {
         self.ensure_root();
         let root_node = self.root.get_mut().as_mut().unwrap();
@@ -447,7 +451,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
     }
 
     const INVIS_HASH: u128 = 0b00001110010011001111100111000110011110101111001101110110011100001011010011010011001000100111101000001100011111110100001000000111;
-    /// Hash the logical `BytesTrieMap` and all its values with the provided hash function (which can return INVIS_HASH to ignore values).
+    /// Hash the logical `PathMap` and all its values with the provided hash function (which can return INVIS_HASH to ignore values).
     pub fn hash<VHash : Fn(&V) -> u128>(&self, vhash: VHash) -> u128 {
         unsafe {
         self.read_zipper().into_cata_cached(|bm, hs, mv, _| {
@@ -460,17 +464,17 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         }
     }
 
-    /// Returns a new `BytesTrieMap` containing the union of the paths in `self` and the paths in `other`
+    /// Returns a new `PathMap` containing the union of the paths in `self` and the paths in `other`
     pub fn join(&self, other: &Self) -> Self where V: Lattice {
         result_into_map(self.pjoin(other), self, other, self.alloc.clone())
     }
 
-    /// Returns a new `BytesTrieMap` containing the intersection of the paths in `self` and the paths in `other`
+    /// Returns a new `PathMap` containing the intersection of the paths in `self` and the paths in `other`
     pub fn meet(&self, other: &Self) -> Self where V: Lattice {
         result_into_map(self.pmeet(other), self, other, self.alloc.clone())
     }
 
-    /// Returns a new `BytesTrieMap` where the paths in `self` are restricted by the paths leading to 
+    /// Returns a new `PathMap` where the paths in `self` are restricted by the paths leading to 
     /// values in `other`
     ///
     /// NOTE: if `other` has a root value, this function returns a clone of `self` because other's root
@@ -496,7 +500,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
         }
     }
 
-    /// Returns a new `BytesTrieMap` containing the contents from `self` minus the contents of `other`
+    /// Returns a new `PathMap` containing the contents from `self` minus the contents of `other`
     pub fn subtract(&self, other: &Self) -> Self
         where V: DistributiveLattice
     {
@@ -524,7 +528,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> BytesTrieMap<V, A> {
 
 
 #[cfg(feature = "old_cursor")]
-impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin> PathMap<V> {
     /// Returns a [crate::old_cursor::PathMapCursor] to traverse all key-value pairs within the map. This
     /// is more efficient than using [iter](Self::iter), but is not compatible with the [Iterator] trait
     ///
@@ -542,7 +546,7 @@ impl<V: Clone + Send + Sync + Unpin> BytesTrieMap<V> {
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> FromIterator<(K, V)> for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> FromIterator<(K, V)> for PathMap<V> {
     fn from_iter<I: IntoIterator<Item=(K, V)>>(iter: I) -> Self {
         let mut map = Self::new();
         for (key, val) in iter {
@@ -552,7 +556,7 @@ impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> FromIterator<(K, V)> for By
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> From<(K, V)> for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> From<(K, V)> for PathMap<V> {
     fn from(pair: (K, V)) -> Self {
         let mut map = Self::new();
         map.insert(pair.0, pair.1);
@@ -560,7 +564,7 @@ impl<V: Clone + Send + Sync + Unpin, K: AsRef<[u8]>> From<(K, V)> for BytesTrieM
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin + 'static, A: Allocator + 'static> std::iter::IntoIterator for BytesTrieMap<V, A> {
+impl<V: Clone + Send + Sync + Unpin + 'static, A: Allocator + 'static> std::iter::IntoIterator for PathMap<V, A> {
     type Item = (Vec<u8>, V);
     type IntoIter = OwnedZipperIter<V, A>;
 
@@ -569,11 +573,11 @@ impl<V: Clone + Send + Sync + Unpin + 'static, A: Allocator + 'static> std::iter
     }
 }
 
-/// Internal function to convert an AlgebraicResult (partial lattice result) into a BytesTrieMap
-fn result_into_map<V: Clone + Send + Sync + Unpin, A: Allocator>(result: AlgebraicResult<BytesTrieMap<V, A>>, self_map: &BytesTrieMap<V, A>, other_map: &BytesTrieMap<V, A>, result_region: A) -> BytesTrieMap<V, A> {
+/// Internal function to convert an [AlgebraicResult] (partial lattice result) into a `PathMap`
+fn result_into_map<V: Clone + Send + Sync + Unpin, A: Allocator>(result: AlgebraicResult<PathMap<V, A>>, self_map: &PathMap<V, A>, other_map: &PathMap<V, A>, result_region: A) -> PathMap<V, A> {
     match result {
         AlgebraicResult::Element(new_map) => new_map,
-        AlgebraicResult::None => BytesTrieMap::new_in(result_region),
+        AlgebraicResult::None => PathMap::new_in(result_region),
         AlgebraicResult::Identity(mask) => {
             if mask & SELF_IDENT > 0 {
                 self_map.clone()
@@ -585,7 +589,7 @@ fn result_into_map<V: Clone + Send + Sync + Unpin, A: Allocator>(result: Algebra
     }
 }
 
-impl<V: Clone + Lattice + Send + Sync + Unpin, A: Allocator> Lattice for BytesTrieMap<V, A> {
+impl<V: Clone + Lattice + Send + Sync + Unpin, A: Allocator> Lattice for PathMap<V, A> {
     fn pjoin(&self, other: &Self) -> AlgebraicResult<Self> {
         let joined_node = self.root().pjoin(&other.root());
         let joined_root_val = self.root_val().pjoin(&other.root_val());
@@ -647,7 +651,7 @@ impl<V: Clone + Lattice + Send + Sync + Unpin, A: Allocator> Lattice for BytesTr
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin + DistributiveLattice, A: Allocator> DistributiveLattice for BytesTrieMap<V, A> {
+impl<V: Clone + Send + Sync + Unpin + DistributiveLattice, A: Allocator> DistributiveLattice for PathMap<V, A> {
     fn psubtract(&self, other: &Self) -> AlgebraicResult<Self> {
         let subtract_node = self.root().psubtract(&other.root());
         let subtract_root_val = self.root_val().psubtract(&other.root_val());
@@ -669,7 +673,7 @@ impl<V: Clone + Send + Sync + Unpin + DistributiveLattice, A: Allocator> Distrib
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin, A: Allocator> Quantale for BytesTrieMap<V, A> {
+impl<V: Clone + Send + Sync + Unpin, A: Allocator> Quantale for PathMap<V, A> {
     fn prestrict(&self, other: &Self) -> AlgebraicResult<Self> {
         if other.root_val().is_some() {
             return AlgebraicResult::Identity(SELF_IDENT)
@@ -694,7 +698,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Quantale for BytesTrieMap<V, 
     }
 }
 
-impl<V: Clone + Send + Sync + Unpin> Default for BytesTrieMap<V> {
+impl<V: Clone + Send + Sync + Unpin> Default for PathMap<V> {
     fn default() -> Self {
         Self::new()
     }
@@ -707,7 +711,7 @@ mod tests {
 
     #[test]
     fn get_from_map_test() {
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
         //NOW: map contains an empty ListNode
 
         map.insert("aaaaa", "aaaaa");
@@ -786,7 +790,7 @@ mod tests {
             vec![75, 104, 119, 97, 106, 97],
             vec![75, 104, 119, 97, 106, 97, 32, 73, 109, 97, 109, 32, 83, 97, 105, 121, 105, 100]
         ];
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
         for (i, key) in keys.iter().enumerate() {
             map.insert(key, i);
         }
@@ -797,7 +801,7 @@ mod tests {
 
     #[test]
     fn long_key_map_test() {
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
 
         map.insert("aaaaaaaaaa01234567890123456789", 30);
         assert_eq!(map.get("aaaaaaaaaa01234567890123456789").unwrap(), &30);
@@ -817,7 +821,7 @@ mod tests {
 
     #[test]
     fn map_contains_path_test() {
-        let mut btm = BytesTrieMap::new();
+        let mut btm = PathMap::new();
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
         rs.iter().enumerate().for_each(|(i, r)| { btm.insert(r.as_bytes(), i); });
 
@@ -829,7 +833,7 @@ mod tests {
 
     #[test]
     fn map_get_mut_test() {
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
 
         //Test root value with `get_mut`
         assert_eq!(map.get_mut(b""), None);
@@ -849,7 +853,7 @@ mod tests {
 
     #[test]
     fn map_get_value_mut_or_set_test() {
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
 
         //Test root value
         assert_eq!(map.get_value_mut_or_set(b"", 42), &mut 42);
@@ -870,7 +874,7 @@ mod tests {
 
     #[test]
     fn map_remove_test1() {
-        let mut map = BytesTrieMap::new();
+        let mut map = PathMap::new();
         map.insert("aaaaa", "aaaaa");
         map.insert("bbbbb", "bbbbb");
         map.insert("ccccc", "ccccc");
@@ -904,7 +908,7 @@ mod tests {
 
     #[test]
     fn map_remove_test2() {
-        let mut btm = BytesTrieMap::from_iter([("abbb", ()), ("b", ()), ("bba", ())].iter().map(|(p, v)| (p.as_bytes(), v)));
+        let mut btm = PathMap::from_iter([("abbb", ()), ("b", ()), ("bba", ())].iter().map(|(p, v)| (p.as_bytes(), v)));
         btm.remove("abbb".as_bytes());
         btm.remove("a".as_bytes());
     }
@@ -912,7 +916,7 @@ mod tests {
     #[test]
     fn map_update_test() {
         let rs = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let mut btm: BytesTrieMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut btm: PathMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut zipper = btm.write_zipper_at_path(b"cannon");
         assert_eq!(zipper.get_value_or_insert(42), &2);
@@ -924,8 +928,8 @@ mod tests {
 
     #[test]
     fn map_join_test() {
-        let mut a = BytesTrieMap::<usize>::new();
-        let mut b = BytesTrieMap::<usize>::new();
+        let mut a = PathMap::<usize>::new();
+        let mut b = PathMap::<usize>::new();
         let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz"];
         for (i, path) in rs.into_iter().enumerate() {
             if i % 2 == 0 {
@@ -945,8 +949,8 @@ mod tests {
 
     #[test]
     fn map_join_into_test() {
-        let mut a = BytesTrieMap::<usize>::new();
-        let mut b = BytesTrieMap::<usize>::new();
+        let mut a = PathMap::<usize>::new();
+        let mut b = PathMap::<usize>::new();
         let rs = ["Abbotsford", "Abbottabad", "Abcoude", "Abdul Hakim", "Abdulino", "Abdullahnagar", "Abdurahmoni Jomi", "Abejorral", "Abelardo Luz"];
         for (i, path) in rs.into_iter().enumerate() {
             if i % 2 == 0 {
@@ -968,7 +972,7 @@ mod tests {
     #[test]
     fn cursor_test() {
         let table = ["A", "Bcdef", "Ghij", "Klmnopqrst"];
-        let btm: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
+        let btm: PathMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
         let mut cursor = btm.cursor();
         while let Some((k, v)) = cursor.next() {
             // println!("{}, {v}", std::str::from_utf8(k).unwrap());
@@ -978,7 +982,7 @@ mod tests {
 
     #[test]
     fn map_root_value_test1() {
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
 
         //Direct-map operations on root value
         assert_eq!(map.get([]), None);
@@ -1032,11 +1036,11 @@ mod tests {
     /// Tests algebraic ops on maps with root values, but no trie
     #[test]
     fn map_root_value_test2() {
-        let mut map_a = BytesTrieMap::<()>::new();
+        let mut map_a = PathMap::<()>::new();
         assert_eq!(map_a.get([]), None);
         assert_eq!(map_a.insert([], ()), None);
         assert_eq!(map_a.get([]), Some(&()));
-        let map_b = BytesTrieMap::<()>::new();
+        let map_b = PathMap::<()>::new();
 
         let joined = map_a.join(&map_b);
         assert_eq!(joined.get([]), Some(&()));
@@ -1071,20 +1075,20 @@ mod tests {
     #[test]
     fn map_root_value_test3() {
         //Both a root val and a trie
-        let mut map_a = BytesTrieMap::<()>::new();
+        let mut map_a = PathMap::<()>::new();
         assert_eq!(map_a.insert([], ()), None);
         assert_eq!(map_a.insert("AA", ()), None);
 
         //Trie different from map_a, but no root val
-        let mut map_b = BytesTrieMap::<()>::new();
+        let mut map_b = PathMap::<()>::new();
         assert_eq!(map_b.insert("BB", ()), None);
 
         //Trie same as map_a, but no root val
-        let mut map_c = BytesTrieMap::<()>::new();
+        let mut map_c = PathMap::<()>::new();
         assert_eq!(map_c.insert("AA", ()), None);
 
         //Root val but no trie
-        let mut map_d = BytesTrieMap::<()>::new();
+        let mut map_d = PathMap::<()>::new();
         assert_eq!(map_d.insert([], ()), None);
 
         //pjoin
@@ -1156,8 +1160,8 @@ mod tests {
 
     #[test]
     fn map_root_value_test4() {
-        let mut map0 = BytesTrieMap::<usize>::new();
-        let mut map1 = BytesTrieMap::<usize>::new();
+        let mut map0 = PathMap::<usize>::new();
+        let mut map1 = PathMap::<usize>::new();
         map1.insert([], 0);
 
         let mut wz = map0.write_zipper();
@@ -1173,7 +1177,7 @@ mod tests {
     #[test]
     fn owned_read_zipper_test() {
         let table = ["A", "AB", "Ab", "ABC", "ABc", "ABCD", "B"];
-        let map: BytesTrieMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
+        let map: PathMap<usize> = table.iter().enumerate().map(|(n, s)| (s, n)).collect();
         let mut zipper = map.into_read_zipper(b"AB");
 
         let expected = [3, 5, 4];
@@ -1189,7 +1193,7 @@ mod tests {
     /// This tests [WriteZipper]s with starting paths inside the map
     #[test]
     fn map_write_zipper_test1() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
         map.insert(b"start:0000:hello", 0);
 
         let mut z = map.write_zipper_at_path(b"start:0000:");
@@ -1201,7 +1205,7 @@ mod tests {
         assert_eq!(map.get(b"start:0000:hello"), Some(&0));
         assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
 
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
         map.insert(b"start:0000:hello", 0);
         map.insert(b"start:0001:hello", 1);
         map.insert(b"start:0002:hello", 2);
@@ -1236,7 +1240,7 @@ mod tests {
     /// Identical logic to `map_write_zipper_test2`, but tests [WriteZipperOwned]
     #[test]
     fn map_write_zipper_test2() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
         map.insert(b"start:0000:hello", 0);
 
         let mut z = map.into_write_zipper(b"start:0000:");
@@ -1248,7 +1252,7 @@ mod tests {
         assert_eq!(map.get(b"start:0000:hello"), Some(&0));
         assert_eq!(map.get(b"start:0000:goodbye"), Some(&0));
 
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
         map.insert(b"start:0000:hello", 0);
         map.insert(b"start:0001:hello", 1);
         map.insert(b"start:0002:hello", 2);

@@ -12,7 +12,7 @@ use pasture_core::containers::BorrowedBufferExt;
 use pasture_core::meta::Metadata;
 use pasture_io::base::{PointReader, SeekToPoint};
 use pasture_io::las::LASReader;
-use pathmap::trie_map::BytesTrieMap;
+use pathmap::PathMap;
 use pathmap::utils::BitMask;
 use pathmap::zipper::{ReadZipperUntracked, WriteZipperUntracked, Zipper, ZipperMoving, ZipperReadOnlyValues, ZipperWriting};
 
@@ -284,14 +284,14 @@ impl Octree {
 // note, this is a close copy of the above on purpose
 // if we wanted to be fancy, we could do an 72-tree instead of an 8-tree which would suit the BTM very well
 struct BTMOctree {
-    root: BytesTrieMap<Vec<Point3<f64>>>,
+    root: PathMap<Vec<Point3<f64>>>,
     bounds: AABB<f64>,
 }
 
 impl BTMOctree {
     fn new(bounds: AABB<f64>) -> Self {
         Self {
-            root: BytesTrieMap::default(),
+            root: PathMap::default(),
             bounds,
         }
     }

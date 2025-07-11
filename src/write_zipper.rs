@@ -4,7 +4,7 @@ use maybe_dangling::MaybeDangling;
 use crate::{Allocator, GlobalAlloc};
 use crate::utils::ByteMask;
 use crate::trie_node::*;
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::*;
 use crate::zipper_tracking::*;
@@ -55,7 +55,7 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     /// and may lead to `path_exists` returning `false`, where it previously returned `true`
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z);
 
-    /// Replaces the trie below the zipper's focus with the contents of a [BytesTrieMap], consuming the map
+    /// Replaces the trie below the zipper's focus with the contents of a [PathMap], consuming the map
     ///
     /// If there is a value at the zipper's focus, it will not be affected.
     /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
@@ -64,7 +64,7 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     /// trie to be pruned below the graft location.  Since dangling paths aren't allowed, This method may cause
     /// the trie to be pruned above the zipper's focus, and may lead to [Zipper::path_exists] returning `false`,
     /// where it previously returned `true`
-    fn graft_map(&mut self, map: BytesTrieMap<V, A>);
+    fn graft_map(&mut self, map: PathMap<V, A>);
 
     /// Joins (union of) the subtrie below the zipper's focus with the subtrie downstream from the focus of
     /// `read_zipper`
@@ -77,7 +77,7 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     /// If the &self zipper is at a path that does not exist, this method behaves like graft.
     fn join<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice;
 
-    /// Joins (union of) the trie below the zipper's focus with the contents of a [BytesTrieMap],
+    /// Joins (union of) the trie below the zipper's focus with the contents of a [PathMap],
     /// consuming the map
     ///
     /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
@@ -87,7 +87,7 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     /// believe `yes` is more conceptually correct, and that the behavior of `graft` and `graft_map`
     /// should probably be revisited.  **HOWEVER** the currently implemented behavior is **NO**!
     /// This is related to a question in [Zipper::make_map]
-    fn join_map(&mut self, map: BytesTrieMap<V, A>) -> AlgebraicStatus where V: Lattice;
+    fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice;
 
     /// Joins the subtrie below the focus of `src_zipper` with the subtrie below the focus of `self`,
     /// consuming `src_zipper`'s subtrie
@@ -159,12 +159,12 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     /// [Zipper::path_exists] returning `false`, where it previously returned `true`
     fn remove_branches(&mut self) -> bool;
 
-    /// Creates a new [BytesTrieMap] from the zipper's focus, removing all downstream branches from the zipper
+    /// Creates a new [PathMap] from the zipper's focus, removing all downstream branches from the zipper
     ///
     /// GOAT: This method's behavior is affected by the `graft_root_vals` feature
     /// A value at the zipper's focus will not be affected, and will not be included in the resulting map.
     /// GOAT: See discussion in [Zipper::make_map] about whether this behavior should be changed
-    fn take_map(&mut self) -> Option<BytesTrieMap<V, A>>;
+    fn take_map(&mut self) -> Option<PathMap<V, A>>;
 
     /// Uses a 256-bit mask to remove multiple branches below the zipper's focus
     ///
@@ -197,9 +197,9 @@ impl<V: Clone + Send + Sync, Z, A: Allocator> ZipperWriting<V, A> for &mut Z whe
     fn remove_value(&mut self) -> Option<V> { (**self).remove_value() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { (**self).zipper_head() }
     fn graft<RZ: ZipperSubtries<V, A>>(&mut self, read_zipper: &RZ) { (**self).graft(read_zipper) }
-    fn graft_map(&mut self, map: BytesTrieMap<V, A>) { (**self).graft_map(map) }
+    fn graft_map(&mut self, map: PathMap<V, A>) { (**self).graft_map(map) }
     fn join<RZ: ZipperSubtries<V, A>>(&mut self, read_zipper: &RZ) -> AlgebraicStatus where V: Lattice { (**self).join(read_zipper) }
-    fn join_map(&mut self, map: BytesTrieMap<V, A>) -> AlgebraicStatus where V: Lattice { (**self).join_map(map) }
+    fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice { (**self).join_map(map) }
     fn join_into<RZ: ZipperSubtries<V, A> + ZipperWriting<V, A>>(&mut self, src_zipper: &mut RZ) -> AlgebraicStatus where V: Lattice { (**self).join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { (**self).drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { (**self).insert_prefix(prefix) }
@@ -210,7 +210,7 @@ impl<V: Clone + Send + Sync, Z, A: Allocator> ZipperWriting<V, A> for &mut Z whe
     fn restrict<RZ: ZipperSubtries<V, A>>(&mut self, read_zipper: &RZ) -> AlgebraicStatus { (**self).restrict(read_zipper) }
     fn restricting<RZ: ZipperSubtries<V, A>>(&mut self, read_zipper: &RZ) -> bool { (**self).restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { (**self).remove_branches() }
-    fn take_map(&mut self) -> Option<BytesTrieMap<V, A>> { (**self).take_map() }
+    fn take_map(&mut self) -> Option<PathMap<V, A>> { (**self).take_map() }
     fn remove_unmasked_branches(&mut self, mask: ByteMask) { (**self).remove_unmasked_branches(mask) }
 }
 
@@ -255,7 +255,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperSubtries<V, A> for WriteZipperTracked<'a, '_, V, A>{
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> { self.z.make_map() }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperMoving for WriteZipperTracked<'a, 'path, V, A> {
@@ -346,9 +346,9 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperWriting
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
-    fn graft_map(&mut self, map: BytesTrieMap<V, A>) { self.z.graft_map(map) }
+    fn graft_map(&mut self, map: PathMap<V, A>) { self.z.graft_map(map) }
     fn join<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
-    fn join_map(&mut self, map: BytesTrieMap<V, A>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
+    fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
     fn join_into<Z: ZipperSubtries<V, A> + ZipperWriting<V, A>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
@@ -359,7 +359,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperWriting
     fn restrict<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus { self.z.restrict(read_zipper) }
     fn restricting<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
-    fn take_map(&mut self) -> Option<BytesTrieMap<V, A>> { self.z.take_map() }
+    fn take_map(&mut self) -> Option<PathMap<V, A>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: ByteMask) { self.z.remove_unmasked_branches(mask) }
 }
 
@@ -407,7 +407,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperSubtries<V, A> for WriteZipperUntracked<'a, '_, V, A> {
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> { self.z.make_map() }
 }
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperMoving for WriteZipperUntracked<'a, 'path, V, A> {
@@ -523,9 +523,9 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperWriting
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
-    fn graft_map(&mut self, map: BytesTrieMap<V, A>) { self.z.graft_map(map) }
+    fn graft_map(&mut self, map: PathMap<V, A>) { self.z.graft_map(map) }
     fn join<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
-    fn join_map(&mut self, map: BytesTrieMap<V, A>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
+    fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
     fn join_into<Z: ZipperSubtries<V, A> + ZipperWriting<V, A>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
@@ -536,7 +536,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperWriting
     fn restrict<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus { self.z.restrict(read_zipper) }
     fn restricting<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
-    fn take_map(&mut self) -> Option<BytesTrieMap<V, A>> { self.z.take_map() }
+    fn take_map(&mut self) -> Option<PathMap<V, A>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: ByteMask) { self.z.remove_unmasked_branches(mask) }
 }
 
@@ -557,7 +557,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperPr
 /// zipper root each time, which could be a perf gain.  On the other hand, this object has higher overhead
 /// than the ordinary borrowed `WriteZipper`, both at creation time as well as during use.
 pub struct WriteZipperOwned<V: Clone + Send + Sync + 'static, A: Allocator + 'static = GlobalAlloc> {
-    map: MaybeDangling<Box<BytesTrieMap<V, A>>>,
+    map: MaybeDangling<Box<PathMap<V, A>>>,
     z: WriteZipperCore<'static, 'static, V, A>,
 }
 
@@ -588,7 +588,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for WriteZip
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for WriteZipperOwned<V, A> {
-    fn make_map(&self) -> Option<BytesTrieMap<Self::V, A>> { self.z.make_map() }
+    fn make_map(&self) -> Option<PathMap<Self::V, A>> { self.z.make_map() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperOwned<V, A> {
@@ -630,17 +630,17 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for WriteZ
 impl <V: Clone + Send + Sync + Unpin> WriteZipperOwned<V> {
     /// Create a brand new `WriteZipperOwned` containing no paths nor values
     pub fn new() -> Self {
-        BytesTrieMap::new().into_write_zipper(&[])
+        PathMap::new().into_write_zipper(&[])
     }
 }
 
 impl <V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperOwned<V, A> {
     /// Create a brand new `WriteZipperOwned` containing no paths nor values
     pub fn new_in(alloc: A) -> Self {
-        BytesTrieMap::new_in(alloc).into_write_zipper(&[])
+        PathMap::new_in(alloc).into_write_zipper(&[])
     }
     /// Creates a new `WriteZipperOwned`, consuming a `map`
-    pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: BytesTrieMap<V, A>, path: K) -> Self {
+    pub(crate) fn new_with_map<K: AsRef<[u8]>>(map: PathMap<V, A>, path: K) -> Self {
         let path = path.as_ref();
         map.ensure_root();
         let alloc = map.alloc.clone();
@@ -654,7 +654,7 @@ impl <V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperOwned<V, A> {
         Self { map, z: core }
     }
     /// Consumes the zipper and returns a map contained within the zipper
-    pub fn into_map(self) -> BytesTrieMap<V, A> {
+    pub fn into_map(self) -> PathMap<V, A> {
         drop(self.z);
         let map = MaybeDangling::into_inner(self.map);
         *map
@@ -686,9 +686,9 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperWriting<V, A> for Write
     fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
-    fn graft_map(&mut self, map: BytesTrieMap<V, A>) { self.z.graft_map(map) }
+    fn graft_map(&mut self, map: PathMap<V, A>) { self.z.graft_map(map) }
     fn join<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus where V: Lattice { self.z.join(read_zipper) }
-    fn join_map(&mut self, map: BytesTrieMap<V, A>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
+    fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice { self.z.join_map(map) }
     fn join_into<Z: ZipperSubtries<V, A> + ZipperWriting<V, A>>(&mut self, src_zipper: &mut Z) -> AlgebraicStatus where V: Lattice { self.z.join_into(src_zipper) }
     fn drop_head(&mut self, byte_cnt: usize) -> bool where V: Lattice { self.z.drop_head(byte_cnt) }
     fn insert_prefix<K: AsRef<[u8]>>(&mut self, prefix: K) -> bool { self.z.insert_prefix(prefix) }
@@ -699,7 +699,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperWriting<V, A> for Write
     fn restrict<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> AlgebraicStatus { self.z.restrict(read_zipper) }
     fn restricting<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) -> bool { self.z.restricting(read_zipper) }
     fn remove_branches(&mut self) -> bool { self.z.remove_branches() }
-    fn take_map(&mut self) -> Option<BytesTrieMap<V, A>> { self.z.take_map() }
+    fn take_map(&mut self) -> Option<PathMap<V, A>> { self.z.take_map() }
     fn remove_unmasked_branches(&mut self, mask: ByteMask) { self.z.remove_unmasked_branches(mask) }
 }
 
@@ -844,7 +844,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperCore<'a, '_, V, A> {
-    fn make_map(&self) -> Option<BytesTrieMap<V, A>> {
+    fn make_map(&self) -> Option<PathMap<V, A>> {
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
@@ -852,7 +852,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperCore<'a, 
 
         let root_node = self.get_focus().into_option();
         if root_node.is_some() || root_val.is_some() {
-            Some(BytesTrieMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
+            Some(PathMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
         } else {
             None
         }
@@ -1231,7 +1231,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         };
     }
     /// See [WriteZipper::graft_map]
-    pub fn graft_map(&mut self, map: BytesTrieMap<V, A>) {
+    pub fn graft_map(&mut self, map: PathMap<V, A>) {
         let (src_root_node, src_root_val) = map.into_root();
         self.graft_internal(src_root_node);
 
@@ -1280,7 +1280,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         }
     }
     /// See [WriteZipper::join_map]
-    pub fn join_map(&mut self, map: BytesTrieMap<V, A>) -> AlgebraicStatus where V: Lattice {
+    pub fn join_map(&mut self, map: PathMap<V, A>) -> AlgebraicStatus where V: Lattice {
         let (src_root_node, src_root_val) = map.into_root();
 
         #[cfg(not(feature = "graft_root_vals"))]
@@ -1580,7 +1580,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         // because graft_internal calls here
     }
     /// See [WriteZipper::take_map]
-    pub fn take_map(&mut self) -> Option<BytesTrieMap<V, A>> {
+    pub fn take_map(&mut self) -> Option<PathMap<V, A>> {
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
@@ -1591,7 +1591,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
 
         self.get_focus().into_option();
         if root_node.is_some() || root_val.is_some() {
-            Some(BytesTrieMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
+            Some(PathMap::new_with_root_in(root_node, root_val, self.alloc.clone()))
         } else {
             None
         }
@@ -2172,7 +2172,7 @@ mod tests {
 
     #[test]
     fn write_zipper_set_value_test1() {
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper_at_path(b"in");
         for i in 0usize..32 {
             zipper.descend_to_byte(0);
@@ -2199,7 +2199,7 @@ mod tests {
     /// (with `mend_root`) when a node is upgraded to a different node type
     #[test]
     fn write_zipper_set_value_test2() {
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
 
         //We want to ensure we get a PairNode at the map root
         map.insert(b"OnePath", ());
@@ -2219,7 +2219,7 @@ mod tests {
     /// Hits an edge case around fixing a WriteZipper's root (with `mend_root`)
     #[test]
     fn write_zipper_set_value_test3() {
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
 
         //We want to ensure we get a PairNode at the map root
         map.insert(b"aaa111", ());
@@ -2237,7 +2237,7 @@ mod tests {
 
     #[test]
     fn write_zipper_root_value_test() {
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper();
 
         assert_eq!(zipper.is_value(), false);
@@ -2260,7 +2260,7 @@ mod tests {
 
     #[test]
     fn write_zipper_get_or_insert_value_test() {
-        let mut map = BytesTrieMap::<u64>::new();
+        let mut map = PathMap::<u64>::new();
         map.write_zipper_at_path(b"Drenths").get_value_or_insert(42);
         assert_eq!(map.get(b"Drenths"), Some(&42));
 
@@ -2287,7 +2287,7 @@ mod tests {
     fn write_zipper_iter_copy_test() {
         const N: usize = 32;
 
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper_at_path(b"in\0");
         for i in 0..N {
             zipper.descend_to(i.to_be_bytes());
@@ -2327,10 +2327,10 @@ mod tests {
     #[test]
     fn write_zipper_graft_test() {
         let a_keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let mut a: BytesTrieMap<i32> = a_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let mut a: PathMap<i32> = a_keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
 
         let b_keys = ["ad", "d", "ll", "of", "om", "ot", "ugh", "und"];
-        let b: BytesTrieMap<i32> = b_keys.iter().enumerate().map(|(i, k)| (k, (i + 1000) as i32)).collect();
+        let b: PathMap<i32> = b_keys.iter().enumerate().map(|(i, k)| (k, (i + 1000) as i32)).collect();
 
         let mut wz = a.write_zipper_at_path(b"ro");
         let rz = b.read_zipper();
@@ -2366,11 +2366,11 @@ mod tests {
     #[test]
     fn write_zipper_join_test() {
         let a_keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let mut a: BytesTrieMap<u64> = a_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut a: PathMap<u64> = a_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         assert_eq!(a.val_count(), 12);
 
         let b_keys = ["road", "rod", "roll", "roof", "room", "root", "rough", "round"];
-        let b: BytesTrieMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, (i + 1000) as u64)).collect();
+        let b: PathMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, (i + 1000) as u64)).collect();
         assert_eq!(b.val_count(), 8);
 
         let mut wz = a.write_zipper_at_path(b"ro");
@@ -2410,7 +2410,7 @@ mod tests {
     fn write_zipper_join_into_test1() {
         let keys = ["a:arrow", "a:bow", "a:cannon", "a:roman", "a:romane", "a:romanus", "a:romulus", "a:rubens", "a:ruber", "a:rubicon", "a:rubicundus", "a:rom'i",
             "b:road", "b:rod", "b:roll", "b:roof", "b:room", "b:root", "b:rough", "b:round"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         assert_eq!(map.val_count(), 20);
 
         assert_eq!(map.val_count(), 20);
@@ -2474,8 +2474,8 @@ mod tests {
     fn write_zipper_meet_test1() {
         let a_keys = ["12345", "1aaaa", "1bbbb", "1cccc", "1dddd"];
         let b_keys = ["12345", "1zzzz"];
-        let a: BytesTrieMap<()> = a_keys.iter().map(|k| (k, ())).collect();
-        let mut b: BytesTrieMap<()> = b_keys.iter().map(|k| (k, ())).collect();
+        let a: PathMap<()> = a_keys.iter().map(|k| (k, ())).collect();
+        let mut b: PathMap<()> = b_keys.iter().map(|k| (k, ())).collect();
 
         let az = a.read_zipper();
         assert_eq!(az.val_count(), a_keys.len());
@@ -2491,7 +2491,7 @@ mod tests {
 
         //Test an Identity result
         let b_keys = ["12345"];
-        let mut b: BytesTrieMap<()> = b_keys.iter().map(|k| (k, ())).collect();
+        let mut b: PathMap<()> = b_keys.iter().map(|k| (k, ())).collect();
         let mut bz = b.write_zipper();
         let result = bz.meet(&az);
         assert_eq!(result, AlgebraicStatus::Identity);
@@ -2501,7 +2501,7 @@ mod tests {
 
         //Test a None result
         let a_keys = ["1aaaa", "1bbbb", "1cccc", "1dddd"];
-        let a: BytesTrieMap<()> = a_keys.iter().map(|k| (k, ())).collect();
+        let a: PathMap<()> = a_keys.iter().map(|k| (k, ())).collect();
         let az = a.read_zipper();
         assert_eq!(az.val_count(), a_keys.len());
         bz.reset();
@@ -2536,8 +2536,8 @@ mod tests {
             vec![194, 7, 163, 194, 8, 0],
         ];
 
-        let a: BytesTrieMap<()> = a_keys.iter().map(|k| (k, ())).collect();
-        let mut b: BytesTrieMap<()> = b_keys.iter().map(|k| (k, ())).collect();
+        let a: PathMap<()> = a_keys.iter().map(|k| (k, ())).collect();
+        let mut b: PathMap<()> = b_keys.iter().map(|k| (k, ())).collect();
 
         let rz = a.read_zipper();
 
@@ -2578,7 +2578,7 @@ mod tests {
     #[test]
     fn write_zipper_movement_test() {
         let keys = ["romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wz = map.write_zipper_at_path(b"ro");
         assert_eq!(wz.child_count(), 1);
@@ -2617,10 +2617,10 @@ mod tests {
 
     #[test]
     fn write_zipper_compound_join_test() {
-        let mut map = BytesTrieMap::<u64>::new();
+        let mut map = PathMap::<u64>::new();
 
         let b_keys = ["alligator", "giraffe", "gazelle", "gadfly"];
-        let b: BytesTrieMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let b: PathMap<u64> = b_keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wz = map.write_zipper();
         let mut rz = b.read_zipper();
@@ -2639,7 +2639,7 @@ mod tests {
     fn write_zipper_remove_branches_test() {
         let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i",
             "abcdefghijklmnopqrstuvwxyz"];
-        let mut map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let mut map: PathMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
 
         let mut wz = map.write_zipper_at_path(b"roman");
         wz.remove_branches();
@@ -2689,7 +2689,7 @@ mod tests {
             "123:cat:Jim:Felix",
             "123:dog:Pam:Bandit",
             "123:owl:Sue:Cornelius"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(b"123:");
 
         wz.drop_head(4);
@@ -2712,7 +2712,7 @@ mod tests {
 
         //A single long key
         let key = b"12345678901234567890123456789012345678901234567890";
-        let mut map: BytesTrieMap<u64> = BytesTrieMap::<u64>::new();
+        let mut map = PathMap::<u64>::new();
         map.insert(key, 42);
         for i in 0..key.len() {
             assert_eq!(map.get(&key[i..]), Some(&42));
@@ -2732,7 +2732,7 @@ mod tests {
             b"12345678901234567890123456789012345efghijklmnopqrs",
             b"1234567890123456789012345678901234567890jklmnopqrs",
             b"123456789012345678901234567890123456789012345opqrs", ];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         for i in 0..keys[0].len() {
             assert_eq!(map.get(&keys[0][i..]), Some(&0));
             if i < 45 {
@@ -2752,7 +2752,7 @@ mod tests {
             vec![1, 2, 4, 65, 2, 42, 237, 3, 1, 173, 165, 3, 16, 200, 213, 4, 0, 166, 47, 81, 4, 0, 167, 216, 181, 4, 6, 125, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144],
             vec![1, 2, 4, 69, 2, 13, 183],
         ];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(&[1]);
         wz.drop_head(3);
         drop(wz);
@@ -2761,7 +2761,7 @@ mod tests {
         assert_eq!(map.get(&vec![1, 2, 13, 183]), Some(&1));
         assert_eq!(map.val_count(), 2);
 
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(&[1]);
         wz.drop_head(27);
         drop(wz);
@@ -2773,7 +2773,7 @@ mod tests {
     #[test]
     fn write_zipper_drop_head_test3() {
         let keys = [[0, 0], [0, 1], [1, 0], [1, 1]];
-        let mut map: BytesTrieMap<()> = keys.iter().map(|k| (k, ())).collect();
+        let mut map: PathMap<()> = keys.iter().map(|k| (k, ())).collect();
         let mut wz = map.write_zipper();
 
         wz.drop_head(1);
@@ -2794,7 +2794,7 @@ mod tests {
             [194, 17, 239, 194, 21, 132],
         ];
 
-        let mut b: BytesTrieMap<()> = keys.iter().map(|k| (k, ())).collect();
+        let mut b: PathMap<()> = keys.iter().map(|k| (k, ())).collect();
         let mut wz = b.write_zipper();
 
         wz.drop_head(3);
@@ -2813,7 +2813,7 @@ mod tests {
             vec![0, 1, 2, 1, 10, 1, 11, 1, 100, 2, 3, 233, 2],
             vec![0, 1, 3, 1, 21, 1, 22, 1, 23, 1, 24, 1, 25],
         ];
-        let mut map: BytesTrieMap<()> = paths.iter().map(|k| (k, ())).collect();
+        let mut map: PathMap<()> = paths.iter().map(|k| (k, ())).collect();
 
         let mut wz = map.write_zipper();
         wz.descend_to([0, 1]);
@@ -2832,7 +2832,7 @@ mod tests {
             vec![193, 191, 194, 194, 15, 47],
             vec![193, 191, 194, 194, 18, 9],
         ];
-        let mut map: BytesTrieMap<()> = paths.iter().map(|k| (k, ())).collect();
+        let mut map: PathMap<()> = paths.iter().map(|k| (k, ())).collect();
 
         let mut wz = map.write_zipper();
         wz.descend_to([193, 191]);
@@ -2847,7 +2847,7 @@ mod tests {
             "123:Jim:Felix",
             "123:Pam:Bandit",
             "123:Sue:Cornelius"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(b"123:");
 
         wz.insert_prefix(b"pet:");
@@ -2880,7 +2880,7 @@ mod tests {
             "123:Sue.Cornelius"];
 
         //Test where we don't bottom-out the zipper
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(b"123");
 
         wz.descend_to(b":Pam");
@@ -2891,7 +2891,7 @@ mod tests {
         assert_eq!(map.get(b"123.Bandit"), Some(&2));
 
         //Test where we *do* exactly bottom-out the zipper
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(b"123:");
 
         wz.descend_to(b"Pam.");
@@ -2902,7 +2902,7 @@ mod tests {
         assert_eq!(map.get(b"123:Bandit"), Some(&2));
 
         //Now test where we crash into the bottom of the zipper
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wz = map.write_zipper_at_path(b"123:");
 
         wz.descend_to(b"Pam.");
@@ -2916,7 +2916,7 @@ mod tests {
     #[test]
     fn write_zipper_map_test() {
         let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wr = map.write_zipper();
         wr.descend_to(b"rom");
@@ -2941,7 +2941,7 @@ mod tests {
     fn write_zipper_mask_children_and_values() {
         let keys = ["arrow", "bow", "cannon", "roman", "romane", "romanus", "romulus", "rubens", "ruber", "rubicon", "rubicundus", "rom'i",
             "abcdefghijklmnopqrstuvwxyz"];
-        let mut map: BytesTrieMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
+        let mut map: PathMap<i32> = keys.iter().enumerate().map(|(i, k)| (k, i as i32)).collect();
 
         let mut wr = map.write_zipper();
 
@@ -2966,7 +2966,7 @@ mod tests {
             "123:cat:Jim:Felix",
             "123:dog:Pam:Bandit",
             "123:owl:Sue:Cornelius"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wr = map.write_zipper();
         wr.descend_to("123:".as_bytes());
@@ -2997,7 +2997,7 @@ mod tests {
             "a1a2",
             "a1a1a",
             "a1a1b"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         let mut wr = map.write_zipper_at_path(b"a1");
         // println!("{:?}", wr.child_mask());
 
@@ -3016,7 +3016,7 @@ mod tests {
     #[test]
     fn write_zipper_remove_unmask_branches() {
         let keys = ["Wilson", "Taft", "Roosevelt", "McKinley", "Cleveland", "Harrison", "Arthur", "Garfield"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut wr = map.write_zipper();
         wr.remove_unmasked_branches([0xFF, !(1<<(b'M'-64)), 0xFF, 0xFF].into());
@@ -3047,7 +3047,7 @@ mod tests {
             "123:cat:Jim:Felix",
             "123:dog:Pam:Bandit",
             "123:owl:Sue:Cornelius"];
-        let mut map: BytesTrieMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
+        let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         // Simplistic test where the WZ is untracker, created with a statically safe method
         let mut wz = map.write_zipper_at_path(b"12");
@@ -3090,7 +3090,7 @@ mod tests {
 
     #[test]
     fn write_zipper_join_results_test() {
-        let mut map = BytesTrieMap::<bool>::new();
+        let mut map = PathMap::<bool>::new();
         let head = map.zipper_head();
 
         // Empty \/-> Empty should be `None`
@@ -3185,7 +3185,7 @@ mod tests {
     /// Tests correctness of the `origin_path` for a WriteZipper off a map
     #[test]
     fn origin_path_test1() {
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         let mut wz = map.write_zipper_at_path(b"This path can take you anywhere.  Just close your eyes...");
 
         assert_eq!(wz.path(), b"");
@@ -3203,7 +3203,7 @@ mod tests {
     /// Tests the origin_path for zippers created from a ZipperHead
     #[test]
     fn origin_path_test2() {
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         map.insert(b"You can do anything with Zombocom.  The only limit is yourself.", ());
         let zh = map.zipper_head();
 
@@ -3259,7 +3259,7 @@ mod tests {
 
     #[test]
     fn write_zipper_prune_path_test1() {
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         map.insert([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128], ());
         map.insert([196, 34, 48, 49, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 196, 112, 97, 105, 114, 128, 129], ());
         let mut wz = map.write_zipper();
@@ -3305,21 +3305,21 @@ mod tests {
 
     crate::zipper::zipper_moving_tests::zipper_moving_tests!(write_zipper,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> WriteZipperUntracked<(), GlobalAlloc> {
+        |btm: &mut PathMap<()>, path: &[u8]| -> WriteZipperUntracked<(), GlobalAlloc> {
             btm.write_zipper_at_path(path)
     });
 
     crate::zipper::zipper_iteration_tests::zipper_iteration_tests!(write_zipper_owned,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> WriteZipperOwned<()> {
+        |btm: &mut PathMap<()>, path: &[u8]| -> WriteZipperOwned<()> {
             btm.clone().into_write_zipper(path)
     });
 }

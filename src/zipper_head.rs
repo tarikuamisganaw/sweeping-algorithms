@@ -2,7 +2,7 @@
 use core::cell::UnsafeCell;
 
 use crate::{Allocator, GlobalAlloc};
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use crate::trie_node::*;
 use crate::zipper::*;
 use crate::zipper::zipper_priv::ZipperPriv;
@@ -177,7 +177,7 @@ impl<'parent, 'trie: 'parent, V: Clone + Send + Sync + Unpin, A: Allocator> Zipp
     }
     /// Consumes the `ZipperHeadOwned` and returns a map containing the trie created by the zippers from
     /// the zipper head
-    pub fn into_map(self) -> BytesTrieMap<V, A> {
+    pub fn into_map(self) -> PathMap<V, A> {
         self.z.into_inner().unwrap().into_map()
     }
 }
@@ -458,7 +458,7 @@ fn prepare_node_at_path_end<'a, V: Clone + Send + Sync, A: Allocator>(start_node
 
 #[cfg(test)]
 mod tests {
-    use crate::{trie_map::BytesTrieMap, utils::BitMask};
+    use crate::{PathMap, utils::BitMask};
     use crate::zipper::*;
     use crate::tests::prefix_key;
     use std::{thread, thread::ScopedJoinHandle};
@@ -473,7 +473,7 @@ mod tests {
         let thread_cnt = 8;
         let elements_per_thread = elements / thread_cnt;
 
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
         let zipper_head = map.zipper_head();
 
         thread::scope(|scope| {
@@ -529,7 +529,7 @@ mod tests {
         let thread_cnt: usize = 4;
         let elements_per_thread = elements / thread_cnt;
 
-        let mut map = BytesTrieMap::<usize>::new();
+        let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper_at_path(b"in");
         for n in 0..thread_cnt {
             for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
@@ -609,7 +609,7 @@ mod tests {
 
     #[test]
     fn zipper_head1() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make a ZipperHead for the whole map, and make a WriteZipper for a branch within the map
         let map_head = map.zipper_head();
@@ -622,7 +622,7 @@ mod tests {
 
     #[test]
     fn zipper_head2() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make a ZipperHead for the whole map, and then a zipper at the root
         //This degenerate case should be identical to making a WriteZipper from the map root
@@ -637,7 +637,7 @@ mod tests {
 
     #[test]
     fn zipper_head3() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make a WriteZipper in a plece that will require creating multiple nodes
         let map_head = map.zipper_head();
@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn zipper_head4() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make a WriteZipper in a place that will require splitting an existing path
         map.insert(b"test:3", 3);
@@ -671,7 +671,7 @@ mod tests {
 
     #[test]
     fn zipper_head5() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Work around a "stump" (aka a zipper root, aka a CellByteNodes that belonged to a zipper that was dropped)
         let map_head = map.zipper_head();
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn zipper_head6() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make sure that inserting a WriteZipper doesn't chop off any downstream parts of the trie
         map.insert(b"test:1", 1);
@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn zipper_head7() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make sure I can upgrade an ordinary ByteNode into a CellNode without losing anything
         map.insert(b"test:1", 1);
@@ -739,7 +739,7 @@ mod tests {
     /// Tests a zipper head that starts from a path other than the map root 
     #[test]
     fn zipper_head8() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
         map.insert(b"start:0000:hello", 0);
 
         let mut wz = map.write_zipper();
@@ -760,7 +760,7 @@ mod tests {
     /// A test for the tracker logic, testing many parallel [WriteZipper]s at once
     #[test]
     fn zipper_head9() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
         map.insert(b"start:0000:hello", 0);
         map.insert(b"start:0001:hello", 1);
         map.insert(b"start:0002:hello", 2);
@@ -803,7 +803,7 @@ mod tests {
     fn zipper_heada() {
         //This hits the case where we attempt to make a WriteZipper rooted in the middle of an existing ListNode
         // This tests the `prepare_node_at_path_end` code path in the WriteZipper creation
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         map.insert([1], ());
         map.insert([2], ());
         map.insert([3, 193, 4], ());
@@ -818,7 +818,7 @@ mod tests {
 
         //This hits the case where we need to upgrade a node that was used to make the root of a ReadZipper
         // This tests the `splitting_borrow_focus` code path in ReadZipper creation
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         map.insert([1], ());
         map.insert([2], ());
         map.insert([3, 193, 4], ());
@@ -844,7 +844,7 @@ mod tests {
     /// Dance a bunch of readers and writers inside the same zipper head
     #[test]
     fn zipper_headb() {
-        let space = BytesTrieMap::<()>::new().into_zipper_head(&[]);
+        let space = PathMap::<()>::new().into_zipper_head(&[]);
 
         let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4,]) };
         wz.descend_to(&[200, 0, 0, 0, 0, 0, 0, 0, 5]);
@@ -884,7 +884,7 @@ mod tests {
 
     #[test]
     fn hierarchical_zipper_heads1() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make a ZipperHead for the whole map, and two child zippers
         let map_head = map.zipper_head();
@@ -967,7 +967,7 @@ mod tests {
 
     #[test]
     fn hierarchical_zipper_heads2() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make a ZipperHead for the whole map, and two child zippers
         let map_head = map.zipper_head();
@@ -1017,7 +1017,7 @@ mod tests {
 
     #[test]
     fn hierarchical_zipper_heads3() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
 
         //Make a ZipperHead for the whole map, and then a zipper for a branch within the map
         let map_head = map.zipper_head();
@@ -1046,7 +1046,7 @@ mod tests {
     /// Use a [ZipperHeadOwned] to write a bunch of paths into the map, single-threaded
     #[test]
     fn owned_zipper_head_test1() {
-        let mut map = BytesTrieMap::<isize>::new();
+        let mut map = PathMap::<isize>::new();
         map.insert(b"start:0000:hello", 0);
         map.insert(b"start:0001:hello", 1);
         map.insert(b"start:0002:hello", 2);
@@ -1092,7 +1092,7 @@ mod tests {
         let thread_cnt: usize = 8;
         let elements_per_thread = elements / thread_cnt;
 
-        let mut map = BytesTrieMap::<u32>::new();
+        let mut map = PathMap::<u32>::new();
         for i in 0u32..(elements as u32) {
             let mut path = b"start:".to_vec();
             path.extend(i.to_be_bytes());
@@ -1141,7 +1141,7 @@ mod tests {
     /// Tests the [ZipperHead::cleanup_write_zipper] method
     #[test]
     fn cleanup_write_zipper_test1() {
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         map.insert("the_path_to_somewhere", ());
 
         //First ensure we *do* have a dangling path from these operations
@@ -1163,7 +1163,7 @@ mod tests {
     /// Tests the [ZipperHead::cleanup_write_zipper] method
     #[test]
     fn cleanup_write_zipper_test2() {
-        let mut map = BytesTrieMap::<()>::new();
+        let mut map = PathMap::<()>::new();
         map.insert("a_path_to_somewhere", ());
         let zh = map.zipper_head();
 

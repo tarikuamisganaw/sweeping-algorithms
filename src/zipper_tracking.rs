@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use crate::trie_map::BytesTrieMap;
+use crate::PathMap;
 use crate::zipper::{ReadZipperUntracked, Zipper, ZipperAbsolutePath, ZipperForking, ZipperMoving, ZipperReadOnlyValues, ZipperWriting, ZipperIteration, ZipperReadOnlyIteration, };
 
 /// Marker to track an outstanding read zipper
@@ -120,7 +120,7 @@ impl Conflict {
         }
     }
 
-    fn check_for_write_conflict<C, ConflictF: FnOnce(&[u8])->C>(path: &[u8], all_paths: &BytesTrieMap<()>, conflict_f: ConflictF) -> Result<(), C> {
+    fn check_for_write_conflict<C, ConflictF: FnOnce(&[u8])->C>(path: &[u8], all_paths: &PathMap<()>, conflict_f: ConflictF) -> Result<(), C> {
         let mut zipper = all_paths.read_zipper();
         match Conflict::check_for_lock_along_path(path, &mut zipper) {
             None =>
@@ -143,7 +143,7 @@ impl Conflict {
 
     fn check_for_read_conflict<C, ConflictF: FnOnce(NonZeroU32, &[u8])->C>(
         path: &[u8],
-        all_paths: &BytesTrieMap<NonZeroU32>,
+        all_paths: &PathMap<NonZeroU32>,
         conflict_f: ConflictF
     ) -> Result<(), C> {
         let mut zipper = all_paths.read_zipper();
@@ -184,8 +184,8 @@ pub struct SharedTrackerPaths(Arc<RwLock<TrackerPaths>>);
 
 #[derive(Clone, Default)]
 struct TrackerPaths {
-    read_paths: BytesTrieMap<NonZeroU32>,
-    written_paths: BytesTrieMap<()>,
+    read_paths: PathMap<NonZeroU32>,
+    written_paths: PathMap<()>,
 }
 
 /// Represents the status of a specific path, returned by [SharedTrackerPaths::path_status]

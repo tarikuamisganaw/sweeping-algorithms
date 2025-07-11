@@ -342,7 +342,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
 mod tests {
     use crate::utils::ByteMask;
     use crate::zipper::*;
-    use crate::trie_map::BytesTrieMap;
+    use crate::PathMap;
     use crate::morphisms::{Catamorphism, SplitCata};
 
     /// Tests a very simple two-level product zipper
@@ -350,8 +350,8 @@ mod tests {
     fn product_zipper_test1() {
         let keys = [b"AAa", b"AAb", b"AAc"];
         let keys2 = [b"DDd", b"EEe", b"FFf"];
-        let map: BytesTrieMap<u64> = keys.into_iter().enumerate().map(|(i, v)| (v, i as u64)).collect();
-        let map2: BytesTrieMap<u64> = keys2.into_iter().enumerate().map(|(i, v)| (v, (i + 1000) as u64)).collect();
+        let map: PathMap<u64> = keys.into_iter().enumerate().map(|(i, v)| (v, i as u64)).collect();
+        let map2: PathMap<u64> = keys2.into_iter().enumerate().map(|(i, v)| (v, (i + 1000) as u64)).collect();
 
         let rz = map.read_zipper();
         let mut pz = ProductZipper::new(rz, [map2.read_zipper()]);
@@ -456,9 +456,9 @@ mod tests {
         let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes()];
         let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes()];
         let epaths = ["foo".as_bytes(), "pho".as_bytes()];
-        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let l = PathMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = PathMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = PathMap::from_iter(epaths.iter().map(|x| (x, ())));
         let p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
 
         let mut map_cnt = 0;
@@ -485,9 +485,9 @@ mod tests {
         let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
         let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
         let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
-        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let l = PathMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = PathMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = PathMap::from_iter(epaths.iter().map(|x| (x, ())));
         let p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
 
         let mut map_cnt = 0;
@@ -528,9 +528,9 @@ mod tests {
         let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
         let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
         let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
-        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let l = PathMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = PathMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = PathMap::from_iter(epaths.iter().map(|x| (x, ())));
         let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
 
         p.descend_to("abcdefghijklmnopqrstuvwxyzbo");
@@ -550,9 +550,9 @@ mod tests {
         let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
         let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
         let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
-        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let l = PathMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = PathMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = PathMap::from_iter(epaths.iter().map(|x| (x, ())));
 
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
@@ -598,9 +598,9 @@ mod tests {
         let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arrow".as_bytes(), "x".as_bytes(), "arr".as_bytes()];
         let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bow".as_bytes(), "bo".as_bytes()];
         let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
-        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let l = PathMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = PathMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = PathMap::from_iter(epaths.iter().map(|x| (x, ())));
 
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
@@ -617,9 +617,9 @@ mod tests {
         let apaths = ["arr".as_bytes(), "arrow".as_bytes(), "arrowhead".as_bytes()];
         let bpaths = ["bo".as_bytes(), "bow".as_bytes(), "bowie".as_bytes()];
         let cpaths = ["cl".as_bytes(), "club".as_bytes(), "clubhouse".as_bytes()];
-        let a = BytesTrieMap::from_iter(apaths.iter().map(|x| (x, ())));
-        let b = BytesTrieMap::from_iter(bpaths.iter().map(|x| (x, ())));
-        let c = BytesTrieMap::from_iter(cpaths.iter().map(|x| (x, ())));
+        let a = PathMap::from_iter(apaths.iter().map(|x| (x, ())));
+        let b = PathMap::from_iter(bpaths.iter().map(|x| (x, ())));
+        let c = PathMap::from_iter(cpaths.iter().map(|x| (x, ())));
         let mut p1 = ProductZipper::new(a.read_zipper(), [b.read_zipper(), c.read_zipper()]);
         let mut p2 = ProductZipper::new(a.read_zipper(), [b.read_zipper(), c.read_zipper()]);
 
@@ -703,9 +703,9 @@ mod tests {
         let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arr".as_bytes(), "arrow".as_bytes(), "x".as_bytes()];
         let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bo".as_bytes(), "bow".as_bytes(), "bat".as_bytes(), "bit".as_bytes()];
         let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
-        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let l = PathMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = PathMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = PathMap::from_iter(epaths.iter().map(|x| (x, ())));
 
         let new_pz = || ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
 
@@ -738,9 +738,9 @@ mod tests {
         let lpaths = ["abcdefghijklmnopqrstuvwxyz".as_bytes(), "arr".as_bytes(), "arrow".as_bytes(), "x".as_bytes()];
         let rpaths = ["ABCDEFGHIJKLMNOPQRSTUVWXYZ".as_bytes(), "a".as_bytes(), "bo".as_bytes(), "bow".as_bytes(), "bat".as_bytes(), "bit".as_bytes()];
         let epaths = ["foo".as_bytes(), "pho".as_bytes(), "f".as_bytes()];
-        let l = BytesTrieMap::from_iter(lpaths.iter().map(|x| (x, ())));
-        let r = BytesTrieMap::from_iter(rpaths.iter().map(|x| (x, ())));
-        let e = BytesTrieMap::from_iter(epaths.iter().map(|x| (x, ())));
+        let l = PathMap::from_iter(lpaths.iter().map(|x| (x, ())));
+        let r = PathMap::from_iter(rpaths.iter().map(|x| (x, ())));
+        let e = PathMap::from_iter(epaths.iter().map(|x| (x, ())));
 
         let mut pz = ProductZipper::new(l.read_zipper_at_borrowed_path(b"abcdefghijklm"), [r.read_zipper(), e.read_zipper()]);
 
@@ -774,21 +774,21 @@ mod tests {
 
     crate::zipper::zipper_moving_tests::zipper_moving_tests!(product_zipper,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> _ {
+        |btm: &mut PathMap<()>, path: &[u8]| -> _ {
             ProductZipper::new::<_, TrieRef<()>, _>(btm.read_zipper_at_path(path), [])
     });
 
     crate::zipper::zipper_iteration_tests::zipper_iteration_tests!(product_zipper,
         |keys: &[&[u8]]| {
-            let mut btm = BytesTrieMap::new();
+            let mut btm = PathMap::new();
             keys.iter().for_each(|k| { btm.insert(k, ()); });
             btm
         },
-        |btm: &mut BytesTrieMap<()>, path: &[u8]| -> _ {
+        |btm: &mut PathMap<()>, path: &[u8]| -> _ {
             ProductZipper::new::<_, TrieRef<()>, _>(btm.read_zipper_at_path(path), [])
     });
 }
