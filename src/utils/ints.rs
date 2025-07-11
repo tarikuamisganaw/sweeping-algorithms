@@ -1,4 +1,8 @@
 
+//! Utilities for encoding, decoding, and working with integers represented within paths.  Including a
+//! range generator for making efficient ranges to use as arguments to some space-wide operations
+//!
+
 use std::collections::HashMap;
 
 use crate::PathMap;
