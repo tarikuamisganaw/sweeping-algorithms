@@ -281,12 +281,12 @@ mod test {
 
             let mut lrz = restored_btm.read_zipper();
             while let Some(v) = lrz.to_next_get_value() {
-              assert_eq!(btm.get(lrz.path()), Some(v));
+              assert_eq!(btm.get_val_at(lrz.path()), Some(v));
             }
 
             let mut rrz = btm.read_zipper();
             while let Some(v) = rrz.to_next_get_value() {
-              assert_eq!(restored_btm.get(rrz.path()), Some(v));
+              assert_eq!(restored_btm.get_val_at(rrz.path()), Some(v));
             }
           }
           Err(e) => { println!("de e {}", e) }

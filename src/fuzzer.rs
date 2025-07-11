@@ -495,8 +495,8 @@ mod tests {
     trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|mut trie| {
       // println!("let mut btm = PathMap::from_iter({:?}.iter().map(|(p, v)| (p.as_bytes(), v)));", trie.iter().map(|(p, v)| (String::from_utf8(p).unwrap(), v)).collect::<Vec<_>>());
       path_fuzzer.clone().sample_iter(rng.clone()).take(N_REMOVES).for_each(|path| {
-        // println!("btm.remove({:?}.as_bytes());", String::from_utf8(path.clone()).unwrap());
-        trie.remove(path);
+        // println!("btm.remove_val_at({:?}.as_bytes());", String::from_utf8(path.clone()).unwrap());
+        trie.remove_val_at(path);
       });
       black_box(trie);
     })
@@ -578,18 +578,18 @@ mod tests {
       let mut rz = trie.read_zipper();
       path_fuzzer.clone().sample_iter(rng.clone()).take(N_DESCENDS).for_each(|path| {
         rz.descend_to(&path[..]);
-        assert_eq!(rz.get_value(), trie.get(&path[..]));
+        assert_eq!(rz.get_value(), trie.get_val_at(&path[..]));
         path_fuzzer.clone().sample_iter(rng_.clone()).take(N_DESCENDS).for_each(|path| {
           rz.descend_to(&path[..]);
           rz.ascend(path.len());
         });
         assert_eq!(rz.path(), &path[..]);
-        assert_eq!(rz.get_value(), trie.get(&path[..]));
+        assert_eq!(rz.get_value(), trie.get_val_at(&path[..]));
         path_fuzzer.clone().sample_iter(rng_.clone()).take(N_DESCENDS).for_each(|path| {
           // println!("prev {:?}", rz.path());
           rz.move_to_path(&path[..]);
           assert_eq!(rz.path(), &path[..]);
-          assert_eq!(rz.get_value(), trie.get(&path[..]));
+          assert_eq!(rz.get_value(), trie.get_val_at(&path[..]));
         });
         rz.reset();
 

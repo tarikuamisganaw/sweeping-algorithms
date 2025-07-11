@@ -113,9 +113,9 @@ fn cities_get(bencher: Bencher) {
     let mut _map_v = 0;
     bencher.bench_local(|| {
         for (k, _v) in pairs.iter() {
-            *black_box(&mut _map_v) = *map.get(k).unwrap();
+            *black_box(&mut _map_v) = *map.get_val_at(k).unwrap();
             //Annoyingly, we can't check for the correct value because so many places share a name
-            //assert_eq!(map.get(k), Some(&v));
+            //assert_eq!(map.get_val_at(k), Some(&v));
         }
     });
 }
@@ -138,9 +138,9 @@ fn cities_get_act(bencher: Bencher) {
     let mut _map_v = 0;
     bencher.bench_local(|| {
         for (k, _v) in pairs.iter() {
-            *black_box(&mut _map_v) = act.get(k).unwrap();
+            *black_box(&mut _map_v) = act.get_val_at(k).unwrap();
             //Annoyingly, we can't check for the correct value because so many places share a name
-            //assert_eq!(map.get(k), Some(&v));
+            //assert_eq!(map.get_val_at(k), Some(&v));
         }
     });
 }

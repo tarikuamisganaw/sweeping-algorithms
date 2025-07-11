@@ -704,7 +704,8 @@ where Storage: AsRef<[u8]>
         (node, node_id, next)
     }
 
-    pub fn get(&self, path: impl AsRef<[u8]>) -> Option<u64> {
+    /// Returns the value at the specified `path`, or `None` if no value exists
+    pub fn get_val_at<K: AsRef<[u8]>>(&self, path: K) -> Option<u64> {
         let mut path = path.as_ref();
         let mut cur_node = self.get_root().0;
         loop {
@@ -731,6 +732,12 @@ where Storage: AsRef<[u8]>
                 }
             }
         }
+    }
+
+    /// Deprecated alias for [Self::get_val_at]
+    #[deprecated] //GOAT-old-names
+    pub fn get<K: AsRef<[u8]>>(&self, path: K) -> Option<u64> {
+        self.get_val_at(path)
     }
 }
 
@@ -2057,7 +2064,7 @@ mod tests {
         let btm = PathMap::from_iter(path_vals.clone());
         let act = ArenaCompactTree::from_zipper(btm.read_zipper(), |&v| v);
         for (path, idx) in path_vals {
-            assert_eq!(Some(idx), act.get(path));
+            assert_eq!(Some(idx), act.get_val_at(path));
         }
     }
 

@@ -1820,8 +1820,8 @@ mod tests {
         //     println!("{}", String::from_utf8_lossy(&path));
         // }
         assert_eq!(map.val_count(), 8);
-        assert_eq!(map.get(b"Left:Right:Left:"), Some(&()));
-        assert_eq!(map.get(b"Right:Left:Right:"), Some(&()));
+        assert_eq!(map.get_val_at(b"Left:Right:Left:"), Some(&()));
+        assert_eq!(map.get_val_at(b"Right:Left:Right:"), Some(&()));
 
         //Try intermixing whole strings and bytes
         let map: PathMap<()> = PathMap::<()>::new_from_ana(7, |idx, val, children, _path| {
@@ -1842,8 +1842,8 @@ mod tests {
         //     println!("{}", String::from_utf8_lossy(&path));
         // }
         assert_eq!(map.val_count(), 128);
-        assert_eq!(map.get(b"Right-Right+Left-Left"), Some(&()));
-        assert_eq!(map.get(b"Left-Right-Right+Left"), Some(&()));
+        assert_eq!(map.get_val_at(b"Right-Right+Left-Left"), Some(&()));
+        assert_eq!(map.get_val_at(b"Left-Right-Right+Left"), Some(&()));
 
         //Intermix them in the same child list
         let map: PathMap<()> = PathMap::<()>::new_from_ana(7, |idx, val, children, _path| {
@@ -1864,9 +1864,9 @@ mod tests {
         //     println!("{}", String::from_utf8_lossy(&path));
         // }
         assert_eq!(map.val_count(), 128);
-        assert_eq!(map.get(b"Right+-+-+-"), Some(&()));
-        assert_eq!(map.get(b"-+-+-+-"), Some(&()));
-        assert_eq!(map.get(b"RightLeftRightLeftRightLeftRight"), Some(&()));
+        assert_eq!(map.get_val_at(b"Right+-+-+-"), Some(&()));
+        assert_eq!(map.get_val_at(b"-+-+-+-"), Some(&()));
+        assert_eq!(map.get_val_at(b"RightLeftRightLeftRightLeftRight"), Some(&()));
     }
 
     const GREETINGS: &[&str] = &["Hallo,Afrikaans", "Përshëndetje,Albanian", "እው ሰላም ነው,Amharic", "مرحبًا,Arabic",

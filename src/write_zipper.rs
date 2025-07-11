@@ -2262,10 +2262,10 @@ mod tests {
     fn write_zipper_get_or_insert_value_test() {
         let mut map = PathMap::<u64>::new();
         map.write_zipper_at_path(b"Drenths").get_value_or_insert(42);
-        assert_eq!(map.get(b"Drenths"), Some(&42));
+        assert_eq!(map.get_val_at(b"Drenths"), Some(&42));
 
         *map.write_zipper_at_path(b"Drenths").get_value_or_insert(42) = 24;
-        assert_eq!(map.get(b"Drenths"), Some(&24));
+        assert_eq!(map.get_val_at(b"Drenths"), Some(&24));
 
         let mut zipper = map.write_zipper_at_path(b"Drenths");
         *zipper.get_value_or_insert(42) = 0;
@@ -2273,10 +2273,10 @@ mod tests {
         drop(zipper);
 
         map.write_zipper().get_value_or_insert(42);
-        assert_eq!(map.get([]), Some(&42));
+        assert_eq!(map.get_val_at([]), Some(&42));
 
         *map.write_zipper().get_value_or_insert(42) = 24;
-        assert_eq!(map.get([]), Some(&24));
+        assert_eq!(map.get_val_at([]), Some(&24));
 
         let mut zipper = map.write_zipper();
         *zipper.get_value_or_insert(42) = 0;
@@ -2317,10 +2317,10 @@ mod tests {
         for i in 0..N {
             in_path.truncate(3);
             in_path.extend(i.to_be_bytes());
-            assert_eq!(map.get(&in_path), Some(&i));
+            assert_eq!(map.get_val_at(&in_path), Some(&i));
             out_path.truncate(4);
             out_path.extend(i.to_be_bytes());
-            assert_eq!(map.get(&out_path), Some(&(i * 65536)));
+            assert_eq!(map.get_val_at(&out_path), Some(&(i * 65536)));
         }
     }
 
@@ -2338,29 +2338,29 @@ mod tests {
         drop(wz);
 
         //Test that the original keys were left alone, above the graft point
-        assert_eq!(a.get(b"arrow").unwrap(), &0);
-        assert_eq!(a.get(b"bow").unwrap(), &1);
-        assert_eq!(a.get(b"cannon").unwrap(), &2);
+        assert_eq!(a.get_val_at(b"arrow").unwrap(), &0);
+        assert_eq!(a.get_val_at(b"bow").unwrap(), &1);
+        assert_eq!(a.get_val_at(b"cannon").unwrap(), &2);
 
         //Test that the pruned keys are gone
-        assert_eq!(a.get(b"roman"), None);
-        assert_eq!(a.get(b"romulus"), None);
-        assert_eq!(a.get(b"rom'i"), None);
+        assert_eq!(a.get_val_at(b"roman"), None);
+        assert_eq!(a.get_val_at(b"romulus"), None);
+        assert_eq!(a.get_val_at(b"rom'i"), None);
 
         //More keys after but above the graft point weren't harmed
-        assert_eq!(a.get(b"rubens").unwrap(), &7);
-        assert_eq!(a.get(b"ruber").unwrap(), &8);
-        assert_eq!(a.get(b"rubicundus").unwrap(), &10);
+        assert_eq!(a.get_val_at(b"rubens").unwrap(), &7);
+        assert_eq!(a.get_val_at(b"ruber").unwrap(), &8);
+        assert_eq!(a.get_val_at(b"rubicundus").unwrap(), &10);
 
         //And test that the new keys were grafted into place
-        assert_eq!(a.get(b"road").unwrap(), &1000);
-        assert_eq!(a.get(b"rod").unwrap(), &1001);
-        assert_eq!(a.get(b"roll").unwrap(), &1002);
-        assert_eq!(a.get(b"roof").unwrap(), &1003);
-        assert_eq!(a.get(b"room").unwrap(), &1004);
-        assert_eq!(a.get(b"root").unwrap(), &1005);
-        assert_eq!(a.get(b"rough").unwrap(), &1006);
-        assert_eq!(a.get(b"round").unwrap(), &1007);
+        assert_eq!(a.get_val_at(b"road").unwrap(), &1000);
+        assert_eq!(a.get_val_at(b"rod").unwrap(), &1001);
+        assert_eq!(a.get_val_at(b"roll").unwrap(), &1002);
+        assert_eq!(a.get_val_at(b"roof").unwrap(), &1003);
+        assert_eq!(a.get_val_at(b"room").unwrap(), &1004);
+        assert_eq!(a.get_val_at(b"root").unwrap(), &1005);
+        assert_eq!(a.get_val_at(b"rough").unwrap(), &1006);
+        assert_eq!(a.get_val_at(b"round").unwrap(), &1007);
     }
 
     #[test]
@@ -2381,29 +2381,29 @@ mod tests {
 
         //Test that the original keys were left alone, above the graft point
         assert_eq!(a.val_count(), 20);
-        assert_eq!(a.get(b"arrow").unwrap(), &0);
-        assert_eq!(a.get(b"bow").unwrap(), &1);
-        assert_eq!(a.get(b"cannon").unwrap(), &2);
+        assert_eq!(a.get_val_at(b"arrow").unwrap(), &0);
+        assert_eq!(a.get_val_at(b"bow").unwrap(), &1);
+        assert_eq!(a.get_val_at(b"cannon").unwrap(), &2);
 
         //Test that the blended downstream keys are still there
-        assert_eq!(a.get(b"roman").unwrap(), &3);
-        assert_eq!(a.get(b"romulus").unwrap(), &6);
-        assert_eq!(a.get(b"rom'i").unwrap(), &11);
+        assert_eq!(a.get_val_at(b"roman").unwrap(), &3);
+        assert_eq!(a.get_val_at(b"romulus").unwrap(), &6);
+        assert_eq!(a.get_val_at(b"rom'i").unwrap(), &11);
 
         //More keys after but above the graft point weren't harmed
-        assert_eq!(a.get(b"rubens").unwrap(), &7);
-        assert_eq!(a.get(b"ruber").unwrap(), &8);
-        assert_eq!(a.get(b"rubicundus").unwrap(), &10);
+        assert_eq!(a.get_val_at(b"rubens").unwrap(), &7);
+        assert_eq!(a.get_val_at(b"ruber").unwrap(), &8);
+        assert_eq!(a.get_val_at(b"rubicundus").unwrap(), &10);
 
         //And test that the new keys were grafted into place
-        assert_eq!(a.get(b"road").unwrap(), &1000);
-        assert_eq!(a.get(b"rod").unwrap(), &1001);
-        assert_eq!(a.get(b"roll").unwrap(), &1002);
-        assert_eq!(a.get(b"roof").unwrap(), &1003);
-        assert_eq!(a.get(b"room").unwrap(), &1004);
-        assert_eq!(a.get(b"root").unwrap(), &1005);
-        assert_eq!(a.get(b"rough").unwrap(), &1006);
-        assert_eq!(a.get(b"round").unwrap(), &1007);
+        assert_eq!(a.get_val_at(b"road").unwrap(), &1000);
+        assert_eq!(a.get_val_at(b"rod").unwrap(), &1001);
+        assert_eq!(a.get_val_at(b"roll").unwrap(), &1002);
+        assert_eq!(a.get_val_at(b"roof").unwrap(), &1003);
+        assert_eq!(a.get_val_at(b"room").unwrap(), &1004);
+        assert_eq!(a.get_val_at(b"root").unwrap(), &1005);
+        assert_eq!(a.get_val_at(b"rough").unwrap(), &1006);
+        assert_eq!(a.get_val_at(b"round").unwrap(), &1007);
     }
 
     #[test]
@@ -2414,23 +2414,23 @@ mod tests {
         assert_eq!(map.val_count(), 20);
 
         assert_eq!(map.val_count(), 20);
-        assert_eq!(map.get(b"a:arrow").unwrap(), &0);
-        assert_eq!(map.get(b"a:bow").unwrap(), &1);
-        assert_eq!(map.get(b"a:cannon").unwrap(), &2);
-        assert_eq!(map.get(b"a:roman").unwrap(), &3);
-        assert_eq!(map.get(b"a:romulus").unwrap(), &6);
-        assert_eq!(map.get(b"a:rom'i").unwrap(), &11);
-        assert_eq!(map.get(b"a:rubens").unwrap(), &7);
-        assert_eq!(map.get(b"a:ruber").unwrap(), &8);
-        assert_eq!(map.get(b"a:rubicundus").unwrap(), &10);
-        assert_eq!(map.get(b"b:road").unwrap(), &12);
-        assert_eq!(map.get(b"b:rod").unwrap(), &13);
-        assert_eq!(map.get(b"b:roll").unwrap(), &14);
-        assert_eq!(map.get(b"b:roof").unwrap(), &15);
-        assert_eq!(map.get(b"b:room").unwrap(), &16);
-        assert_eq!(map.get(b"b:root").unwrap(), &17);
-        assert_eq!(map.get(b"b:rough").unwrap(), &18);
-        assert_eq!(map.get(b"b:round").unwrap(), &19);
+        assert_eq!(map.get_val_at(b"a:arrow").unwrap(), &0);
+        assert_eq!(map.get_val_at(b"a:bow").unwrap(), &1);
+        assert_eq!(map.get_val_at(b"a:cannon").unwrap(), &2);
+        assert_eq!(map.get_val_at(b"a:roman").unwrap(), &3);
+        assert_eq!(map.get_val_at(b"a:romulus").unwrap(), &6);
+        assert_eq!(map.get_val_at(b"a:rom'i").unwrap(), &11);
+        assert_eq!(map.get_val_at(b"a:rubens").unwrap(), &7);
+        assert_eq!(map.get_val_at(b"a:ruber").unwrap(), &8);
+        assert_eq!(map.get_val_at(b"a:rubicundus").unwrap(), &10);
+        assert_eq!(map.get_val_at(b"b:road").unwrap(), &12);
+        assert_eq!(map.get_val_at(b"b:rod").unwrap(), &13);
+        assert_eq!(map.get_val_at(b"b:roll").unwrap(), &14);
+        assert_eq!(map.get_val_at(b"b:roof").unwrap(), &15);
+        assert_eq!(map.get_val_at(b"b:room").unwrap(), &16);
+        assert_eq!(map.get_val_at(b"b:root").unwrap(), &17);
+        assert_eq!(map.get_val_at(b"b:rough").unwrap(), &18);
+        assert_eq!(map.get_val_at(b"b:round").unwrap(), &19);
 
         let head = map.zipper_head();
         let mut a = head.write_zipper_at_exclusive_path(b"a:").unwrap();
@@ -2448,26 +2448,26 @@ mod tests {
 
         //Test the keys are where we expect them to be, and not where they should not be
         assert_eq!(map.val_count(), 20);
-        assert_eq!(map.get(b"a:arrow").unwrap(), &0);
-        assert_eq!(map.get(b"a:bow").unwrap(), &1);
-        assert_eq!(map.get(b"a:cannon").unwrap(), &2);
-        assert_eq!(map.get(b"a:roman").unwrap(), &3);
-        assert_eq!(map.get(b"a:romulus").unwrap(), &6);
-        assert_eq!(map.get(b"a:rom'i").unwrap(), &11);
-        assert_eq!(map.get(b"a:rubens").unwrap(), &7);
-        assert_eq!(map.get(b"a:ruber").unwrap(), &8);
-        assert_eq!(map.get(b"a:rubicundus").unwrap(), &10);
-        assert_eq!(map.get(b"a:road").unwrap(), &12);
-        assert_eq!(map.get(b"a:rod").unwrap(), &13);
-        assert_eq!(map.get(b"a:roll").unwrap(), &14);
-        assert_eq!(map.get(b"a:roof").unwrap(), &15);
-        assert_eq!(map.get(b"a:room").unwrap(), &16);
-        assert_eq!(map.get(b"a:root").unwrap(), &17);
-        assert_eq!(map.get(b"a:rough").unwrap(), &18);
-        assert_eq!(map.get(b"a:round").unwrap(), &19);
+        assert_eq!(map.get_val_at(b"a:arrow").unwrap(), &0);
+        assert_eq!(map.get_val_at(b"a:bow").unwrap(), &1);
+        assert_eq!(map.get_val_at(b"a:cannon").unwrap(), &2);
+        assert_eq!(map.get_val_at(b"a:roman").unwrap(), &3);
+        assert_eq!(map.get_val_at(b"a:romulus").unwrap(), &6);
+        assert_eq!(map.get_val_at(b"a:rom'i").unwrap(), &11);
+        assert_eq!(map.get_val_at(b"a:rubens").unwrap(), &7);
+        assert_eq!(map.get_val_at(b"a:ruber").unwrap(), &8);
+        assert_eq!(map.get_val_at(b"a:rubicundus").unwrap(), &10);
+        assert_eq!(map.get_val_at(b"a:road").unwrap(), &12);
+        assert_eq!(map.get_val_at(b"a:rod").unwrap(), &13);
+        assert_eq!(map.get_val_at(b"a:roll").unwrap(), &14);
+        assert_eq!(map.get_val_at(b"a:roof").unwrap(), &15);
+        assert_eq!(map.get_val_at(b"a:room").unwrap(), &16);
+        assert_eq!(map.get_val_at(b"a:root").unwrap(), &17);
+        assert_eq!(map.get_val_at(b"a:rough").unwrap(), &18);
+        assert_eq!(map.get_val_at(b"a:round").unwrap(), &19);
 
-        assert_eq!(map.get(b"b:road"), None);
-        assert_eq!(map.get(b"b:round"), None);
+        assert_eq!(map.get_val_at(b"b:road"), None);
+        assert_eq!(map.get_val_at(b"b:round"), None);
     }
 
     #[test]
@@ -2646,17 +2646,17 @@ mod tests {
         drop(wz);
 
         //Test that the original keys were left alone, above the graft point
-        assert_eq!(map.get(b"arrow").unwrap(), &0);
-        assert_eq!(map.get(b"bow").unwrap(), &1);
-        assert_eq!(map.get(b"cannon").unwrap(), &2);
-        assert_eq!(map.get(b"rom'i").unwrap(), &11);
+        assert_eq!(map.get_val_at(b"arrow").unwrap(), &0);
+        assert_eq!(map.get_val_at(b"bow").unwrap(), &1);
+        assert_eq!(map.get_val_at(b"cannon").unwrap(), &2);
+        assert_eq!(map.get_val_at(b"rom'i").unwrap(), &11);
 
         //Test that the value is ok
-        assert_eq!(map.get(b"roman").unwrap(), &3);
+        assert_eq!(map.get_val_at(b"roman").unwrap(), &3);
 
         //Test that the pruned keys are gone
-        assert_eq!(map.get(b"romane"), None);
-        assert_eq!(map.get(b"romanus"), None);
+        assert_eq!(map.get_val_at(b"romane"), None);
+        assert_eq!(map.get_val_at(b"romanus"), None);
 
         let mut wz = map.write_zipper();
         wz.descend_to(b"ro");
@@ -2715,7 +2715,7 @@ mod tests {
         let mut map = PathMap::<u64>::new();
         map.set_val_at(key, 42);
         for i in 0..key.len() {
-            assert_eq!(map.get(&key[i..]), Some(&42));
+            assert_eq!(map.get_val_at(&key[i..]), Some(&42));
             let mut wz = map.write_zipper();
             wz.drop_head(1);
         }
@@ -2734,9 +2734,9 @@ mod tests {
             b"123456789012345678901234567890123456789012345opqrs", ];
         let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
         for i in 0..keys[0].len() {
-            assert_eq!(map.get(&keys[0][i..]), Some(&0));
+            assert_eq!(map.get_val_at(&keys[0][i..]), Some(&0));
             if i < 45 {
-                assert_eq!(map.get(&keys[9][i..]), Some(&9));
+                assert_eq!(map.get_val_at(&keys[9][i..]), Some(&9));
             }
             if i > 10 {
                 assert_eq!(map.val_count(), 11-(i/5));
@@ -2757,8 +2757,8 @@ mod tests {
         wz.drop_head(3);
         drop(wz);
 
-        assert_eq!(map.get(&vec![1, 2, 42, 237, 3, 1, 173, 165, 3, 16, 200, 213, 4, 0, 166, 47, 81, 4, 0, 167, 216, 181, 4, 6, 125, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144]), Some(&0));
-        assert_eq!(map.get(&vec![1, 2, 13, 183]), Some(&1));
+        assert_eq!(map.get_val_at(&vec![1, 2, 42, 237, 3, 1, 173, 165, 3, 16, 200, 213, 4, 0, 166, 47, 81, 4, 0, 167, 216, 181, 4, 6, 125, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144]), Some(&0));
+        assert_eq!(map.get_val_at(&vec![1, 2, 13, 183]), Some(&1));
         assert_eq!(map.val_count(), 2);
 
         let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
@@ -2766,7 +2766,7 @@ mod tests {
         wz.drop_head(27);
         drop(wz);
 
-        assert_eq!(map.get(&vec![1, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144]), Some(&0));
+        assert_eq!(map.get_val_at(&vec![1, 178, 225, 4, 6, 142, 119, 117, 4, 64, 232, 214, 129, 4, 65, 128, 13, 13, 4, 65, 144]), Some(&0));
         assert_eq!(map.val_count(), 1);
     }
 
@@ -2888,7 +2888,7 @@ mod tests {
         drop(wz);
 
         assert_eq!(map.val_count(), 1);
-        assert_eq!(map.get(b"123.Bandit"), Some(&2));
+        assert_eq!(map.get_val_at(b"123.Bandit"), Some(&2));
 
         //Test where we *do* exactly bottom-out the zipper
         let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
@@ -2899,7 +2899,7 @@ mod tests {
         drop(wz);
 
         assert_eq!(map.val_count(), 1);
-        assert_eq!(map.get(b"123:Bandit"), Some(&2));
+        assert_eq!(map.get_val_at(b"123:Bandit"), Some(&2));
 
         //Now test where we crash into the bottom of the zipper
         let mut map: PathMap<u64> = keys.iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
@@ -2910,7 +2910,7 @@ mod tests {
         drop(wz);
 
         assert_eq!(map.val_count(), 1);
-        assert_eq!(map.get(b"123:Bandit"), Some(&2));
+        assert_eq!(map.get_val_at(b"123:Bandit"), Some(&2));
     }
 
     #[test]

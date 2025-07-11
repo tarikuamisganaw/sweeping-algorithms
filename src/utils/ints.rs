@@ -232,10 +232,10 @@ fn int_range_generator_3() {
         // }
 
         for num in good_list {
-            assert_eq!(map.get(num.to_be_bytes()), Some(&()));
+            assert_eq!(map.get_val_at(num.to_be_bytes()), Some(&()));
         }
         for num in bad_list {
-            assert_eq!(map.get(num.to_be_bytes()), None);
+            assert_eq!(map.get_val_at(num.to_be_bytes()), None);
         }
     }
 }
