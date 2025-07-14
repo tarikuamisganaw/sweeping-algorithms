@@ -2403,6 +2403,11 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for LineListNo
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_list(self)
     }
+    #[cfg(not(feature="slim_ptrs"))]
+    #[inline]
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
+        TaggedNodeRefMut::LineListNode(self)
+    }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         self.convert_to_dense::<CellCoFree<V, A>>(3)
     }

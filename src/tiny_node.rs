@@ -308,6 +308,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for TinyRefNod
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_tiny(self)
     }
+    #[cfg(not(feature="slim_ptrs"))]
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
+        unreachable!()
+    }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         unreachable!()
     }

@@ -303,6 +303,9 @@ pub trait TrieNodeDowncast<V: Clone + Send + Sync, A: Allocator> {
     /// Returns a [TaggedNodeRef] referencing this node
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A>;
 
+    #[cfg(not(feature="slim_ptrs"))]
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A>;
+
     /// Migrates the contents of the node into a new CellByteNode.  After this method, `self` will be empty
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A>;
 }
@@ -2152,7 +2155,7 @@ pub(crate) use opaque_dyn_rc_trie_node::TrieNodeODRc;
 mod opaque_dyn_rc_trie_node {
     use std::sync::Arc;
     use super::TrieNode;
-    use crate::{trie_node::TaggedNodeRefMut, Allocator};
+    use crate::{trie_node::TaggedNodeRefMut, alloc::Allocator};
     use super::TaggedNodeRef;
 
     //TODO_FUTURE: make a type alias within the trait to refer to this type, as soon as

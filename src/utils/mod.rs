@@ -643,6 +643,19 @@ pub(crate) use core::intrinsics::{likely, unlikely};
 
 const PAGE_SIZE: usize = 4096;
 
+// // saturate n to max 9, so table has 0..=9 entries
+// let idx = n.min(9);
+// DISPATCH_TABLE[idx]()
+
+// fn bytewise_eq_mask(a: u64, b: u64) -> u64 {
+//     let x = !(a ^ b);              // equal bytes will be 0xFF
+//     let mask = x & 0x7F7F7F7F7F7F7F7F; // clear MSBs
+//     let msb_mask = mask.wrapping_add(0x0101010101010101) & 0x8080808080808080;
+//     msb_mask >> 7  // each byte is now 0x01 if equal, 0x00 if not
+// }
+
+
+
 #[inline(always)]
 unsafe fn same_page<const VECTOR_SIZE: usize>(slice: &[u8]) -> bool {
     let address = slice.as_ptr() as usize;

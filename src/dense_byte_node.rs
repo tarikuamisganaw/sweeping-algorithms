@@ -1323,6 +1323,11 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<O
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_dense(self)
     }
+    #[cfg(not(feature="slim_ptrs"))]
+    #[inline]
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
+        TaggedNodeRefMut::DenseByteNode(self)
+    }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         let mut replacement_node = CellByteNode::<V, A>::with_capacity_in(self.values.len(), self.alloc.clone());
         debug_assert_eq!(replacement_node.mask, [0u64; 4]);
@@ -1343,6 +1348,10 @@ impl<V: Clone + Send + Sync, A: Allocator> TrieNodeDowncast<V, A> for ByteNode<C
     }
     fn as_tagged(&self) -> TaggedNodeRef<'_, V, A> {
         TaggedNodeRef::from_cell(self)
+    }
+    #[cfg(not(feature="slim_ptrs"))]
+    fn as_tagged_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
+        TaggedNodeRefMut::CellByteNode(self)
     }
     fn convert_to_cell_node(&mut self) -> TrieNodeODRc<V, A> {
         //Already is a cell_node, and that fact should have been detected before calling this method
