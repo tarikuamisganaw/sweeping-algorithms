@@ -293,7 +293,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperReadOnlyPriv<'
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for TrieRef<'_, V, A> {
-    fn shared_node_hash(&self) -> Option<u64> { read_zipper_core::read_zipper_shared_node_hash(self) }
+    fn shared_node_id(&self) -> Option<u64> { read_zipper_core::read_zipper_shared_node_id(self) }
 }
 
 /// Internal function to implement [ZipperReadOnly::trie_ref_at_path] for all the types that need it

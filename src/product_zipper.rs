@@ -317,7 +317,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ProductZip
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for ProductZipper<'_, '_, V, A> {
-    fn shared_node_hash(&self) -> Option<u64> { self.z.shared_node_hash() }
+    fn shared_node_id(&self) -> Option<u64> { self.z.shared_node_id() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for ProductZipper<'_, '_, V, A> {

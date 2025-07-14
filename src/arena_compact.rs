@@ -1644,9 +1644,7 @@ where Storage: AsRef<[u8]>
 impl<'tree, Storage> ZipperConcretePriv for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
-    /// Get the address of zipper's focus node, if it points at the root of the node.
-    /// When zipper is focused inside of the node, return `None`.
-    fn shared_node_hash(&self) -> Option<u64> {
+    fn shared_node_id(&self) -> Option<u64> {
         // TODO: no way to detect now
         None
     }

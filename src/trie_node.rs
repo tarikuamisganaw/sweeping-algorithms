@@ -927,7 +927,7 @@ mod tagged_node_ref {
             Self::TinyRefNode(node)
         }
         #[inline]
-        pub(crate) fn as_ptr_hash(&self) -> u64 {
+        pub(crate) fn shared_node_id(&self) -> u64 {
             let ptr: *const () = match self {
                 Self::DenseByteNode(node) => (*node as *const DenseByteNode<V, A>).cast(),
                 Self::LineListNode(node) => (*node as *const LineListNode<V, A>).cast(),
@@ -1506,8 +1506,8 @@ mod tagged_node_ref {
             tag
         }
 
-        pub(crate) fn as_ptr_hash(&self) -> u64 {
-            self.ptr.as_ptr_hash()
+        pub(crate) fn shared_node_id(&self) -> u64 {
+            self.ptr.shared_node_id()
         }
         pub fn node_contains_partial_key(&self, key: &[u8]) -> bool {
             self.node_key_overlap(key) == key.len()
@@ -2083,7 +2083,7 @@ pub(crate) fn val_count_below_root<V: Clone + Send + Sync, A: Allocator>(node: T
 
 pub(crate) fn val_count_below_node<V: Clone + Send + Sync, A: Allocator>(node: &TrieNodeODRc<V, A>, cache: &mut HashMap<u64, usize>) -> usize {
     if node.refcount() > 1 {
-        let hash = node.as_ptr_hash();
+        let hash = node.shared_node_id();
         match cache.get(&hash) {
             Some(cached) => *cached,
             None => {
@@ -2227,7 +2227,7 @@ mod opaque_dyn_rc_trie_node {
             &*self.0
         }
         #[inline]
-        pub(crate) fn as_ptr_hash(&self) -> u64 {
+        pub(crate) fn shared_node_id(&self) -> u64 {
             Arc::as_ptr(&self.0).cast::<()>() as u64
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
@@ -2353,10 +2353,10 @@ mod slim_node_ptr {
         //     self.as_tagged().into_dyn()
         // }
         #[inline]
-        pub(crate) fn as_ptr_hash(&self) -> u64 {
+        pub(crate) fn shared_node_id(&self) -> u64 {
             self.ptr.as_ptr() as u64
         }
-        /// Returns `true` if both internal Rc ptrs point to the same object
+        /// Returns `true` if both `SlimNodePtr`s point to the same node in memory
         #[inline]
         pub fn ptr_eq(&self, other: &Self) -> bool {
             self.ptr == other.ptr
@@ -2645,8 +2645,8 @@ mod opaque_dyn_rc_trie_node {
         //     self.ptr.borrow()
         // }
         #[inline]
-        pub(crate) fn as_ptr_hash(&self) -> u64 {
-            self.ptr.as_ptr_hash()
+        pub(crate) fn shared_node_id(&self) -> u64 {
+            self.ptr.shared_node_id()
         }
         /// Returns `true` if both internal Rc ptrs point to the same object
         #[inline]

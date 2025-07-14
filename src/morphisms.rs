@@ -726,7 +726,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
         if frame_mut.child_idx < frame_mut.child_cnt {
             zipper.descend_indexed_branch(frame_mut.child_idx as usize);
             frame_mut.child_idx += 1;
-            frame_mut.child_addr = zipper.shared_node_hash();
+            frame_mut.child_addr = zipper.shared_node_id();
 
             // Read and reuse value from cache, if exists
             if let Some(cache) = Cache::get(&cache, frame_mut.child_addr) {
@@ -811,7 +811,7 @@ fn into_cata_jumping_naive<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>
     let path = z.path().to_vec();
     for ii in 0..child_count {
         z.descend_indexed_branch(ii);
-        let child_addr = z.shared_node_hash();
+        let child_addr = z.shared_node_id();
         // Read and reuse value from cache, if exists
         if let Some(cached) = Cache::get(&cache, child_addr) {
             // DO NOT modify the W from cache

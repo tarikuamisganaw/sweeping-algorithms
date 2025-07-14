@@ -616,17 +616,17 @@ pub(crate) mod zipper_priv {
     }
 
     pub trait ZipperConcretePriv {
-        /// Get a hash value unique to the zipper's focus node, if the zipper points at the root of the node.
-        /// When zipper is focused inside of the node, returns `None`.
+        /// Get an identifier unique to the node at the zipper's focus, if the zipper's focus is at the
+        /// root of a node in memory.  When zipper's focus is inside of a node, returns `None`.
         ///
         /// NOTE: The returned value is not a logical hash of the contents, but is based on
         /// the node's memory address.  Therefore it is not stable across runs and can't be
         /// used to infer logical or structural equality.  Furthermore, it is subject to
-        /// change when the contents of the node is modified.
+        /// change when the content of the node is modified.
         ///
-        /// However when hashes are equal it means the zipper has arrived at the same node,
-        /// even if it got there via different parent paths in the trie.
-        fn shared_node_hash(&self) -> Option<u64>;
+        /// However when returned identifiers are equal it means the zipper has arrived at the same node
+        /// in memory, even if it got there via different parent paths through the trie.
+        fn shared_node_id(&self) -> Option<u64>;
     }
 }
 use zipper_priv::*;
@@ -720,7 +720,7 @@ impl<'a, V: Clone + Send + Sync, Z, A: Allocator> ZipperReadOnlyPriv<'a, V, A> f
 
 impl<Z> ZipperConcretePriv for &mut Z where Z: ZipperConcretePriv {
     #[inline]
-    fn shared_node_hash(&self) -> Option<u64> { (**self).shared_node_hash() }
+    fn shared_node_id(&self) -> Option<u64> { (**self).shared_node_id() }
 }
 
 // ***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---***---
@@ -807,7 +807,7 @@ impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyP
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for ReadZipperTracked<'_, '_, V, A> {
     #[inline]
-    fn shared_node_hash(&self) -> Option<u64> { self.z.shared_node_hash() }
+    fn shared_node_id(&self) -> Option<u64> { self.z.shared_node_id() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for ReadZipperTracked<'_, '_, V, A> {
@@ -956,7 +956,7 @@ impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyP
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for ReadZipperUntracked<'_, '_, V, A> {
     #[inline]
-    fn shared_node_hash(&self) -> Option<u64> { self.z.shared_node_hash() }
+    fn shared_node_id(&self) -> Option<u64> { self.z.shared_node_id() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for ReadZipperUntracked<'_, '_, V, A> {
@@ -1169,7 +1169,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyPriv<'a, V,
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for ReadZipperOwned<V, A> {
     #[inline]
-    fn shared_node_hash(&self) -> Option<u64> { self.z.shared_node_hash() }
+    fn shared_node_id(&self) -> Option<u64> { self.z.shared_node_id() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> zipper_priv::ZipperPriv for ReadZipperOwned<V, A> {
@@ -1761,13 +1761,13 @@ pub(crate) mod read_zipper_core {
 
     impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcretePriv for ReadZipperCore<'_, '_, V, A> {
         #[inline]
-        fn shared_node_hash(&self) -> Option<u64> {
-            read_zipper_shared_node_hash(self)
+        fn shared_node_id(&self) -> Option<u64> {
+            read_zipper_shared_node_id(self)
         }
     }
 
     #[inline]
-    pub(crate) fn read_zipper_shared_node_hash<'a, V: Clone + Send + Sync + 'a, A: Allocator + 'a, Z: Zipper + ZipperReadOnlyPriv<'a, V, A> + ZipperConcrete>(zipper: &Z) -> Option<u64> {
+    pub(crate) fn read_zipper_shared_node_id<'a, V: Clone + Send + Sync + 'a, A: Allocator + 'a, Z: Zipper + ZipperReadOnlyPriv<'a, V, A> + ZipperConcrete>(zipper: &Z) -> Option<u64> {
         let (node, key, value) = zipper.borrow_raw_parts();
         if !zipper.is_shared() || !key.is_empty() || value.is_some() {
             // TODO(igorm): Currently values associated with a nodes that can be shared
@@ -1780,7 +1780,7 @@ pub(crate) mod read_zipper_core {
             // https://discord.com/channels/@me/1215835387432271922/1352463443541754068
             return None
         }
-        Some(node.as_ptr_hash())
+        Some(node.shared_node_id())
     }
 
     //GOAT.  Need to add `to_first_val` method that moves the zipper to the root, and if the root contains a
