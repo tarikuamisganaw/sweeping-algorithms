@@ -58,6 +58,10 @@ pub mod counters;
 /// Shims to allow the use of a custom [`Allocator`](std::alloc::Allocator) type, if running with the `nightly` feature.  Does nothing otherwise
 pub mod alloc;
 
+/// Raw trie visualization
+#[cfg(feature = "viz")]
+pub mod viz;
+
 pub mod serialization;
 pub mod path_serialization;
 pub mod tree_serialization;

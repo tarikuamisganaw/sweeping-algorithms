@@ -2611,7 +2611,7 @@ mod opaque_dyn_rc_trie_node {
                 Box::into_raw(Box::new(node))
             };
             #[cfg(feature = "nightly")]
-            let boxed = Box::into_raw(Box::new_in(node, alloc.clone()));
+            let (boxed, _) = Box::into_raw_with_allocator(Box::new_in(node, alloc.clone()));
             Self{ ptr: SlimNodePtr::from_raw_parts(boxed, tag), alloc: MaybeUninit::new(alloc) }
         }
         #[allow(unused)]

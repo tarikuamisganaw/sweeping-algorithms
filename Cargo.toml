@@ -37,6 +37,7 @@ graft_root_vals = [] # Enables an experimental change in behavior that causes `g
 slim_ptrs = [] # Enables use of a 64-bit inter-node pointer type (TrieNodeODRc)
 slim_dispatch = [] # Experiment. Enables the 64-bit pointers to back the TaggedNodeRef and TaggedNodeRefMut types, WILL BE REMOVED EVENTUALLY
 act_counters = ["arena_compact"] # LP: Question: Why isn't this code enabled by just counters + arena_compact???
+viz = []
 
 [target.'cfg(miri)'.dependencies]
 xxhash-rust = { version = "0.8.15", features = ["xxh64", "xxh3", "const_xxh3"] } # Replacement for gxhash running under miri

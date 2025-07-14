@@ -1,91 +1,137 @@
-#![allow(warnings)]
+use std::io::Read;
+use std::usize;
+use pathmap::trie_map::BytesTrieMap;
+use pathmap::zipper::{Zipper, ZipperValues, ZipperMoving, ZipperWriting, ZipperCreation};
+use num::BigInt;
+use std::hint::black_box;
 
-use std::alloc::{alloc, dealloc, Layout};
-use std::ptr;
-use std::time::Instant;
-use pathmap::ring::*;
-use pathmap::PathMap;
+const MAX_OFFSET: u8 = 10;
 
-// #[global_allocator]
-// static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-// static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+fn drop_symbol_head_byte<Z: ZipperWriting<usize> + Zipper + ZipperMoving>(loc: &mut Z) {
+    let mut it = loc.child_mask().iter();
+
+    let p = loc.path().to_vec();
+    while let Some(b) = it.next() {
+        if b == 0 { continue }
+        assert!(loc.descend_to(&[b]));
+        loc.drop_head(b as usize);
+        assert!(loc.ascend(1));
+    }
+    loc.reset();
+    loc.descend_to(&p[..]);
+    loc.drop_head(1);
+}
+
+fn encode_seq<F : Iterator<Item=BigInt>>(iter: F) -> Vec<u8> {
+    let mut v = vec![];
+    for n in iter {
+        let bs = n.to_signed_bytes_be();
+        let bsl = bs.len();
+        v.push(bsl as u8);
+        v.extend(bs);
+    }
+    v
+}
+
+#[allow(unused)]
+fn decode_seq(s: &[u8]) -> Vec<BigInt> {
+    let mut v = vec![];
+    let mut i = 0;
+    while i < s.len() {
+        let j = s[i] as usize;
+        i += 1;
+        v.push(BigInt::from_signed_bytes_be(&s[i..i + j]));
+        i += j;
+    }
+    v
+}
+
+fn load_sequences() -> Vec<Vec<u8>> {
+    let mut file = std::fs::File::open(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benches").join("oeis_stripped.txt"))
+        .expect("Should have been able to read the file");
+    let mut s = String::new();
+    file.read_to_string(&mut s).unwrap();
+    let mut sequences = vec![vec![]];
+    let mut i = 0;
+    for l in s.lines() {
+        if l.starts_with("#") { continue }
+        let mut cs = l.split(",").map(|c| {
+            let mut cs = c.to_string();
+            cs.retain(|c| !c.is_whitespace());
+            cs
+        });
+        let first = cs.next().unwrap();
+        let a_number = first.strip_prefix("A").expect("First not A").parse::<usize>().expect("A not followed by a number");
+        let numbers = cs.filter(|n| !n.is_empty()).map(|n| n.parse::<BigInt>().expect(format!("not a number {}", n).as_str()));
+        let seq = encode_seq(numbers);
+        if a_number > sequences.len() { sequences.resize(a_number + 1, vec![]) }
+        sequences.insert(a_number, seq);
+        i += 1;
+    }
+    assert_eq!(i, 375842);
+    sequences
+}
+
+fn build_map(sequences: &Vec<Vec<u8>>) -> BytesTrieMap<usize> {
+    let mut m = BytesTrieMap::new();
+    let mut buildz = m.write_zipper_at_path(&[0]);
+    for (i, s) in sequences.iter().enumerate() {
+        if s.len() == 0 { continue }
+        buildz.descend_to(&s[..]);
+        match buildz.value() {
+            None => { buildz.set_value(i); }
+            Some(_v) => { /* keep the smallest integer sequence */ }
+        }
+        buildz.ascend(s.len());
+    }
+    drop(buildz);
+    black_box(m)
+}
+
+fn drophead(m: &mut BytesTrieMap<usize>) {
+    const MAX_OFFSET: u8 = 10;
+    let map_head = m.zipper_head();
+    for i in 1..(MAX_OFFSET + 1) {
+        let k = &[i];
+        let mut z1 = unsafe{ map_head.write_zipper_at_exclusive_path_unchecked(k) };
+
+        z1.graft(&unsafe { map_head.read_zipper_at_path_unchecked(&[i - 1]) });
+        drop_symbol_head_byte(&mut z1);
+    }
+    drop(map_head);
+}
+
+fn count_contents(m: &BytesTrieMap<usize>) {
+    for i in 0..(MAX_OFFSET + 1) {
+        black_box(m.read_zipper_at_path(&[i]).val_count());
+    }
+}
+
+fn query(m: &BytesTrieMap<usize>) {
+    const QSEQ: [u64; 6] = [1, 2, 3, 5, 8, 13];
+    let mut qseq = encode_seq(QSEQ.into_iter().map(BigInt::from));
+    qseq.insert(0, 0);
+    let mut q = BytesTrieMap::new();
+    for i in 0..(MAX_OFFSET + 1) {
+        qseq[0] = i;
+        q.insert(&qseq[..], 0usize);
+    }
+
+    let qresult = m.restrict(&q);
+    black_box(qresult.val_count());
+    black_box(qresult);
+}
+
+fn run() {
+    let sequences = load_sequences();
+    let mut m = build_map(&sequences);
+    drophead(&mut m);
+    count_contents(&m);
+    query(&m)
+}
 
 fn main() {
-    fn gen_key<'a>(i: u64, buffer: *mut u8) -> &'a [u8] {
-        let ir = u64::from_be(i);
-        unsafe { ptr::write_unaligned(buffer as *mut u64, ir) };
-        let bs = (8 - ir.trailing_zeros()/8) as usize;
-        let l = bs.max(1);
-        unsafe { std::slice::from_raw_parts(buffer.byte_offset((8 - l) as isize), l) }
-    }
+    // Run registered benchmarks.
 
-    fn parse_key<'a>(k: &'a [u8], buffer: *mut u8) -> u64 {
-        let kp = unsafe { k.as_ptr() } as *const u64;
-        let shift = 64usize.saturating_sub(k.len()*8);
-        //(*kp) & (!0u64 >> shift)
-        let r = unsafe { u64::from_be_bytes(*(buffer as *const [u8; 8])) };
-        r
-    }
-
-    let buffer = unsafe { alloc(Layout::new::<u64>()) };
-
-    let mut first = true;
-    for N in [1000, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000] {
-        for overlap in [0.0001, 0.01, 0.2, 0.5, 0.8, 0.99, 0.9999] {
-            let O = ((1. - overlap) * N as f64) as u64;
-            let t0 = Instant::now();
-            {
-                let mut vnl = PathMap::new();
-                let mut vnr = PathMap::new();
-                for i in 0..N { vnl.insert(gen_key(i, buffer), i); }
-                // println!("{:?}", vnl.root);
-                for i in 0..N { assert_eq!(vnl.get(gen_key(i, buffer)), Some(i).as_ref()); }
-                for i in N..2*N { assert_eq!(vnl.get(gen_key(i, buffer)), None); }
-                let mut c: Vec<u64> = Vec::with_capacity(N as usize);
-                vnl.iter().for_each(|(k, v)| {
-                    assert!(0 <= *v && *v < N);
-                    assert_eq!(k, gen_key(*v, buffer));
-                    c.push(parse_key(&k[..], buffer));
-                });
-                // let mut c_: Vec<u64> = Vec::with_capacity(N as usize);
-                // let mut it = vnl.item_cursor();
-                // loop {
-                //     match it.next() {
-                //         None => {
-                //             break
-                //         }
-                //         Some((k, v)) => {
-                //             assert!(0 <= *v && *v < N);
-                //             assert_eq!(k, gen_key(*v, buffer));
-                //             c_.push(parse_key(k, buffer));
-                //         }
-                //     }
-                // }
-                // assert_eq!(c, c_);
-                c.sort();
-                assert_eq!(c, (0..N).collect::<Vec<u64>>());
-                for i in O..(N+O) { vnr.insert(gen_key(i, buffer), i); }
-
-                let j = vnl.join(&vnr);
-                let m = vnl.meet(&vnr);
-                // let mut l_no_r = vnl.subtract(&vnr);
-                // for i in 0..O { assert_eq!(l_no_r.get(gen_key(i, buffer)), vnl.get(gen_key(i, buffer))); }
-                // for i in N..(2*N) { assert!(!l_no_r.contains(gen_key(i, buffer))); }
-
-                for i in O..N { assert!(vnl.contains(gen_key(i, buffer)) && vnr.contains(gen_key(i, buffer))); }
-                for i in 0..O { assert!(vnl.contains(gen_key(i, buffer)) && !vnr.contains(gen_key(i, buffer))); }
-                for i in N..(N+O) { assert!(!vnl.contains(gen_key(i, buffer)) && vnr.contains(gen_key(i, buffer))); }
-                for i in 0..(2*N) { assert_eq!(j.contains(gen_key(i, buffer)), (vnl.contains(gen_key(i, buffer)) || vnr.contains(gen_key(i, buffer)))); }
-                for i in 0..(2*N) { assert_eq!(m.contains(gen_key(i, buffer)), (vnl.contains(gen_key(i, buffer)) && vnr.contains(gen_key(i, buffer)))); }
-                for i in 0..(N+O) { assert_eq!(j.get(gen_key(i, buffer)).map(|v| *v), vnl.get(gen_key(i, buffer)).pjoin(&vnr.get(gen_key(i, buffer))).into_option([vnl.get(gen_key(i, buffer)).cloned(), vnr.get(gen_key(i, buffer)).cloned()]).flatten()); }
-                for i in O..N { assert_eq!(m.get(gen_key(i, buffer)).map(|v| *v), vnl.get(gen_key(i, buffer)).pmeet(&vnr.get(gen_key(i, buffer))).into_option([vnl.get(gen_key(i, buffer)).cloned(), vnr.get(gen_key(i, buffer)).cloned()]).flatten()); }
-                // for i in 0..(2*N) { println!("{} {} {} {}", i, r.contains(i), vnl.contains(i), vnr.contains(i)); } // assert!(r.contains(i));
-            }
-            if !first { println!("{} ns/it N={N}, overlap={overlap} ", t0.elapsed().as_nanos() as f64/N as f64) };
-        }
-        first = false;
-    }
-
-    unsafe { dealloc(buffer, Layout::new::<u64>()); }
-
+    run()
 }
