@@ -425,8 +425,59 @@ fn make_short_keys(count: usize, key_len_range: std::ops::Range<usize>, rand_see
 const NUM_KEYS: usize = 1_000_000;
 
 #[divan::bench()]
-fn short_prefix_len_mixed(bencher: Bencher) {
+fn short_prefix_len_lte8(bencher: Bencher) {
     let pairs = make_short_keys(NUM_KEYS, 1..9, 42);
+
+    pairs.iter().for_each(|(val, l, r)| {
+        let result = find_prefix_overlap(l, r);
+        assert_eq!(result, *val);
+    });
+
+    bencher.bench_local(|| {
+        pairs.iter().for_each(|(_, l, r)| {
+            let result = find_prefix_overlap(l, r);
+            std::hint::black_box(result);
+        });
+    });
+}
+
+#[divan::bench()]
+fn short_prefix_len_lte4(bencher: Bencher) {
+    let pairs = make_short_keys(NUM_KEYS, 1..5, 42);
+
+    pairs.iter().for_each(|(val, l, r)| {
+        let result = find_prefix_overlap(l, r);
+        assert_eq!(result, *val);
+    });
+
+    bencher.bench_local(|| {
+        pairs.iter().for_each(|(_, l, r)| {
+            let result = find_prefix_overlap(l, r);
+            std::hint::black_box(result);
+        });
+    });
+}
+
+#[divan::bench()]
+fn short_prefix_len_lte2(bencher: Bencher) {
+    let pairs = make_short_keys(NUM_KEYS, 1..3, 42);
+
+    pairs.iter().for_each(|(val, l, r)| {
+        let result = find_prefix_overlap(l, r);
+        assert_eq!(result, *val);
+    });
+
+    bencher.bench_local(|| {
+        pairs.iter().for_each(|(_, l, r)| {
+            let result = find_prefix_overlap(l, r);
+            std::hint::black_box(result);
+        });
+    });
+}
+
+#[divan::bench()]
+fn short_prefix_len_eq1(bencher: Bencher) {
+    let pairs = make_short_keys(NUM_KEYS, 1..2, 42);
 
     pairs.iter().for_each(|(val, l, r)| {
         let result = find_prefix_overlap(l, r);

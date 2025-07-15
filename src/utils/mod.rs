@@ -805,6 +805,7 @@ fn count_shared_simd(p: &[u8], q: &[u8]) -> usize {
         }
     }
 }
+
 /// Returns the number of characters shared between two slices
 #[cfg(all(not(feature = "nightly"), target_arch = "aarch64", target_feature = "neon", not(miri)))]
 #[inline]
