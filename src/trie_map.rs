@@ -353,7 +353,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         // |_new_leaf_node, _remaining_key| None)
 
         let mut zipper = self.write_zipper_at_path(path);
-        zipper.set_value(v)
+        zipper.set_val(v)
     }
 
     /// Deprecated alias for [Self::set_val_at]
@@ -372,7 +372,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         // prune the branches.  A WriteZipper can't move above its root, so it couldn't prune otherwise
         let mut zipper = self.write_zipper();
         zipper.descend_to(path);
-        zipper.remove_value()
+        zipper.remove_val()
     }
 
     /// Deprecated alias for [Self::remove_val_at]
@@ -437,7 +437,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         let mut temp_z = WriteZipperCore::<'_, '_, V, A>::new_with_node_and_path_in(root_node, None, path, path.len(), 0, self.alloc.clone());
 
         if !temp_z.is_val() {
-            temp_z.set_value(func());
+            temp_z.set_val(func());
         }
         temp_z.into_value_mut().unwrap()
     }
@@ -868,7 +868,7 @@ mod tests {
     }
 
     #[test]
-    fn map_get_value_mut_or_set_test() {
+    fn map_get_val_mut_or_set_test() {
         let mut map = PathMap::<usize>::new();
 
         //Test root value
@@ -935,11 +935,11 @@ mod tests {
         let mut btm: PathMap<u64> = rs.into_iter().enumerate().map(|(i, k)| (k, i as u64)).collect();
 
         let mut zipper = btm.write_zipper_at_path(b"cannon");
-        assert_eq!(zipper.get_value_or_insert(42), &2);
+        assert_eq!(zipper.get_val_or_set_mut(42), &2);
         drop(zipper);
 
         let mut zipper = btm.write_zipper_at_path(b"dagger");
-        assert_eq!(zipper.get_value_or_insert(42), &42);
+        assert_eq!(zipper.get_val_or_set_mut(42), &42);
     }
 
     #[test]
@@ -1010,20 +1010,20 @@ mod tests {
         //Through a WriteZipper, created at the root
         let mut z = map.write_zipper();
         assert_eq!(z.val(), None);
-        assert_eq!(z.set_value(1), None);
+        assert_eq!(z.set_val(1), None);
         assert_eq!(z.val(), Some(&1));
-        *z.get_value_mut().unwrap() = 2;
-        assert_eq!(z.remove_value(), Some(2));
+        *z.get_val_mut().unwrap() = 2;
+        assert_eq!(z.remove_val(), Some(2));
         assert_eq!(z.val(), None);
         drop(z);
 
         //Through a WriteZipper, created at a zero-length path
         let mut z = map.write_zipper_at_path(&[]);
         assert_eq!(z.val(), None);
-        assert_eq!(z.set_value(1), None);
+        assert_eq!(z.set_val(1), None);
         assert_eq!(z.val(), Some(&1));
-        *z.get_value_mut().unwrap() = 2;
-        assert_eq!(z.remove_value(), Some(2));
+        *z.get_val_mut().unwrap() = 2;
+        assert_eq!(z.remove_val(), Some(2));
         assert_eq!(z.val(), None);
         drop(z);
 
@@ -1041,9 +1041,9 @@ mod tests {
         let map_head = map.zipper_head();
         let mut z = map_head.write_zipper_at_exclusive_path([]).unwrap();
         assert_eq!(z.val(), None);
-        assert_eq!(z.set_value(1), None);
+        assert_eq!(z.set_val(1), None);
         assert_eq!(z.val(), Some(&1));
-        *z.get_value_mut().unwrap() = 2;
+        *z.get_val_mut().unwrap() = 2;
         drop(z);
         drop(map_head);
         assert_eq!(map.get_val_at([]), Some(&2));
@@ -1214,7 +1214,7 @@ mod tests {
 
         let mut z = map.write_zipper_at_path(b"start:0000:");
         z.descend_to(b"goodbye");
-        z.set_value(0);
+        z.set_val(0);
         drop(z);
 
         assert_eq!(map.val_count(), 2);
@@ -1229,22 +1229,22 @@ mod tests {
 
         let mut z = map.write_zipper_at_path(b"start:0000:");
         z.descend_to(b"goodbye");
-        z.set_value(0);
+        z.set_val(0);
         drop(z);
 
         let mut z = map.write_zipper_at_path(b"start:0001:");
         z.descend_to(b"goodbye");
-        z.set_value(1);
+        z.set_val(1);
         drop(z);
 
         let mut z = map.write_zipper_at_path(b"start:0002:");
         z.descend_to(b"goodbye");
-        z.set_value(2);
+        z.set_val(2);
         drop(z);
 
         let mut z = map.write_zipper_at_path(b"start:0003:");
         z.descend_to(b"goodbye");
-        z.set_value(3);
+        z.set_val(3);
         drop(z);
 
         assert_eq!(map.val_count(), 8);
@@ -1261,7 +1261,7 @@ mod tests {
 
         let mut z = map.into_write_zipper(b"start:0000:");
         z.descend_to(b"goodbye");
-        z.set_value(0);
+        z.set_val(0);
         let map = z.into_map();
 
         assert_eq!(map.val_count(), 2);
@@ -1276,22 +1276,22 @@ mod tests {
 
         let mut z = map.into_write_zipper(b"start:0000:");
         z.descend_to(b"goodbye");
-        z.set_value(0);
+        z.set_val(0);
         let map = z.into_map();
 
         let mut z = map.into_write_zipper(b"start:0001:");
         z.descend_to(b"goodbye");
-        z.set_value(1);
+        z.set_val(1);
         let map = z.into_map();
 
         let mut z = map.into_write_zipper(b"start:0002:");
         z.descend_to(b"goodbye");
-        z.set_value(2);
+        z.set_val(2);
         let map = z.into_map();
 
         let mut z = map.into_write_zipper(b"start:0003:");
         z.descend_to(b"goodbye");
-        z.set_value(3);
+        z.set_val(3);
         let map = z.into_map();
 
         assert_eq!(map.val_count(), 8);

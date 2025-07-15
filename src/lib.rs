@@ -513,7 +513,7 @@ mod tests {
             let mut z = map.write_zipper();
             let key = vec![0u8; len];
             z.descend_to(&key);
-            z.set_value(42);
+            z.set_val(42);
             drop(z);
             assert_eq!(map.get_val_at(&key), Some(&42));
         };

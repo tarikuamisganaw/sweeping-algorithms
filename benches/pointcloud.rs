@@ -305,11 +305,11 @@ impl BTMOctree {
     }
 
     fn insert_rec(wz: &mut WriteZipperUntracked<Vec<Point3<f64>>>, p: Point3<f64>, bounds: AABB<f64>, depth: usize) {
-        if let Some(points) = wz.get_value_mut() {
+        if let Some(points) = wz.get_val_mut() {
             if points.len() < LEAF_CAPACITY || depth >= MAX_DEPTH {
                 points.push(p);
             } else {
-                let ps = wz.remove_value().unwrap();
+                let ps = wz.remove_val().unwrap();
                 for &old_p in ps.iter() {
                     let idx = Octree::child_index(bounds.center(), old_p);
                     let child_bounds = Octree::child(&bounds, idx);
@@ -322,9 +322,9 @@ impl BTMOctree {
             }
         } else {
             if depth >= MAX_DEPTH || wz.child_count() == 0 {
-                if wz.is_val() { wz.get_value_mut().unwrap().push(p); }
-                else { wz.set_value(vec![p]); }
-                // wz.get_value_or_insert_with(|| vec![]).push(p);
+                if wz.is_val() { wz.get_val_mut().unwrap().push(p); }
+                else { wz.set_val(vec![p]); }
+                // wz.get_val_or_set_mut_with(|| vec![]).push(p);
             } else {
                 let idx = Octree::child_index(bounds.center(), p);
                 let child_bounds = Octree::child(&bounds, idx);

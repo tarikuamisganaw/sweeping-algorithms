@@ -115,11 +115,11 @@ impl<V: TrieValue, A: Allocator> WriteZipperPriv<V, A> for NullZipper {
 impl <V: TrieValue, A: Allocator> ZipperWriting<V, A> for NullZipper {
     type ZipperHead<'z> = ZipperHead<'z, 'static, V> where Self: 'z;
 
-    fn get_value_mut(&mut self) -> Option<&mut V> { None }
-    fn get_value_or_insert(&mut self, default: V) -> &mut V { Box::leak(Box::new(default)) }
-    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { Box::leak(Box::new(func())) }
-    fn set_value(&mut self, _val: V) -> Option<V> { None }
-    fn remove_value(&mut self) -> Option<V> { None }
+    fn get_val_mut(&mut self) -> Option<&mut V> { None }
+    fn get_val_or_set_mut(&mut self, default: V) -> &mut V { Box::leak(Box::new(default)) }
+    fn get_val_or_set_mut_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { Box::leak(Box::new(func())) }
+    fn set_val(&mut self, _val: V) -> Option<V> { None }
+    fn remove_val(&mut self) -> Option<V> { None }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { todo!() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, _read_zipper: &Z) {}
     fn graft_map(&mut self, _map: PathMap<V, A>) {}

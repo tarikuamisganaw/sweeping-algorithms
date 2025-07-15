@@ -236,7 +236,7 @@ impl SharedTrackerPaths {
             Conflict::check_for_write_conflict(path, &all_paths.written_paths, Conflict::write_conflict)?;
             Conflict::check_for_read_conflict(path, &all_paths.read_paths, Conflict::read_conflict)?;
             let mut writer = all_paths.written_paths.write_zipper_at_path(path);
-            writer.set_value(());
+            writer.set_val(());
             Ok(())
         };
 
@@ -247,7 +247,7 @@ impl SharedTrackerPaths {
         let try_add_reader_internal = |all_paths: &mut TrackerPaths| {
             Conflict::check_for_write_conflict(path, &all_paths.written_paths, Conflict::write_conflict)?;
             let mut writer = all_paths.read_paths.write_zipper_at_path(path);
-            let value = writer.get_value_mut();
+            let value = writer.get_val_mut();
             match value {
                 Some(cnt) => match cnt.checked_add(1) {
                     Some(new_cnt) => {
@@ -257,7 +257,7 @@ impl SharedTrackerPaths {
                     None => Err(Conflict::read_conflict(NonZero::<u32>::MAX, path)),
                 },
                 None => {
-                    writer.set_value(NonZero::<u32>::MIN);
+                    writer.set_val(NonZero::<u32>::MIN);
                     Ok(())
                 }
             }
@@ -270,12 +270,12 @@ impl SharedTrackerPaths {
     fn add_reader_unchecked(&self, path: &[u8]) {
         let add_reader = |paths: &mut TrackerPaths| {
             let mut writer = paths.read_paths.write_zipper_at_path(path);
-            match writer.get_value_mut() {
+            match writer.get_val_mut() {
                 Some(cnt) => {
                     *cnt = unsafe { NonZero::new_unchecked(cnt.get() + 1) };
                 },
                 None => {
-                    writer.set_value(unsafe { NonZero::new_unchecked(1) });
+                    writer.set_val(unsafe { NonZero::new_unchecked(1) });
                 }
             }
         };
@@ -362,10 +362,10 @@ impl<M: TrackingMode> ZipperTracker<M> {
         let is_removed = all_paths.with_paths(|paths| {
             if M::tracks_reads() {
                 let mut write_zipper = paths.read_paths.write_zipper_at_path(this_path);
-                match write_zipper.get_value_mut() {
+                match write_zipper.get_val_mut() {
                     Some(cnt) => {
                         if *cnt == NonZero::<u32>::MIN {
-                            write_zipper.remove_value();
+                            write_zipper.remove_val();
                         } else {
                             *cnt = unsafe { NonZero::new_unchecked(cnt.get() - 1) };
                         };
@@ -377,7 +377,7 @@ impl<M: TrackingMode> ZipperTracker<M> {
                 let removed = paths
                     .written_paths
                     .write_zipper_at_path(this_path)
-                    .remove_value();
+                    .remove_val();
                 removed.is_some()
             }
         });

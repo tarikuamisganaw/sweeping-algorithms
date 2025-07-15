@@ -16,15 +16,33 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     type ZipperHead<'z> where Self: 'z;
 
     /// Returns a mutable reference to a value at the zipper's focus, or None if no value exists
-    fn get_value_mut(&mut self) -> Option<&mut V>;
+    fn get_val_mut(&mut self) -> Option<&mut V>;
+
+    /// Deprecated alias for [ZipperWriting::get_val_mut]
+    #[deprecated] //GOAT-old-names
+    fn get_value_mut(&mut self) -> Option<&mut V> {
+        self.get_val_mut()
+    }
 
     /// Returns a mutable reference to the value at the zipper's focus, inserting `default` if no
     /// value exists
-    fn get_value_or_insert(&mut self, default: V) -> &mut V;
+    fn get_val_or_set_mut(&mut self, default: V) -> &mut V;
+
+    /// Deprecated alias for [ZipperWriting::get_val_or_set_mut]
+    #[deprecated] //GOAT-old-names
+    fn get_value_or_insert(&mut self, default: V) -> &mut V {
+        self.get_val_or_set_mut(default)
+    }
 
     /// Returns a mutable reference to the value at the zipper's focus, inserting the result of `func`
     /// if no value exists
-    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V;
+    fn get_val_or_set_mut_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V;
+
+    /// Deprecated alias for [ZipperWriting::get_val_or_set_mut_with]
+    #[deprecated] //GOAT-old-names
+    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V {
+        self.get_val_or_set_mut_with(func)
+    }
 
     /// Sets the value at the zipper's focus
     ///
@@ -32,14 +50,26 @@ pub trait ZipperWriting<V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: Wri
     /// the value was added without replacing anything.
     ///
     /// Panics if the zipper's focus is unable to hold a value
-    fn set_value(&mut self, val: V) -> Option<V>;
+    fn set_val(&mut self, val: V) -> Option<V>;
+
+    /// Deprecated alias for [ZipperWriting::set_val]
+    #[deprecated] //GOAT-old-names
+    fn set_value(&mut self, val: V) -> Option<V> {
+        self.set_val(val)
+    }
 
     /// Removes the value at the zipper's focus.  Does not affect any onward branches.  Returns `Some(val)`
     /// with the value that was removed, otherwise returns `None`
     ///
     /// WARNING: This method may cause the trie to be pruned above the zipper's focus, and may result in
     /// [Zipper::path_exists] returning `false`, where it previously returned `true`
-    fn remove_value(&mut self) -> Option<V>;
+    fn remove_val(&mut self) -> Option<V>;
+
+    /// Deprecated alias for [ZipperWriting::remove_val]
+    #[deprecated] //GOAT-old-names
+    fn remove_value(&mut self) -> Option<V> {
+        self.remove_val()
+    }
 
     /// Creates a [ZipperHead] at the zipper's current focus
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z>;
@@ -190,11 +220,11 @@ use write_zipper_priv::*;
 
 impl<V: Clone + Send + Sync, Z, A: Allocator> ZipperWriting<V, A> for &mut Z where Z: ZipperWriting<V, A> {
     type ZipperHead<'z> = Z::ZipperHead<'z> where Self: 'z;
-    fn get_value_mut(&mut self) -> Option<&mut V> { (**self).get_value_mut() }
-    fn get_value_or_insert(&mut self, default: V) -> &mut V { (**self).get_value_or_insert(default) }
-    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { (**self).get_value_or_insert_with(func) }
-    fn set_value(&mut self, val: V) -> Option<V> { (**self).set_value(val) }
-    fn remove_value(&mut self) -> Option<V> { (**self).remove_value() }
+    fn get_val_mut(&mut self) -> Option<&mut V> { (**self).get_val_mut() }
+    fn get_val_or_set_mut(&mut self, default: V) -> &mut V { (**self).get_val_or_set_mut(default) }
+    fn get_val_or_set_mut_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { (**self).get_val_or_set_mut_with(func) }
+    fn set_val(&mut self, val: V) -> Option<V> { (**self).set_val(val) }
+    fn remove_val(&mut self) -> Option<V> { (**self).remove_val() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { (**self).zipper_head() }
     fn graft<RZ: ZipperSubtries<V, A>>(&mut self, read_zipper: &RZ) { (**self).graft(read_zipper) }
     fn graft_map(&mut self, map: PathMap<V, A>) { (**self).graft_map(map) }
@@ -339,11 +369,11 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperTracked<'a, 's
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperWriting<V, A> for WriteZipperTracked<'a, 'path, V, A> {
     type ZipperHead<'z> = ZipperHead<'z, 'a, V, A> where Self: 'z;
-    fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
-    fn get_value_or_insert(&mut self, default: V) -> &mut V { self.z.get_value_or_insert(default) }
-    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { self.z.get_value_or_insert_with(func) }
-    fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
-    fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
+    fn get_val_mut(&mut self) -> Option<&mut V> { self.z.get_val_mut() }
+    fn get_val_or_set_mut(&mut self, default: V) -> &mut V { self.z.get_val_or_set_mut(default) }
+    fn get_val_or_set_mut_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { self.z.get_val_or_set_mut_with(func) }
+    fn set_val(&mut self, val: V) -> Option<V> { self.z.set_val(val) }
+    fn remove_val(&mut self) -> Option<V> { self.z.remove_val() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: PathMap<V, A>) { self.z.graft_map(map) }
@@ -516,11 +546,11 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperU
 
 impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperWriting<V, A> for WriteZipperUntracked<'a, 'path, V, A> {
     type ZipperHead<'z> = ZipperHead<'z, 'a, V, A> where Self: 'z;
-    fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
-    fn get_value_or_insert(&mut self, default: V) -> &mut V { self.z.get_value_or_insert(default) }
-    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { self.z.get_value_or_insert_with(func) }
-    fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
-    fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
+    fn get_val_mut(&mut self) -> Option<&mut V> { self.z.get_val_mut() }
+    fn get_val_or_set_mut(&mut self, default: V) -> &mut V { self.z.get_val_or_set_mut(default) }
+    fn get_val_or_set_mut_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { self.z.get_val_or_set_mut_with(func) }
+    fn set_val(&mut self, val: V) -> Option<V> { self.z.set_val(val) }
+    fn remove_val(&mut self) -> Option<V> { self.z.remove_val() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: PathMap<V, A>) { self.z.graft_map(map) }
@@ -679,11 +709,11 @@ impl <V: Clone + Send + Sync + Unpin, A: Allocator> WriteZipperOwned<V, A> {
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperWriting<V, A> for WriteZipperOwned<V, A> {
     type ZipperHead<'z> = ZipperHead<'z, 'static, V, A> where Self: 'z;
-    fn get_value_mut(&mut self) -> Option<&mut V> { self.z.get_value_mut() }
-    fn get_value_or_insert(&mut self, default: V) -> &mut V { self.z.get_value_or_insert(default) }
-    fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { self.z.get_value_or_insert_with(func) }
-    fn set_value(&mut self, val: V) -> Option<V> { self.z.set_value(val) }
-    fn remove_value(&mut self) -> Option<V> { self.z.remove_value() }
+    fn get_val_mut(&mut self) -> Option<&mut V> { self.z.get_val_mut() }
+    fn get_val_or_set_mut(&mut self, default: V) -> &mut V { self.z.get_val_or_set_mut(default) }
+    fn get_val_or_set_mut_with<F>(&mut self, func: F) -> &mut V where F: FnOnce() -> V { self.z.get_val_or_set_mut_with(func) }
+    fn set_val(&mut self, val: V) -> Option<V> { self.z.set_val(val) }
+    fn remove_val(&mut self) -> Option<V> { self.z.remove_val() }
     fn zipper_head<'z>(&'z mut self) -> Self::ZipperHead<'z> { self.z.zipper_head() }
     fn graft<Z: ZipperSubtries<V, A>>(&mut self, read_zipper: &Z) { self.z.graft(read_zipper) }
     fn graft_map(&mut self, map: PathMap<V, A>) { self.z.graft_map(map) }
@@ -738,12 +768,12 @@ impl<V: Clone + Send + Sync + Unpin + 'static, A: Allocator + 'static> Iterator 
     fn next(&mut self) -> Option<(Vec<u8>, V)> {
         if !self.started {
             self.started = true;
-            if let Some(val) = self.zipper.remove_value() {
+            if let Some(val) = self.zipper.remove_val() {
                 return Some((self.zipper.path().to_vec(), val))
             }
         }
         if self.zipper.to_next_val() {
-            match self.zipper.remove_value() {
+            match self.zipper.remove_val() {
                 Some(val) => return Some((self.zipper.path().to_vec(), val)),
                 None => None
             }
@@ -1125,8 +1155,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             self.root_val.as_ref().and_then(|val| unsafe{&**val}.as_ref())
         }
     }
-    /// See [ZipperWriting::get_value_mut]
-    pub fn get_value_mut(&mut self) -> Option<&mut V> {
+    /// See [ZipperWriting::get_val_mut]
+    pub fn get_val_mut(&mut self) -> Option<&mut V> {
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
             self.focus_stack.top_mut().unwrap().node_get_val_mut(node_key)
@@ -1149,23 +1179,21 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
             self.root_val.as_mut().and_then(|val| unsafe{&mut **val}.as_mut())
         }
     }
-    /// See [ZipperWriting::get_value_or_insert]
-    //GOAT, consider renaming "get_value_mut_or_set"
-    pub fn get_value_or_insert(&mut self, default: V) -> &mut V {
-        self.get_value_or_insert_with(|| default)
+    /// See [ZipperWriting::get_val_or_set_mut]
+    pub fn get_val_or_set_mut(&mut self, default: V) -> &mut V {
+        self.get_val_or_set_mut_with(|| default)
     }
-    /// See [ZipperWriting::get_value_or_insert_with]
-    //GOAT, consider renaming "get_value_mut_or_set_with"
-    pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
+    /// See [ZipperWriting::get_val_or_set_mut_with]
+    pub fn get_val_or_set_mut_with<F>(&mut self, func: F) -> &mut V
         where F: FnOnce() -> V
     {
         if !self.is_val() {
-            self.set_value(func());
+            self.set_val(func());
         }
-        self.get_value_mut().unwrap()
+        self.get_val_mut().unwrap()
     }
-    /// See [ZipperWriting::set_value]
-    pub fn set_value(&mut self, val: V) -> Option<V> {
+    /// See [ZipperWriting::set_val]
+    pub fn set_val(&mut self, val: V) -> Option<V> {
         if self.key.node_key().len() == 0 {
             debug_assert!(self.at_root());
             let root_val_ref = self.root_val.as_mut().unwrap();
@@ -1182,8 +1210,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         }
         old_val
     }
-    /// See [ZipperWriting::remove_value]
-    pub fn remove_value(&mut self) -> Option<V> {
+    /// See [ZipperWriting::remove_val]
+    pub fn remove_val(&mut self) -> Option<V> {
         if self.key.node_key().len() == 0 {
             debug_assert!(self.at_root());
             let root_val_ref = self.root_val.as_mut().unwrap();
@@ -1226,8 +1254,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
 
         #[cfg(feature = "graft_root_vals")]
         let _ = match read_zipper.val() {
-            Some(src_val) => self.set_value(src_val.clone()),
-            None => self.remove_value()
+            Some(src_val) => self.set_val(src_val.clone()),
+            None => self.remove_val()
         };
     }
     /// See [ZipperWriting::graft_map]
@@ -1239,8 +1267,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         let _ = src_root_val;
         #[cfg(feature = "graft_root_vals")]
         let _ = match src_root_val {
-            Some(src_val) => self.set_value(src_val),
-            None => self.remove_value()
+            Some(src_val) => self.set_val(src_val),
+            None => self.remove_val()
         };
     }
     /// See [ZipperWriting::join]
@@ -1286,9 +1314,9 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         #[cfg(not(feature = "graft_root_vals"))]
         let _ = src_root_val;
         #[cfg(feature = "graft_root_vals")]
-        let val_status = match (self.get_value_mut(), src_root_val) {
+        let val_status = match (self.get_val_mut(), src_root_val) {
             (Some(self_val), Some(src_val)) => { self_val.join_into(src_val) },
-            (None, Some(src_val)) => { self.set_value(src_val); AlgebraicStatus::Element },
+            (None, Some(src_val)) => { self.set_val(src_val); AlgebraicStatus::Element },
             (Some(_), None) => { AlgebraicStatus::Identity },
             (None, None) => { AlgebraicStatus::None },
         };
@@ -1584,7 +1612,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
-        let root_val = self.remove_value();
+        let root_val = self.remove_val();
 
         let root_node = self.take_focus();
         //GOAT, we should prune upstream here!!
@@ -1768,7 +1796,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
                 just_popped = true;
             }
 
-            //This mirrors the logic of `child_count` and `is_value`
+            //This mirrors the logic of `child_count` and `is_val`
             let mut node_key_start = self.key.node_key_start();
             let node_key = &temp_path[node_key_start..];
             let focus_node = self.focus_stack.top().unwrap();
@@ -2171,13 +2199,13 @@ mod tests {
     use crate::alloc::GlobalAlloc;
 
     #[test]
-    fn write_zipper_set_value_test1() {
+    fn write_zipper_set_val_test1() {
         let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper_at_path(b"in");
         for i in 0usize..32 {
             zipper.descend_to_byte(0);
             zipper.descend_to(i.to_be_bytes());
-            zipper.set_value(i);
+            zipper.set_val(i);
             zipper.reset();
         }
         drop(zipper);
@@ -2198,7 +2226,7 @@ mod tests {
     /// Hits an edge case, where we want to ensure that the zipper's root gets mended
     /// (with `mend_root`) when a node is upgraded to a different node type
     #[test]
-    fn write_zipper_set_value_test2() {
+    fn write_zipper_set_val_test2() {
         let mut map = PathMap::<()>::new();
 
         //We want to ensure we get a PairNode at the map root
@@ -2210,15 +2238,15 @@ mod tests {
         let mut wz = map.write_zipper_at_path(b"3Path");
         assert_eq!(wz.is_val(), false);
 
-        //Now force the node to upgrade with set_value
-        assert_eq!(wz.set_value(()), None);
+        //Now force the node to upgrade with set_val
+        assert_eq!(wz.set_val(()), None);
         assert_eq!(wz.is_val(), true);
-        assert_eq!(wz.get_value_mut(), Some(&mut ()));
+        assert_eq!(wz.get_val_mut(), Some(&mut ()));
     }
 
     /// Hits an edge case around fixing a WriteZipper's root (with `mend_root`)
     #[test]
-    fn write_zipper_set_value_test3() {
+    fn write_zipper_set_val_test3() {
         let mut map = PathMap::<()>::new();
 
         //We want to ensure we get a PairNode at the map root
@@ -2229,10 +2257,10 @@ mod tests {
         let mut wz = map.write_zipper_at_path(b"aaa");
         assert_eq!(wz.is_val(), false);
 
-        //Now force the node to upgrade with set_value
-        assert_eq!(wz.set_value(()), None);
+        //Now force the node to upgrade with set_val
+        assert_eq!(wz.set_val(()), None);
         assert_eq!(wz.is_val(), true);
-        assert_eq!(wz.get_value_mut(), Some(&mut ()));
+        assert_eq!(wz.get_val_mut(), Some(&mut ()));
     }
 
     #[test]
@@ -2242,44 +2270,44 @@ mod tests {
 
         assert_eq!(zipper.is_val(), false);
         assert_eq!(zipper.val(), None);
-        assert_eq!(zipper.get_value_mut(), None);
+        assert_eq!(zipper.get_val_mut(), None);
 
-        assert_eq!(zipper.set_value(42), None);
+        assert_eq!(zipper.set_val(42), None);
         assert_eq!(zipper.is_val(), true);
         assert_eq!(zipper.val(), Some(&42));
-        assert_eq!(zipper.get_value_mut().unwrap(), &42);
+        assert_eq!(zipper.get_val_mut().unwrap(), &42);
 
-        *zipper.get_value_mut().unwrap() = 1337;
+        *zipper.get_val_mut().unwrap() = 1337;
         assert_eq!(zipper.val(), Some(&1337));
 
-        assert_eq!(zipper.remove_value(), Some(1337));
+        assert_eq!(zipper.remove_val(), Some(1337));
         assert_eq!(zipper.is_val(), false);
         assert_eq!(zipper.val(), None);
-        assert_eq!(zipper.get_value_mut(), None);
+        assert_eq!(zipper.get_val_mut(), None);
     }
 
     #[test]
-    fn write_zipper_get_or_insert_value_test() {
+    fn write_zipper_get_val_or_set_test() {
         let mut map = PathMap::<u64>::new();
-        map.write_zipper_at_path(b"Drenths").get_value_or_insert(42);
+        map.write_zipper_at_path(b"Drenths").get_val_or_set_mut(42);
         assert_eq!(map.get_val_at(b"Drenths"), Some(&42));
 
-        *map.write_zipper_at_path(b"Drenths").get_value_or_insert(42) = 24;
+        *map.write_zipper_at_path(b"Drenths").get_val_or_set_mut(42) = 24;
         assert_eq!(map.get_val_at(b"Drenths"), Some(&24));
 
         let mut zipper = map.write_zipper_at_path(b"Drenths");
-        *zipper.get_value_or_insert(42) = 0;
+        *zipper.get_val_or_set_mut(42) = 0;
         assert_eq!(zipper.val(), Some(&0));
         drop(zipper);
 
-        map.write_zipper().get_value_or_insert(42);
+        map.write_zipper().get_val_or_set_mut(42);
         assert_eq!(map.get_val_at([]), Some(&42));
 
-        *map.write_zipper().get_value_or_insert(42) = 24;
+        *map.write_zipper().get_val_or_set_mut(42) = 24;
         assert_eq!(map.get_val_at([]), Some(&24));
 
         let mut zipper = map.write_zipper();
-        *zipper.get_value_or_insert(42) = 0;
+        *zipper.get_val_or_set_mut(42) = 0;
         assert_eq!(zipper.val(), Some(&0))
     }
 
@@ -2291,7 +2319,7 @@ mod tests {
         let mut zipper = map.write_zipper_at_path(b"in\0");
         for i in 0..N {
             zipper.descend_to(i.to_be_bytes());
-            zipper.set_value(i);
+            zipper.set_val(i);
             zipper.reset();
         }
         drop(zipper);
@@ -2303,7 +2331,7 @@ mod tests {
             let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(b"in\0") };
             while let Some(val) = reader_z.to_next_get_val() {
                 writer_z.descend_to(reader_z.path());
-                writer_z.set_value(*val * 65536);
+                writer_z.set_val(*val * 65536);
                 writer_z.reset();
                 sanity_counter += 1;
             }
@@ -2547,22 +2575,22 @@ mod tests {
         //Create enough peer branches that we can be reasonably sure we're a byte node now
         // and then clean them up
         wz.descend_to([0, 0, 0, 0]);
-        wz.set_value(());
+        wz.set_val(());
         wz.ascend(4);
         wz.descend_to([1, 0, 0, 1]);
-        wz.set_value(());
+        wz.set_val(());
         wz.ascend(4);
         wz.descend_to([2, 0, 0, 2]);
-        wz.set_value(());
+        wz.set_val(());
         wz.ascend(4);
         wz.descend_to([0, 0, 0, 0]);
-        wz.remove_value();
+        wz.remove_val();
         wz.ascend(4);
         wz.descend_to([1, 0, 0, 1]);
-        wz.remove_value();
+        wz.remove_val();
         wz.ascend(4);
         wz.descend_to([2, 0, 0, 2]);
-        wz.remove_value();
+        wz.remove_val();
         wz.ascend(4);
 
         wz.meet(&rz);
@@ -3103,7 +3131,7 @@ mod tests {
         // Something \/-> Empty should be `Element`
         let mut wz = head.write_zipper_at_exclusive_path(b"src:").unwrap();
         wz.descend_to_byte(b'A');
-        wz.set_value(true);
+        wz.set_val(true);
         drop(wz);
         let mut wz = head.write_zipper_at_exclusive_path(b"dst:").unwrap();
         let rz = head.read_zipper_at_path(b"src:").unwrap();
@@ -3122,7 +3150,7 @@ mod tests {
         // [A, B] \/-> [A] should be `Element`
         let mut wz = head.write_zipper_at_exclusive_path(b"src:").unwrap();
         wz.descend_to_byte(b'B');
-        wz.set_value(true);
+        wz.set_val(true);
         drop(wz);
         let mut wz = head.write_zipper_at_exclusive_path(b"dst:").unwrap();
         let rz = head.read_zipper_at_path(b"src:").unwrap();
@@ -3134,7 +3162,7 @@ mod tests {
         // [B] \/-> [A, B] should be `Identity`
         let mut wz = head.write_zipper_at_exclusive_path(b"src:").unwrap();
         wz.descend_to_byte(b'A');
-        wz.remove_value();
+        wz.remove_val();
         drop(wz);
         let mut wz = head.write_zipper_at_exclusive_path(b"dst:").unwrap();
         let rz = head.read_zipper_at_path(b"src:").unwrap();
@@ -3146,10 +3174,10 @@ mod tests {
         let mut wz = head.write_zipper_at_exclusive_path(b"src:").unwrap();
         wz.remove_branches();
         wz.descend_to_byte(b'C');
-        wz.set_value(true);
+        wz.set_val(true);
         wz.ascend_byte();
         wz.descend_to_byte(b'D');
-        wz.set_value(true);
+        wz.set_val(true);
         drop(wz);
         let mut wz = head.write_zipper_at_exclusive_path(b"dst:").unwrap();
         let rz = head.read_zipper_at_path(b"src:").unwrap();
@@ -3162,7 +3190,7 @@ mod tests {
         let mut wz = head.write_zipper_at_exclusive_path(b"src:").unwrap();
         wz.remove_branches();
         wz.descend_to(b"Carousel");
-        wz.set_value(true);
+        wz.set_val(true);
         drop(wz);
         let mut wz = head.write_zipper_at_exclusive_path(b"dst:").unwrap();
         let rz = head.read_zipper_at_path(b"src:").unwrap();
@@ -3190,13 +3218,13 @@ mod tests {
 
         assert_eq!(wz.path(), b"");
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes...");
-        wz.set_value(());
+        wz.set_val(());
 
         wz.descend_to(b" and open your heart.");
         assert_eq!(wz.path(), b" and open your heart.");
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
 
-        wz.set_value(());
+        wz.set_val(());
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
     }
 
@@ -3219,11 +3247,11 @@ mod tests {
         let mut wz = zh.write_zipper_at_exclusive_path(b"This path can take you anywhere.  Just close your eyes...").unwrap();
         assert_eq!(wz.path(), b"");
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes...");
-        wz.set_value(());
+        wz.set_val(());
         wz.descend_to(b" and open your heart.");
         assert_eq!(wz.path(), b" and open your heart.");
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
-        wz.set_value(());
+        wz.set_val(());
         assert_eq!(wz.is_val(), true);
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
 
@@ -3270,7 +3298,7 @@ mod tests {
         assert_eq!(wz.path_exists(), true);
 
         //Now delete one of the paths
-        wz.remove_value(); //This remove should already perform a prune
+        wz.remove_val(); //This remove should already perform a prune
         assert_eq!(wz.is_val(), false);
         assert_eq!(wz.path_exists(), false);
 

@@ -3912,7 +3912,7 @@ mod tests {
         let mut zipper = map.write_zipper_at_path(b"in");
         for i in 0usize..N {
             zipper.descend_to(i.to_be_bytes());
-            zipper.set_value(i);
+            zipper.set_val(i);
             zipper.reset();
         }
         drop(zipper);
@@ -3966,7 +3966,7 @@ mod tests {
         for i in 0usize..2 {
             zipper.descend_to_byte(i as u8);
             zipper.descend_to(i.to_be_bytes());
-            zipper.set_value(i);
+            zipper.set_val(i);
             zipper.reset();
         }
         drop(zipper);

@@ -625,7 +625,7 @@ mod tests {
     trie_fuzzer.sample_iter(rng.clone()).take(N_TRIES).for_each(|mut trie| {
       path_fuzzer.clone().sample_iter(rng.clone()).take(N_DESCENDS).for_each(|path| {
         let mut wz = trie.write_zipper_at_path(&path[..]);
-        black_box(wz.get_value_or_insert(()));
+        black_box(wz.get_val_or_set_mut(()));
         drop(wz);
       });
       black_box(trie);

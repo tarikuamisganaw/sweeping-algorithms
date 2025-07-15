@@ -57,7 +57,7 @@ pub trait ZipperCreation<'trie, V: Clone + Send + Sync, A: Allocator = GlobalAll
     // /// [replace_owned_write_zipper](ZipperCreation::replace_owned_write_zipper).
     // ///
     // /// If the zipper is not replaced (and is dropped instead) the effect will be the same as calling both
-    // /// [WriteZipper::remove_branches], and [WriteZipper::remove_value].
+    // /// [WriteZipper::remove_branches], and [WriteZipper::remove_val].
     // fn take_owned_write_zipper_at_exclusive_path<K: AsRef<[u8]>>(&self, path: K) -> Result<WriteZipperOwned<V>, Conflict>;
 
     // /// Consumes a [WriteZipperOwned], and returns it to the trie from which it came
@@ -495,7 +495,7 @@ mod tests {
                 let thread = scope.spawn(move || {
                     for i in (n * elements_per_thread)..((n + 1) * elements_per_thread) {
                         zipper.descend_to(prefix_key(&(i as u64)));
-                        assert!(zipper.set_value(i).is_none());
+                        assert!(zipper.set_val(i).is_none());
                         zipper.reset();
                     }
                 });
@@ -535,7 +535,7 @@ mod tests {
             for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                 zipper.descend_to_byte(n as u8);
                 zipper.descend_to(i.to_be_bytes());
-                zipper.set_value(i);
+                zipper.set_val(i);
                 zipper.reset();
             }
         }
@@ -565,7 +565,7 @@ mod tests {
                                 //We got the zippers, do the stuff
                                 while let Some(val) = reader_z.to_next_get_val() {
                                     writer_z.descend_to(reader_z.path());
-                                    writer_z.set_value(*val);
+                                    writer_z.set_val(*val);
                                     writer_z.reset();
 
                                     sanity_counter += 1;
@@ -614,7 +614,7 @@ mod tests {
         //Make a ZipperHead for the whole map, and make a WriteZipper for a branch within the map
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(&[0]).unwrap();
-        zipper.set_value(0);
+        zipper.set_val(0);
         drop(zipper);
         drop(map_head);
         assert_eq!(map.get_val_at(&[0]), Some(&0));
@@ -629,7 +629,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(&[]).unwrap();
         zipper.descend_to(b"test");
-        zipper.set_value(0);
+        zipper.set_val(0);
         drop(zipper);
         drop(map_head);
         assert_eq!(map.get_val_at("test"), Some(&0));
@@ -643,7 +643,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         zipper.descend_to(b":2");
-        zipper.set_value(2);
+        zipper.set_val(2);
         drop(zipper);
         drop(map_head);
         assert_eq!(map.get_val_at("test:2"), Some(&2));
@@ -661,7 +661,7 @@ mod tests {
         assert_eq!(zipper.val(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'2');
-        zipper.set_value(2);
+        zipper.set_val(2);
         drop(zipper);
         drop(map_head);
 
@@ -679,7 +679,7 @@ mod tests {
         drop(zipper);
         let mut zipper = map_head.write_zipper_at_exclusive_path([3, 193, 49]).unwrap();
         zipper.descend_to_byte(42);
-        zipper.set_value(42);
+        zipper.set_val(42);
         drop(zipper);
         drop(map_head);
         assert_eq!(map.get_val_at([3, 193, 49, 42]), Some(&42));
@@ -700,7 +700,7 @@ mod tests {
         assert_eq!(zipper.val(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'5');
-        zipper.set_value(5);
+        zipper.set_val(5);
         drop(zipper);
         drop(map_head);
 
@@ -726,7 +726,7 @@ mod tests {
         assert_eq!(zipper.val(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'5');
-        zipper.set_value(5);
+        zipper.set_val(5);
         drop(zipper);
         drop(map_head);
 
@@ -748,7 +748,7 @@ mod tests {
 
         let mut z0 = zh.write_zipper_at_exclusive_path(b"0000").unwrap();
         z0.descend_to(b":goodbye");
-        z0.set_value(0);
+        z0.set_val(0);
 
         drop(z0);
         drop(zh);
@@ -776,13 +776,13 @@ mod tests {
         let mut z3 = zh.write_zipper_at_exclusive_path(b"0003").unwrap();
 
         z0.descend_to(b":goodbye");
-        z0.set_value(0);
+        z0.set_val(0);
         z1.descend_to(b":goodbye");
-        z1.set_value(1);
+        z1.set_val(1);
         z2.descend_to(b":goodbye");
-        z2.set_value(2);
+        z2.set_val(2);
         z3.descend_to(b":goodbye");
-        z3.set_value(3);
+        z3.set_val(3);
 
         drop(z0);
         drop(z1);
@@ -834,7 +834,7 @@ mod tests {
         assert_eq!(rz.val(), Some(&()));
 
         assert_eq!(wz.val(), None);
-        assert!(wz.set_value(()).is_none());
+        assert!(wz.set_val(()).is_none());
         drop(wz);
         drop(rz);
         drop(zh);
@@ -848,20 +848,20 @@ mod tests {
 
         let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4,]) };
         wz.descend_to(&[200, 0, 0, 0, 0, 0, 0, 0, 5]);
-        wz.set_value(());
+        wz.set_val(());
         drop(wz);
 
         let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[4, 200, 0, 0, 0, 0, 0, 0, 0, 6,]) };
         wz.descend_to(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 8, 192, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 9, 128]);
-        wz.set_value(());
+        wz.set_val(());
         wz.reset();
         wz.descend_to(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 5, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 10]);
-        wz.set_value(());
+        wz.set_val(());
         drop(wz);
 
         let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[4, 200, 0, 0, 0, 0, 0, 0, 0, 6, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4]) };
         wz.descend_to(&[200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 8, 192, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 9, 128]);
-        wz.remove_value();
+        wz.remove_val();
         drop(wz);
 
         let wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 2, 200, 0, 0, 0, 0, 0, 0, 0, 9]) };
@@ -872,7 +872,7 @@ mod tests {
 
         let mut wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[4, 200, 0, 0, 0, 0, 0, 0, 0, 6, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4]) };
         wz.descend_to(&[200, 0, 0, 0, 0, 0, 0, 0, 7, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 5, 2, 200, 0, 0, 0, 0, 0, 0, 0, 3, 2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 10]);
-        wz.remove_value();
+        wz.remove_val();
         drop(wz);
 
         let wz = unsafe{ space.write_zipper_at_exclusive_path_unchecked(&[2, 200, 0, 0, 0, 0, 0, 0, 0, 4, 200, 0, 0, 0, 0, 0, 0, 0, 10]) };
@@ -893,15 +893,15 @@ mod tests {
 
         //Do some interleaved work with the two zippers
         a_zipper.descend_to(b"+value");
-        a_zipper.set_value(0);
+        a_zipper.set_val(0);
         a_zipper.reset();
         b_zipper.descend_to(b"+value");
-        b_zipper.set_value(1);
+        b_zipper.set_val(1);
         b_zipper.reset();
 
         //Try pre-creating trie in the parent that will be visited by the child zipper
         b_zipper.descend_to(b"-children-0+metadata");
-        b_zipper.set_value(-3);
+        b_zipper.set_val(-3);
         b_zipper.ascend(10);
 
         //Make a ZipperHead on the WriteZipper, and make two more parallel zippers
@@ -911,9 +911,9 @@ mod tests {
 
         //Do some interleaved work with them
         b0_zipper.descend_to(b"+value");
-        b0_zipper.set_value(4);
+        b0_zipper.set_val(4);
         b1_zipper.descend_to(b"+value");
-        b1_zipper.set_value(-5);
+        b1_zipper.set_val(-5);
 
         //Drop the child zippers, so we can move the parent again
         drop(b0_zipper);
@@ -922,10 +922,10 @@ mod tests {
 
         //Visit some of the nodes the child zippers poked at, and fix their values with the parent
         b_zipper.descend_to(b"0+metadata");
-        b_zipper.set_value(3);
+        b_zipper.set_val(3);
         b_zipper.reset();
         b_zipper.descend_to(b"-children-1+value");
-        b_zipper.set_value(5);
+        b_zipper.set_val(5);
 
         //Test chopping an existing non-forking path, and inserting a new ZipperHead in there
         b_zipper.reset();
@@ -933,7 +933,7 @@ mod tests {
         let b_head = b_zipper.zipper_head();
         let mut b0_zipper = b_head.write_zipper_at_exclusive_path([]).unwrap();
         b0_zipper.descend_to(b"bolic");
-        b0_zipper.set_value(6);
+        b0_zipper.set_val(6);
         drop(b0_zipper);
 
         //Test making a ZipperHead when the parent WriteZipper is at a location that does not exist yet
@@ -942,7 +942,7 @@ mod tests {
         let a_head = a_zipper.zipper_head();
         let mut a0_zipper = a_head.write_zipper_at_exclusive_path("0").unwrap();
         a0_zipper.descend_to(b"+value");
-        a0_zipper.set_value(7);
+        a0_zipper.set_val(7);
         drop(a0_zipper);
 
         //We're done.
@@ -986,13 +986,13 @@ mod tests {
 
         //Do some interleaved work with them
         a0_zipper.descend_to(b"+value");
-        a0_zipper.set_value(0);
+        a0_zipper.set_val(0);
         a1_zipper.descend_to(b"+value");
-        a1_zipper.set_value(1);
+        a1_zipper.set_val(1);
         b0_zipper.descend_to(b"+value");
-        b0_zipper.set_value(2);
+        b0_zipper.set_val(2);
         b1_zipper.descend_to(b"+value");
-        b1_zipper.set_value(3);
+        b1_zipper.set_val(3);
 
         //We're done
         drop(a0_zipper);
@@ -1029,11 +1029,11 @@ mod tests {
         let mut sub_zipper = sub_head.write_zipper_at_exclusive_path(b"5").unwrap();
 
         //Set the value at the zipper's root
-        sub_zipper.set_value(5);
+        sub_zipper.set_val(5);
 
         //Set a value below the zipper's root
         sub_zipper.descend_to(b":next:1");
-        sub_zipper.set_value(1);
+        sub_zipper.set_val(1);
 
         drop(sub_zipper);
         drop(sub_head);
@@ -1060,13 +1060,13 @@ mod tests {
         let mut z3 = zh.write_zipper_at_exclusive_path(b"0003").unwrap();
 
         z0.descend_to(b":goodbye");
-        z0.set_value(0);
+        z0.set_val(0);
         z1.descend_to(b":goodbye");
-        z1.set_value(1);
+        z1.set_val(1);
         z2.descend_to(b":goodbye");
-        z2.set_value(2);
+        z2.set_val(2);
         z3.descend_to(b":goodbye");
-        z3.set_value(3);
+        z3.set_val(3);
 
         drop(z0);
         drop(z1);
@@ -1113,7 +1113,7 @@ mod tests {
                         let idx = (i*thread_cnt + thread_idx) as u32;
                         let mut z = zh_ref.write_zipper_at_exclusive_path(idx.to_be_bytes()).unwrap();
                         z.descend_to(b":goodbye");
-                        z.set_value(idx);
+                        z.set_val(idx);
                     }
                 });
                 threads.push(thread);

@@ -79,7 +79,7 @@ fn build_map(sequences: &Vec<Vec<u8>>) -> PathMap<usize> {
     if s.len() == 0 { continue }
     buildz.descend_to(&s[..]);
     match buildz.val() {
-      None => { buildz.set_value(i); }
+      None => { buildz.set_val(i); }
       Some(_v) => { /* keep the smallest integer sequence */ }
     }
     buildz.ascend(s.len());

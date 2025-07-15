@@ -640,7 +640,7 @@ where
     let prefix_len = prefix.len();
 
     wz.descend_to(&prefix[..]);
-    if let Some(v) = mv { wz.set_value(v); }
+    if let Some(v) = mv { wz.set_val(v); }
     for (b, w) in bm.iter().zip(ws) {
         wz.descend_to_byte(b);
         new_map_from_ana_jumping(wz, w, coalg_f);
@@ -875,7 +875,7 @@ pub(crate) fn new_map_from_ana_in<V, W, AlgF, A: Allocator>(w: W, mut alg_f: Alg
     alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
     stack[frame_idx].0.finalize();
     if let Some(val) = core::mem::take(&mut val) {
-        z.set_value(val);
+        z.set_val(val);
     }
     loop {
         //Should we descend?
@@ -925,7 +925,7 @@ pub(crate) fn new_map_from_ana_in<V, W, AlgF, A: Allocator>(w: W, mut alg_f: Alg
                     alg_f(w, &mut val, &mut stack[frame_idx].0, z.path());
                     stack[frame_idx].0.finalize();
                     if let Some(val) = core::mem::take(&mut val) {
-                        z.set_value(val);
+                        z.set_val(val);
                     }
                 },
                 // Path from a graft, we shouldn't descend
