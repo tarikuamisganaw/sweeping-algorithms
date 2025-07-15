@@ -650,10 +650,10 @@ impl<'a, V: Clone + Send + Sync, A: Allocator> core::fmt::Debug for AbstractNode
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::None => write!(f, "AbstractNodeRef::None"),
-            Self::BorrowedDyn(_) => write!(f, "AbstractNodeRef::BorrowedDyn"),
-            Self::BorrowedRc(_) => write!(f, "AbstractNodeRef::BorrowedRc"),
-            Self::BorrowedTiny(_) => write!(f, "AbstractNodeRef::BorrowedTiny"),
-            Self::OwnedRc(_) => write!(f, "AbstractNodeRef::OwnedRc"),
+            Self::BorrowedDyn(node) => write!(f, "AbstractNodeRef::BorrowedDyn({node:?})"),
+            Self::BorrowedRc(node) => write!(f, "AbstractNodeRef::BorrowedRc({node:?})"),
+            Self::BorrowedTiny(node) => write!(f, "AbstractNodeRef::BorrowedTiny({node:?})"),
+            Self::OwnedRc(node) => write!(f, "AbstractNodeRef::OwnedRc({node:?})"),
         }
     }
 }

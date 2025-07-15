@@ -1693,7 +1693,14 @@ pub(crate) mod read_zipper_core {
         type V = V;
         type A = A;
         fn get_focus(&self) -> AbstractNodeRef<'_, Self::V, Self::A> {
-            self.focus_node.get_node_at_key(self.node_key())
+            //We need to deregularize the zipper here to get at the ODRc that holds the focus
+            let (focus_node, node_key) = if self.prefix_buf.len() == self.node_key_start() && self.ancestors.len() > 0 {
+                let (focus_node, _iter_tok, _prefix_offset) = &self.ancestors.last().unwrap();
+                (focus_node, self.parent_key())
+            } else {
+                (&self.focus_node, self.node_key())
+            };
+            focus_node.get_node_at_key(node_key)
         }
         fn try_borrow_focus(&self) -> Option<TaggedNodeRef<'_, Self::V, Self::A>> {
             let node_key = self.node_key();
