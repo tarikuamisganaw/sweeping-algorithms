@@ -960,7 +960,7 @@ impl ArenaCompactTree<Mmap> {
             line_map: Default::default(),
             lines: Default::default(),
             hasher: Default::default(),
-            counters: Counters::default(),
+            counters: arena.counters,
         })
     }
 }
