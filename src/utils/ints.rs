@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use crate::PathMap;
+use crate::alloc::{global_alloc, Allocator};
 use crate::write_zipper::ZipperWriting;
 
 //GOAT. As I understand it, there is another version of this code out there designed by Anneline and
@@ -33,17 +34,25 @@ impl PathInteger<4> for u32 {}
 impl PathInteger<8> for u64 {}
 impl PathInteger<16> for u128 {}
 
-/// Creates a map with copies of the provided `value` at every path that represents an encoded
-/// integer across the range specified by `start`, `stop`, and `step`.
+/// Creates a map that represents an encoded integer range specified by `start`, `stop`, and `step`,
+/// with copies of the provided `value` at every path
 pub fn gen_int_range<V, const NUM_SIZE: usize, R>(start: R, stop: R, step: R, value: V) -> PathMap<V>
 where
 V: Clone + Send + Sync + Unpin,
 R: PathInteger<NUM_SIZE>,
 {
+    gen_int_range_in(start, stop, step, value, global_alloc())
+}
 
+/// Creates a range as described by [gen_int_range], using the allocator provided
+pub fn gen_int_range_in<V, const NUM_SIZE: usize, R, A: Allocator>(start: R, stop: R, step: R, value: V, alloc: A) -> PathMap<V, A>
+where
+V: Clone + Send + Sync + Unpin,
+R: PathInteger<NUM_SIZE>,
+{
     //Special case for u8s
     if NUM_SIZE == 1 {
-        let mut map = PathMap::<V>::new();
+        let mut map = PathMap::<V, A>::new_in(alloc);
         let mut i = start;
         while i < stop {
             map.set_val_at(i.to_be_bytes(), value.clone());
@@ -52,18 +61,23 @@ R: PathInteger<NUM_SIZE>,
         return map
     }
 
-    let mut cache: Vec<HashMap::<(R, R), PathMap<V>>> = Vec::with_capacity(NUM_SIZE-1);
+    let mut cache: Vec<HashMap::<(R, R), PathMap<V, A>>> = Vec::with_capacity(NUM_SIZE-1);
     cache.resize(NUM_SIZE-1, HashMap::new());
 
-    gen_child_level(NUM_SIZE-1, &mut cache, start, stop, step, value.clone())
+    gen_child_level_in(NUM_SIZE-1, &mut cache, start, stop, step, value.clone(), alloc)
 }
 
-type Cache<R, V> = Vec<HashMap::<(R, R), PathMap<V>>>;
+type Cache<R, V, A> = Vec<HashMap::<(R, R), PathMap<V, A>>>;
 
-fn gen_value_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: PathInteger<NUM_SIZE>>(
-    start: R, stop: R, step: R, value: V) -> PathMap<V> {
+fn gen_value_level_in<V, const NUM_SIZE: usize, R, A>(
+    start: R, stop: R, step: R, value: V, alloc: A) -> PathMap<V, A>
+where
+    V: Clone + Send + Sync + Unpin,
+    R: PathInteger<NUM_SIZE>,
+    A: Allocator
+{
 
-    let mut map = PathMap::<V>::new();
+    let mut map = PathMap::<V, A>::new_in(alloc);
     let mut i = start;
     while i < stop {
         let byte = i.to_u8().unwrap();
@@ -73,9 +87,13 @@ fn gen_value_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: Pat
     map
 }
 
-fn get_from_cache<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: PathInteger<NUM_SIZE>>(
-    level: usize, cache: &mut Cache<R, V>, start: R, stop: R, step: R, value: V) -> PathMap<V> {
-
+fn get_from_cache<V, const NUM_SIZE: usize, R, A>(
+    level: usize, cache: &mut Cache<R, V, A>, start: R, stop: R, step: R, value: V, alloc: A) -> PathMap<V, A>
+where
+V: Clone + Send + Sync + Unpin,
+R: PathInteger<NUM_SIZE>,
+A: Allocator
+{
     match cache[level].get(&(start, stop)) {
         Some(map) => {
             // println!("hit level={level} {start:?}-{stop:?}");
@@ -84,9 +102,9 @@ fn get_from_cache<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: Path
         None => {
             // println!("MISS level={level} {start:?}-{stop:?}");
             let new_map = if level == 0 {
-                gen_value_level(start, stop, step, value.clone())
+                gen_value_level_in(start, stop, step, value.clone(), alloc)
             } else {
-                gen_child_level(level, cache, start, stop, step, value.clone())
+                gen_child_level_in(level, cache, start, stop, step, value.clone(), alloc)
             };
             cache[level].insert((start, stop), new_map.clone());
             new_map
@@ -94,14 +112,19 @@ fn get_from_cache<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: Path
     }
 }
 
-pub(crate) fn gen_child_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: usize, R: PathInteger<NUM_SIZE>>(
-    level: usize, cache: &mut Cache<R, V>, start: R, stop: R, step: R, value: V) -> PathMap<V> {
+pub(crate) fn gen_child_level_in<V, const NUM_SIZE: usize, R, A>(
+    level: usize, cache: &mut Cache<R, V, A>, start: R, stop: R, step: R, value: V, alloc: A) -> PathMap<V, A>
+where
+    V: Clone + Send + Sync + Unpin,
+    R: PathInteger<NUM_SIZE>,
+    A: Allocator,
+{
     debug_assert!(start < stop);
 
     let base = R::from(R::from(256).unwrap().pow(level as u32)).unwrap();
     let one = R::from(1).unwrap();
 
-    let mut map = PathMap::<V>::new();
+    let mut map = PathMap::<V, A>::new_in(alloc.clone());
 
     let mut i = start;
     while i < stop {
@@ -117,7 +140,7 @@ pub(crate) fn gen_child_level<V: Clone + Send + Sync + Unpin, const NUM_SIZE: us
         let child_stop = (range_end - i).saturating_add(child_start).saturating_add(one).min(base);
 
         //Generate the child node, or retrieve it from the cache
-        let child_map = get_from_cache(level-1, cache, child_start, child_stop, step, value.clone());
+        let child_map = get_from_cache(level-1, cache, child_start, child_stop, step, value.clone(), alloc.clone());
         let higher_byte = (i / base).to_u8().unwrap();
         let path = &[higher_byte];
 
