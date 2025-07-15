@@ -89,7 +89,6 @@ harness = false
 [[bench]]
 name = "path_ops"
 harness = false
-required-features = ["fuzzer"]
 
 [[bench]]
 name = "pointcloud"

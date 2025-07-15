@@ -634,6 +634,41 @@ fn next_bit_test2() {
     assert_eq!(None, test_mask.next_bit(117));
 }
 
+// =======================================================================================
+// Path Utility Functions.  (currently just `find_prefix_overlap`)
+// =======================================================================================
+
+// GOAT!  UGH!  It turned out that having scalar paths aren't enough faster to justify having them
+// Probably on account of the extra branching causing misprediction
+// This code should be deleted eventually, but maybe keep it for a while while we discuss
+//
+// /// Returns the number of characters shared between two slices
+// pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+//     let len = a.len().min(b.len());
+
+//     match len {
+//         0 => 0,
+//         1 => (unsafe{ a.get_unchecked(0) == b.get_unchecked(0) } as usize),
+//         2 => { 
+//             let a_word = unsafe{ core::ptr::read_unaligned(a.as_ptr() as *const u16) };
+//             let b_word = unsafe{ core::ptr::read_unaligned(b.as_ptr() as *const u16) };
+//             let cmp = !(a_word ^ b_word); // equal bytes will be 0xFF
+//             let cnt = cmp.trailing_ones();
+//             cnt as usize / 8
+//         },
+//         3 | 4 | 5 | 6 | 7 | 8 => {
+//             //GOAT, we need to do a check to make sure we don't over-read a page
+//             let a_word = unsafe{ core::ptr::read_unaligned(a.as_ptr() as *const u64) };
+//             let b_word = unsafe{ core::ptr::read_unaligned(b.as_ptr() as *const u64) };
+//             let cmp = !(a_word ^ b_word); // equal bytes will be 0xFF
+//             let cnt = cmp.trailing_ones();
+//             let result = cnt as usize / 8;
+//             result.min(len)
+//         },
+//         _ => count_shared_neon(a, b),
+//     }
+// }
+
 #[cfg(not(feature = "nightly"))]
 #[allow(unused)]
 pub(crate) use core::convert::{identity as likely, identity as unlikely};
@@ -642,19 +677,6 @@ pub(crate) use core::convert::{identity as likely, identity as unlikely};
 pub(crate) use core::intrinsics::{likely, unlikely};
 
 const PAGE_SIZE: usize = 4096;
-
-// // saturate n to max 9, so table has 0..=9 entries
-// let idx = n.min(9);
-// DISPATCH_TABLE[idx]()
-
-// fn bytewise_eq_mask(a: u64, b: u64) -> u64 {
-//     let x = !(a ^ b);              // equal bytes will be 0xFF
-//     let mask = x & 0x7F7F7F7F7F7F7F7F; // clear MSBs
-//     let msb_mask = mask.wrapping_add(0x0101010101010101) & 0x8080808080808080;
-//     msb_mask >> 7  // each byte is now 0x01 if equal, 0x00 if not
-// }
-
-
 
 #[inline(always)]
 unsafe fn same_page<const VECTOR_SIZE: usize>(slice: &[u8]) -> bool {
