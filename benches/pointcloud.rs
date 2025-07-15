@@ -322,7 +322,7 @@ impl BTMOctree {
             }
         } else {
             if depth >= MAX_DEPTH || wz.child_count() == 0 {
-                if wz.is_value() { wz.get_value_mut().unwrap().push(p); }
+                if wz.is_val() { wz.get_value_mut().unwrap().push(p); }
                 else { wz.set_value(vec![p]); }
                 // wz.get_value_or_insert_with(|| vec![]).push(p);
             } else {
@@ -345,7 +345,7 @@ impl BTMOctree {
         if !bounds.intersects(query) {
             return true;
         }
-        if let Some(points) = rz.get_value() {
+        if let Some(points) = rz.get_val() {
             for &p in points {
                 if query.contains(&p) {
                     if !f(p) { return false }
@@ -388,7 +388,7 @@ impl BTMOctree {
             return; // Entire node too far away.
         }
 
-        if let Some(points) = rz.get_value() {
+        if let Some(points) = rz.get_val() {
             for &p in points {
                 let d2 = Octree::d2(p, query);
                 Octree::try_add_candidate(best, k, d2, p);

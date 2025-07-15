@@ -312,7 +312,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
             if inner_z.focus_stack.top().is_some() {
                 inner_z.move_to_path(origin_path);
                 if inner_z.try_borrow_focus().unwrap().node_is_empty() {
-                    if !inner_z.is_value() && inner_z.child_count() == 0 {
+                    if !inner_z.is_val() && inner_z.child_count() == 0 {
                         inner_z.prune_path();
                     }
                 }
@@ -563,7 +563,7 @@ mod tests {
                         match zipper_rx.recv() {
                             Ok((mut reader_z, mut writer_z)) => {
                                 //We got the zippers, do the stuff
-                                while let Some(val) = reader_z.to_next_get_value() {
+                                while let Some(val) = reader_z.to_next_get_val() {
                                     writer_z.descend_to(reader_z.path());
                                     writer_z.set_value(*val);
                                     writer_z.reset();
@@ -658,7 +658,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
-        assert_eq!(zipper.value(), Some(&3));
+        assert_eq!(zipper.val(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'2');
         zipper.set_value(2);
@@ -697,7 +697,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test").unwrap();
         assert!(zipper.descend_to(b":3"));
-        assert_eq!(zipper.value(), Some(&3));
+        assert_eq!(zipper.val(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'5');
         zipper.set_value(5);
@@ -723,7 +723,7 @@ mod tests {
         let map_head = map.zipper_head();
         let mut zipper = map_head.write_zipper_at_exclusive_path(b"test:").unwrap();
         assert!(zipper.descend_to(b"3"));
-        assert_eq!(zipper.value(), Some(&3));
+        assert_eq!(zipper.val(), Some(&3));
         zipper.ascend_byte();
         zipper.descend_to_byte(b'5');
         zipper.set_value(5);
@@ -829,11 +829,11 @@ mod tests {
         let mut rz = zh.read_zipper_at_borrowed_path(&[3, 194, 21]).unwrap();
         let mut wz = zh.write_zipper_at_exclusive_path(&[3, 194, 22]).unwrap();
 
-        assert_eq!(rz.value(), None);
+        assert_eq!(rz.val(), None);
         assert!(rz.descend_first_byte());
-        assert_eq!(rz.value(), Some(&()));
+        assert_eq!(rz.val(), Some(&()));
 
-        assert_eq!(wz.value(), None);
+        assert_eq!(wz.val(), None);
         assert!(wz.set_value(()).is_none());
         drop(wz);
         drop(rz);

@@ -106,12 +106,12 @@ impl Conflict {
     ) -> Option<&'a A> {
         let mut current_path = path;
         loop {
-            if zipper.is_value() {
-                return zipper.get_value();
+            if zipper.is_val() {
+                return zipper.get_val();
             } else if current_path.is_empty() {
                 return None;
             } else {
-                let steps = zipper.descend_to_value(current_path);
+                let steps = zipper.descend_to_val(current_path);
                 if steps == 0 {
                     return None
                 }
@@ -151,7 +151,7 @@ impl Conflict {
             None => {
                 if zipper.path().len() == path.len() {
                     let mut subtree = zipper.fork_read_zipper();
-                    match subtree.to_next_get_value() {
+                    match subtree.to_next_get_val() {
                         None => Ok(()),
                         Some(lock) => Err(conflict_f(
                             *lock,

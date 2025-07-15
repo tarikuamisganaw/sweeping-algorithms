@@ -15,7 +15,7 @@ struct FullZipper {
 
 impl Zipper for FullZipper {
     fn path_exists(&self) -> bool { true }
-    fn is_value(&self) -> bool { true }
+    fn is_val(&self) -> bool { true }
     fn child_count(&self) -> usize { 256 }
     fn child_mask(&self) -> ByteMask { [!0u64, !0u64, !0u64, !0u64].into() }
 }
@@ -47,7 +47,7 @@ impl ZipperMoving for FullZipper {
         self.path.push(k);
         true
     }
-    fn descend_indexed_branch(&mut self, idx: usize) -> bool {
+    fn descend_indexed_byte(&mut self, idx: usize) -> bool {
         assert!(idx < 256);
         self.path.push(idx as u8);
         true

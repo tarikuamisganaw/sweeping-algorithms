@@ -414,7 +414,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
     stack.push(StackFrame::from(&z));
     if !z.descend_first_byte() {
         //Empty trie is a special case
-        return alg_f(&ByteMask::EMPTY, &mut [], 0, z.value(), z.origin_path())
+        return alg_f(&ByteMask::EMPTY, &mut [], 0, z.val(), z.origin_path())
     }
 
     loop {
@@ -440,7 +440,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
                 if frame_idx == 0 {
                     //See if we need to run the aggregate function on the root before returning
                     let stack_frame = &mut stack[0];
-                    let val = z.value();
+                    let val = z.val();
                     let child_mask = ByteMask::from(z.child_mask());
                     debug_assert_eq!(stack_frame.child_idx, stack_frame.child_cnt);
                     debug_assert_eq!(stack_frame.child_cnt as usize, children.len());
@@ -466,7 +466,7 @@ fn cata_side_effect_body<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(mut z:
             }
 
             //Position to descend the next child branch
-            let descended = z.descend_indexed_branch(stack[frame_idx].child_idx as usize);
+            let descended = z.descend_indexed_byte(stack[frame_idx].child_idx as usize);
             debug_assert!(descended);
         } else {
             //Push a new stack frame for this branch
@@ -494,12 +494,12 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
         // for each value we encounter along the way while ascending
         loop {
             let old_path_len = z.origin_path().len();
-            let old_val = z.get_value();
+            let old_val = z.get_val();
             let ascended = z.ascend_until();
             debug_assert!(ascended);
 
             let origin_path = unsafe{ z.origin_path_assert_len(old_path_len) };
-            let jump_len = if z.child_count() != 1 || z.is_value() {
+            let jump_len = if z.child_count() != 1 || z.is_val() {
                 old_path_len - (z.origin_path().len()+1)
             } else {
                 old_path_len - z.origin_path().len()
@@ -523,7 +523,7 @@ fn ascend_to_fork<'a, Z, V: 'a, W, Err, AlgF, const JUMPING: bool>(z: &mut Z,
         loop {
             let origin_path = z.origin_path();
             let byte = origin_path.last().copied().unwrap_or(0);
-            let val = z.value();
+            let val = z.val();
             w = alg_f(&child_mask, children, 0, val, origin_path)?;
 
             let ascended = z.ascend_byte();
@@ -724,7 +724,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
             .expect("into_cata stack is emptied before we returned to root");
         // This branch represents the body of the for loop.
         if frame_mut.child_idx < frame_mut.child_cnt {
-            zipper.descend_indexed_branch(frame_mut.child_idx as usize);
+            zipper.descend_indexed_byte(frame_mut.child_idx as usize);
             frame_mut.child_idx += 1;
             frame_mut.child_addr = zipper.shared_node_id();
 
@@ -771,7 +771,7 @@ fn into_cata_cached_body<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>(
         if frame_idx == 0 {
             // Final branch
             debug_assert!(zipper.at_root(), "must be at root when cata is done");
-            let value = zipper.value();
+            let value = zipper.val();
             let child_mask = ByteMask::from(zipper.child_mask());
             return if JUMPING && *child_cnt == 1 && value.is_none() {
                 Ok(children.pop().unwrap())
@@ -810,7 +810,7 @@ fn into_cata_jumping_naive<'a, Z, V: 'a, W, E, AlgF, Cache, const JUMPING: bool>
     let mut cache = HashMap::<u64, W>::new();
     let path = z.path().to_vec();
     for ii in 0..child_count {
-        z.descend_indexed_branch(ii);
+        z.descend_indexed_byte(ii);
         let child_addr = z.shared_node_id();
         // Read and reuse value from cache, if exists
         if let Some(cached) = Cache::get(&cache, child_addr) {
@@ -1725,7 +1725,7 @@ mod tests {
         //     let value = shared_addr(z).map(|x| x as *const u8);
         //     let mut children = Vec::new();
         //     for ii in 0..z.child_count() {
-        //         z.descend_indexed_branch(ii);
+        //         z.descend_indexed_byte(ii);
         //         if !z.is_value() {
         //             children.push(visit(z));
         //         }
@@ -1954,7 +1954,7 @@ mod tests {
         let mut it = check.iter();
 
         let mut rz = btm.read_zipper();
-        while let Some(range) = rz.to_next_get_value() {
+        while let Some(range) = rz.to_next_get_val() {
             for language_idx in range.clone().into_iter() {
                 let greeting = std::str::from_utf8(rz.path()).unwrap();
                 let language = &greetings_vec[language_idx][rz.path().len()+1..];
@@ -2028,7 +2028,7 @@ mod tests {
 
         println!("test");
         let mut rz = counted.read_zipper();
-        while let Some(v) = rz.to_next_get_value() {
+        while let Some(v) = rz.to_next_get_val() {
             // todo write out useful print function, that shows the count submaps
             println!("v: {}, p: {}", v, std::str::from_utf8(rz.path()).unwrap());
         }

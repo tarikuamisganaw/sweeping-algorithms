@@ -227,7 +227,7 @@ impl <T : TrieValue> Distribution<(Vec<u8>, T)> for FairTrieValue<T> {
     let size = rz.val_count();
     let target = rng.random_range(0..size);
     let mut i = 0;
-    while let Some(t) = rz.to_next_get_value() {
+    while let Some(t) = rz.to_next_get_val() {
       if i == target { return (rz.path().to_vec(), t.clone()) }
       i += 1;
     }
@@ -240,11 +240,11 @@ pub struct DescendFirstTrieValue<T : TrieValue, ByteD : Distribution<u8> + Clone
 impl <T : TrieValue, ByteD : Distribution<u8> + Clone, P : Fn(&ReadZipperUntracked<T>) -> ByteD> Distribution<(Vec<u8>, T)> for DescendFirstTrieValue<T, ByteD, P> {
   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> (Vec<u8>, T) {
     let mut rz = self.source.read_zipper();
-    while !rz.is_value() {
+    while !rz.is_val() {
       let b = (self.policy)(&rz).sample(rng);
       rz.descend_to_byte(b);
     }
-    (rz.path().to_vec(), rz.get_value().unwrap().clone())
+    (rz.path().to_vec(), rz.get_val().unwrap().clone())
   }
 }
 pub fn unbiased_descend_first_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) -> Categorical<u8, Uniform<usize>> {
@@ -291,7 +291,7 @@ pub fn unbiased_descend_last_policy<T : TrieValue>(rz: &ReadZipperUntracked<T>) 
     db: Degenerate{ element: noptions > 0 },
     // safety: Uniform stores integers, and while you can't sample from lower=upper=0, the memory is valid
     dx: Categorical{ elements: options, ed: Uniform::try_from(0..noptions).unwrap_or(unsafe { std::mem::MaybeUninit::zeroed().assume_init() }) },
-    dy: Mapped{ d: Degenerate{ element: rz.get_value().cloned() }, f: |v| v.unwrap(), pd: PhantomData::default() },
+    dy: Mapped{ d: Degenerate{ element: rz.get_val().cloned() }, f: |v| v.unwrap(), pd: PhantomData::default() },
     pd: PhantomData::default()
   }
 }
@@ -578,18 +578,18 @@ mod tests {
       let mut rz = trie.read_zipper();
       path_fuzzer.clone().sample_iter(rng.clone()).take(N_DESCENDS).for_each(|path| {
         rz.descend_to(&path[..]);
-        assert_eq!(rz.get_value(), trie.get_val_at(&path[..]));
+        assert_eq!(rz.get_val(), trie.get_val_at(&path[..]));
         path_fuzzer.clone().sample_iter(rng_.clone()).take(N_DESCENDS).for_each(|path| {
           rz.descend_to(&path[..]);
           rz.ascend(path.len());
         });
         assert_eq!(rz.path(), &path[..]);
-        assert_eq!(rz.get_value(), trie.get_val_at(&path[..]));
+        assert_eq!(rz.get_val(), trie.get_val_at(&path[..]));
         path_fuzzer.clone().sample_iter(rng_.clone()).take(N_DESCENDS).for_each(|path| {
           // println!("prev {:?}", rz.path());
           rz.move_to_path(&path[..]);
           assert_eq!(rz.path(), &path[..]);
-          assert_eq!(rz.get_value(), trie.get_val_at(&path[..]));
+          assert_eq!(rz.get_val(), trie.get_val_at(&path[..]));
         });
         rz.reset();
 

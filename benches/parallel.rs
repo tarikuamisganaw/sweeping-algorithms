@@ -62,7 +62,7 @@ fn parallel_read_zipper_get(bencher: Bencher, (elements, thread_cnt): (usize, &s
                             //We got the zipper, do the stuff
                             for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                                 zipper.move_to_path(prefix_key(&(i as u64)));
-                                assert_eq!(zipper.get_value().unwrap(), &i);
+                                assert_eq!(zipper.get_val().unwrap(), &i);
                             }
 
                             //Tell the main thread we're done
@@ -98,7 +98,7 @@ fn parallel_read_zipper_get(bencher: Bencher, (elements, thread_cnt): (usize, &s
                 let mut zipper = map.read_zipper_at_path(&path);
                 for i in 0..elements {
                     zipper.move_to_path(prefix_key(&(i as u64)));
-                    assert_eq!(zipper.get_value().unwrap(), &i);
+                    assert_eq!(zipper.get_val().unwrap(), &i);
                 }
             }
         });
@@ -217,7 +217,7 @@ fn parallel_copy_known_path(bencher: Bencher, (elements, thread_cnt): (usize, &s
                             for i in (n * elements_per_thread)..((n+1) * elements_per_thread) {
                                 let buf = i.to_be_bytes();
                                 reader_z.move_to_path(&buf);
-                                let val = reader_z.get_value().unwrap();
+                                let val = reader_z.get_val().unwrap();
 
                                 writer_z.move_to_path(&buf);
                                 writer_z.set_value(*val);
@@ -262,7 +262,7 @@ fn parallel_copy_known_path(bencher: Bencher, (elements, thread_cnt): (usize, &s
                 let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(&[b'i', b'n', 0]) };
                 for i in 0..elements {
                     reader_z.move_to_path(i.to_be_bytes());
-                    let val = reader_z.get_value().unwrap();
+                    let val = reader_z.get_val().unwrap();
 
                     writer_z.move_to_path(i.to_be_bytes());
                     writer_z.set_value(*val);
@@ -312,7 +312,7 @@ fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str
                     match zipper_rx.recv() {
                         Ok((mut reader_z, mut writer_z)) => {
                             //We got the zippers, do the stuff
-                            while let Some(val) = reader_z.to_next_get_value() {
+                            while let Some(val) = reader_z.to_next_get_val() {
                                 writer_z.move_to_path(reader_z.path());
                                 writer_z.set_value(*val);
 
@@ -359,7 +359,7 @@ fn parallel_copy_traverse(bencher: Bencher, (elements, thread_cnt): (usize, &str
                 let mut sanity_counter = 0;
                 let mut writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(&[b'o', b'u', b't', 0]) };
                 let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(&[b'i', b'n', 0]) };
-                while let Some(val) = reader_z.to_next_get_value() {
+                while let Some(val) = reader_z.to_next_get_val() {
                     writer_z.move_to_path(reader_z.path());
                     writer_z.set_value(*val);
                     sanity_counter += 1;

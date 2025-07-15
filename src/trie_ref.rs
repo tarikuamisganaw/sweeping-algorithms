@@ -162,8 +162,8 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for TrieRef<'_, V, A> 
             false
         }
     }
-    fn is_value(&self) -> bool {
-        self.get_value().is_some()
+    fn is_val(&self) -> bool {
+        self.get_val().is_some()
     }
     fn child_count(&self) -> usize {
         if self.is_valid() {
@@ -182,15 +182,15 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for TrieRef<'_, V, A> 
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperValues<V> for TrieRef<'_, V, A> {
-    fn value(&self) -> Option<&V> {
-        self.get_value()
+    fn val(&self) -> Option<&V> {
+        self.get_val()
     }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for TrieRef<'_, V, A> {
     type ReadZipperT<'a> = ReadZipperUntracked<'a, 'a, V, A> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal_in(self.focus_node.clone(), self.node_key(), 0, self.get_value(), self.alloc.clone());
+        let core_z = read_zipper_core::ReadZipperCore::new_with_node_and_path_internal_in(self.focus_node.clone(), self.node_key(), 0, self.get_val(), self.alloc.clone());
         Self::ReadZipperT::new_forked_with_inner_zipper(core_z)
     }
 }
@@ -200,7 +200,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for Trie
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
-        let root_val = self.get_value().cloned();
+        let root_val = self.get_val().cloned();
 
         let root_node = self.get_focus().into_option();
         if root_node.is_some() || root_val.is_some() {
@@ -244,7 +244,7 @@ impl<V: Clone + Send + Sync, A: Allocator> zipper_priv::ZipperPriv for TrieRef<'
 
 impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyValues<'a, V> for TrieRef<'a, V, A> {
     #[inline]
-    fn get_value(&self) -> Option<&'a V> {
+    fn get_val(&self) -> Option<&'a V> {
         if self.is_valid() {
             let key = self.node_key();
             if key.len() > 0 {
@@ -357,69 +357,69 @@ mod tests {
         let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"He", global_alloc());
         #[cfg(not(feature = "all_dense_nodes"))]
         assert_eq!(trie_ref.node_key(), b"He");
-        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.get_val(), None);
         assert_eq!(trie_ref.path_exists(), true);
 
         // "Hel" on the other hand was likely split into its own node
         let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"Hel", global_alloc());
         assert_eq!(trie_ref.node_key().len(), 0);
-        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.get_val(), None);
         assert_eq!(trie_ref.path_exists(), true);
 
         // Make sure we get a value at a leaf
         let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"Help", global_alloc());
-        assert_eq!(trie_ref.get_value(), Some(&()));
+        assert_eq!(trie_ref.get_val(), Some(&()));
         assert_eq!(trie_ref.path_exists(), true);
 
         // Make sure we get a value in the middle of a path
         let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"Hell", global_alloc());
-        assert_eq!(trie_ref.get_value(), Some(&()));
+        assert_eq!(trie_ref.get_val(), Some(&()));
         assert_eq!(trie_ref.path_exists(), true);
 
         // Try a path that doesn't exist
         let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"Hi", global_alloc());
-        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.get_val(), None);
         assert_eq!(trie_ref.path_exists(), false);
 
         // Try a very long path that doesn't exist but is sure to blow the single-node path buffer
         let trie_ref = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"Hello Mr. Washington, my name is John, but sometimes people call me Jack.  I live in Springfield.", global_alloc());
-        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.get_val(), None);
         assert_eq!(trie_ref.path_exists(), false);
 
         //Try using TrieRefs to descend a trie
         let trie_ref0 = TrieRef::new_with_node_and_path_in(map.root().unwrap().as_tagged(), map.root_val(), b"H", global_alloc());
-        assert_eq!(trie_ref0.get_value(), None);
+        assert_eq!(trie_ref0.get_val(), None);
         assert_eq!(trie_ref0.path_exists(), true);
         assert_eq!(trie_ref0.child_count(), 1);
         assert_eq!(trie_ref0.child_mask(), ByteMask::from(b'e'));
 
         //"Hel"
         let trie_ref1 = trie_ref0.trie_ref_at_path(b"el");
-        assert_eq!(trie_ref1.get_value(), None);
+        assert_eq!(trie_ref1.get_val(), None);
         assert_eq!(trie_ref1.path_exists(), true);
         assert_eq!(trie_ref1.child_count(), 3);
 
         //"Hello"
         let trie_ref2 = trie_ref1.trie_ref_at_path(b"lo");
-        assert_eq!(trie_ref2.get_value(), Some(&()));
+        assert_eq!(trie_ref2.get_val(), Some(&()));
         assert_eq!(trie_ref2.path_exists(), true);
         assert_eq!(trie_ref2.child_count(), 0);
 
         //"HelloOperator"
         let trie_ref3 = trie_ref2.trie_ref_at_path(b"Operator");
-        assert_eq!(trie_ref3.get_value(), None);
+        assert_eq!(trie_ref3.get_val(), None);
         assert_eq!(trie_ref3.path_exists(), false);
         assert_eq!(trie_ref3.child_count(), 0);
 
         //"HelloOperator, give me number 9"
         let trie_ref4 = trie_ref3.trie_ref_at_path(b", give me number 9");
-        assert_eq!(trie_ref4.get_value(), None);
+        assert_eq!(trie_ref4.get_val(), None);
         assert_eq!(trie_ref4.path_exists(), false);
         assert_eq!(trie_ref4.child_count(), 0);
 
         //"Hell"
         let trie_ref2 = trie_ref1.trie_ref_at_path(b"l");
-        assert_eq!(trie_ref2.get_value(), Some(&()));
+        assert_eq!(trie_ref2.get_val(), Some(&()));
         assert_eq!(trie_ref2.path_exists(), true);
         assert_eq!(trie_ref2.child_count(), 1);
     }
@@ -430,12 +430,12 @@ mod tests {
         let btm: PathMap<usize> = rs.into_iter().enumerate().map(|(i, r)| (r.as_bytes(), i) ).collect();
 
         let trie_ref = btm.trie_ref_at_path([]);
-        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.get_val(), None);
         assert_eq!(trie_ref.path_exists(), true);
         assert_eq!(trie_ref.child_count(), 4);
 
         let trie_ref = trie_ref.trie_ref_at_path([b'a']);
-        assert_eq!(trie_ref.get_value(), None);
+        assert_eq!(trie_ref.get_val(), None);
         assert_eq!(trie_ref.path_exists(), true);
         assert_eq!(trie_ref.child_count(), 1);
 

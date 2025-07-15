@@ -36,7 +36,7 @@ pub fn serialize_paths<'a, V : TrieValue, RZ : ZipperReadOnlyIteration<'a, V>, W
   if ret != Z_OK { panic!("init failed") }
 
   let mut total_paths : usize = 0;
-  while let Some(v) = rz.to_next_get_value() {
+  while let Some(v) = rz.to_next_get_val() {
     let p = rz.path();
     fv(total_paths, p, v);
     let l = p.len();
@@ -280,12 +280,12 @@ mod test {
             println!("de {} {} {}", c, bw, pw);
 
             let mut lrz = restored_btm.read_zipper();
-            while let Some(v) = lrz.to_next_get_value() {
+            while let Some(v) = lrz.to_next_get_val() {
               assert_eq!(btm.get_val_at(lrz.path()), Some(v));
             }
 
             let mut rrz = btm.read_zipper();
-            while let Some(v) = rrz.to_next_get_value() {
+            while let Some(v) = rrz.to_next_get_val() {
               assert_eq!(restored_btm.get_val_at(rrz.path()), Some(v));
             }
           }

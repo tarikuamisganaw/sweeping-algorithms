@@ -1311,7 +1311,7 @@ where Storage: AsRef<[u8]>
     }
 
     /// Returns `true` if there is a value at the zipper's focus, otherwise `false`
-    fn is_value(&self) -> bool {
+    fn is_val(&self) -> bool {
         if self.invalid > 0 {
             return false;
         }
@@ -1451,7 +1451,7 @@ where Storage: AsRef<[u8]>
             last_frame.node_id, self.path, last_frame.node_depth);
     }
     fn get_value_slice(&self) -> Option<&'tree ValueSlice> {
-        if !self.is_value() {
+        if !self.is_val() {
             return None;
         }
         let top_frame = self.stack.last()?;
@@ -1612,14 +1612,14 @@ where Storage: AsRef<[u8]>
             }
             top2_frame.child_index - 1
         };
-        self.ascend(1) && self.descend_indexed_branch(sibling_idx)
+        self.ascend(1) && self.descend_indexed_byte(sibling_idx)
     }
 }
 
 impl<'tree, Storage> ZipperValues<ValueSlice> for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
-    fn value(&self) -> Option<&ValueSlice> {
+    fn val(&self) -> Option<&ValueSlice> {
         self.get_value_slice()
     }
 }
@@ -1636,7 +1636,7 @@ where Storage: AsRef<[u8]>
 impl<'tree, Storage> ZipperReadOnlyValues<'tree, ValueSlice> for ACTZipper<'tree, Storage>
 where Storage: AsRef<[u8]>
 {
-    fn get_value(&self) -> Option<&'tree ValueSlice> {
+    fn get_val(&self) -> Option<&'tree ValueSlice> {
         self.get_value_slice()
     }
 }
@@ -1685,7 +1685,7 @@ where Storage: AsRef<[u8]>
         let mut zipper = self.clone();
         zipper.reset();
         let mut count = 0;
-        if zipper.is_value() {
+        if zipper.is_val() {
             count += 1;
         }
         while zipper.to_next_val() {
@@ -1745,7 +1745,7 @@ where Storage: AsRef<[u8]>
     /// WARNING: The branch represented by a given index is not guaranteed to be stable across modifications
     /// to the trie.  This method should only be used as part of a directed traversal operation, but
     /// index-based paths may not be stored as locations within the trie.
-    fn descend_indexed_branch(&mut self, idx: usize) -> bool {
+    fn descend_indexed_byte(&mut self, idx: usize) -> bool {
         if self.invalid > 0 {
             return false;
         }
@@ -1797,10 +1797,10 @@ where Storage: AsRef<[u8]>
 
     /// Descends the zipper's focus one step into the first child branch in a depth-first traversal
     ///
-    /// NOTE: This method should have identical behavior to passing `0` to [descend_indexed_branch](ZipperMoving::descend_indexed_branch),
+    /// NOTE: This method should have identical behavior to passing `0` to [descend_indexed_byte](ZipperMoving::descend_indexed_byte),
     /// although with less overhead
     fn descend_first_byte(&mut self) -> bool {
-        self.descend_indexed_branch(0)
+        self.descend_indexed_byte(0)
     }
 
     /// Descends the zipper's focus until a branch or a value is encountered.  Returns `true` if the focus
@@ -1921,7 +1921,7 @@ where Storage: AsRef<[u8]>
     /// Returns a reference to the value or `None` if the zipper has encountered the root.
     fn to_next_val(&mut self) -> bool {
         while self.to_next_step()  {
-            if self.is_value() {
+            if self.is_val() {
                 return true;
             }
         }
@@ -1977,7 +1977,7 @@ where Storage: AsRef<[u8]>
                 depth -= 1;
                 continue 'outer;
             }
-            assert!(self.descend_indexed_branch(idx));
+            assert!(self.descend_indexed_byte(idx));
             depth += 1;
             for _ii in 0..k - depth {
                 if !self.descend_first_byte() {
@@ -2043,8 +2043,8 @@ mod tests {
             btm_zipper.to_next_val();
             act_zipper.to_next_val();
 
-            let btm_val = btm_zipper.value().copied();
-            let act_val = act_zipper.value().map(|v: &ValueSlice| v.value());
+            let btm_val = btm_zipper.val().copied();
+            let act_val = act_zipper.val().map(|v: &ValueSlice| v.value());
 
             assert_eq!(btm_zipper.path(), act_zipper.path());
             assert_eq!(btm_val, act_val);

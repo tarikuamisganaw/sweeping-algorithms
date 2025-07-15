@@ -237,13 +237,13 @@ impl<V: Clone + Send + Sync, A: Allocator> Drop for WriteZipperTracked<'_, '_, V
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> Zipper for WriteZipperTracked<'a, '_, V, A>{
     fn path_exists(&self) -> bool { self.z.path_exists() }
-    fn is_value(&self) -> bool { self.z.is_value() }
+    fn is_val(&self) -> bool { self.z.is_val() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperValues<V> for WriteZipperTracked<'a, '_, V, A>{
-    fn value(&self) -> Option<&V> { self.z.value() }
+    fn val(&self) -> Option<&V> { self.z.val() }
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<V> for WriteZipperTracked<'trie, '_, V, A>{
@@ -265,7 +265,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperMoving 
     fn val_count(&self) -> usize { self.z.val_count() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
-    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
+    fn descend_indexed_byte(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_byte(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
@@ -389,13 +389,13 @@ impl<V: Clone + Send + Sync, A: Allocator> Drop for WriteZipperUntracked<'_, '_,
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> Zipper for WriteZipperUntracked<'a, '_, V, A> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
-    fn is_value(&self) -> bool { self.z.is_value() }
+    fn is_val(&self) -> bool { self.z.is_val() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperValues<V> for WriteZipperUntracked<'a, '_, V, A> {
-    fn value(&self) -> Option<&V> { self.z.value() }
+    fn val(&self) -> Option<&V> { self.z.val() }
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<V> for WriteZipperUntracked<'trie, '_, V, A> {
@@ -417,7 +417,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperMoving 
     fn val_count(&self) -> usize { self.z.val_count() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
-    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
+    fn descend_indexed_byte(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_byte(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
@@ -570,13 +570,13 @@ impl<V: 'static + Clone + Send + Sync + Unpin, A: Allocator> Clone for WriteZipp
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> Zipper for WriteZipperOwned<V, A> {
     fn path_exists(&self) -> bool { self.z.path_exists() }
-    fn is_value(&self) -> bool { self.z.is_value() }
+    fn is_val(&self) -> bool { self.z.is_val() }
     fn child_count(&self) -> usize { self.z.child_count() }
     fn child_mask(&self) -> ByteMask { self.z.child_mask() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperValues<V> for WriteZipperOwned<V, A> {
-    fn value(&self) -> Option<&V> { self.z.value() }
+    fn val(&self) -> Option<&V> { self.z.val() }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperForking<V> for WriteZipperOwned<V, A> {
@@ -598,7 +598,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for WriteZipperO
     fn val_count(&self) -> usize { self.z.val_count() }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool { self.z.descend_to(k) }
     fn descend_to_byte(&mut self, k: u8) -> bool { self.z.descend_to_byte(k) }
-    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_branch(child_idx) }
+    fn descend_indexed_byte(&mut self, child_idx: usize) -> bool { self.z.descend_indexed_byte(child_idx) }
     fn descend_first_byte(&mut self) -> bool { self.z.descend_first_byte() }
     fn descend_until(&mut self) -> bool { self.z.descend_until() }
     fn to_next_sibling_byte(&mut self) -> bool { self.z.to_next_sibling_byte() }
@@ -797,7 +797,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zipper for Wri
             true
         }
     }
-    fn is_value(&self) -> bool {
+    fn is_val(&self) -> bool {
         let key = self.key.node_key();
         if key.len() == 0 {
             debug_assert!(self.at_root());
@@ -836,7 +836,7 @@ impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zipper for Wri
 impl<'trie, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie> ZipperForking<V> for WriteZipperCore<'trie, '_, V, A> {
     type ReadZipperT<'a> = crate::zipper::read_zipper_core::ReadZipperCore<'a, 'a, V, A> where Self: 'a;
     fn fork_read_zipper<'a>(&'a self) -> Self::ReadZipperT<'a> {
-        let new_root_val = self.value();
+        let new_root_val = self.val();
         let path = self.origin_path();
 
         read_zipper_core::ReadZipperCore::new_with_node_and_path_in(self.focus_stack.top().unwrap().reborrow(), path, path.len(), self.key.node_key_start(), new_root_val, self.alloc.clone())
@@ -848,7 +848,7 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperCore<'a, 
         #[cfg(not(feature = "graft_root_vals"))]
         let root_val = None;
         #[cfg(feature = "graft_root_vals")]
-        let root_val = self.value().cloned();
+        let root_val = self.val().cloned();
 
         let root_node = self.get_focus().into_option();
         if root_node.is_some() || root_val.is_some() {
@@ -884,7 +884,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperMoving 
         if focus.is_none() {
             0
         } else {
-            val_count_below_root(focus.as_tagged()) + (self.is_value() as usize)
+            val_count_below_root(focus.as_tagged()) + (self.is_val() as usize)
         }
     }
     fn descend_to<K: AsRef<[u8]>>(&mut self, k: K) -> bool {
@@ -930,7 +930,7 @@ impl<'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperMoving 
             if self.key.node_key().len() == 0 {
                 self.ascend_across_nodes();
             }
-            if self.child_count() > 1 || self.is_value() {
+            if self.child_count() > 1 || self.is_val() {
                 break;
             }
         }
@@ -1058,7 +1058,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
                 (*self).try_borrow_focus().unwrap()
             },
         };
-        let val = self.value();
+        let val = self.val();
         (node, val)
     }
 
@@ -1115,8 +1115,8 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
     //     self.key.prefix_buf.len() > key_start || self.at_root()
     // }
 
-    /// See [ZipperValues::value]
-    pub fn value(&self) -> Option<&V> {
+    /// See [ZipperValues::val]
+    pub fn val(&self) -> Option<&V> {
         let node_key = self.key.node_key();
         if node_key.len() > 0 {
             self.focus_stack.top().unwrap().reborrow().node_get_val(node_key)
@@ -1159,7 +1159,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
     pub fn get_value_or_insert_with<F>(&mut self, func: F) -> &mut V
         where F: FnOnce() -> V
     {
-        if !self.is_value() {
+        if !self.is_val() {
             self.set_value(func());
         }
         self.get_value_mut().unwrap()
@@ -1225,7 +1225,7 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         self.graft_internal(read_zipper.get_focus().into_option());
 
         #[cfg(feature = "graft_root_vals")]
-        let _ = match read_zipper.value() {
+        let _ = match read_zipper.val() {
             Some(src_val) => self.set_value(src_val.clone()),
             None => self.remove_value()
         };
@@ -2189,7 +2189,7 @@ mod tests {
         let mut zipper = map.read_zipper_at_path(b"in\0");
         for i in 0usize..32 {
             zipper.descend_to(i.to_be_bytes());
-            assert_eq!(*zipper.get_value().unwrap(), i);
+            assert_eq!(*zipper.get_val().unwrap(), i);
             zipper.reset();
         }
         drop(zipper);
@@ -2208,11 +2208,11 @@ mod tests {
         assert!(map.root().unwrap().as_tagged().as_list().is_some());
 
         let mut wz = map.write_zipper_at_path(b"3Path");
-        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.is_val(), false);
 
         //Now force the node to upgrade with set_value
         assert_eq!(wz.set_value(()), None);
-        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.is_val(), true);
         assert_eq!(wz.get_value_mut(), Some(&mut ()));
     }
 
@@ -2227,11 +2227,11 @@ mod tests {
         map.set_val_at(b"aaa222", ());
 
         let mut wz = map.write_zipper_at_path(b"aaa");
-        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.is_val(), false);
 
         //Now force the node to upgrade with set_value
         assert_eq!(wz.set_value(()), None);
-        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.is_val(), true);
         assert_eq!(wz.get_value_mut(), Some(&mut ()));
     }
 
@@ -2240,21 +2240,21 @@ mod tests {
         let mut map = PathMap::<usize>::new();
         let mut zipper = map.write_zipper();
 
-        assert_eq!(zipper.is_value(), false);
-        assert_eq!(zipper.value(), None);
+        assert_eq!(zipper.is_val(), false);
+        assert_eq!(zipper.val(), None);
         assert_eq!(zipper.get_value_mut(), None);
 
         assert_eq!(zipper.set_value(42), None);
-        assert_eq!(zipper.is_value(), true);
-        assert_eq!(zipper.value(), Some(&42));
+        assert_eq!(zipper.is_val(), true);
+        assert_eq!(zipper.val(), Some(&42));
         assert_eq!(zipper.get_value_mut().unwrap(), &42);
 
         *zipper.get_value_mut().unwrap() = 1337;
-        assert_eq!(zipper.value(), Some(&1337));
+        assert_eq!(zipper.val(), Some(&1337));
 
         assert_eq!(zipper.remove_value(), Some(1337));
-        assert_eq!(zipper.is_value(), false);
-        assert_eq!(zipper.value(), None);
+        assert_eq!(zipper.is_val(), false);
+        assert_eq!(zipper.val(), None);
         assert_eq!(zipper.get_value_mut(), None);
     }
 
@@ -2269,7 +2269,7 @@ mod tests {
 
         let mut zipper = map.write_zipper_at_path(b"Drenths");
         *zipper.get_value_or_insert(42) = 0;
-        assert_eq!(zipper.value(), Some(&0));
+        assert_eq!(zipper.val(), Some(&0));
         drop(zipper);
 
         map.write_zipper().get_value_or_insert(42);
@@ -2280,7 +2280,7 @@ mod tests {
 
         let mut zipper = map.write_zipper();
         *zipper.get_value_or_insert(42) = 0;
-        assert_eq!(zipper.value(), Some(&0))
+        assert_eq!(zipper.val(), Some(&0))
     }
 
     #[test]
@@ -2301,7 +2301,7 @@ mod tests {
             let mut sanity_counter = 0;
             let mut writer_z = unsafe{ zipper_head.write_zipper_at_exclusive_path_unchecked(b"out\0") };
             let mut reader_z = unsafe{ zipper_head.read_zipper_at_path_unchecked(b"in\0") };
-            while let Some(val) = reader_z.to_next_get_value() {
+            while let Some(val) = reader_z.to_next_get_val() {
                 writer_z.descend_to(reader_z.path());
                 writer_z.set_value(*val * 65536);
                 writer_z.reset();
@@ -2487,7 +2487,7 @@ mod tests {
         assert_eq!(result, AlgebraicStatus::Element);
         assert_eq!(bz.val_count(), 1);
         assert!(bz.descend_to("12345"));
-        assert_eq!(bz.value(), Some(&()));
+        assert_eq!(bz.val(), Some(&()));
 
         //Test an Identity result
         let b_keys = ["12345"];
@@ -2497,7 +2497,7 @@ mod tests {
         assert_eq!(result, AlgebraicStatus::Identity);
         assert_eq!(bz.val_count(), 1);
         assert!(bz.descend_to("12345"));
-        assert_eq!(bz.value(), Some(&()));
+        assert_eq!(bz.val(), Some(&()));
 
         //Test a None result
         let a_keys = ["1aaaa", "1bbbb", "1cccc", "1dddd"];
@@ -2569,10 +2569,10 @@ mod tests {
 
         assert_eq!(wz.val_count(), 2);
         assert!(wz.descend_to([194, 7, 162]));
-        assert!(wz.value().is_some());
+        assert!(wz.val().is_some());
         assert!(wz.ascend(3));
         assert!(wz.descend_to([194, 7, 163]));
-        assert!(wz.value().is_some());
+        assert!(wz.val().is_some());
     }
 
     #[test]
@@ -3022,7 +3022,7 @@ mod tests {
         wr.remove_unmasked_branches([0xFF, !(1<<(b'M'-64)), 0xFF, 0xFF].into());
         //McKinley didn't make it
         wr.descend_to("McKinley");
-        assert_eq!(wr.value(), None);
+        assert_eq!(wr.val(), None);
 
         wr.reset();
         wr.descend_to("Roos");
@@ -3030,7 +3030,7 @@ mod tests {
         wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF].into());
         //Missed Roosevelt
         wr.descend_to("evelt");
-        assert_eq!(wr.value(), Some(&2));
+        assert_eq!(wr.val(), Some(&2));
 
         wr.reset();
         wr.descend_to("Garf");
@@ -3038,7 +3038,7 @@ mod tests {
         wr.remove_unmasked_branches([0xFF, !(1<<(b'i'-64)), 0xFF, 0xFF].into());
         wr.descend_to("ield");
         //Garfield was removed
-        assert_eq!(wr.value(), None);
+        assert_eq!(wr.val(), None);
     }
     #[test]
     fn write_zipper_test_zipper_conversion() {
@@ -3224,37 +3224,37 @@ mod tests {
         assert_eq!(wz.path(), b" and open your heart.");
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
         wz.set_value(());
-        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.is_val(), true);
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
 
         // Test forking a zipper from a WriteZipper and make sure it inherits the origin_path
         wz.ascend(6);
-        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.is_val(), false);
         let mut rz = wz.fork_read_zipper();
         assert_eq!(rz.path(), b"");
         assert_eq!(rz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your ");
-        assert_eq!(rz.is_value(), false);
+        assert_eq!(rz.is_val(), false);
         rz.descend_to(b"heart.");
         assert_eq!(wz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your ");
         assert_eq!(rz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
-        assert_eq!(rz.is_value(), true);
+        assert_eq!(rz.is_val(), true);
         drop(rz);
         wz.descend_to(b"heart.");
-        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.is_val(), true);
 
         // Test converting a WriteZipper into a ReadZipper
         let mut rz = wz.into_read_zipper();
-        assert_eq!(rz.is_value(), true);
+        assert_eq!(rz.is_val(), true);
         assert_eq!(rz.path(), b" and open your heart.");
         assert_eq!(rz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your heart.");
         rz.ascend(6);
         assert_eq!(rz.path(), b" and open your ");
         assert_eq!(rz.origin_path(), b"This path can take you anywhere.  Just close your eyes... and open your ");
-        assert_eq!(rz.is_value(), false);
+        assert_eq!(rz.is_val(), false);
         rz.reset();
         assert_eq!(rz.path(), b"");
         assert_eq!(rz.origin_path(), b"This path can take you anywhere.  Just close your eyes...");
-        assert_eq!(rz.is_value(), true);
+        assert_eq!(rz.is_val(), true);
     }
 
     #[test]
@@ -3266,24 +3266,24 @@ mod tests {
 
         //Sanity checking
         wz.descend_to([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128]);
-        assert_eq!(wz.is_value(), true);
+        assert_eq!(wz.is_val(), true);
         assert_eq!(wz.path_exists(), true);
 
         //Now delete one of the paths
         wz.remove_value(); //This remove should already perform a prune
-        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.is_val(), false);
         assert_eq!(wz.path_exists(), false);
 
         //Validate that it pruned up to the shared branching point
         wz.move_to_path([196, 34, 48,]);
-        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.is_val(), false);
         assert_eq!(wz.path_exists(), true);
         assert_eq!(wz.child_count(), 1);
         assert_eq!(wz.child_mask(), ByteMask::from(49));
 
         //Move back to the deleted branch
         wz.move_to_path([196, 34, 48, 48, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 202, 115, 119, 97, 112, 101, 100, 45, 118, 97, 108, 3, 195, 118, 97, 108, 128, 129, 3, 195, 118, 97, 108, 129, 128]);
-        assert_eq!(wz.is_value(), false);
+        assert_eq!(wz.is_val(), false);
         assert_eq!(wz.path_exists(), false);
 
         //Now run `prune_path`.  This `prune_path` should do nothing
@@ -3294,10 +3294,10 @@ mod tests {
         assert_eq!(map.val_count(), 1);
         let mut rz = map.read_zipper();
         rz.descend_to([196, 34, 48, 49, 34, 2, 193, 44, 3, 195, 118, 97, 108, 192, 192, 2, 193, 44, 3, 196, 112, 97, 105, 114, 128, 129]);
-        assert_eq!(rz.is_value(), true);
+        assert_eq!(rz.is_val(), true);
         assert_eq!(rz.path_exists(), true);
         rz.move_to_path([196, 34, 48,]);
-        assert_eq!(rz.is_value(), false);
+        assert_eq!(rz.is_val(), false);
         assert_eq!(rz.path_exists(), true);
         assert_eq!(rz.child_count(), 1);
         assert_eq!(rz.child_mask(), ByteMask::from(49));

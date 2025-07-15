@@ -329,7 +329,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         // node.node_contains_val(remaining_key)
 
         let zipper = self.read_zipper_at_borrowed_path(k);
-        zipper.is_value()
+        zipper.is_val()
     }
 
     /// Returns `true` if a path is contained within the map, or `false` otherwise
@@ -392,7 +392,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         // node.node_get_val(remaining_key)
 
         let zipper = self.read_zipper_at_borrowed_path(path);
-        zipper.get_value()
+        zipper.get_val()
     }
 
     /// Deprecated alias for [Self::get_val_at]
@@ -436,7 +436,7 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> PathMap<V, A> {
         let root_node = self.root.get_mut().as_mut().unwrap();
         let mut temp_z = WriteZipperCore::<'_, '_, V, A>::new_with_node_and_path_in(root_node, None, path, path.len(), 0, self.alloc.clone());
 
-        if !temp_z.is_value() {
+        if !temp_z.is_val() {
             temp_z.set_value(func());
         }
         temp_z.into_value_mut().unwrap()
@@ -1009,40 +1009,40 @@ mod tests {
 
         //Through a WriteZipper, created at the root
         let mut z = map.write_zipper();
-        assert_eq!(z.value(), None);
+        assert_eq!(z.val(), None);
         assert_eq!(z.set_value(1), None);
-        assert_eq!(z.value(), Some(&1));
+        assert_eq!(z.val(), Some(&1));
         *z.get_value_mut().unwrap() = 2;
         assert_eq!(z.remove_value(), Some(2));
-        assert_eq!(z.value(), None);
+        assert_eq!(z.val(), None);
         drop(z);
 
         //Through a WriteZipper, created at a zero-length path
         let mut z = map.write_zipper_at_path(&[]);
-        assert_eq!(z.value(), None);
+        assert_eq!(z.val(), None);
         assert_eq!(z.set_value(1), None);
-        assert_eq!(z.value(), Some(&1));
+        assert_eq!(z.val(), Some(&1));
         *z.get_value_mut().unwrap() = 2;
         assert_eq!(z.remove_value(), Some(2));
-        assert_eq!(z.value(), None);
+        assert_eq!(z.val(), None);
         drop(z);
 
         //Through read zippers
-        assert_eq!(map.read_zipper().get_value(), None);
+        assert_eq!(map.read_zipper().get_val(), None);
         assert_eq!(map.set_val_at([], 1), None);
-        assert_eq!(map.read_zipper().get_value(), Some(&1));
-        assert_eq!(map.read_zipper_at_borrowed_path(&[]).get_value(), Some(&1));
-        assert_eq!(map.read_zipper_at_path([]).get_value(), Some(&1));
+        assert_eq!(map.read_zipper().get_val(), Some(&1));
+        assert_eq!(map.read_zipper_at_borrowed_path(&[]).get_val(), Some(&1));
+        assert_eq!(map.read_zipper_at_path([]).get_val(), Some(&1));
         assert_eq!(map.remove_val_at([]), Some(1));
-        assert_eq!(map.read_zipper_at_borrowed_path(&[]).get_value(), None);
-        assert_eq!(map.read_zipper_at_path([]).get_value(), None);
+        assert_eq!(map.read_zipper_at_borrowed_path(&[]).get_val(), None);
+        assert_eq!(map.read_zipper_at_path([]).get_val(), None);
 
         //Through ZipperHeads
         let map_head = map.zipper_head();
         let mut z = map_head.write_zipper_at_exclusive_path([]).unwrap();
-        assert_eq!(z.value(), None);
+        assert_eq!(z.val(), None);
         assert_eq!(z.set_value(1), None);
-        assert_eq!(z.value(), Some(&1));
+        assert_eq!(z.val(), Some(&1));
         *z.get_value_mut().unwrap() = 2;
         drop(z);
         drop(map_head);
@@ -1198,7 +1198,7 @@ mod tests {
 
         let expected = [3, 5, 4];
         let mut i = 0;
-        while let Some(val) = zipper.to_next_get_value() {
+        while let Some(val) = zipper.to_next_get_val() {
             assert_eq!(*val, expected[i]);
             i += 1;
         }

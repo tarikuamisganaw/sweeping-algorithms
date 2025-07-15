@@ -138,7 +138,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
     /// `product_zipper_test4` for more discussion.
     #[inline]
     fn ensure_descend_next_factor(&mut self) {
-        if self.z.is_value() && self.factor_paths.len() < self.secondaries.len() {
+        if self.z.is_val() && self.factor_paths.len() < self.secondaries.len() {
 
             //We don't want to push the same factor on the stack twice
             if let Some(factor_path_len) = self.factor_paths.last() {
@@ -164,7 +164,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
     /// Internal method to determine whether a given method should be applied to the zipper core, or to the next factor root
     #[inline]
     fn should_use_next_factor(&self) -> bool {
-        if self.z.is_value() && self.factor_paths.len() < self.secondaries.len() {
+        if self.z.is_val() && self.factor_paths.len() < self.secondaries.len() {
             if let Some(path_len) = self.factor_paths.last() {
                 if *path_len != self.z.path().len() {
                     return true
@@ -207,10 +207,10 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
     fn descend_to_existing<K: AsRef<[u8]>>(&mut self, k: K) -> usize {
         let k = k.as_ref();
         if self.has_next_factor() {
-            if self.is_value() && self.factor_paths.last().map(|l| *l).unwrap_or(0) < self.path().len() {
+            if self.is_val() && self.factor_paths.last().map(|l| *l).unwrap_or(0) < self.path().len() {
                 self.enroll_next_factor();
             }
-            let descended = self.z.descend_to_value(k);
+            let descended = self.z.descend_to_val(k);
             debug_assert!(descended <= k.len());
             if descended < k.len() && descended > 0 {
                 descended + self.descend_to_existing(&k[descended..])
@@ -233,9 +233,9 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
     fn descend_to_byte(&mut self, k: u8) -> bool {
         self.descend_to(&[k])
     }
-    fn descend_indexed_branch(&mut self, child_idx: usize) -> bool {
+    fn descend_indexed_byte(&mut self, child_idx: usize) -> bool {
         self.ensure_descend_next_factor();
-        self.z.descend_indexed_branch(child_idx)
+        self.z.descend_indexed_byte(child_idx)
     }
     fn descend_first_byte(&mut self) -> bool {
         self.ensure_descend_next_factor();
@@ -280,21 +280,21 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperIteration for ProductZipper<'_, 'trie, V, A> { } //Use the default impl for all methods
 
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperValues<V> for ProductZipper<'_, 'trie, V, A> {
-    fn value(&self) -> Option<&V> {
-        self.get_value()
+    fn val(&self) -> Option<&V> {
+        self.z.get_val()
     }
 }
 
 impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyValues<'trie, V> for ProductZipper<'factor_z, 'trie, V, A> {
-    fn get_value(&self) -> Option<&'trie V> { self.z.get_value() }
+    fn get_val(&self) -> Option<&'trie V> { self.z.get_val() }
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper for ProductZipper<'_, 'trie, V, A> {
     fn path_exists(&self) -> bool {
         self.z.path_exists()
     }
-    fn is_value(&self) -> bool {
-        self.z.is_value()
+    fn is_val(&self) -> bool {
+        self.z.is_val()
     }
     fn child_count(&self) -> usize {
         if self.should_use_next_factor() {
@@ -359,25 +359,25 @@ mod tests {
         //Descend within the first factor
         assert!(pz.descend_to(b"AA"));
         assert_eq!(pz.path(), b"AA");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 3);
         assert!(pz.descend_to(b"a"));
         assert_eq!(pz.path(), b"AAa");
-        assert_eq!(pz.get_value(), Some(&0));
+        assert_eq!(pz.get_val(), Some(&0));
         assert_eq!(pz.child_count(), 3);
 
         //Step to the next factor
         assert!(pz.descend_to(b"DD"));
         assert_eq!(pz.path(), b"AAaDD");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 1);
         assert!(pz.descend_to(b"d"));
         assert_eq!(pz.path(), b"AAaDDd");
-        assert_eq!(pz.get_value(), Some(&1000));
+        assert_eq!(pz.get_val(), Some(&1000));
         assert_eq!(pz.child_count(), 0);
         assert!(!pz.descend_to(b"GGg"));
         assert_eq!(pz.path(), b"AAaDDdGGg");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 0);
 
         //Test Reset, if the zipper was in another factor
@@ -385,67 +385,67 @@ mod tests {
         assert_eq!(pz.path(), b"");
         assert!(pz.descend_to(b"AA"));
         assert_eq!(pz.path(), b"AA");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 3);
 
         //Try to descend to a non-existent path that would be within the first factor
         assert!(!pz.descend_to(b"aBBb"));
         assert_eq!(pz.path(), b"AAaBBb");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 0);
 
         //Now descend to the second factor in one jump
         pz.reset();
         assert!(pz.descend_to(b"AAaDD"));
         assert_eq!(pz.path(), b"AAaDD");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 1);
         pz.reset();
         assert!(pz.descend_to(b"AAaDDd"));
         assert_eq!(pz.path(), b"AAaDDd");
-        assert_eq!(pz.get_value(), Some(&1000));
+        assert_eq!(pz.get_val(), Some(&1000));
         assert_eq!(pz.child_count(), 0);
         assert!(!pz.descend_to(b"GG"));
         assert_eq!(pz.path(), b"AAaDDdGG");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 0);
 
         //Make sure we can ascend out of a secondary factor; in this sub-test we'll hit the path middles
         assert!(pz.ascend(1));
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.path(), b"AAaDDdG");
         assert_eq!(pz.child_count(), 0);
         assert!(pz.ascend(3));
         assert_eq!(pz.path(), b"AAaD");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 1);
         assert!(pz.ascend(2));
         assert_eq!(pz.path(), b"AA");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 3);
         assert!(!pz.ascend(3));
         assert_eq!(pz.path(), b"");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 1);
         assert!(pz.at_root());
 
         assert!(!pz.descend_to(b"AAaDDdGG"));
         assert_eq!(pz.path(), b"AAaDDdGG");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 0);
 
         //Now try to hit the path transition points
         assert!(pz.ascend(2));
         assert_eq!(pz.path(), b"AAaDDd");
-        assert_eq!(pz.get_value(), Some(&1000));
+        assert_eq!(pz.get_val(), Some(&1000));
         assert_eq!(pz.child_count(), 0);
         assert!(pz.ascend(3));
         assert_eq!(pz.path(), b"AAa");
-        assert_eq!(pz.get_value(), Some(&0));
+        assert_eq!(pz.get_val(), Some(&0));
         assert_eq!(pz.child_count(), 3);
         assert!(pz.ascend(3));
         assert_eq!(pz.path(), b"");
-        assert_eq!(pz.get_value(), None);
+        assert_eq!(pz.get_val(), None);
         assert_eq!(pz.child_count(), 1);
         assert!(pz.at_root());
     }
@@ -534,13 +534,13 @@ mod tests {
         let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
 
         p.descend_to("abcdefghijklmnopqrstuvwxyzbo");
-        assert_eq!(p.value(), Some(&()));
+        assert_eq!(p.val(), Some(&()));
         assert_eq!(p.child_count(), 2);
         assert_eq!(p.child_mask(), ByteMask::from_iter([b'p', b'f']));
 
         p.descend_first_byte();
         p.ascend_byte();
-        assert_eq!(p.value(), Some(&()));
+        assert_eq!(p.val(), Some(&()));
         assert_eq!(p.child_count(), 2);
         assert_eq!(p.child_mask(), ByteMask::from_iter([b'p', b'f']));
     }
@@ -565,9 +565,9 @@ mod tests {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
             p.descend_to("abcdefghijklmnopqrstuvwxyzbof");
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbof");
-            assert!(p.is_value());
+            assert!(p.is_val());
             assert!(p.descend_to("oo"));
-            assert!(p.is_value());
+            assert!(p.is_val());
         }
         {
             let mut p = ProductZipper::new(l.read_zipper(), [r.read_zipper(), e.read_zipper()]);
@@ -583,7 +583,7 @@ mod tests {
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzboph");
             assert!(p.descend_to_byte(b'o'));
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbopho");
-            assert!(p.is_value());
+            assert!(p.is_val());
             assert!(p.ascend_until());
             assert_eq!(p.path(), b"abcdefghijklmnopqrstuvwxyzbo");
             assert!(p.ascend(2));
@@ -629,25 +629,25 @@ mod tests {
         }
         assert_eq!(p1.path_exists(), true);
         assert_eq!(p1.path(), b"arrboclubhouse");
-        assert_eq!(p1.value(), Some(&()));
+        assert_eq!(p1.val(), Some(&()));
 
         // Validate that I can do the same thing with descend_to()
         p2.descend_to(b"arrboclubhouse");
         assert_eq!(p2.path_exists(), true);
         assert_eq!(p2.path(), b"arrboclubhouse");
-        assert_eq!(p2.value(), Some(&()));
+        assert_eq!(p2.val(), Some(&()));
 
         // Validate that I can back up, and re-descend
         {
             p2.ascend(11);
             assert_eq!(p2.path(), b"arr");
             assert_eq!(p2.path_exists(), true);
-            assert_eq!(p2.value(), Some(&()));
+            assert_eq!(p2.val(), Some(&()));
 
             p2.descend_to(b"boclub");
             assert_eq!(p2.path(), b"arrboclub");
             assert_eq!(p2.path_exists(), true);
-            assert_eq!(p2.value(), Some(&()));
+            assert_eq!(p2.val(), Some(&()));
         }
 
         //Now descend to a non-existent path off of the first factor, and re-ascend to
@@ -668,12 +668,12 @@ mod tests {
             p2.ascend(9);
             assert_eq!(p2.path(), b"arr");
             assert_eq!(p2.path_exists(), true);
-            assert_eq!(p2.value(), Some(&()));
+            assert_eq!(p2.val(), Some(&()));
 
             p2.descend_to(b"boclub");
             assert_eq!(p2.path(), b"arrboclub");
             assert_eq!(p2.path_exists(), true);
-            assert_eq!(p2.value(), Some(&()));
+            assert_eq!(p2.val(), Some(&()));
         }
 
         //Now descend to a non-existent path off of the second factor, and re-ascend to
@@ -689,12 +689,12 @@ mod tests {
             p2.ascend(5);
             assert_eq!(p2.path(), b"arrbo");
             assert_eq!(p2.path_exists(), true);
-            assert_eq!(p2.value(), Some(&()));
+            assert_eq!(p2.val(), Some(&()));
 
             p2.descend_to(b"club");
             assert_eq!(p2.path(), b"arrboclub");
             assert_eq!(p2.path_exists(), true);
-            assert_eq!(p2.value(), Some(&()));
+            assert_eq!(p2.val(), Some(&()));
         }
     }
 
@@ -727,7 +727,7 @@ mod tests {
 
             assert_eq!(moving_pz.path(), fresh_pz.path());
             assert_eq!(moving_pz.path_exists(), fresh_pz.path_exists());
-            assert_eq!(moving_pz.value(), fresh_pz.value());
+            assert_eq!(moving_pz.val(), fresh_pz.val());
             assert_eq!(moving_pz.child_count(), fresh_pz.child_count());
             assert_eq!(moving_pz.child_mask(), fresh_pz.child_mask());
         })
