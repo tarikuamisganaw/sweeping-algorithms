@@ -643,6 +643,7 @@ fn next_bit_test2() {
 // This code should be deleted eventually, but maybe keep it for a while while we discuss
 //
 // /// Returns the number of characters shared between two slices
+// #[inline]
 // pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
 //     let len = a.len().min(b.len());
 
@@ -666,6 +667,18 @@ fn next_bit_test2() {
 //             result.min(len)
 //         },
 //         _ => count_shared_neon(a, b),
+//     }
+// }
+
+// GOAT!  AGH!! Even this is much slower, even on the zipfian distribution where 70% of the pairs have 0 overlap!!!
+//
+// /// Returns the number of characters shared between two slices
+// #[inline]
+// pub fn find_prefix_overlap(a: &[u8], b: &[u8]) -> usize {
+//     if a.len() != 0 && b.len() != 0 && unsafe{ a.get_unchecked(0) == b.get_unchecked(0) } {
+//         count_shared_neon(a, b)
+//     } else {
+//         0
 //     }
 // }
 

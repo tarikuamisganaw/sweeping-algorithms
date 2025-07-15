@@ -403,23 +403,39 @@ fn make_short_keys(count: usize, key_len_range: std::ops::Range<usize>, rand_see
     let mut rng = StdRng::seed_from_u64(rand_seed);
     (0..count).map(|_| {
         let key_len = rng.random_range(key_len_range.clone());
-        let mut a_key = Vec::with_capacity(key_len);
-        let mut b_key = Vec::with_capacity(key_len);
         let same_until: usize = rng.random_range(0..key_len);
-        for _ in 0..same_until {
-            let byte: u8 = rng.random();
-            a_key.push(byte);
-            b_key.push(byte)
-        }
-        for _ in same_until..key_len {
-            let a_byte: u8 = rng.random();
-            a_key.push(a_byte);
-            let mut b_byte: u8 = rng.random();
-            while b_byte == a_byte { b_byte = rng.random(); }
-            b_key.push(b_byte);
-        }
-        (same_until, a_key, b_key)
+        short_key_pair(&mut rng, key_len, same_until)
     }).collect()
+}
+
+/// Make keys that have a "zipfian" distribution of key lengths
+fn make_zipf_keys(count: usize, key_len: usize, rand_seed: u64, zipf_ratio: f64) -> Vec<(usize, Vec<u8>, Vec<u8>)> {
+    let mut rng = StdRng::seed_from_u64(rand_seed);
+    let ratio_to_minus_n = 1.0 - zipf_ratio.powi(-(key_len as i32));
+    (0..count).map(|_| {
+        let sample: f64 = rng.random();
+        let inner = 1.0 - sample * ratio_to_minus_n;
+        let k = (-inner.ln() / zipf_ratio.ln()).ceil() as usize;
+        short_key_pair(&mut rng, key_len, k-1)
+    }).collect()
+}
+
+fn short_key_pair(rng: &mut StdRng, key_len: usize, same_until: usize) -> (usize, Vec<u8>, Vec<u8>) {
+    let mut a_key = Vec::with_capacity(key_len);
+    let mut b_key = Vec::with_capacity(key_len);
+    for _ in 0..same_until {
+        let byte: u8 = rng.random();
+        a_key.push(byte);
+        b_key.push(byte)
+    }
+    for _ in same_until..key_len {
+        let a_byte: u8 = rng.random();
+        a_key.push(a_byte);
+        let mut b_byte: u8 = rng.random();
+        while b_byte == a_byte { b_byte = rng.random(); }
+        b_key.push(b_byte);
+    }
+    (same_until, a_key, b_key)
 }
 
 const NUM_KEYS: usize = 1_000_000;
@@ -478,6 +494,23 @@ fn short_prefix_len_lte2(bencher: Bencher) {
 #[divan::bench()]
 fn short_prefix_len_eq1(bencher: Bencher) {
     let pairs = make_short_keys(NUM_KEYS, 1..2, 42);
+
+    pairs.iter().for_each(|(val, l, r)| {
+        let result = find_prefix_overlap(l, r);
+        assert_eq!(result, *val);
+    });
+
+    bencher.bench_local(|| {
+        pairs.iter().for_each(|(_, l, r)| {
+            let result = find_prefix_overlap(l, r);
+            std::hint::black_box(result);
+        });
+    });
+}
+
+#[divan::bench()]
+fn short_prefix_zipf_16(bencher: Bencher) {
+    let pairs = make_zipf_keys(NUM_KEYS, 16, 42, 1.5);
 
     pairs.iter().for_each(|(val, l, r)| {
         let result = find_prefix_overlap(l, r);
