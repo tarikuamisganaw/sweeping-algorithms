@@ -2146,13 +2146,13 @@ mod mut_node_stack {
         #[inline]
         pub fn advance_from_root(&mut self) {
             self.to_root();
-            let tagged = unsafe{ self.root.unwrap().as_mut() }.as_tagged_mut();
+            let tagged = unsafe{ self.root.unwrap().as_mut() }.make_mut();
             self.stack.push(tagged)
         }
         #[inline]
         pub fn advance_if_empty(&mut self) {
             if self.stack.len() == 0 {
-                let tagged = unsafe{ self.root.unwrap().as_mut() }.as_tagged_mut();
+                let tagged = unsafe{ self.root.unwrap().as_mut() }.make_mut();
                 self.stack.push(tagged)
             }
         }
