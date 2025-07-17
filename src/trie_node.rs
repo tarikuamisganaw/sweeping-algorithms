@@ -1480,13 +1480,14 @@ mod tagged_node_ref {
         pub(super) fn from_slim_ptr(ptr: SlimNodePtr<V, A>) -> Self {
             Self { ptr, phantom: PhantomData }
         }
-        #[inline]
-        pub fn from_node<T>(node: &T) -> Self
-        where T: 'a + TrieNode<V, A>,
-        {
-            let tag = node.tag() as usize;
-            Self{ ptr: SlimNodePtr::from_raw_parts((node as *const T).cast_mut(), tag), phantom: PhantomData }
-        }
+        //GOAT, unused
+        // #[inline]
+        // pub(super) fn from_node<T>(node: &T) -> Self
+        // where T: 'a + TrieNode<V, A>,
+        // {
+        //     let tag = node.tag() as usize;
+        //     Self{ ptr: SlimNodePtr::from_raw_parts((node as *const T).cast_mut(), tag), phantom: PhantomData }
+        // }
         #[inline]
         pub fn from_dense(node: &DenseByteNode<V, A>) -> Self {
             Self{ ptr: SlimNodePtr::from_raw_parts((node as *const DenseByteNode<V, A>).cast_mut(), DENSE_BYTE_NODE_TAG), phantom: PhantomData }
@@ -1935,6 +1936,15 @@ mod tagged_node_ref {
                 _ => unsafe{ unreachable_unchecked() }
             }
         }
+        pub fn node_into_val_ref_mut(self, key: &[u8]) -> Option<&'a mut V> {
+            let (ptr, tag) = self.ptr.get_raw_parts();
+            match tag {
+                DENSE_BYTE_NODE_TAG => unsafe{ core::mem::transmute::<_, Option<&'a mut V>>((&mut *ptr.cast::<DenseByteNode<V, A>>()).node_get_val_mut(key)) },
+                LINE_LIST_NODE_TAG => unsafe{ core::mem::transmute::<_, Option<&'a mut V>>((&mut *ptr.cast::<LineListNode<V, A>>()).node_get_val_mut(key)) },
+                CELL_BYTE_NODE_TAG => unsafe{ core::mem::transmute::<_, Option<&'a mut V>>((&mut *ptr.cast::<CellByteNode<V, A>>()).node_get_val_mut(key)) },
+                _ => unsafe{ unreachable_unchecked() }
+            }
+        }
 
         pub fn node_set_val(&mut self, key: &[u8], val: V) -> Result<(Option<V>, bool), TrieNodeODRc<V, A>> {
             let (ptr, tag) = self.ptr.get_raw_parts();
@@ -2240,7 +2250,7 @@ mod opaque_dyn_rc_trie_node {
         }
         //NOTE for future separation into stand-alone crate: Make this contingent on a dyn_clone compile-time feature
         #[inline]
-        pub(crate) fn make_mut(&mut self) -> TaggedNodeRefMut<V, A> {
+        pub(crate) fn make_mut(&mut self) -> TaggedNodeRefMut<'_, V, A> {
             #[cfg(not(feature = "nightly"))]
             let node = dyn_clone::arc_make_mut(&mut self.0) as &mut dyn TrieNode<V, A>;
             #[cfg(feature = "nightly")]
