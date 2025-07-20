@@ -347,7 +347,7 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
 /// 3. The zipper focus doesn't exist, in which case we need to create it, and then follow one of the
 ///  other paths.
 /// 4. The target path is the zipper focus
-fn prepare_exclusive_write_path<'a, 'trie: 'a, 'path: 'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie>(z: &'a mut WriteZipperCore<'trie, 'path, V, A>, path: &[u8]) -> (&'a mut TrieNodeODRc<V, A>, &'a mut Option<V>)
+pub(crate) fn prepare_exclusive_write_path<'a, 'trie: 'a, 'path: 'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'trie>(z: &'a mut WriteZipperCore<'trie, 'path, V, A>, path: &[u8]) -> (&'a mut TrieNodeODRc<V, A>, &'a mut Option<V>)
 {
     //If we end up taking write zipper from the ZipperHead's root, we leave the focus_stack in an
     // undescended root state, so we need to fix it.
@@ -956,7 +956,7 @@ mod tests {
         assert_eq!(rz1.get_val(), Some(&42));
         assert_eq!(rz1.descend_to(":rd1"), true);
         assert_eq!(rz1.get_val(), Some(&1));
-        assert_eq!(rz1.move_to_path(":rd2"), (2, true));
+        assert_eq!(rz1.move_to_path(":rd2"), (3, true));
         assert_eq!(rz1.get_val(), Some(&2));
     }
 

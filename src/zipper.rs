@@ -1249,6 +1249,7 @@ pub(crate) const EXPECTED_DEPTH: usize = 16;
 pub(crate) const EXPECTED_PATH_LEN: usize = 64;
 
 pub(crate) mod read_zipper_core {
+    use core::ptr::NonNull;
     use crate::trie_node::*;
     use crate::PathMap;
     use crate::trie_ref::*;
@@ -1264,7 +1265,7 @@ pub(crate) mod read_zipper_core {
         /// `root_key = origin_path[root_key_start..]`
         root_key_start: usize,
         /// A special-case to access a value at the root node, because that value would be otherwise inaccessible
-        root_val: Option<&'a V>,
+        root_val: Option<NonNull<V>>,
         /// A reference to the focus node
         focus_node: TaggedNodeRef<'a, V, A>,
         /// An iter token corresponding to the location of the `node_key` within the `focus_node`, or NODE_ITER_INVALID
@@ -1277,6 +1278,8 @@ pub(crate) mod read_zipper_core {
         ancestors: Vec<(TaggedNodeRef<'a, V, A>, u128, usize)>,
         pub(crate) alloc: A,
     }
+    unsafe impl<V: Clone + Send + Sync, A: Allocator> Send for ReadZipperCore<'_, '_, V, A> {}
+    unsafe impl<V: Clone + Send + Sync, A: Allocator> Sync for ReadZipperCore<'_, '_, V, A> {}
 
     impl<V: Clone + Send + Sync, A: Allocator> Clone for ReadZipperCore<'_, '_, V, A> where V: Clone {
         fn clone(&self) -> Self {
@@ -1760,7 +1763,7 @@ pub(crate) mod read_zipper_core {
                 if let Some((parent, _iter_tok, _prefix_offset)) = self.ancestors.last() {
                     parent.node_get_val(self.parent_key())
                 } else {
-                    self.root_val.clone() //Just clone the ref, not the value itself
+                    self.root_val.map(|v| unsafe{ &*v.as_ptr() })
                 }
             }
         }
@@ -1769,7 +1772,8 @@ pub(crate) mod read_zipper_core {
     impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperCore<'a, '_, V, A> {
         fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
             let path = path.as_ref();
-            trie_ref_at_path_in(self.focus_node, self.root_val, self.node_key(), path, self.alloc.clone())
+            let root_val = self.root_val.map(|v| unsafe{ &*v.as_ptr() });
+            trie_ref_at_path_in(self.focus_node, root_val, self.node_key(), path, self.alloc.clone())
         }
     }
 
@@ -1978,7 +1982,7 @@ pub(crate) mod read_zipper_core {
             Self {
                 origin_path: SliceOrLen::from(path),
                 root_key_start,
-                root_val,
+                root_val: root_val.map(|v| v.into()),
                 focus_node: root_node,
                 focus_iter_token: NODE_ITER_INVALID,
                 prefix_buf: vec![],
@@ -1997,7 +2001,7 @@ pub(crate) mod read_zipper_core {
             Self {
                 origin_path: SliceOrLen::new_owned(path.len()),
                 root_key_start: new_root_key_start,
-                root_val: val,
+                root_val: val.map(|v| v.into()),
                 focus_node: node,
                 focus_iter_token: NODE_ITER_INVALID,
                 prefix_buf,

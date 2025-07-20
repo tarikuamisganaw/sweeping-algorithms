@@ -1076,47 +1076,84 @@ impl <'a, 'path, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> WriteZipperC
         }
     }
 
-    /// Internal method to borrow the node at the zipper's focus, splitting the node if necessary
+    //GOAT, Temporary (but medium term necessary)
+    /// Temporary stand-in for the commented-out implementation below.  This whole function body should
+    /// be deleted at the earliest opportunity.
+    ///
+    /// This temporary impl that treats read zippers the same as write zippers is needed on account of
+    /// the fact that a read_zipper holds a reference to the root value, which lives in the parent node.
+    /// However that node can be upgraded as part of a ZipperHead operation, to make a rooting site for
+    /// another upstream zipper.  This unfortunately means we have no choice but to make the parent node
+    /// into a CellNode, until we can change this unfortunate fact, by implementing the proposal in:
+    /// [A.0001_map_root_values.md], Alternative 2.
+    ///
+    /// To head off the question: "Why not just clone ODRc reference the root into the read zipper" (I
+    /// went part way down this implementation path myself), the answer is that some ReadZipper methods
+    /// return borrows in the `'trie` lifetime, so the zipper can be dropped without invalidating the
+    /// reference lifetime.
     pub(crate) fn splitting_borrow_focus(&mut self) -> (TaggedNodeRef<'_, V, A>, Option<&V>) {
         let self_ptr: *mut Self = self;
-        let node = match (*self).try_borrow_focus() {
-            Some(root) => root,
-            None => {
-                //SAFETY: This is another "We need Polonius" case.  We're finished with the borrow if we get here.
-                let self_ref = unsafe{ &mut *self_ptr };
-                self_ref.split_at_focus();
-                (*self).try_borrow_focus().unwrap()
-            },
-        };
-        let val = self.val();
-        (node, val)
+        let node_key = self.key.node_key();
+        if node_key.len() == 1 {
+            let parent_node = self.focus_stack.top().unwrap().reborrow();
+            if parent_node.is_cell_node() {
+                if let Some(focus_node) = parent_node.node_get_child(node_key) {
+                    let focus_node = focus_node.1.as_tagged();
+                    let focus_val = parent_node.node_get_val(node_key);
+                    return (focus_node, focus_val)
+                }
+            }
+        }
+        //SAFETY: This is another "We need polonius" case.  We are totally done with all the borrows
+        // of self before we get here, but the borrow checker can't see that since one of the return
+        // paths keeps the borrow alive
+        let (zipper_root_node, zipper_root_val) = prepare_exclusive_write_path(unsafe{ &mut *self_ptr }, &[]);
+        (zipper_root_node.as_tagged(), zipper_root_val.as_ref())
     }
 
-    /// Internal method to ensure the focus begins at its own node, splitting the node if necessary
-    pub(crate) fn split_at_focus(&mut self) {
-        let alloc = self.alloc.clone();
-        let sub_branch_added = self.in_zipper_mut_static_result(
-            |node, key| {
-                let new_node = if let Some(remaining) = node.take_node_at_key(key) {
-                    remaining
-                } else {
-                    #[cfg(not(feature = "all_dense_nodes"))]
-                    {
-                        TrieNodeODRc::new_in(crate::line_list_node::LineListNode::new_in(alloc.clone()), alloc)
-                    }
-                    #[cfg(feature = "all_dense_nodes")]
-                    {
-                        TrieNodeODRc::new_in(crate::dense_byte_node::DenseByteNode::new_in(alloc.clone()), alloc)
-                    }
-                };
-                node.node_set_branch(key, new_node)
-            },
-            |_, _| true);
-        if sub_branch_added {
-            self.mend_root();
-            self.descend_to_internal();
-        }
-    }
+    //GOAT original implementation.  Restore this when the root values move inside the nodes...  See above
+    // /// Internal method to borrow the node at the zipper's focus, splitting the node if necessary
+    // pub(crate) fn splitting_borrow_focus(&mut self) -> (TaggedNodeRef<'_, V, A>, Option<&V>) {
+    //     let self_ptr: *mut Self = self;
+    //     let node = match (*self).try_borrow_focus() {
+    //         Some(root) => root,
+    //         None => {
+    //             //SAFETY: This is another "We need Polonius" case.  We're finished with the borrow if we get here.
+    //             let self_ref = unsafe{ &mut *self_ptr };
+    //             self_ref.split_at_focus();
+    //             (*self).try_borrow_focus().unwrap()
+    //         },
+    //     };
+    //     let val = self.val();
+    //     (node, val)
+    // }
+
+    //GOAT original implementation.  See above
+    // /// Internal method to ensure the focus begins at its own node, splitting the node if necessary
+    // pub(crate) fn split_at_focus(&mut self) {
+    //     let alloc = self.alloc.clone();
+    //     let sub_branch_added = self.in_zipper_mut_static_result(
+    //         |node, key| {
+    //             let new_node = if let Some(remaining) = node.take_node_at_key(key) {
+    //                 remaining
+    //             } else {
+    //                 #[cfg(not(feature = "all_dense_nodes"))]
+    //                 {
+    //                     TrieNodeODRc::new_in(crate::line_list_node::LineListNode::new_in(alloc.clone()), alloc)
+    //                 }
+    //                 #[cfg(feature = "all_dense_nodes")]
+    //                 {
+    //                     TrieNodeODRc::new_in(crate::dense_byte_node::DenseByteNode::new_in(alloc.clone()), alloc)
+    //                 }
+    //             };
+    //             node.node_set_branch(key, new_node)
+    //         },
+    //         |_, _| true);
+    //     if sub_branch_added {
+    //         self.mend_root();
+    //         self.descend_to_internal();
+    //     }
+    // }
 
     /// Internal method to re-borrow a WriteZipperCore without the `'path` lifetime
     fn as_static_path_zipper(&mut self) -> &mut WriteZipperCore<'a, 'static, V, A> {

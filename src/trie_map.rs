@@ -997,6 +997,20 @@ mod tests {
     }
 
     #[test]
+    fn get_val_lifetime_problem() {
+        let mut map = PathMap::new();
+        map.set_val_at(b"path", 42);
+        let zh = map.zipper_head();
+        let rz = zh.read_zipper_at_path(b"path").unwrap();
+        let val_ref = rz.get_val().unwrap();
+        assert_eq!(*val_ref, 42);
+        drop(rz);
+        let mut wz = zh.write_zipper_at_exclusive_path(b"path").unwrap();
+        wz.remove_val();
+        assert_eq!(*val_ref, 42);
+    }
+
+    #[test]
     fn map_root_value_test1() {
         let mut map = PathMap::<usize>::new();
 
