@@ -406,21 +406,22 @@ pub struct ReadZipperWitness(pub(crate) Arc<ZipperTracker<TrackingRead>>);
 /// Conceptually similar to [ZipperReadOnlyValues] but requires a [ZipperWitness] to ensure the data
 /// is intact.
 ///
-/// This trait will never be implemented on the same type as [ZipperWriting] nor [ZipperReadOnlyValues]
-///
 /// NOTE: In a future version of rust, when there is some support for disjoint borrows, we could unify
 /// this trait with `ZipperReadOnlyValues` by splitting the "read guard" function of the zipper from
 /// the "cursor" function of the zipper.
 pub trait ZipperReadOnlyConditionalValues<'a, V>: ZipperValues<V> {
+    /// The type that acts as a witness for the validity of the zipper
+    type WitnessT;
+
     /// Creates a witness that can allow acquisition of longer-lived borrows of values, while the
     /// zipper itself is mutated
-    fn witness<'w>(&self) -> ReadZipperWitness;
+    fn witness<'w>(&self) -> Self::WitnessT;
 
     /// Returns a refernce to the value at the zipper's focus, or `None` if there is no value
     ///
     /// NOTE: Unlike [ZipperValues::val], this method returns a reference with the lifetime of `'a`
     /// instead of the temporary lifetime of the method.
-    fn get_val<'w>(&self, witness: &'w ReadZipperWitness) -> Option<&'w V> where 'a: 'w;
+    fn get_val_with_witness<'w>(&self, witness: &'w Self::WitnessT) -> Option<&'w V> where 'a: 'w;
 }
 
 /// An interface to implement iterating over all values in a subtrie via a zipper
@@ -448,9 +449,9 @@ pub trait ZipperReadOnlyIteration<'a, V>: ZipperReadOnlyValues<'a, V> + ZipperIt
 /// why this trait exists
 pub trait ZipperReadOnlyConditionalIteration<'a, V>: ZipperReadOnlyConditionalValues<'a, V> + ZipperIteration {
     /// See [ZipperReadOnlyIteration::to_next_get_val]
-    fn to_next_get_val<'w>(&mut self, witness: &'w ReadZipperWitness) -> Option<&'w V> where 'a: 'w {
+    fn to_next_get_val_with_witness<'w>(&mut self, witness: &'w Self::WitnessT) -> Option<&'w V> where 'a: 'w {
         if self.to_next_val() {
-            let val = self.get_val(witness);
+            let val = self.get_val_with_witness(witness);
             debug_assert!(val.is_some());
             val
         } else {
@@ -774,16 +775,17 @@ impl<'a, V: Clone + Send + Sync, Z> ZipperReadOnlyValues<'a, V> for &mut Z where
 }
 
 impl<'a, V: Clone + Send + Sync, Z> ZipperReadOnlyConditionalValues<'a, V> for &mut Z where Z: ZipperReadOnlyConditionalValues<'a, V>, Self: ZipperValues<V> {
-    fn witness<'w>(&self) -> ReadZipperWitness { (**self).witness() }
-    fn get_val<'w>(&self, witness: &'w ReadZipperWitness) -> Option<&'w V> where 'a: 'w { (**self).get_val(witness) }
+    type WitnessT = Z::WitnessT;
+    fn witness<'w>(&self) -> Z::WitnessT { (**self).witness() }
+    fn get_val_with_witness<'w>(&self, witness: &'w Z::WitnessT) -> Option<&'w V> where 'a: 'w { (**self).get_val_with_witness(witness) }
 }
 
 impl<'a, V, Z> ZipperReadOnlyIteration<'a, V> for &mut Z where Z: ZipperReadOnlyIteration<'a, V>, Self: ZipperReadOnlyValues<'a, V> + ZipperIteration {
     fn to_next_get_val(&mut self) -> Option<&'a V> { (**self).to_next_get_val() }
 }
 
-impl<'a, V, Z> ZipperReadOnlyConditionalIteration<'a, V> for &mut Z where Z: ZipperReadOnlyConditionalIteration<'a, V>, Self: ZipperReadOnlyConditionalValues<'a, V> + ZipperIteration {
-    fn to_next_get_val<'w>(&mut self, witness: &'w ReadZipperWitness) -> Option<&'w V> where 'a: 'w { (**self).to_next_get_val(witness) }
+impl<'a, V, Z> ZipperReadOnlyConditionalIteration<'a, V> for &mut Z where Z: ZipperReadOnlyConditionalIteration<'a, V>, Self: ZipperReadOnlyConditionalValues<'a, V, WitnessT = Z::WitnessT> + ZipperIteration {
+    fn to_next_get_val_with_witness<'w>(&mut self, witness: &'w Self::WitnessT) -> Option<&'w V> where 'a: 'w { (**self).to_next_get_val_with_witness(witness) }
 }
 
 impl<'a, V: Clone + Send + Sync + 'a, Z, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for &mut Z where Z: ZipperReadOnlySubtries<'a, V, A>, Self: ZipperReadOnlyPriv<'a, V, A> + ZipperSubtries<V, A> {
@@ -881,10 +883,11 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
 }
 
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyConditionalValues<'trie, V> for ReadZipperTracked<'trie, '_, V, A> {
+    type WitnessT = ReadZipperWitness;
     fn witness<'w>(&self) -> ReadZipperWitness {
         ReadZipperWitness(self.tracker.clone())
     }
-    fn get_val<'w>(&self, witness: &'w ReadZipperWitness) -> Option<&'w V> where 'trie: 'w {
+    fn get_val_with_witness<'w>(&self, witness: &'w ReadZipperWitness) -> Option<&'w V> where 'trie: 'w {
         debug_assert!(witness.0.path() == self.tracker.path());
         self.z.get_val()
     }
@@ -1045,6 +1048,12 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
 
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyValues<'trie, V> for ReadZipperUntracked<'trie, '_, V, A> {
     fn get_val(&self) -> Option<&'trie V> { self.z.get_val() }
+}
+
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyConditionalValues<'trie, V> for ReadZipperUntracked<'trie, '_, V, A> {
+    type WitnessT = ();
+    fn witness<'w>(&self) -> Self::WitnessT { () }
+    fn get_val_with_witness<'w>(&self, _witness: &'w Self::WitnessT) -> Option<&'w V> where 'trie: 'w { self.get_val() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperUntracked<'a, '_, V, A> {
@@ -1260,6 +1269,12 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperMoving for ReadZipperOw
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, V> for ReadZipperOwned<V, A> where Self: 'a {
     fn get_val(&self) -> Option<&'a V> { self.z.get_val() }
+}
+
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyConditionalValues<'trie, V> for ReadZipperOwned<V, A> {
+    type WitnessT = ();
+    fn witness<'w>(&self) -> Self::WitnessT { () }
+    fn get_val_with_witness<'w>(&self, _witness: &'w Self::WitnessT) -> Option<&'w V> where 'trie: 'w { self.get_val() }
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for ReadZipperOwned<V, A> where Self: 'a {

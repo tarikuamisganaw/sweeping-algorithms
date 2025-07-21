@@ -289,6 +289,12 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
     fn get_val(&self) -> Option<&'trie V> { self.z.get_val() }
 }
 
+impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyConditionalValues<'trie, V> for ProductZipper<'factor_z, 'trie, V, A> {
+    type WitnessT = ();
+    fn witness<'w>(&self) -> Self::WitnessT { () }
+    fn get_val_with_witness<'w>(&self, _witness: &'w Self::WitnessT) -> Option<&'w V> where 'trie: 'w { self.get_val() }
+}
+
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper for ProductZipper<'_, 'trie, V, A> {
     fn path_exists(&self) -> bool {
         self.z.path_exists()
