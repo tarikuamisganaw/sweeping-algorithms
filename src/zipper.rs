@@ -1103,6 +1103,8 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
     fn to_next_get_val(&mut self) -> Option<&'trie V> { self.z.to_next_get_val() }
 }
 
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyConditionalIteration<'trie, V> for ReadZipperUntracked<'trie, '_, V, A> { }
+
 impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperAbsolutePath for ReadZipperUntracked<'trie, '_, V, A> {
     fn origin_path(&self) -> &[u8] { self.z.origin_path() }
     fn root_prefix_path(&self) -> &[u8] { self.z.root_prefix_path() }
@@ -1323,6 +1325,8 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperIteration for ReadZippe
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperReadOnlyIteration<'a, V> for ReadZipperOwned<V, A> {
     fn to_next_get_val(&mut self) -> Option<&'a V> { self.z.to_next_get_val() }
 }
+
+impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> ZipperReadOnlyConditionalIteration<'trie, V> for ReadZipperOwned<V, A> { }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperAbsolutePath for ReadZipperOwned<V, A> {
     fn origin_path(&self) -> &[u8] { self.z.origin_path() }
