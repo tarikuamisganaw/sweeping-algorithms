@@ -264,6 +264,7 @@ impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyV
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for TrieRef<'a, V, A> {
+    type TrieRefT = TrieRef<'a, V, A>;
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
         if self.is_valid() {
             let path = path.as_ref();
@@ -276,6 +277,9 @@ impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyS
         } else {
             TrieRef::new_invalid_in(self.alloc.clone())
         }
+    }
+    unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
+        self.trie_ref_at_path(path)
     }
 }
 
@@ -383,10 +387,14 @@ impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperSubtries<V, A> for Trie
     fn make_map(&self) -> Option<PathMap<Self::V, A>> { self.trie_ref.make_map() }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyConditionalSubtries<'a, V, A> for TrieRefTracked<'a, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for TrieRefTracked<'a, V, A> {
+    type TrieRefT = TrieRefTracked<'a, V, A>;
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRefTracked<'a, V, A> {
         let inner = self.trie_ref.trie_ref_at_path(path);
         TrieRefTracked{ trie_ref: inner, tracker: self.tracker.clone() }
+    }
+    unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
+        self.trie_ref.trie_ref_at_path(path)
     }
 }
 

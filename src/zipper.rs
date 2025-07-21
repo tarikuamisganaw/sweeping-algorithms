@@ -464,14 +464,17 @@ pub trait ZipperReadOnlyConditionalIteration<'a, V>: ZipperReadOnlyConditionalVa
 ///
 /// This trait will never be implemented on the same type as [ZipperWriting]
 pub trait ZipperReadOnlySubtries<'a, V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: ZipperSubtries<V, A> + ZipperReadOnlyPriv<'a, V, A> {
-    /// Returns a [TrieRef] for the specified path, relative to the current focus
-    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A>;
-}
+    /// The type of the returned [TrieRef] or [TrieRefTracked]
+    type TrieRefT;
 
-/// See [ZipperReadOnlySubtries]
-pub trait ZipperReadOnlyConditionalSubtries<'a, V: Clone + Send + Sync, A: Allocator = GlobalAlloc>: ZipperSubtries<V, A> + ZipperReadOnlyPriv<'a, V, A> {
     /// Returns a [TrieRef] for the specified path, relative to the current focus
-    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRefTracked<'a, V, A>;
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> Self::TrieRefT;
+
+    /// Returns an untracked [TrieRef]
+    ///
+    /// NOTE: this method should only be used when the reference validity can be ensured through
+    /// other means - such as keeping the parent zipper alive.
+    unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A>;
 }
 
 /// An interface for advanced [Zipper] movements used for various types of iteration; such as iterating
@@ -783,8 +786,10 @@ impl<'a, V, Z> ZipperReadOnlyConditionalIteration<'a, V> for &mut Z where Z: Zip
     fn to_next_get_val<'w>(&mut self, witness: &'w ReadZipperWitness) -> Option<&'w V> where 'a: 'w { (**self).to_next_get_val(witness) }
 }
 
-impl<'a, V: Clone + Send + Sync, Z, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for &mut Z where Z: ZipperReadOnlySubtries<'a, V, A>, Self: ZipperReadOnlyPriv<'a, V, A> + ZipperSubtries<V, A> {
-    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { (**self).trie_ref_at_path(path) }
+impl<'a, V: Clone + Send + Sync + 'a, Z, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for &mut Z where Z: ZipperReadOnlySubtries<'a, V, A>, Self: ZipperReadOnlyPriv<'a, V, A> + ZipperSubtries<V, A> {
+    type TrieRefT = <Z as ZipperReadOnlySubtries<'a, V, A>>::TrieRefT;
+    fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> Self::TrieRefT { (**self).trie_ref_at_path(path) }
+    unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { (**self).trie_ref_at_path_unchecked(path) }
 }
 
 impl<Z> ZipperConcrete for &mut Z where Z: ZipperConcrete, Self: ZipperConcretePriv {
@@ -885,9 +890,13 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
     }
 }
 
-impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlyConditionalSubtries<'a, V, A> for ReadZipperTracked<'a, '_, V, A> {
+impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperTracked<'a, '_, V, A> {
+    type TrieRefT = TrieRefTracked<'a, V, A>;
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRefTracked<'a, V, A> {
         TrieRefTracked { trie_ref: self.z.trie_ref_at_path(path), tracker: self.tracker.clone() }
+    }
+    unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
+        self.z.trie_ref_at_path(path)
     }
 }
 
@@ -1039,7 +1048,9 @@ impl<'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 'trie> Zipper
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperUntracked<'a, '_, V, A> {
+    type TrieRefT = TrieRef<'a, V, A>;
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { self.z.trie_ref_at_path(path) }
+    unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipperUntracked<'_, '_, V, A> {
@@ -1252,7 +1263,9 @@ impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlyValues<'a, 
 }
 
 impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator> ZipperReadOnlySubtries<'a, V, A> for ReadZipperOwned<V, A> where Self: 'a {
+    type TrieRefT = TrieRef<'a, V, A>;
     fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { self.z.trie_ref_at_path(path) }
+    unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { self.z.trie_ref_at_path(path) }
 }
 
 impl<V: Clone + Send + Sync + Unpin, A: Allocator> ZipperConcrete for ReadZipperOwned<V, A> {
@@ -1833,11 +1846,13 @@ pub(crate) mod read_zipper_core {
     }
 
     impl<'a, V: Clone + Send + Sync + Unpin + 'a, A: Allocator + 'a> ZipperReadOnlySubtries<'a, V, A> for ReadZipperCore<'a, '_, V, A> {
+        type TrieRefT = TrieRef<'a, V, A>;
         fn trie_ref_at_path<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> {
             let path = path.as_ref();
             let root_val = self.root_val.map(|v| unsafe{ &*v.as_ptr() });
             trie_ref_at_path_in(self.focus_node, root_val, self.node_key(), path, self.alloc.clone())
         }
+        unsafe fn trie_ref_at_path_unchecked<K: AsRef<[u8]>>(&self, path: K) -> TrieRef<'a, V, A> { self.trie_ref_at_path(path) }
     }
 
     impl<'a, V: Clone + Send + Sync + Unpin, A: Allocator + 'a> ZipperReadOnlyPriv<'a, V, A> for ReadZipperCore<'a, '_, V, A> {

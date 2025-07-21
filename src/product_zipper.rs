@@ -43,7 +43,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
 
         //Get TrieRefs for the remaining zippers
         for other_z in other_z_iter {
-            let trie_ref = other_z.trie_ref_at_path("");
+            let trie_ref = unsafe{ other_z.trie_ref_at_path_unchecked("") };
             secondaries.push(trie_ref);
             source_zippers.push(Box::new(other_z));
         }
@@ -75,7 +75,7 @@ impl<'factor_z, 'trie, V: Clone + Send + Sync + Unpin + 'trie, A: Allocator + 't
     {
         let other_z_iter = other_zippers.into_iter();
         for other_z in other_z_iter {
-            let trie_ref = other_z.trie_ref_at_path("");
+            let trie_ref = unsafe{ other_z.trie_ref_at_path_unchecked("") };
             self.secondaries.push(trie_ref);
             self.source_zippers.push(Box::new(other_z));
         }
