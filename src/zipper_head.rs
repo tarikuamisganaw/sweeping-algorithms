@@ -932,11 +932,12 @@ mod tests {
 
         //Sanity check.  Validate that we see everything the items via a reader
         let mut rz1 = zh.read_zipper_at_borrowed_path(b"A").unwrap();
-        assert_eq!(rz1.get_val(), Some(&42));
+        let rz1_witness = rz1.witness();
+        assert_eq!(rz1.get_val(&rz1_witness), Some(&42));
         assert_eq!(rz1.descend_to(":rd1"), true);
-        assert_eq!(rz1.get_val(), Some(&1));
+        assert_eq!(rz1.get_val(&rz1_witness), Some(&1));
         assert_eq!(rz1.move_to_path(":rd2"), (3, true));
-        assert_eq!(rz1.get_val(), Some(&2));
+        assert_eq!(rz1.get_val(&rz1_witness), Some(&2));
 
         //Cause the node that supports the reader to be upgraded from a PairNode to a ByteNode
         let _wz1 = zh.write_zipper_at_exclusive_path(b"B:wt").unwrap();
@@ -945,19 +946,45 @@ mod tests {
 
         //Check we can re-create a reader, and see all the right stuff
         let mut rz2 = zh.read_zipper_at_borrowed_path(b"A").unwrap();
-        assert_eq!(rz2.get_val(), Some(&42));
+        let rz2_witness = rz1.witness();
+        assert_eq!(rz2.get_val(&rz2_witness), Some(&42));
         assert_eq!(rz2.descend_to(":rd1"), true);
-        assert_eq!(rz2.get_val(), Some(&1));
+        assert_eq!(rz2.get_val(&rz2_witness), Some(&1));
         assert_eq!(rz2.move_to_path(":rd2"), (3, true));
-        assert_eq!(rz2.get_val(), Some(&2));
+        assert_eq!(rz2.get_val(&rz2_witness), Some(&2));
 
         //Check that our original reader is still valid
         rz1.reset();
-        assert_eq!(rz1.get_val(), Some(&42));
+        assert_eq!(rz1.get_val(&rz1_witness), Some(&42));
         assert_eq!(rz1.descend_to(":rd1"), true);
-        assert_eq!(rz1.get_val(), Some(&1));
+        assert_eq!(rz1.get_val(&rz1_witness), Some(&1));
         assert_eq!(rz1.move_to_path(":rd2"), (3, true));
-        assert_eq!(rz1.get_val(), Some(&2));
+        assert_eq!(rz1.get_val(&rz1_witness), Some(&2));
+    }
+
+    #[test]
+    fn zipper_heade() {
+        let mut map = PathMap::new();
+        map.set_val_at(b"path", 42);
+        let zh = map.zipper_head();
+        let rz = zh.read_zipper_at_path(b"path").unwrap();
+        let rz_witness = rz.witness();
+        let val_ref = rz.get_val(&rz_witness).unwrap();
+        assert_eq!(*val_ref, 42);
+        drop(rz);
+
+        //Make sure the existance of the borrowed witness keeps the WZ from being created
+        assert!(zh.write_zipper_at_exclusive_path(b"path").is_err());
+
+        assert_eq!(*val_ref, 42);
+        drop(rz_witness);
+
+        //Now that the witness is gone, validate I can create the WZ, and remove the value
+        let mut wz = zh.write_zipper_at_exclusive_path(b"path").unwrap();
+        wz.remove_val();
+        drop(wz);
+        drop(zh);
+        assert_eq!(map.get_val_at(b"path"), None);
     }
 
     #[test]
