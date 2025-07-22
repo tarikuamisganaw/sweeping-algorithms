@@ -1009,9 +1009,48 @@ mod tests {
         assert_eq!(z2.val(), None);
         assert_eq!(z2.child_count(), 0);
         assert_eq!(z2.child_mask(), ByteMask::EMPTY);
-        assert_eq!(z2.path_exists(), true); //GOAT!! Conceptually this should be `false`, but the act of creating the ReadZipper currently creates the path - which is not great behavior and should be fixed soon
         assert_eq!(z2.to_next_sibling_byte(), false);
         assert_eq!(z2.ascend_byte(), false);
+
+        //Conceptually this should be `false`, but the act of creating the ReadZipper currently creates
+        // the path - which is incorrect behavior and should be fixed!
+        assert_eq!(z2.path_exists(), false);
+    }
+
+    /// This test ensures that a ReadZipper isn't invalidated by creating another ReadZipper at an
+    /// overlapping path
+    #[test]
+    fn zipper_headg() {
+        let mut map = PathMap::new();
+        map.set_val_at(b"ABCDEFG", 42);
+        map.set_val_at(b"A", 24);
+        let zh = map.zipper_head();
+
+        // Create a zipper and test to make sure it behaves properly
+        let mut z = zh.read_zipper_at_path(b"A").unwrap();
+        assert_eq!(z.val(), Some(&24));
+        assert_eq!(z.to_next_sibling_byte(), false);
+        z.descend_until();
+        assert_eq!(z.path(), b"BCDEFG");
+        assert_eq!(z.origin_path(), b"ABCDEFG");
+        assert_eq!(z.val(), Some(&42));
+        assert_eq!(z.to_next_sibling_byte(), false);
+
+        // Create a second zipper and ensure it's valid
+        let mut z2 = zh.read_zipper_at_path(z.origin_path()).unwrap();
+        assert_eq!(z2.path(), b"");
+        assert_eq!(z2.origin_path(), b"ABCDEFG");
+        assert_eq!(z2.val(), Some(&42));
+        assert_eq!(z2.to_next_sibling_byte(), false);
+
+        // Test the original zipper
+        assert_eq!(z.val(), Some(&42));
+        assert_eq!(z.to_next_sibling_byte(), false);
+        assert_eq!(z.ascend_until(), true);
+        assert_eq!(z2.path(), b"");
+        assert_eq!(z2.origin_path(), b"A");
+        assert_eq!(z.val(), Some(&24));
+        assert_eq!(z.to_next_sibling_byte(), false);
     }
 
     #[test]
