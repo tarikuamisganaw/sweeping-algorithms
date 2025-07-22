@@ -200,7 +200,6 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
         let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)?;
         self.with_inner_core_z(|z| {
             z.focus_stack.advance_if_empty();
-            z.descend_to(path);
             let (root_node, root_val) = z.splitting_borrow_focus();
 
             //SAFETY: I am effectively taking items bound by `z`'s lifetime and lifting them up to the `'trie`
@@ -209,15 +208,13 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
             // logic makes sure conflicting paths aren't permitted, so we should not get aliased &mut borrows
             let root_node: TaggedNodeRef<'trie, V, A> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
-            let new_zipper = ReadZipperTracked::new_with_node_and_path_in(root_node, path.as_ref(), path.len(), path.len(), root_val, z.alloc.clone(), zipper_tracker);
-            z.reset();
+            let new_zipper = ReadZipperTracked::new_with_node_and_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone(), zipper_tracker);
             Ok(new_zipper)
         })
     }
     unsafe fn read_zipper_at_borrowed_path_unchecked<'a, 'path>(&'a self, path: &'path[u8]) -> ReadZipperUntracked<'a, 'path, V, A> where 'trie: 'a {
         self.with_inner_core_z(|z| {
             z.focus_stack.advance_if_empty();
-            z.descend_to(path);
             let (root_node, root_val) = z.splitting_borrow_focus();
 
             //SAFETY: The user is asserting that the paths won't conflict.
@@ -230,13 +227,12 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
             {
                 let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)
                     .unwrap_or_else(|conflict| panic!("Fatal error. ReadZipper at {path:?} {conflict}"));
-                new_zipper = ReadZipperUntracked::new_with_node_and_path_in(root_node, path.as_ref(), path.len(), path.len(), root_val, z.alloc.clone(), Some(zipper_tracker));
+                new_zipper = ReadZipperUntracked::new_with_node_and_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone(), Some(zipper_tracker));
             }
             #[cfg(not(debug_assertions))]
             {
-                new_zipper = ReadZipperUntracked::new_with_node_and_path_in(root_node, path.as_ref(), path.len(), path.len(), root_val, z.alloc.clone());
+                new_zipper = ReadZipperUntracked::new_with_node_and_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone());
             }
-            z.reset();
             new_zipper
         })
     }
@@ -245,15 +241,13 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
         let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)?;
         self.with_inner_core_z(|z| {
             z.focus_stack.advance_if_empty();
-            z.descend_to(path);
             let (root_node, root_val) = z.splitting_borrow_focus();
 
             //SAFETY: See identical code in `read_zipper_at_borrowed_path` for more discussion
             let root_node: TaggedNodeRef<'trie, V, A> = unsafe{ core::mem::transmute(root_node) };
             let root_val: Option<&'trie V> = root_val.map(|v| unsafe{ &*(v as *const _) } );
 
-            let new_zipper = ReadZipperTracked::new_with_node_and_cloned_path_in(root_node, path.as_ref(), path.len(), path.len(), root_val, z.alloc.clone(), zipper_tracker);
-            z.reset();
+            let new_zipper = ReadZipperTracked::new_with_node_and_cloned_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone(), zipper_tracker);
             Ok(new_zipper)
         })
     }
@@ -261,7 +255,6 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
         let path = path.as_ref();
         self.with_inner_core_z(|z| {
             z.focus_stack.advance_if_empty();
-            z.descend_to(path);
             let (root_node, root_val) = z.splitting_borrow_focus();
 
             //SAFETY: The user is asserting that the paths won't conflict.
@@ -274,13 +267,12 @@ impl<'trie, Z, V: 'trie + Clone + Send + Sync + Unpin, A: Allocator + 'trie> Zip
             {
                 let zipper_tracker = ZipperTracker::<TrackingRead>::new(self.tracker_paths().clone(), path)
                     .unwrap_or_else(|conflict| panic!("Fatal error. ReadZipper at {path:?} {conflict}"));
-                new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path_in(root_node, path.as_ref(), path.len(), path.len(), root_val, z.alloc.clone(), Some(zipper_tracker));
+                new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone(), Some(zipper_tracker));
             }
             #[cfg(not(debug_assertions))]
             {
-                new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path_in(root_node, path.as_ref(), path.len(), path.len(), root_val, z.alloc.clone());
+                new_zipper = ReadZipperUntracked::new_with_node_and_cloned_path_in(root_node, path.as_ref(), path.len(), 0, root_val, z.alloc.clone());
             }
-            z.reset();
             new_zipper
         })
     }
@@ -1047,8 +1039,8 @@ mod tests {
         assert_eq!(z.val(), Some(&42));
         assert_eq!(z.to_next_sibling_byte(), false);
         assert_eq!(z.ascend_until(), true);
-        assert_eq!(z2.path(), b"");
-        assert_eq!(z2.origin_path(), b"A");
+        assert_eq!(z.path(), b"");
+        assert_eq!(z.origin_path(), b"A");
         assert_eq!(z.val(), Some(&24));
         assert_eq!(z.to_next_sibling_byte(), false);
     }
