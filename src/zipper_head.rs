@@ -472,6 +472,7 @@ fn prepare_node_at_path_end<'a, V: Clone + Send + Sync, A: Allocator>(start_node
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::ByteMask;
     use crate::{PathMap, utils::BitMask};
     use crate::zipper::*;
     use crate::tests::prefix_key;
@@ -985,6 +986,32 @@ mod tests {
         drop(wz);
         drop(zh);
         assert_eq!(map.get_val_at(b"path"), None);
+    }
+
+    /// Test that a ReadZipper pointing at empty root behaves as it should
+    #[test]
+    fn zipper_headf() {
+        let mut map = PathMap::new();
+        map.set_val_at(b"ABCDEFG", 42);
+        let zh = map.zipper_head();
+
+        // Test *at* the end of a path that exists
+        let mut z = zh.read_zipper_at_path(b"ABCDEFG").unwrap();
+        assert_eq!(z.val(), Some(&42));
+        assert_eq!(z.child_count(), 0);
+        assert_eq!(z.child_mask(), ByteMask::EMPTY);
+        assert_eq!(z.path_exists(), true);
+        assert_eq!(z.to_next_sibling_byte(), false);
+        assert_eq!(z.ascend_byte(), false);
+
+        // Test creating a zipper at a path that doesn't exist
+        let mut z2 = zh.read_zipper_at_path(b"ABCDEFGH").unwrap();
+        assert_eq!(z2.val(), None);
+        assert_eq!(z2.child_count(), 0);
+        assert_eq!(z2.child_mask(), ByteMask::EMPTY);
+        assert_eq!(z2.path_exists(), true); //GOAT!! Conceptually this should be `false`, but the act of creating the ReadZipper currently creates the path - which is not great behavior and should be fixed soon
+        assert_eq!(z2.to_next_sibling_byte(), false);
+        assert_eq!(z2.ascend_byte(), false);
     }
 
     #[test]
