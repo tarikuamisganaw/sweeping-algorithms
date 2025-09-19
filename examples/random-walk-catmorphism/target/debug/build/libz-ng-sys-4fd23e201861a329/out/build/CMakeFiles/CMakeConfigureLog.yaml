@@ -1,0 +1,1335 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineSystem.cmake:233 (message)"
+      - "CMakeLists.txt:37 (project)"
+    message: |
+      The system is: Linux - 6.14.0-29-generic - x86_64
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCCompiler.cmake:123 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:37 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler: /usr/bin/cc 
+      Build flags: -ffunction-sections;-fdata-sections;-fPIC;-m64
+      Id flags:  
+      
+      The output was:
+      0
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "a.out"
+      
+      The C compiler identification is GNU, found in:
+        /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/3.28.3/CompilerIdC/a.out
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:57 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:37 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-aJiCOF"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-aJiCOF"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-aJiCOF'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_58f84/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_58f84.dir/build.make CMakeFiles/cmTC_58f84.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-aJiCOF'
+        Building C object CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11   -v -o CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o -c /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/cc
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-std=c11' '-v' '-o' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_58f84.dir/'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/cc1 -quiet -v -imultiarch x86_64-linux-gnu /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_58f84.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -m64 -mtune=generic -march=x86-64 -std=c11 -version -ffunction-sections -fdata-sections -fPIC -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/ccB6Y12S.s
+        GNU C11 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)
+        	compiled by GNU C version 13.3.0, GMP version 6.3.0, MPFR version 4.2.1, MPC version 1.3.1, isl version isl-0.26-GMP
+        
+        GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072
+        ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"
+        ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"
+        #include "..." search starts here:
+        #include <...> search starts here:
+         /usr/lib/gcc/x86_64-linux-gnu/13/include
+         /usr/local/include
+         /usr/include/x86_64-linux-gnu
+         /usr/include
+        End of search list.
+        Compiler executable checksum: 38987c28e967c64056a6454abdef726e
+        COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-std=c11' '-v' '-o' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_58f84.dir/'
+         as -v --64 -o CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o /tmp/ccB6Y12S.s
+        GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-std=c11' '-v' '-o' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.'
+        Linking C executable cmTC_58f84
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_58f84.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64   -v CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o -o cmTC_58f84 
+        Using built-in specs.
+        COLLECT_GCC=/usr/bin/cc
+        COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper
+        OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa
+        OFFLOAD_TARGET_DEFAULT=1
+        Target: x86_64-linux-gnu
+        Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c,ada,c++,go,d,fortran,objc,obj-c++,m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32,m64,mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr,amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2
+        Thread model: posix
+        Supported LTO compression algorithms: zlib zstd
+        gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) 
+        COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/
+        LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/
+        COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-v' '-o' 'cmTC_58f84' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_58f84.'
+         /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccZxxlnF.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_58f84 /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o -lgcc --push-state --as-needed -lgcc_s --pop-state -lc -lgcc --push-state --as-needed -lgcc_s --pop-state /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o
+        COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-v' '-o' 'cmTC_58f84' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_58f84.'
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-aJiCOF'
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:127 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:37 (project)"
+    message: |
+      Parsed C implicit include dir info: rv=done
+        found start of include info
+        found start of implicit include info
+          add: [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+          add: [/usr/local/include]
+          add: [/usr/include/x86_64-linux-gnu]
+          add: [/usr/include]
+        end of search list found
+        collapse include dir [/usr/lib/gcc/x86_64-linux-gnu/13/include] ==> [/usr/lib/gcc/x86_64-linux-gnu/13/include]
+        collapse include dir [/usr/local/include] ==> [/usr/local/include]
+        collapse include dir [/usr/include/x86_64-linux-gnu] ==> [/usr/include/x86_64-linux-gnu]
+        collapse include dir [/usr/include] ==> [/usr/include]
+        implicit include dirs: [/usr/lib/gcc/x86_64-linux-gnu/13/include;/usr/local/include;/usr/include/x86_64-linux-gnu;/usr/include]
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:159 (message)"
+      - "/usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:37 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        ignore line: [Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-aJiCOF']
+        ignore line: []
+        ignore line: [Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_58f84/fast]
+        ignore line: [/usr/bin/gmake  -f CMakeFiles/cmTC_58f84.dir/build.make CMakeFiles/cmTC_58f84.dir/build]
+        ignore line: [gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-aJiCOF']
+        ignore line: [Building C object CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o]
+        ignore line: [/usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11   -v -o CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o -c /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/cc]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-std=c11' '-v' '-o' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_58f84.dir/']
+        ignore line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/cc1 -quiet -v -imultiarch x86_64-linux-gnu /usr/share/cmake-3.28/Modules/CMakeCCompilerABI.c -quiet -dumpdir CMakeFiles/cmTC_58f84.dir/ -dumpbase CMakeCCompilerABI.c.c -dumpbase-ext .c -m64 -mtune=generic -march=x86-64 -std=c11 -version -ffunction-sections -fdata-sections -fPIC -fasynchronous-unwind-tables -fstack-protector-strong -Wformat -Wformat-security -fstack-clash-protection -fcf-protection -o /tmp/ccB6Y12S.s]
+        ignore line: [GNU C11 (Ubuntu 13.3.0-6ubuntu2~24.04) version 13.3.0 (x86_64-linux-gnu)]
+        ignore line: [	compiled by GNU C version 13.3.0  GMP version 6.3.0  MPFR version 4.2.1  MPC version 1.3.1  isl version isl-0.26-GMP]
+        ignore line: []
+        ignore line: [GGC heuristics: --param ggc-min-expand=100 --param ggc-min-heapsize=131072]
+        ignore line: [ignoring nonexistent directory "/usr/local/include/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed/x86_64-linux-gnu"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/include-fixed"]
+        ignore line: [ignoring nonexistent directory "/usr/lib/gcc/x86_64-linux-gnu/13/../../../../x86_64-linux-gnu/include"]
+        ignore line: [#include "..." search starts here:]
+        ignore line: [#include <...> search starts here:]
+        ignore line: [ /usr/lib/gcc/x86_64-linux-gnu/13/include]
+        ignore line: [ /usr/local/include]
+        ignore line: [ /usr/include/x86_64-linux-gnu]
+        ignore line: [ /usr/include]
+        ignore line: [End of search list.]
+        ignore line: [Compiler executable checksum: 38987c28e967c64056a6454abdef726e]
+        ignore line: [COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-std=c11' '-v' '-o' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_58f84.dir/']
+        ignore line: [ as -v --64 -o CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o /tmp/ccB6Y12S.s]
+        ignore line: [GNU assembler version 2.42 (x86_64-linux-gnu) using BFD version (GNU Binutils for Ubuntu) 2.42]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-std=c11' '-v' '-o' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o' '-c' '-mtune=generic' '-march=x86-64' '-dumpdir' 'CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.']
+        ignore line: [Linking C executable cmTC_58f84]
+        ignore line: [/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_58f84.dir/link.txt --verbose=1]
+        ignore line: [/usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64   -v CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o -o cmTC_58f84 ]
+        ignore line: [Using built-in specs.]
+        ignore line: [COLLECT_GCC=/usr/bin/cc]
+        ignore line: [COLLECT_LTO_WRAPPER=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper]
+        ignore line: [OFFLOAD_TARGET_NAMES=nvptx-none:amdgcn-amdhsa]
+        ignore line: [OFFLOAD_TARGET_DEFAULT=1]
+        ignore line: [Target: x86_64-linux-gnu]
+        ignore line: [Configured with: ../src/configure -v --with-pkgversion='Ubuntu 13.3.0-6ubuntu2~24.04' --with-bugurl=file:///usr/share/doc/gcc-13/README.Bugs --enable-languages=c ada c++ go d fortran objc obj-c++ m2 --prefix=/usr --with-gcc-major-version-only --program-suffix=-13 --program-prefix=x86_64-linux-gnu- --enable-shared --enable-linker-build-id --libexecdir=/usr/libexec --without-included-gettext --enable-threads=posix --libdir=/usr/lib --enable-nls --enable-bootstrap --enable-clocale=gnu --enable-libstdcxx-debug --enable-libstdcxx-time=yes --with-default-libstdcxx-abi=new --enable-libstdcxx-backtrace --enable-gnu-unique-object --disable-vtable-verify --enable-plugin --enable-default-pie --with-system-zlib --enable-libphobos-checking=release --with-target-system-zlib=auto --enable-objc-gc=auto --enable-multiarch --disable-werror --enable-cet --with-arch-32=i686 --with-abi=m64 --with-multilib-list=m32 m64 mx32 --enable-multilib --with-tune=generic --enable-offload-targets=nvptx-none=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-nvptx/usr amdgcn-amdhsa=/build/gcc-13-fG75Ri/gcc-13-13.3.0/debian/tmp-gcn/usr --enable-offload-defaulted --without-cuda-driver --enable-checking=release --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --with-build-config=bootstrap-lto-lean --enable-link-serialization=2]
+        ignore line: [Thread model: posix]
+        ignore line: [Supported LTO compression algorithms: zlib zstd]
+        ignore line: [gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04) ]
+        ignore line: [COMPILER_PATH=/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/13/:/usr/libexec/gcc/x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/]
+        ignore line: [LIBRARY_PATH=/usr/lib/gcc/x86_64-linux-gnu/13/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib/:/lib/x86_64-linux-gnu/:/lib/../lib/:/usr/lib/x86_64-linux-gnu/:/usr/lib/../lib/:/usr/lib/gcc/x86_64-linux-gnu/13/../../../:/lib/:/usr/lib/]
+        ignore line: [COLLECT_GCC_OPTIONS='-ffunction-sections' '-fdata-sections' '-fPIC' '-m64' '-v' '-o' 'cmTC_58f84' '-mtune=generic' '-march=x86-64' '-dumpdir' 'cmTC_58f84.']
+        link line: [ /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin /usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so -plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper -plugin-opt=-fresolution=/tmp/ccZxxlnF.res -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s -plugin-opt=-pass-through=-lc -plugin-opt=-pass-through=-lgcc -plugin-opt=-pass-through=-lgcc_s --build-id --eh-frame-hdr -m elf_x86_64 --hash-style=gnu --as-needed -dynamic-linker /lib64/ld-linux-x86-64.so.2 -pie -z now -z relro -o cmTC_58f84 /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o /usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o -L/usr/lib/gcc/x86_64-linux-gnu/13 -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu -L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib -L/lib/x86_64-linux-gnu -L/lib/../lib -L/usr/lib/x86_64-linux-gnu -L/usr/lib/../lib -L/usr/lib/gcc/x86_64-linux-gnu/13/../../.. CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o -lgcc --push-state --as-needed -lgcc_s --pop-state -lc -lgcc --push-state --as-needed -lgcc_s --pop-state /usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o /usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o]
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/collect2] ==> ignore
+          arg [-plugin] ==> ignore
+          arg [/usr/libexec/gcc/x86_64-linux-gnu/13/liblto_plugin.so] ==> ignore
+          arg [-plugin-opt=/usr/libexec/gcc/x86_64-linux-gnu/13/lto-wrapper] ==> ignore
+          arg [-plugin-opt=-fresolution=/tmp/ccZxxlnF.res] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [-plugin-opt=-pass-through=-lc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc] ==> ignore
+          arg [-plugin-opt=-pass-through=-lgcc_s] ==> ignore
+          arg [--build-id] ==> ignore
+          arg [--eh-frame-hdr] ==> ignore
+          arg [-m] ==> ignore
+          arg [elf_x86_64] ==> ignore
+          arg [--hash-style=gnu] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-dynamic-linker] ==> ignore
+          arg [/lib64/ld-linux-x86-64.so.2] ==> ignore
+          arg [-pie] ==> ignore
+          arg [-znow] ==> ignore
+          arg [-zrelro] ==> ignore
+          arg [-o] ==> ignore
+          arg [cmTC_58f84] ==> ignore
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib]
+          arg [-L/lib/x86_64-linux-gnu] ==> dir [/lib/x86_64-linux-gnu]
+          arg [-L/lib/../lib] ==> dir [/lib/../lib]
+          arg [-L/usr/lib/x86_64-linux-gnu] ==> dir [/usr/lib/x86_64-linux-gnu]
+          arg [-L/usr/lib/../lib] ==> dir [/usr/lib/../lib]
+          arg [-L/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..]
+          arg [CMakeFiles/cmTC_58f84.dir/CMakeCCompilerABI.c.o] ==> ignore
+          arg [-lgcc] ==> lib [gcc]
+          arg [--push-state] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [--pop-state] ==> ignore
+          arg [-lc] ==> lib [c]
+          arg [-lgcc] ==> lib [gcc]
+          arg [--push-state] ==> ignore
+          arg [--as-needed] ==> ignore
+          arg [-lgcc_s] ==> lib [gcc_s]
+          arg [--pop-state] ==> ignore
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o]
+          arg [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o] ==> obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/Scrt1.o] ==> [/usr/lib/x86_64-linux-gnu/Scrt1.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crti.o] ==> [/usr/lib/x86_64-linux-gnu/crti.o]
+        collapse obj [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu/crtn.o] ==> [/usr/lib/x86_64-linux-gnu/crtn.o]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13] ==> [/usr/lib/gcc/x86_64-linux-gnu/13]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../../../lib] ==> [/usr/lib]
+        collapse library dir [/lib/x86_64-linux-gnu] ==> [/lib/x86_64-linux-gnu]
+        collapse library dir [/lib/../lib] ==> [/lib]
+        collapse library dir [/usr/lib/x86_64-linux-gnu] ==> [/usr/lib/x86_64-linux-gnu]
+        collapse library dir [/usr/lib/../lib] ==> [/usr/lib]
+        collapse library dir [/usr/lib/gcc/x86_64-linux-gnu/13/../../..] ==> [/usr/lib]
+        implicit libs: [gcc;gcc_s;c;gcc;gcc_s]
+        implicit objs: [/usr/lib/x86_64-linux-gnu/Scrt1.o;/usr/lib/x86_64-linux-gnu/crti.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtbeginS.o;/usr/lib/gcc/x86_64-linux-gnu/13/crtendS.o;/usr/lib/x86_64-linux-gnu/crtn.o]
+        implicit dirs: [/usr/lib/gcc/x86_64-linux-gnu/13;/usr/lib/x86_64-linux-gnu;/usr/lib;/lib/x86_64-linux-gnu;/lib]
+        implicit fwks: []
+      
+      
+  -
+    kind: "try_run-v1"
+    backtrace:
+      - "cmake/detect-arch.cmake:26 (try_run)"
+      - "CMakeLists.txt:50 (include)"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeTmp"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeTmp"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "compile_result_unused"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeTmp'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_812e5/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_812e5.dir/build.make CMakeFiles/cmTC_812e5.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeTmp'
+        Building C object CMakeFiles/cmTC_812e5.dir/detect-arch.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_812e5.dir/detect-arch.c.o -c /home/tarik/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libz-ng-sys-1.1.22/src/zlib-ng/cmake/detect-arch.c
+        /home/tarik/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libz-ng-sys-1.1.22/src/zlib-ng/cmake/detect-arch.c:8:6: error: #error archfound x86_64
+            8 |     #error archfound x86_64
+              |      ^~~~~
+        gmake[1]: *** [CMakeFiles/cmTC_812e5.dir/build.make:78: CMakeFiles/cmTC_812e5.dir/detect-arch.c.o] Error 1
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeTmp'
+        gmake: *** [Makefile:127: cmTC_812e5/fast] Error 2
+        
+      exitCode: 2
+    runResult:
+      variable: "run_result_unused"
+      cached: true
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:210 (check_c_source_compiles)"
+    checks:
+      - "Performing Test FNO_LTO_AVAILABLE"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-HvMZQY"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-HvMZQY"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "FNO_LTO_AVAILABLE"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-HvMZQY'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_4ad6b/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_4ad6b.dir/build.make CMakeFiles/cmTC_4ad6b.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-HvMZQY'
+        Building C object CMakeFiles/cmTC_4ad6b.dir/src.c.o
+        /usr/bin/cc -DFNO_LTO_AVAILABLE  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto -std=c11 -o CMakeFiles/cmTC_4ad6b.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-HvMZQY/src.c
+        Linking C executable cmTC_4ad6b
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_4ad6b.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto CMakeFiles/cmTC_4ad6b.dir/src.c.o -o cmTC_4ad6b 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-HvMZQY'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "CMakeLists.txt:368 (check_include_file)"
+    checks:
+      - "Looking for arm_acle.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QbmmcX"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QbmmcX"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_ARM_ACLE_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QbmmcX'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_7009a/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_7009a.dir/build.make CMakeFiles/cmTC_7009a.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QbmmcX'
+        Building C object CMakeFiles/cmTC_7009a.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_7009a.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QbmmcX/CheckIncludeFile.c
+        /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QbmmcX/CheckIncludeFile.c:1:10: fatal error: arm_acle.h: No such file or directory
+            1 | #include <arm_acle.h>
+              |          ^~~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_7009a.dir/build.make:78: CMakeFiles/cmTC_7009a.dir/CheckIncludeFile.c.o] Error 1
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QbmmcX'
+        gmake: *** [Makefile:127: cmTC_7009a/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "CMakeLists.txt:372 (check_include_file)"
+    checks:
+      - "Looking for sys/auxv.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Tx2HvM"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Tx2HvM"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_SYS_AUXV_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Tx2HvM'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_066d0/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_066d0.dir/build.make CMakeFiles/cmTC_066d0.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Tx2HvM'
+        Building C object CMakeFiles/cmTC_066d0.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_066d0.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Tx2HvM/CheckIncludeFile.c
+        Linking C executable cmTC_066d0
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_066d0.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_066d0.dir/CheckIncludeFile.c.o -o cmTC_066d0 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Tx2HvM'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "CMakeLists.txt:376 (check_include_file)"
+    checks:
+      - "Looking for sys/sdt.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-5yU1qd"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-5yU1qd"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_SYS_SDT_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-5yU1qd'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_dff97/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_dff97.dir/build.make CMakeFiles/cmTC_dff97.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-5yU1qd'
+        Building C object CMakeFiles/cmTC_dff97.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_dff97.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-5yU1qd/CheckIncludeFile.c
+        /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-5yU1qd/CheckIncludeFile.c:1:10: fatal error: sys/sdt.h: No such file or directory
+            1 | #include <sys/sdt.h>
+              |          ^~~~~~~~~~~
+        compilation terminated.
+        gmake[1]: *** [CMakeFiles/cmTC_dff97.dir/build.make:78: CMakeFiles/cmTC_dff97.dir/CheckIncludeFile.c.o] Error 1
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-5yU1qd'
+        gmake: *** [Makefile:127: cmTC_dff97/fast] Error 2
+        
+      exitCode: 2
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "CMakeLists.txt:380 (check_include_file)"
+    checks:
+      - "Looking for unistd.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-oP1Xy7"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-oP1Xy7"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_UNISTD_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-oP1Xy7'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_95afb/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_95afb.dir/build.make CMakeFiles/cmTC_95afb.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-oP1Xy7'
+        Building C object CMakeFiles/cmTC_95afb.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_95afb.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-oP1Xy7/CheckIncludeFile.c
+        Linking C executable cmTC_95afb
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_95afb.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_95afb.dir/CheckIncludeFile.c.o -o cmTC_95afb 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-oP1Xy7'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "CMakeLists.txt:385 (check_include_file)"
+    checks:
+      - "Looking for linux/auxvec.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-zeKKVm"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-zeKKVm"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_LINUX_AUXVEC_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-zeKKVm'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_cb89e/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_cb89e.dir/build.make CMakeFiles/cmTC_cb89e.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-zeKKVm'
+        Building C object CMakeFiles/cmTC_cb89e.dir/CheckIncludeFile.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_cb89e.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-zeKKVm/CheckIncludeFile.c
+        Linking C executable cmTC_cb89e
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_cb89e.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_cb89e.dir/CheckIncludeFile.c.o -o cmTC_cb89e 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-zeKKVm'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckTypeSize.cmake:250 (check_include_file)"
+      - "CMakeLists.txt:394 (check_type_size)"
+    checks:
+      - "Looking for sys/types.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-KvkWGy"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-KvkWGy"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_SYS_TYPES_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-KvkWGy'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_5db8d/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_5db8d.dir/build.make CMakeFiles/cmTC_5db8d.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-KvkWGy'
+        Building C object CMakeFiles/cmTC_5db8d.dir/CheckIncludeFile.c.o
+        /usr/bin/cc -D_LARGEFILE64_SOURCE=1 -D__USE_LARGEFILE64  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_5db8d.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-KvkWGy/CheckIncludeFile.c
+        Linking C executable cmTC_5db8d
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_5db8d.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_5db8d.dir/CheckIncludeFile.c.o -o cmTC_5db8d 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-KvkWGy'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckTypeSize.cmake:251 (check_include_file)"
+      - "CMakeLists.txt:394 (check_type_size)"
+    checks:
+      - "Looking for stdint.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-m9XAG8"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-m9XAG8"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_STDINT_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-m9XAG8'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_59752/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_59752.dir/build.make CMakeFiles/cmTC_59752.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-m9XAG8'
+        Building C object CMakeFiles/cmTC_59752.dir/CheckIncludeFile.c.o
+        /usr/bin/cc -D_LARGEFILE64_SOURCE=1 -D__USE_LARGEFILE64  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_59752.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-m9XAG8/CheckIncludeFile.c
+        Linking C executable cmTC_59752
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_59752.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_59752.dir/CheckIncludeFile.c.o -o cmTC_59752 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-m9XAG8'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckIncludeFile.cmake:90 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckTypeSize.cmake:252 (check_include_file)"
+      - "CMakeLists.txt:394 (check_type_size)"
+    checks:
+      - "Looking for stddef.h"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Pl38e6"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Pl38e6"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_STDDEF_H"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Pl38e6'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_50974/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_50974.dir/build.make CMakeFiles/cmTC_50974.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Pl38e6'
+        Building C object CMakeFiles/cmTC_50974.dir/CheckIncludeFile.c.o
+        /usr/bin/cc -D_LARGEFILE64_SOURCE=1 -D__USE_LARGEFILE64  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_50974.dir/CheckIncludeFile.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Pl38e6/CheckIncludeFile.c
+        Linking C executable cmTC_50974
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_50974.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_50974.dir/CheckIncludeFile.c.o -o cmTC_50974 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Pl38e6'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckTypeSize.cmake:146 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckTypeSize.cmake:271 (__check_type_size_impl)"
+      - "CMakeLists.txt:394 (check_type_size)"
+    checks:
+      - "Check size of off64_t"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QnGSH0"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QnGSH0"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_OFF64_T"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QnGSH0'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_1b89f/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_1b89f.dir/build.make CMakeFiles/cmTC_1b89f.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QnGSH0'
+        Building C object CMakeFiles/cmTC_1b89f.dir/OFF64_T.c.o
+        /usr/bin/cc -D_LARGEFILE64_SOURCE=1 -D__USE_LARGEFILE64  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_1b89f.dir/OFF64_T.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QnGSH0/OFF64_T.c
+        Linking C executable cmTC_1b89f
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_1b89f.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_1b89f.dir/OFF64_T.c.o -o cmTC_1b89f 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-QnGSH0'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckFunctionExists.cmake:86 (try_compile)"
+      - "CMakeLists.txt:410 (check_function_exists)"
+    checks:
+      - "Looking for fseeko"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Ij8DG3"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Ij8DG3"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_FSEEKO"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Ij8DG3'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_db7a8/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_db7a8.dir/build.make CMakeFiles/cmTC_db7a8.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Ij8DG3'
+        Building C object CMakeFiles/cmTC_db7a8.dir/CheckFunctionExists.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64 -DCHECK_FUNCTION_EXISTS=fseeko -std=c11 -o CMakeFiles/cmTC_db7a8.dir/CheckFunctionExists.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Ij8DG3/CheckFunctionExists.c
+        Linking C executable cmTC_db7a8
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_db7a8.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -DCHECK_FUNCTION_EXISTS=fseeko CMakeFiles/cmTC_db7a8.dir/CheckFunctionExists.c.o -o cmTC_db7a8 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Ij8DG3'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckFunctionExists.cmake:86 (try_compile)"
+      - "CMakeLists.txt:415 (check_function_exists)"
+    checks:
+      - "Looking for strerror"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gzbZh4"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gzbZh4"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_STRERROR"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gzbZh4'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_7d40c/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_7d40c.dir/build.make CMakeFiles/cmTC_7d40c.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gzbZh4'
+        Building C object CMakeFiles/cmTC_7d40c.dir/CheckFunctionExists.c.o
+        /usr/bin/cc   -ffunction-sections -fdata-sections -fPIC -m64 -DCHECK_FUNCTION_EXISTS=strerror -std=c11 -o CMakeFiles/cmTC_7d40c.dir/CheckFunctionExists.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gzbZh4/CheckFunctionExists.c
+        Linking C executable cmTC_7d40c
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_7d40c.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -DCHECK_FUNCTION_EXISTS=strerror CMakeFiles/cmTC_7d40c.dir/CheckFunctionExists.c.o -o cmTC_7d40c 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gzbZh4'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckSymbolExists.cmake:140 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckSymbolExists.cmake:66 (__CHECK_SYMBOL_EXISTS_IMPL)"
+      - "CMakeLists.txt:421 (check_symbol_exists)"
+    checks:
+      - "Looking for posix_memalign"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EEuVQA"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EEuVQA"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_POSIX_MEMALIGN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EEuVQA'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_8ec40/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_8ec40.dir/build.make CMakeFiles/cmTC_8ec40.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EEuVQA'
+        Building C object CMakeFiles/cmTC_8ec40.dir/CheckSymbolExists.c.o
+        /usr/bin/cc -D_POSIX_C_SOURCE=200112L  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_8ec40.dir/CheckSymbolExists.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EEuVQA/CheckSymbolExists.c
+        Linking C executable cmTC_8ec40
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_8ec40.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_8ec40.dir/CheckSymbolExists.c.o -o cmTC_8ec40 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EEuVQA'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/CheckSymbolExists.cmake:140 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckSymbolExists.cmake:66 (__CHECK_SYMBOL_EXISTS_IMPL)"
+      - "CMakeLists.txt:428 (check_symbol_exists)"
+    checks:
+      - "Looking for aligned_alloc"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-bIE4SQ"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-bIE4SQ"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_ALIGNED_ALLOC"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-bIE4SQ'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_aadc5/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_aadc5.dir/build.make CMakeFiles/cmTC_aadc5.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-bIE4SQ'
+        Building C object CMakeFiles/cmTC_aadc5.dir/CheckSymbolExists.c.o
+        /usr/bin/cc -D_ISOC11_SOURCE=1  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_aadc5.dir/CheckSymbolExists.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-bIE4SQ/CheckSymbolExists.c
+        Linking C executable cmTC_aadc5
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_aadc5.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_aadc5.dir/CheckSymbolExists.c.o -o cmTC_aadc5 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-bIE4SQ'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckCompilerFlag.cmake:18 (cmake_check_source_compiles)"
+      - "/usr/share/cmake-3.28/Modules/CheckCCompilerFlag.cmake:51 (cmake_check_compiler_flag)"
+      - "CMakeLists.txt:447 (check_c_compiler_flag)"
+    checks:
+      - "Performing Test HAVE_NO_INTERPOSITION"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Jn9j0k"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Jn9j0k"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_NO_INTERPOSITION"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Jn9j0k'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_c2457/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_c2457.dir/build.make CMakeFiles/cmTC_c2457.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Jn9j0k'
+        Building C object CMakeFiles/cmTC_c2457.dir/src.c.o
+        /usr/bin/cc -DHAVE_NO_INTERPOSITION  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11   -fno-semantic-interposition -o CMakeFiles/cmTC_c2457.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Jn9j0k/src.c
+        Linking C executable cmTC_c2457
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_c2457.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_c2457.dir/src.c.o -o cmTC_c2457 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-Jn9j0k'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:452 (check_c_source_compiles)"
+    checks:
+      - "Performing Test HAVE_ATTRIBUTE_VISIBILITY_HIDDEN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-FnyFSB"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-FnyFSB"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_ATTRIBUTE_VISIBILITY_HIDDEN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-FnyFSB'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_f4be6/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_f4be6.dir/build.make CMakeFiles/cmTC_f4be6.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-FnyFSB'
+        Building C object CMakeFiles/cmTC_f4be6.dir/src.c.o
+        /usr/bin/cc -DHAVE_ATTRIBUTE_VISIBILITY_HIDDEN  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_f4be6.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-FnyFSB/src.c
+        Linking C executable cmTC_f4be6
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_f4be6.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_f4be6.dir/src.c.o -o cmTC_f4be6 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-FnyFSB'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:466 (check_c_source_compiles)"
+    checks:
+      - "Performing Test HAVE_ATTRIBUTE_VISIBILITY_INTERNAL"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gBozri"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gBozri"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_ATTRIBUTE_VISIBILITY_INTERNAL"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gBozri'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_0e04f/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_0e04f.dir/build.make CMakeFiles/cmTC_0e04f.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gBozri'
+        Building C object CMakeFiles/cmTC_0e04f.dir/src.c.o
+        /usr/bin/cc -DHAVE_ATTRIBUTE_VISIBILITY_INTERNAL  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_0e04f.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gBozri/src.c
+        Linking C executable cmTC_0e04f
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_0e04f.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_0e04f.dir/src.c.o -o cmTC_0e04f 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-gBozri'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:480 (check_c_source_compiles)"
+    checks:
+      - "Performing Test HAVE_ATTRIBUTE_ALIGNED"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-W7NVrm"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-W7NVrm"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_ATTRIBUTE_ALIGNED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-W7NVrm'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_54024/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_54024.dir/build.make CMakeFiles/cmTC_54024.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-W7NVrm'
+        Building C object CMakeFiles/cmTC_54024.dir/src.c.o
+        /usr/bin/cc -DHAVE_ATTRIBUTE_ALIGNED  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_54024.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-W7NVrm/src.c
+        Linking C executable cmTC_54024
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_54024.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_54024.dir/src.c.o -o cmTC_54024 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-W7NVrm'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:495 (check_c_source_compiles)"
+    checks:
+      - "Performing Test HAVE_BUILTIN_ASSUME_ALIGNED"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-cRKhbS"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-cRKhbS"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_BUILTIN_ASSUME_ALIGNED"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-cRKhbS'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_191a4/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_191a4.dir/build.make CMakeFiles/cmTC_191a4.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-cRKhbS'
+        Building C object CMakeFiles/cmTC_191a4.dir/src.c.o
+        /usr/bin/cc -DHAVE_BUILTIN_ASSUME_ALIGNED  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto -std=c11 -o CMakeFiles/cmTC_191a4.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-cRKhbS/src.c
+        Linking C executable cmTC_191a4
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_191a4.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto CMakeFiles/cmTC_191a4.dir/src.c.o -o cmTC_191a4 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-cRKhbS'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:513 (check_c_source_compiles)"
+    checks:
+      - "Performing Test HAVE_BUILTIN_CTZ"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-CJLVvf"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-CJLVvf"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_BUILTIN_CTZ"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-CJLVvf'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_7620d/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_7620d.dir/build.make CMakeFiles/cmTC_7620d.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-CJLVvf'
+        Building C object CMakeFiles/cmTC_7620d.dir/src.c.o
+        /usr/bin/cc -DHAVE_BUILTIN_CTZ  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto -std=c11 -o CMakeFiles/cmTC_7620d.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-CJLVvf/src.c
+        Linking C executable cmTC_7620d
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_7620d.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto CMakeFiles/cmTC_7620d.dir/src.c.o -o cmTC_7620d 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-CJLVvf'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:531 (check_c_source_compiles)"
+    checks:
+      - "Performing Test HAVE_BUILTIN_CTZLL"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-v298a1"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-v298a1"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_BUILTIN_CTZLL"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-v298a1'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_8783c/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_8783c.dir/build.make CMakeFiles/cmTC_8783c.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-v298a1'
+        Building C object CMakeFiles/cmTC_8783c.dir/src.c.o
+        /usr/bin/cc -DHAVE_BUILTIN_CTZLL  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto -std=c11 -o CMakeFiles/cmTC_8783c.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-v298a1/src.c
+        Linking C executable cmTC_8783c
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_8783c.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -fno-lto CMakeFiles/cmTC_8783c.dir/src.c.o -o cmTC_8783c 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-v298a1'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "CMakeLists.txt:548 (check_c_source_compiles)"
+    checks:
+      - "Performing Test HAVE_PTRDIFF_T"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-LisGSz"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-LisGSz"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_PTRDIFF_T"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-LisGSz'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_87587/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_87587.dir/build.make CMakeFiles/cmTC_87587.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-LisGSz'
+        Building C object CMakeFiles/cmTC_87587.dir/src.c.o
+        /usr/bin/cc -DHAVE_PTRDIFF_T  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11 -o CMakeFiles/cmTC_87587.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-LisGSz/src.c
+        Linking C executable cmTC_87587
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_87587.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_87587.dir/src.c.o -o cmTC_87587 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-LisGSz'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:592 (check_c_source_compiles)"
+      - "CMakeLists.txt:893 (check_xsave_intrinsics)"
+    checks:
+      - "Performing Test HAVE_XSAVE_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-K0hsLF"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-K0hsLF"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_XSAVE_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-K0hsLF'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_2e194/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_2e194.dir/build.make CMakeFiles/cmTC_2e194.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-K0hsLF'
+        Building C object CMakeFiles/cmTC_2e194.dir/src.c.o
+        /usr/bin/cc -DHAVE_XSAVE_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -mxsave  -fno-lto -std=c11 -o CMakeFiles/cmTC_2e194.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-K0hsLF/src.c
+        Linking C executable cmTC_2e194
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_2e194.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -mxsave  -fno-lto CMakeFiles/cmTC_2e194.dir/src.c.o -o cmTC_2e194 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-K0hsLF'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:505 (check_c_source_compiles)"
+      - "CMakeLists.txt:904 (check_sse2_intrinsics)"
+    checks:
+      - "Performing Test HAVE_SSE2_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-ekOm4D"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-ekOm4D"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_SSE2_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-ekOm4D'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_0c9db/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_0c9db.dir/build.make CMakeFiles/cmTC_0c9db.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-ekOm4D'
+        Building C object CMakeFiles/cmTC_0c9db.dir/src.c.o
+        /usr/bin/cc -DHAVE_SSE2_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -msse2  -fno-lto -std=c11 -o CMakeFiles/cmTC_0c9db.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-ekOm4D/src.c
+        Linking C executable cmTC_0c9db
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_0c9db.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -msse2  -fno-lto CMakeFiles/cmTC_0c9db.dir/src.c.o -o cmTC_0c9db 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-ekOm4D'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:528 (check_c_source_compiles)"
+      - "CMakeLists.txt:921 (check_ssse3_intrinsics)"
+    checks:
+      - "Performing Test HAVE_SSSE3_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PkVwMm"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PkVwMm"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_SSSE3_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PkVwMm'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_f378c/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_f378c.dir/build.make CMakeFiles/cmTC_f378c.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PkVwMm'
+        Building C object CMakeFiles/cmTC_f378c.dir/src.c.o
+        /usr/bin/cc -DHAVE_SSSE3_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -mssse3  -fno-lto -std=c11 -o CMakeFiles/cmTC_f378c.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PkVwMm/src.c
+        Linking C executable cmTC_f378c
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_f378c.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -mssse3  -fno-lto CMakeFiles/cmTC_f378c.dir/src.c.o -o cmTC_f378c 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PkVwMm'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:553 (check_c_source_compiles)"
+      - "CMakeLists.txt:933 (check_sse42_intrinsics)"
+    checks:
+      - "Performing Test HAVE_SSE42_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EJm56U"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EJm56U"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_SSE42_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EJm56U'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_17fd8/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_17fd8.dir/build.make CMakeFiles/cmTC_17fd8.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EJm56U'
+        Building C object CMakeFiles/cmTC_17fd8.dir/src.c.o
+        /usr/bin/cc -DHAVE_SSE42_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -msse4.2  -fno-lto -std=c11 -o CMakeFiles/cmTC_17fd8.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EJm56U/src.c
+        Linking C executable cmTC_17fd8
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_17fd8.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -msse4.2  -fno-lto CMakeFiles/cmTC_17fd8.dir/src.c.o -o cmTC_17fd8 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-EJm56U'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:275 (check_c_source_compiles)"
+      - "CMakeLists.txt:945 (check_pclmulqdq_intrinsics)"
+    checks:
+      - "Performing Test HAVE_PCLMULQDQ_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PhtTB0"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PhtTB0"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_PCLMULQDQ_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PhtTB0'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_405fe/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_405fe.dir/build.make CMakeFiles/cmTC_405fe.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PhtTB0'
+        Building C object CMakeFiles/cmTC_405fe.dir/src.c.o
+        /usr/bin/cc -DHAVE_PCLMULQDQ_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -mpclmul  -fno-lto -std=c11 -o CMakeFiles/cmTC_405fe.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PhtTB0/src.c
+        Linking C executable cmTC_405fe
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_405fe.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -mpclmul  -fno-lto CMakeFiles/cmTC_405fe.dir/src.c.o -o cmTC_405fe 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-PhtTB0'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:166 (check_c_source_compiles)"
+      - "CMakeLists.txt:957 (check_avx2_intrinsics)"
+    checks:
+      - "Performing Test HAVE_AVX2_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-9U1ttK"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-9U1ttK"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_AVX2_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-9U1ttK'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_ffae8/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_ffae8.dir/build.make CMakeFiles/cmTC_ffae8.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-9U1ttK'
+        Building C object CMakeFiles/cmTC_ffae8.dir/src.c.o
+        /usr/bin/cc -DHAVE_AVX2_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -mavx2 -mbmi2  -fno-lto -std=c11 -o CMakeFiles/cmTC_ffae8.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-9U1ttK/src.c
+        Linking C executable cmTC_ffae8
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_ffae8.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -mavx2 -mbmi2  -fno-lto CMakeFiles/cmTC_ffae8.dir/src.c.o -o cmTC_ffae8 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-9U1ttK'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckCompilerFlag.cmake:18 (cmake_check_source_compiles)"
+      - "/usr/share/cmake-3.28/Modules/CheckCCompilerFlag.cmake:51 (cmake_check_compiler_flag)"
+      - "cmake/detect-intrinsics.cmake:88 (check_c_compiler_flag)"
+      - "CMakeLists.txt:975 (check_avx512_intrinsics)"
+    checks:
+      - "Performing Test HAVE_CASCADE_LAKE"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-IIfTcG"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-IIfTcG"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_CASCADE_LAKE"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-IIfTcG'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_3549e/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_3549e.dir/build.make CMakeFiles/cmTC_3549e.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-IIfTcG'
+        Building C object CMakeFiles/cmTC_3549e.dir/src.c.o
+        /usr/bin/cc -DHAVE_CASCADE_LAKE  -ffunction-sections -fdata-sections -fPIC -m64  -std=c11   -mtune=cascadelake -o CMakeFiles/cmTC_3549e.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-IIfTcG/src.c
+        Linking C executable cmTC_3549e
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_3549e.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64  CMakeFiles/cmTC_3549e.dir/src.c.o -o cmTC_3549e 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-IIfTcG'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:102 (check_c_source_compiles)"
+      - "CMakeLists.txt:975 (check_avx512_intrinsics)"
+    checks:
+      - "Performing Test HAVE_AVX512_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-3z97Cr"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-3z97Cr"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_AVX512_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-3z97Cr'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_32ee9/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_32ee9.dir/build.make CMakeFiles/cmTC_32ee9.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-3z97Cr'
+        Building C object CMakeFiles/cmTC_32ee9.dir/src.c.o
+        /usr/bin/cc -DHAVE_AVX512_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -mavx512f -mavx512dq -mavx512bw -mavx512vl -mbmi2 -mtune=cascadelake  -fno-lto -std=c11 -o CMakeFiles/cmTC_32ee9.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-3z97Cr/src.c
+        Linking C executable cmTC_32ee9
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_32ee9.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -mavx512f -mavx512dq -mavx512bw -mavx512vl -mbmi2 -mtune=cascadelake  -fno-lto CMakeFiles/cmTC_32ee9.dir/src.c.o -o cmTC_32ee9 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-3z97Cr'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:138 (check_c_source_compiles)"
+      - "CMakeLists.txt:990 (check_avx512vnni_intrinsics)"
+    checks:
+      - "Performing Test HAVE_AVX512VNNI_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-1bzvbz"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-1bzvbz"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_AVX512VNNI_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-1bzvbz'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_6331b/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_6331b.dir/build.make CMakeFiles/cmTC_6331b.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-1bzvbz'
+        Building C object CMakeFiles/cmTC_6331b.dir/src.c.o
+        /usr/bin/cc -DHAVE_AVX512VNNI_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512vnni -mbmi2 -mtune=cascadelake  -fno-lto -std=c11 -o CMakeFiles/cmTC_6331b.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-1bzvbz/src.c
+        Linking C executable cmTC_6331b
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_6331b.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -mavx512f -mavx512dq -mavx512bw -mavx512vl -mavx512vnni -mbmi2 -mtune=cascadelake  -fno-lto CMakeFiles/cmTC_6331b.dir/src.c.o -o cmTC_6331b 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-1bzvbz'
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "/usr/share/cmake-3.28/Modules/Internal/CheckSourceCompiles.cmake:101 (try_compile)"
+      - "/usr/share/cmake-3.28/Modules/CheckCSourceCompiles.cmake:52 (cmake_check_source_compiles)"
+      - "cmake/detect-intrinsics.cmake:297 (check_c_source_compiles)"
+      - "CMakeLists.txt:1002 (check_vpclmulqdq_intrinsics)"
+    checks:
+      - "Performing Test HAVE_VPCLMULQDQ_INTRIN"
+    directories:
+      source: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-JfYUTo"
+      binary: "/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-JfYUTo"
+    cmakeVariables:
+      CMAKE_C_FLAGS: " -ffunction-sections -fdata-sections -fPIC -m64"
+      CMAKE_C_FLAGS_DEBUG: "-g"
+      CMAKE_EXE_LINKER_FLAGS: ""
+    buildResult:
+      variable: "HAVE_VPCLMULQDQ_INTRIN"
+      cached: true
+      stdout: |
+        Change Dir: '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-JfYUTo'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_02657/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_02657.dir/build.make CMakeFiles/cmTC_02657.dir/build
+        gmake[1]: Entering directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-JfYUTo'
+        Building C object CMakeFiles/cmTC_02657.dir/src.c.o
+        /usr/bin/cc -DHAVE_VPCLMULQDQ_INTRIN  -ffunction-sections -fdata-sections -fPIC -m64 -mvpclmulqdq -mavx512f  -fno-lto -std=c11 -o CMakeFiles/cmTC_02657.dir/src.c.o -c /home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-JfYUTo/src.c
+        Linking C executable cmTC_02657
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_02657.dir/link.txt --verbose=1
+        /usr/bin/cc  -ffunction-sections -fdata-sections -fPIC -m64 -mvpclmulqdq -mavx512f  -fno-lto CMakeFiles/cmTC_02657.dir/src.c.o -o cmTC_02657 
+        gmake[1]: Leaving directory '/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/build/CMakeFiles/CMakeScratch/TryCompile-JfYUTo'
+        
+      exitCode: 0
+...

@@ -1,0 +1,9 @@
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/lib/libz-ng.a
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/include/zlib-ng.h
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/include/zlib_name_mangling-ng.h
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/include/zconf-ng.h
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/lib/pkgconfig/zlib-ng.pc
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/lib/cmake/zlib-ng/zlib-ng.cmake
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/lib/cmake/zlib-ng/zlib-ng-debug.cmake
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/lib/cmake/zlib-ng/zlib-ng-config.cmake
+/home/tarik/Downloads/random-catmorhism/Pathmap/examples/random-walk-catmorphism/target/debug/build/libz-ng-sys-4fd23e201861a329/out/lib/cmake/zlib-ng/zlib-ng-config-version.cmake
