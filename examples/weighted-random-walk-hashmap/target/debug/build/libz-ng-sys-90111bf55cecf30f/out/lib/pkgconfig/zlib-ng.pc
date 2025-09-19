@@ -1,0 +1,14 @@
+prefix=/home/tarik/Downloads/random-catmorhism/Pathmap/examples/weighted-random-walk-hashmap/target/debug/build/libz-ng-sys-90111bf55cecf30f/out
+exec_prefix=${prefix}
+symbol_prefix=
+libdir=${exec_prefix}/lib
+sharedlibdir=${libdir}
+includedir=${prefix}/include
+
+Name: zlib-ng
+Description: zlib-ng compression library
+Version: 2.2.4
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -lz-ng
+Cflags: -I${includedir} -DWITH_GZFILEOP
