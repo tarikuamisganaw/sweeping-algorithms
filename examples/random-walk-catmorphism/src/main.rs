@@ -95,7 +95,7 @@ fn main() {
         }
     }
 
-    println!("\n✅ Sampling Results ({} walks):", num_samples);
+    println!("\n Sampling Results ({} walks):", num_samples);
     println!("{:<8} {:<8} {:<10} {:<10}", "Atom", "Count", "Observed%", "Expected%");
     println!("------------------------------------------------");
     for (name, w) in weights {
