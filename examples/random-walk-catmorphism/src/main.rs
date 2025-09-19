@@ -68,14 +68,14 @@ fn main() {
     p.set_val_at("h", ("h".to_string(), 20.0));
     p.set_val_at("hell", ("hell".to_string(), 10.0));
     p.set_val_at("hello", ("hello".to_string(), 12.0));
-    p.set_val_at("hells", ("hells".to_string(), 30.0));
+  
 
     // True weights
     let weights = [
         ("h", 20.0),
         ("hell", 10.0),
         ("hello", 12.0),
-        ("hells", 30.0),
+     
     ];
     let total: f64 = weights.iter().map(|(_, w)| w).sum();
 
@@ -95,7 +95,7 @@ fn main() {
         }
     }
 
-    println!("\n Sampling Results ({} walks):", num_samples);
+    println!("\n✅ Sampling Results ({} walks):", num_samples);
     println!("{:<8} {:<8} {:<10} {:<10}", "Atom", "Count", "Observed%", "Expected%");
     println!("------------------------------------------------");
     for (name, w) in weights {
