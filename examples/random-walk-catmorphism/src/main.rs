@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 
 /// Compute aggregate weight = this node’s weight + sum(children)
-/// Uses JUMPING catamorphism (as in your original logic)
+/// Uses JUMPING catamorphism 
 fn node_agg_w(z: &ReadZipperUntracked<(String, f64)>) -> f64 {
     z.clone()
         .into_cata_jumping_side_effect_fallible(
