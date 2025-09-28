@@ -83,7 +83,7 @@ fn main() {
         }
     }
 
-    println!("\n✅ Sampling Results ({} successful walks):", num_samples);
+    println!("\n Sampling Results ({} successful walks):", num_samples);
     println!("{:<8} {:<8} {:<12}", "Atom", "Count", "Observed%");
     println!("----------------------------------------");
     for k in keys {
