@@ -40,7 +40,7 @@ impl Eq for ScoredChunk {}
 /// Build chunk map via catamorphism at fixed depth
 type ChunkMap = HashMap<Vec<u8>, Vec<String>>;
 
-fn build_chunks_catamorphic(map: &PathMap<(String, f64)>, depth: usize) -> ChunkMap {
+fn build_chunks_catamorphic(map: &PathMap<f64>, depth: usize) -> ChunkMap {
     let rz = map.read_zipper();
 
     rz.into_cata_jumping_side_effect_fallible(
@@ -48,17 +48,18 @@ fn build_chunks_catamorphic(map: &PathMap<(String, f64)>, depth: usize) -> Chunk
             let mut merged: ChunkMap = HashMap::new();
 
             // Merge results from child subtrees
-            //This merges all atoms from child subtrees into the current node's chunk map
             for mut child_map in children {
                 for (k, mut vs) in child_map.drain() {
                     merged.entry(k).or_default().append(&mut vs);
                 }
             }
+
             // Add current node's value to its chunk
-            if let Some((name, _w)) = maybe_v {
+            if let Some(_w) = maybe_v {
                 let prefix_len = depth.min(path.len());
                 let prefix = path[..prefix_len].to_vec();
-                merged.entry(prefix).or_default().push(name.clone());
+                let atom_name = String::from_utf8_lossy(path).to_string();
+                merged.entry(prefix).or_default().push(atom_name);
             }
 
             Ok::<ChunkMap, Infallible>(merged)
@@ -122,13 +123,13 @@ impl ChunkedPriorityQueue {
 }
 
 fn main() {
-    // Example data
-    let mut map = PathMap::<(String, f64)>::new();
-    map.set_val_at("atoms/a", ("Atom A".to_string(), 5.0));
-    map.set_val_at("atoms/b", ("Atom B".to_string(), 2.0));
-    map.set_val_at("atoms/c", ("Atom C".to_string(), 8.0));
-    map.set_val_at("molecules/x", ("Mol X".to_string(), 3.0));
-    map.set_val_at("molecules/y", ("Mol Y".to_string(), 7.0));
+    // Example data with f64 values
+    let mut map = PathMap::<f64>::new();
+    map.set_val_at("atoms/a", 5.0);
+    map.set_val_at("atoms/b", 2.0);
+    map.set_val_at("atoms/c", 8.0);
+    map.set_val_at("molecules/x", 3.0);
+    map.set_val_at("molecules/y", 7.0);
 
     let depth = 1; // partition at first byte
 
