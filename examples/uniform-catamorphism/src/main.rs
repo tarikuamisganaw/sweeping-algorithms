@@ -48,12 +48,12 @@ fn build_chunks_catamorphic(map: &PathMap<(String, f64)>, depth: usize) -> Chunk
             let mut merged: ChunkMap = HashMap::new();
 
             // Merge results from child subtrees
+            //This merges all atoms from child subtrees into the current node's chunk map
             for mut child_map in children {
                 for (k, mut vs) in child_map.drain() {
                     merged.entry(k).or_default().append(&mut vs);
                 }
             }
-
             // Add current node's value to its chunk
             if let Some((name, _w)) = maybe_v {
                 let prefix_len = depth.min(path.len());
